@@ -165,7 +165,7 @@ function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: He
         <div className="text-sm font-semibold text-foreground">{health?.wallet?.nativeBalance != null ? `${Number(health.wallet.nativeBalance).toFixed(4)} MON` : "—"}</div>
       </div>
       <div className="rounded-lg border border-border bg-panel p-4">
-        <div className="mb-2 text-[11px] text-muted-foreground">{health?.wallet?.network ?? "Monad"}</div>
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"}</div>
         <Badge tone={health?.wallet?.address ? "success" : "neutral"}>{health?.wallet?.address ? "Live" : "Connecting…"}</Badge>
       </div>
     </div>
@@ -240,9 +240,15 @@ export default function LandingPage() {
       <section className="mx-auto max-w-6xl px-6 pb-10 pt-10 sm:pt-16">
         <div className="grid items-center gap-10 lg:grid-cols-[1.05fr_1fr]">
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
-            <div className="mb-5 flex items-center gap-2 text-xs">
-              <span className={`h-1.5 w-1.5 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-border"}`} />
-              <span className="text-muted-foreground">{health?.wallet?.network ?? "Connecting…"}</span>
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
+              <MonadMark size={13} />
+              <span className="font-medium text-foreground">{health?.wallet?.network ?? "Monad"}</span>
+              <span className="relative ml-0.5 flex h-1.5 w-1.5">
+                {health?.verigate.connected && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
+                )}
+                <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-muted-foreground"}`} />
+              </span>
             </div>
             <h1 className="flex flex-wrap items-center gap-3 text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
               AI-Powered Payments on Monad <MonadMark size={40} className="inline-block translate-y-1" />
