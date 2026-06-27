@@ -6,6 +6,7 @@ import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
+import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
 
 interface Health {
@@ -78,9 +79,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
             title="Disconnect"
             aria-label="Disconnect wallet"
           >
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary to-secondary text-[9px] font-semibold text-primary-foreground">
-              {wallet.address.slice(2, 4).toUpperCase()}
-            </span>
+            <Identicon address={wallet.address} size={20} />
             {wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}
           </button>
         )}
