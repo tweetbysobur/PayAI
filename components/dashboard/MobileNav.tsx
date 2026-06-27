@@ -38,10 +38,10 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-5 py-5">
-              <div className="flex items-center gap-2">
+              <Link href="/" onClick={onClose} className="flex items-center gap-2" title="Back to home">
                 <Logo size={28} />
                 <p className="text-sm font-semibold text-foreground">PayAI</p>
-              </div>
+              </Link>
               <button onClick={onClose} aria-label="Close navigation menu" className="text-muted-foreground hover:text-foreground">
                 <X size={18} />
               </button>

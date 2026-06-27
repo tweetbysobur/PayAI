@@ -99,6 +99,31 @@ export const DECISION: Record<string, { label: string; tone: "success" | "warnin
 export const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 
 /**
+ * The parsed intent summary is present-tense ("Send 1 MON to…") because it
+ * describes the requested action. Once a payment is actually executed, a
+ * receipt should read in the past tense ("Sent 1 MON to…"). Non-executed
+ * outcomes keep the original wording — the action didn't happen.
+ */
+export function phraseSummary(summary: string, decision: string): string {
+  if (decision !== "executed") return summary;
+  return summary
+    .replace(/^Send\b/, "Sent")
+    .replace(/^Pay\b/, "Paid")
+    .replace(/^Create(?:\sa)?\b/, "Created");
+}
+
+/** Compact relative time ("just now", "3m ago", "2h ago", "5d ago") from a ms timestamp. */
+export function timeAgo(ms: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+/**
  * Maps raw wallet/network error strings to plain language. API error messages
  * are already user-facing copy and pass through unchanged — this only catches
  * the cases that otherwise leak provider/fetch internals to the screen.

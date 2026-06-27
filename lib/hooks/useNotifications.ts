@@ -1,20 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 
-interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null }
+interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
+
+export interface NotifItem {
+  id: string;
+  decision: string;
+  title: string;
+  detail: string;
+  at: number;
+  explorerUrl?: string;
+}
 
 const SEEN_KEY = "veripay_notifs_seen_at";
 
 const LABEL: Record<string, string> = {
-  executed: "Payment executed",
+  executed: "Payment sent",
   needs_review: "Payment needs review",
   blocked: "Payment blocked",
   refused: "Payment refused",
 };
 
 export function useNotifications() {
-  const [notifications, setNotifications] = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<NotifItem[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,10 +35,17 @@ export function useNotifications() {
           if (cancelled) return;
           const rows = (j.history ?? []) as HistoryRow[];
           const seenAt = Number(localStorage.getItem(SEEN_KEY) ?? 0);
-          const fresh = rows
+          const fresh: NotifItem[] = rows
             .filter((h) => h.at > seenAt && LABEL[h.decision])
             .slice(0, 8)
-            .map((h) => `${LABEL[h.decision]}${h.domain ? ` — ${h.domain}` : ""}: ${h.summary}`);
+            .map((h) => ({
+              id: h.txHash ?? `${h.at}-${h.decision}`,
+              decision: h.decision,
+              title: LABEL[h.decision],
+              detail: phraseSummary(h.summary, h.decision),
+              at: h.at,
+              explorerUrl: h.explorerUrl,
+            }));
           setNotifications(fresh);
         })
         .catch(() => {});
