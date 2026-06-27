@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 
 /* Client-side mirror of the API result shapes — identical contract used by
    every command-center layout, so all three variants stay functionally real
@@ -69,10 +70,12 @@ export interface Onchain {
 }
 export interface InfoResult {
   decision: "info";
-  query: "show_history" | "check_compliance";
+  query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
   count?: number;
   history?: { at: number; decision: string; summary: string; amount: number | null; token: string; txHash?: string; explorerUrl?: string }[];
   compliance?: { approved: number; rejected: number; review: number; blocked: number; approvalRate: number };
+  balance?: { mon: number; usdc: number };
+  error?: string;
 }
 
 export const STAGE_LABEL: Record<string, string> = {
@@ -121,6 +124,7 @@ export function friendlyError(message: string): string {
  */
 export function useAgentConsole() {
   const wallet = useWallet();
+  const balances = useWalletBalances(wallet.address);
   const [walletBusy, setWalletBusy] = useState(false);
   const [intent, setIntent] = useState("");
   const [loading, setLoading] = useState(false);
@@ -168,6 +172,7 @@ export function useAgentConsole() {
       setRes(json);
       pushHistory(json);
       loadOnchain();
+      balances.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Wallet payment failed.");
     } finally {
@@ -177,8 +182,20 @@ export function useAgentConsole() {
 
   async function run(text: string) {
     setLoading(true); setErr(null); setRes(null); setInfo(null);
+    // Reuse the same idempotencyKey for an identical in-flight request — this
+    // is what makes "double-click Send" or "close tab, reopen, click Send
+    // again before the first request resolves" safe: the resubmission
+    // collides with the original on the server (which replays its cached
+    // result or returns 409) instead of minting a second real payment
+    // request. The slot clears once this flow fully settles (see finally
+    // below), so a deliberately repeated payment afterward gets a fresh key.
+    const inflightSlot = `payai_inflight:${wallet.address ?? "anon"}:${text}`;
+    let idempotencyKey = sessionStorage.getItem(inflightSlot);
+    if (!idempotencyKey) {
+      idempotencyKey = `console-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      sessionStorage.setItem(inflightSlot, idempotencyKey);
+    }
     try {
-      const idempotencyKey = `console-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const r = await fetch("/api/agent", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -197,10 +214,12 @@ export function useAgentConsole() {
       }
       pushHistory(json);
       loadOnchain();
+      balances.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
+      sessionStorage.removeItem(inflightSlot);
     }
   }
 
@@ -214,7 +233,7 @@ export function useAgentConsole() {
   });
 
   return {
-    wallet, walletBusy, setWalletBusy,
+    wallet, balances, walletBusy, setWalletBusy,
     intent, setIntent, loading, res, info, err, health, history, onchain,
     loadOnchain, run, steps,
   };

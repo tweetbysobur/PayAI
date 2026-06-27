@@ -34,10 +34,19 @@ export const MAX_INPUT_LENGTH = 500;
  * never reach the payment pipeline — detected up front so the route can answer
  * them directly from real stored/computed data instead of attempting a payment.
  */
-export type QueryIntent = "show_history" | "check_compliance";
+export type QueryIntent = "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
 
 export function detectQueryIntent(text: string): QueryIntent | null {
   const t = text.toLowerCase();
+  // Checked first: "schedule 10 USDC every Friday" / "cancel my next scheduled
+  // payment" must never fall through to the instant-send pipeline — there is
+  // no recurring-payment engine yet, so it would either misparse as a
+  // same-second transfer with no real recipient, or worse, look like it
+  // "scheduled" something that was never actually persisted anywhere.
+  if (/\b(schedule|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
+      /\bcancel\b.*\bscheduled?\b/.test(t)) {
+    return "scheduled_payment";
+  }
   if (/\b(history|past|recent|previous)\b.*\b(transaction|payment)s?\b/.test(t) ||
       /\b(transaction|payment)s?\b.*\bhistory\b/.test(t) ||
       /\bshow\b.*\b(my\s+)?(transaction|payment)s?\b/.test(t)) {
@@ -45,6 +54,10 @@ export function detectQueryIntent(text: string): QueryIntent | null {
   }
   if (/\bcompliance\b.*\b(status|check)\b/.test(t) || /\bcheck\b.*\bcompliance\b/.test(t)) {
     return "check_compliance";
+  }
+  if (/\b(wallet\s+)?balance\b/.test(t) ||
+      /\bhow\s+much\s+(mon|usdc)\s+(do\s+i\s+have|i\s+have|left)\b/.test(t)) {
+    return "show_balance";
   }
   return null;
 }

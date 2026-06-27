@@ -4,12 +4,13 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
-  ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon,
+  ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { useAgentConsole, DECISION, short, friendlyError } from "@/lib/hooks/useAgentConsole";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
+import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
 const NEXT_STEP: Record<string, string> = {
   needs_review: "This payment is being reviewed — you'll be notified once it clears.",
@@ -41,10 +42,24 @@ export default function Payments() {
   const [recipient, setRecipient] = useState("");
   const [showProof, setShowProof] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [switchErr, setSwitchErr] = useState<string | null>(null);
+
+  async function handleSwitchNetwork() {
+    setSwitchErr(null); setSwitching(true);
+    try { await c.wallet.switchNetwork(); }
+    catch { setSwitchErr(`Couldn't switch automatically — switch to ${MONAD_CHAIN_NAME} in your wallet.`); }
+    finally { setSwitching(false); }
+  }
 
   const amountErr = amountError(amount);
   const recipientErr = recipientError(recipient);
-  const canSubmit = isValidAmount(amount) && isValidRecipient(recipient) && !c.loading;
+  const wallet = c.wallet;
+  const available = token === "MON" ? c.balances.mon : c.balances.usdc;
+  const insufficientBalance =
+    wallet.address != null && !c.balances.loading && available != null &&
+    isValidAmount(amount) && Number(amount) > Number(available);
+  const canSubmit = isValidAmount(amount) && isValidRecipient(recipient) && !c.loading && !insufficientBalance && !wallet.isWrongNetwork;
 
   function submit() {
     if (!canSubmit) return;
@@ -52,8 +67,6 @@ export default function Payments() {
     setShowChecks(false);
     c.run(`Send ${amount} ${token} to ${recipient}`);
   }
-
-  const wallet = c.wallet;
   const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
 
   return (
@@ -73,6 +86,21 @@ export default function Payments() {
         </div>
         <Badge tone={wallet.address ? "success" : "neutral"}>{wallet.isWrongNetwork ? "Wrong network" : "Monad"}</Badge>
       </div>
+
+      {wallet.isWrongNetwork && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2.5 text-xs text-warning">
+          <span>You&apos;re connected to the wrong network. Switch to {MONAD_CHAIN_NAME} to send payments.</span>
+          <button
+            onClick={handleSwitchNetwork}
+            disabled={switching}
+            className="flex shrink-0 items-center gap-1.5 rounded-md border border-warning/40 px-2.5 py-1.5 font-medium text-warning transition hover:bg-warning/10 disabled:opacity-60"
+          >
+            {switching ? <Loader2 size={12} className="animate-spin" /> : null}
+            {switching ? "Switching…" : "Switch network"}
+          </button>
+        </div>
+      )}
+      {switchErr && <p className="mb-3 text-xs text-danger">{switchErr}</p>}
 
       {/* Payment composer */}
       <Card className="mb-4 p-6">
@@ -100,6 +128,16 @@ export default function Payments() {
           </div>
         </div>
         {amountErr && <p className="-mt-4 mb-4 text-xs text-danger">{amountErr}</p>}
+        {!amountErr && insufficientBalance && (
+          <p className="-mt-4 mb-4 text-xs text-danger">
+            Insufficient {token} balance — you have {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}.
+          </p>
+        )}
+        {!amountErr && wallet.address && !c.balances.loading && available != null && !insufficientBalance && isValidAmount(amount) && (
+          <p className="-mt-4 mb-4 text-xs text-muted-foreground">
+            Balance: {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}
+          </p>
+        )}
 
         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>
         <Input

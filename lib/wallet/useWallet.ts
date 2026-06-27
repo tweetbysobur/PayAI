@@ -109,6 +109,9 @@ export function useWallet() {
 
   // Awaiting the receipt is our own RPC read (not the wallet's), so it gets
   // the same fallback treatment as the server: try every configured URL.
+  // Capped at 90s (matches the server's custodial-path timeout) so a dead RPC
+  // can't hang the UI forever — the tx is still broadcast; the user just gets
+  // a clear "still pending" message instead of an infinite spinner.
   const waitForReceipt = useCallback(async (hash: string) => {
     const { createPublicClient, fallback, http } = await import("viem");
     const client = createPublicClient({
@@ -122,7 +125,17 @@ export function useWallet() {
         ? fallback(MONAD_RPC_URLS.map((u) => http(u, { retryCount: 3, retryDelay: 500, timeout: 12_000 })), { rank: false })
         : http(MONAD_RPC_URLS[0], { retryCount: 4, retryDelay: 500, timeout: 12_000 }),
     });
-    return client.waitForTransactionReceipt({ hash: hash as `0x${string}` });
+    try {
+      return await client.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 90_000 });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg.toLowerCase().includes("timed out") || msg.toLowerCase().includes("timeout")) {
+        throw new Error(
+          `Your transaction was broadcast (${hash}) but confirmation is taking longer than expected. Check the explorer — it may still confirm.`,
+        );
+      }
+      throw e;
+    }
   }, []);
 
   return {

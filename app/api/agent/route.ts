@@ -56,6 +56,14 @@ export async function POST(req: NextRequest) {
   // status") never touch the payment pipeline — answer them directly from
   // real stored data and stop.
   const query = detectQueryIntent(text);
+  if (query === "scheduled_payment") {
+    return NextResponse.json({
+      decision: "info",
+      query: "scheduled_payment",
+      error: "Scheduled and recurring payments aren't available yet — PayAI only supports payments you send right now. Send this payment manually each time it's due, and check back as recurring payments are built.",
+      success: false,
+    }, { status: 501 });
+  }
   if (query === "show_history") {
     const { listTx } = await import("@/lib/platform/store");
     const rows = await listTx(merchantId);
@@ -77,6 +85,18 @@ export async function POST(req: NextRequest) {
       compliance: computeCompliance(rows),
       success: true,
     });
+  }
+  if (query === "show_balance") {
+    if (!walletAddress) {
+      return NextResponse.json({ decision: "info", query: "show_balance", error: "Connect your wallet to check your balance.", success: false }, { status: 400 });
+    }
+    try {
+      const { getWalletBalance } = await import("@/lib/monad/balance");
+      const balance = await getWalletBalance(walletAddress as `0x${string}`);
+      return NextResponse.json({ decision: "info", query: "show_balance", balance, success: true });
+    } catch {
+      return NextResponse.json({ decision: "info", query: "show_balance", error: "Couldn't reach Monad to read your balance. Try again.", success: false }, { status: 502 });
+    }
   }
 
   // 0b. Idempotency claim — every decision-producing path below (refused,
@@ -178,6 +198,14 @@ export async function POST(req: NextRequest) {
         intent.payeeName = payee.name;
         intent.recipient = payee.address;
         trace.push({ step: "directory", status: "ok", detail: `Resolved payee "${payee.name}" → ${payee.address}` });
+      } else {
+        // Not a domain, not a known payee name, and not a valid 0x address —
+        // this is malformed input (e.g. a typo'd address). Reject it here,
+        // with a clear reason, instead of letting it silently ride through
+        // guardrails/compliance (which only check for a *present* recipient,
+        // not a *valid* one) and fail opaquely at the signer.
+        trace.push({ step: "recipient", status: "blocked", detail: `"${intent.recipient}" is not a valid wallet address, .nad domain, or known payee.` });
+        return respond(base("refused", { guardrail: { allowed: false, violations: [`"${intent.recipient}" is not a valid wallet address, .nad domain, or known payee.`] } }), { status: 422 });
       }
     }
   }
@@ -233,6 +261,12 @@ export async function POST(req: NextRequest) {
     // unsigned tx for the wallet to sign. Only applies to direct sends to a
     // resolved address (link/invoice creation has nothing for a wallet to sign).
     if (walletAddress && intent.action === "send_payment" && intent.recipient && isAddress(intent.recipient) && intent.amount) {
+      const { insufficientBalanceReason } = await import("@/lib/monad/balance");
+      const reason = await insufficientBalanceReason(walletAddress as `0x${string}`, intent.token, intent.amount);
+      if (reason) {
+        trace.push({ step: "execution", status: "blocked", detail: reason });
+        return respond(base("refused", { guardrail: { allowed: false, violations: [reason] }, compliance, risk, riskScore: risk.score }), { status: 422 });
+      }
       const { getStablecoin } = await import("@/lib/monad/config");
       const { encodeFunctionData, parseUnits } = await import("viem");
       const usdc = getStablecoin();

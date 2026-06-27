@@ -52,9 +52,15 @@ export default function ConversationVariant() {
   if (lastInfo && !infoAlreadyShown) {
     const text = lastInfo.query === "show_history"
       ? `You have ${lastInfo.count ?? lastInfo.history?.length ?? 0} recorded transaction${(lastInfo.count ?? 0) === 1 ? "" : "s"}.`
-      : lastInfo.compliance
-        ? `${Math.round(lastInfo.compliance.approvalRate * 100)}% approval rate — ${lastInfo.compliance.approved} approved, ${lastInfo.compliance.review} in review, ${lastInfo.compliance.rejected} rejected, ${lastInfo.compliance.blocked} blocked.`
-        : "No compliance activity recorded yet.";
+      : lastInfo.query === "show_balance"
+        ? lastInfo.balance
+          ? `Your wallet has ${lastInfo.balance.mon.toFixed(4)} MON and ${lastInfo.balance.usdc.toFixed(2)} USDC.`
+          : lastInfo.error ?? "Couldn't read your balance."
+        : lastInfo.query === "scheduled_payment"
+          ? lastInfo.error ?? "Scheduled payments aren't available yet."
+          : lastInfo.compliance
+            ? `${Math.round(lastInfo.compliance.approvalRate * 100)}% approval rate — ${lastInfo.compliance.approved} approved, ${lastInfo.compliance.review} in review, ${lastInfo.compliance.rejected} rejected, ${lastInfo.compliance.blocked} blocked.`
+            : "No compliance activity recorded yet.";
     setMessages((m) => [...m, { role: "agent", text, info: lastInfo }]);
   }
 

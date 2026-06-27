@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS, MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 
 export interface WalletBalances {
   mon: string | null;
   usdc: string | null;
   loading: boolean;
+  refresh: () => void;
 }
 
 const ERC20_BALANCE_ABI = [
@@ -23,6 +24,9 @@ export function useWalletBalances(address: string | null): WalletBalances {
   const [mon, setMon] = useState<string | null>(null);
   const [usdc, setUsdc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [nonce, setNonce] = useState(0);
+
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (!address) { setMon(null); setUsdc(null); return; }
@@ -51,7 +55,7 @@ export function useWalletBalances(address: string | null): WalletBalances {
       }
     })();
     return () => { cancelled = true; };
-  }, [address]);
+  }, [address, nonce]);
 
-  return { mon, usdc, loading };
+  return { mon, usdc, loading, refresh };
 }
