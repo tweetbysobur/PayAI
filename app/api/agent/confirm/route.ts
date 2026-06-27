@@ -135,18 +135,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Transaction was not sent from the declared wallet." }, { status: 409 });
   }
 
-  const usdc = getStablecoin();
-  const decimals = usdc.decimals;
-  const wanted = BigInt(Math.round(intent.amount * 10 ** decimals));
   const recipient = intent.recipient.toLowerCase();
-
-  const matched = receipt.logs.some((log) => {
-    if (log.address.toLowerCase() !== usdc.address.toLowerCase()) return false;
-    if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) return false;
-    const to = log.topics[2] ? `0x${log.topics[2].slice(-40)}`.toLowerCase() : "";
-    if (to !== recipient) return false;
-    return BigInt(log.data) >= wanted;
-  });
+  let matched = false;
+  if (intent.token === "MON") {
+    // Native transfer: the recipient is the tx's `to` and the amount is the
+    // tx `value` (18-decimal wei) — neither lives in a receipt log, so read
+    // the transaction itself. parseEther matches what the build path encoded.
+    const { parseEther } = await import("viem");
+    const wanted = parseEther(String(intent.amount));
+    try {
+      const tx = await client.getTransaction({ hash: txHash as `0x${string}` });
+      matched = tx.to?.toLowerCase() === recipient && tx.value >= wanted;
+    } catch {
+      matched = false;
+    }
+  } else {
+    const usdc = getStablecoin();
+    const wanted = BigInt(Math.round(intent.amount * 10 ** usdc.decimals));
+    matched = receipt.logs.some((log) => {
+      if (log.address.toLowerCase() !== usdc.address.toLowerCase()) return false;
+      if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) return false;
+      const to = log.topics[2] ? `0x${log.topics[2].slice(-40)}`.toLowerCase() : "";
+      if (to !== recipient) return false;
+      return BigInt(log.data) >= wanted;
+    });
+  }
   if (!matched) {
     await releaseRequest(confirmKey);
     return NextResponse.json({ error: "Transaction does not match this payment (wrong token, recipient, or amount)." }, { status: 409 });

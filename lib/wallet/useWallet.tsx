@@ -13,7 +13,7 @@ export interface WalletState {
   connect: () => Promise<string>;
   disconnect: () => void;
   switchNetwork: () => Promise<void>;
-  sendTransaction: (tx: { to: string; data: string }) => Promise<string>;
+  sendTransaction: (tx: { to: string; data?: string; value?: string }) => Promise<string>;
   waitForReceipt: (hash: string) => Promise<unknown>;
   isWrongNetwork: boolean;
 }
@@ -113,13 +113,18 @@ function useWalletState(): WalletState {
     }
   }, [readChain]);
 
-  /** Sign and broadcast a raw transaction with the connected wallet. */
-  const sendTransaction = useCallback(async (tx: { to: string; data: string }): Promise<string> => {
+  /** Sign and broadcast a raw transaction with the connected wallet. Supports
+   *  both native value transfers (MON: pass `value`, no `data`) and contract
+   *  calls (USDC transfer: pass `data`, no `value`). */
+  const sendTransaction = useCallback(async (tx: { to: string; data?: string; value?: string }): Promise<string> => {
     const eth = window.ethereum;
     if (!eth || !address) throw new Error("Wallet not connected.");
+    const params: { from: string; to: string; data?: string; value?: string } = { from: address, to: tx.to };
+    if (tx.data && tx.data !== "0x") params.data = tx.data;
+    if (tx.value && tx.value !== "0x0") params.value = tx.value;
     return (await eth.request({
       method: "eth_sendTransaction",
-      params: [{ from: address, to: tx.to, data: tx.data }],
+      params: [params],
     })) as string;
   }, [address]);
 

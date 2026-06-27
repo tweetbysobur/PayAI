@@ -267,19 +267,35 @@ export async function POST(req: NextRequest) {
         trace.push({ step: "execution", status: "blocked", detail: reason });
         return respond(base("refused", { guardrail: { allowed: false, violations: [reason] }, compliance, risk, riskScore: risk.score }), { status: 422 });
       }
-      const { getStablecoin } = await import("@/lib/monad/config");
-      const { encodeFunctionData, parseUnits } = await import("viem");
-      const usdc = getStablecoin();
-      const data = encodeFunctionData({
-        abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }],
-        functionName: "transfer",
-        args: [intent.recipient as `0x${string}`, parseUnits(String(intent.amount), usdc.decimals)],
-      });
+      // Native MON and ERC-20 USDC are settled with fundamentally different
+      // transactions: MON is a plain value transfer to the recipient (no
+      // calldata), USDC is a transfer() call to the token contract (recipient
+      // + amount encoded in calldata, zero value). Building the wrong one
+      // silently moves the wrong asset — so branch explicitly on the token.
+      const { parseEther, parseUnits, encodeFunctionData } = await import("viem");
+      let unsignedTx: { to: string; data: string; value: string; from: string };
+      if (intent.token === "MON") {
+        unsignedTx = {
+          to: intent.recipient,
+          data: "0x",
+          value: `0x${parseEther(String(intent.amount)).toString(16)}`,
+          from: walletAddress,
+        };
+      } else {
+        const { getStablecoin } = await import("@/lib/monad/config");
+        const usdc = getStablecoin();
+        const data = encodeFunctionData({
+          abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }],
+          functionName: "transfer",
+          args: [intent.recipient as `0x${string}`, parseUnits(String(intent.amount), usdc.decimals)],
+        });
+        unsignedTx = { to: usdc.address, data, value: "0x0", from: walletAddress };
+      }
       trace.push({ step: "execution", status: "info", detail: "Approved — sign with your connected wallet to settle." });
       const readyBody = {
         decision: "ready_to_sign",
         intent, source, guardrail, compliance, risk, riskScore: risk.score, trace,
-        unsignedTx: { to: usdc.address, data, from: walletAddress },
+        unsignedTx,
         confirmRawText: text,
         requestId,
         success: false,

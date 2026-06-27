@@ -33,7 +33,7 @@ export interface AgentResult {
   riskScore: number | null;
   trace: TraceEntry[];
   error?: string;
-  unsignedTx?: { to: string; data: string; from: string };
+  unsignedTx?: { to: string; data: string; value?: string; from: string };
   confirmRawText?: string;
 }
 export interface Health {
@@ -157,7 +157,7 @@ export function useAgentConsole() {
     }, ...h].slice(0, 10));
   }
 
-  async function signAndConfirm(unsignedTx: { to: string; data: string; from: string }, confirmRawText: string) {
+  async function signAndConfirm(unsignedTx: { to: string; data: string; value?: string; from: string }, confirmRawText: string) {
     setWalletBusy(true);
     try {
       const hash = await wallet.sendTransaction(unsignedTx);
