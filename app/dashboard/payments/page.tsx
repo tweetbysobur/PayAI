@@ -1,0 +1,219 @@
+"use client";
+
+import { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
+  ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon,
+} from "lucide-react";
+import { Badge, Button, Card, Input } from "@/components/ui";
+import { PipelineStepper } from "@/components/PipelineStepper";
+import { useAgentConsole, DECISION, short, friendlyError } from "@/lib/hooks/useAgentConsole";
+import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
+
+const NEXT_STEP: Record<string, string> = {
+  needs_review: "This payment is being reviewed — you'll be notified once it clears.",
+  blocked: "This payment did not clear compliance and was not sent.",
+  refused: "This payment was declined before settlement.",
+  error: "Something interrupted settlement. No funds were moved.",
+};
+
+const STATUS_ICON: Record<string, typeof CheckCircle2> = {
+  executed: CheckCircle2,
+  needs_review: Clock3,
+  blocked: XCircle,
+  refused: XCircle,
+  error: AlertTriangle,
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  executed: "text-success bg-success/12",
+  needs_review: "text-warning bg-warning/12",
+  blocked: "text-danger bg-danger/12",
+  refused: "text-danger bg-danger/12",
+  error: "text-muted-foreground bg-input",
+};
+
+export default function Payments() {
+  const c = useAgentConsole();
+  const [amount, setAmount] = useState("");
+  const [token, setToken] = useState<"MON" | "USDC">("MON");
+  const [recipient, setRecipient] = useState("");
+  const [showProof, setShowProof] = useState(false);
+  const [showChecks, setShowChecks] = useState(false);
+
+  const amountErr = amountError(amount);
+  const recipientErr = recipientError(recipient);
+  const canSubmit = isValidAmount(amount) && isValidRecipient(recipient) && !c.loading;
+
+  function submit() {
+    if (!canSubmit) return;
+    setShowProof(false);
+    setShowChecks(false);
+    c.run(`Send ${amount} ${token} to ${recipient}`);
+  }
+
+  const wallet = c.wallet;
+  const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
+
+  return (
+    <div className="mx-auto max-w-xl">
+      <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">Send Payment</h1>
+      <p className="mb-6 text-sm text-muted-foreground">Pay any wallet address or .nads domain on Monad.</p>
+
+      {/* Sender context — trust: who is paying, from where */}
+      <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-xs">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <WalletIcon size={13} className={wallet.address ? "text-primary" : ""} />
+          {wallet.address ? (
+            <span className="font-mono text-foreground">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>
+          ) : (
+            <span>No wallet connected</span>
+          )}
+        </div>
+        <Badge tone={wallet.address ? "success" : "neutral"}>{wallet.isWrongNetwork ? "Wrong network" : "Monad"}</Badge>
+      </div>
+
+      {/* Payment composer */}
+      <Card className="mb-4 p-6">
+        <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</label>
+        <div className="mb-5 flex items-end gap-3 border-b border-border pb-4">
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            placeholder="0.00"
+            inputMode="decimal"
+            className="w-full bg-transparent text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
+          />
+          <div className="flex shrink-0 gap-1 rounded-full border border-border bg-input p-1">
+            {(["MON", "USDC"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setToken(t)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  token === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        {amountErr && <p className="-mt-4 mb-4 text-xs text-danger">{amountErr}</p>}
+
+        <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>
+        <Input
+          value={recipient}
+          onChange={(e) => setRecipient(e.target.value)}
+          placeholder="gentle.nads or 0x…"
+          className="w-full"
+        />
+        {recipientErr && <p className="mt-1.5 text-xs text-danger">{recipientErr}</p>}
+
+        <Button onClick={submit} disabled={!canSubmit} className="mt-5 flex w-full items-center justify-center gap-2 py-3 text-sm">
+          {c.loading ? "Processing…" : <>Send Payment <ArrowRight size={15} /></>}
+        </Button>
+        {!wallet.address && <p className="mt-2 text-center text-xs text-warning">Connect your wallet from the top bar to sign on-chain payments.</p>}
+      </Card>
+
+      {/* Live verification — compliance visibility, real-time */}
+      {c.loading && (
+        <Card className="mb-4">
+          <p className="mb-4 text-sm font-medium text-foreground">Verifying your payment</p>
+          <PipelineStepper steps={c.steps} />
+        </Card>
+      )}
+
+      {c.err && <Card className="mb-4"><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
+
+      {/* Receipt / result */}
+      <AnimatePresence>
+        {c.res && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
+            <Card className="mb-4 p-6 text-center">
+              <motion.div
+                initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
+                className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
+              >
+                {StatusIcon && <StatusIcon size={26} />}
+              </motion.div>
+              <p className="text-lg font-semibold text-foreground">{DECISION[c.res.decision].label}</p>
+              {c.res.intent.amount != null && (
+                <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
+                  {c.res.intent.amount} {c.res.intent.token}
+                </p>
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">{c.res.intent.summary}</p>
+              {NEXT_STEP[c.res.decision] && <p className="mt-2 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
+              {c.res.guardrail.violations.length > 0 && <p className="mt-2 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
+
+              {/* Compliance visibility — expandable */}
+              {c.res.compliance && (
+                <div className="mt-4 border-t border-border pt-4 text-left">
+                  <button onClick={() => setShowChecks((s) => !s)} className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground">
+                    <span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-success" /> Compliance {c.res.compliance.status}</span>
+                    <ChevronDown size={13} className={`transition ${showChecks ? "rotate-180" : ""}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showChecks && (
+                      <motion.ul initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 space-y-1.5 overflow-hidden">
+                        {c.res.compliance.checks.map((chk) => (
+                          <li key={chk.id} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground">{chk.label}</span>
+                            <Badge tone={chk.passed ? "success" : "danger"}>{chk.passed ? "Passed" : "Failed"}</Badge>
+                          </li>
+                        ))}
+                      </motion.ul>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {/* Blockchain transparency — expandable proof, not buried */}
+              {c.res.transaction?.txHash && (
+                <div className="mt-3 border-t border-border pt-4 text-left">
+                  <button onClick={() => setShowProof((s) => !s)} className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground">
+                    <span>View on-chain proof</span>
+                    <ChevronDown size={13} className={`transition ${showProof ? "rotate-180" : ""}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showProof && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 space-y-1.5 overflow-hidden text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Transaction hash</span>
+                          <span className="font-mono text-foreground">{short(c.res.transaction.txHash)}</span>
+                        </div>
+                        {c.res.transaction.blockNumber != null && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Block</span>
+                            <span className="text-foreground">{c.res.transaction.blockNumber}</span>
+                          </div>
+                        )}
+                        <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 pt-1 text-primary hover:underline">
+                          View on explorer <ExternalLink size={11} />
+                        </a>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {c.history.length > 0 && (
+        <Card title="Recent" className="mt-4">
+          <ul className="space-y-2 text-sm">
+            {c.history.map((h, i) => (
+              <li key={i} className="flex items-center justify-between border-b border-border pb-2 last:border-none last:pb-0">
+                <span className="text-foreground">{h.summary}</span>
+                <Badge tone={DECISION[h.decision]?.tone ?? "neutral"}>{h.decision}</Badge>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </div>
+  );
+}

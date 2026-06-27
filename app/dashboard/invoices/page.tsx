@@ -1,0 +1,206 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
+import { Badge, Button, Card, Input } from "@/components/ui";
+import { amountError, isValidAmount, addressError, isValidAddress } from "@/lib/validation";
+
+interface PayLink { id: string; amount: number; token: string; description?: string; url: string; status: string; createdAt: number }
+interface OnchainRequest { id: number; merchant: string; amount: number; paid: boolean; paymentId: number }
+interface Onchain { configured: boolean; requests: OnchainRequest[] }
+
+const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
+const PAGE_SIZE = 10;
+
+export default function Invoices() {
+  const [links, setLinks] = useState<PayLink[]>([]);
+  const [amount, setAmount] = useState("");
+  const [desc, setDesc] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [merchant, setMerchant] = useState<{ apiKey: string } | null>(null);
+  const [onchain, setOnchain] = useState<Onchain | null>(null);
+  const [invMerchant, setInvMerchant] = useState("");
+  const [invAmount, setInvAmount] = useState("");
+  const [invMsg, setInvMsg] = useState<string | null>(null);
+  const [invBusy, setInvBusy] = useState(false);
+  const [linkMsg, setLinkMsg] = useState<string | null>(null);
+  const [linkTouched, setLinkTouched] = useState(false);
+  const [invTouched, setInvTouched] = useState(false);
+  const linkAmountErr = amountError(amount);
+  const invMerchantErr = addressError(invMerchant);
+  const invAmountErr = amountError(invAmount);
+  const [reqQuery, setReqQuery] = useState("");
+  const [reqPage, setReqPage] = useState(1);
+
+  function loadOnchain() {
+    fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
+  }
+
+  useEffect(() => {
+    try { const saved = localStorage.getItem("veripay_merchant"); if (saved) setMerchant(JSON.parse(saved)); } catch {}
+    loadOnchain();
+  }, []);
+
+  const filteredRequests = useMemo(() => {
+    const q = reqQuery.trim().toLowerCase();
+    const list = onchain?.requests ?? [];
+    if (!q) return list;
+    return list.filter((rq) => rq.merchant.toLowerCase().includes(q) || String(rq.id).includes(q));
+  }, [onchain, reqQuery]);
+  const reqTotalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const reqPageRows = filteredRequests.slice((reqPage - 1) * PAGE_SIZE, reqPage * PAGE_SIZE);
+
+  async function onchainAction(payload: Record<string, unknown>, okMsg: string) {
+    setInvMsg(null); setInvBusy(true);
+    try {
+      const r = await fetch("/api/onchain", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Action failed");
+      setInvMsg(`${okMsg}${j.txHash ? ` ✓ ${j.txHash.slice(0, 12)}…` : " ✓"}`);
+      loadOnchain();
+    } catch (e) {
+      setInvMsg(e instanceof Error ? e.message : "Action failed");
+    } finally {
+      setInvBusy(false);
+    }
+  }
+
+  const headers = useCallback((): Record<string, string> => {
+    const h: Record<string, string> = { "content-type": "application/json" };
+    if (merchant?.apiKey) h["x-merchant-key"] = merchant.apiKey;
+    return h;
+  }, [merchant]);
+
+  const refresh = useCallback(() => {
+    fetch("/api/links", { headers: headers() }).then((r) => r.json()).then((j) => setLinks(j.links ?? [])).catch(() => {});
+  }, [headers]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function createLink() {
+    setLinkTouched(true);
+    setLinkMsg(null);
+    if (!isValidAmount(amount)) return;
+    setBusy(true);
+    try {
+      const r = await fetch("/api/links", { method: "POST", headers: headers(), body: JSON.stringify({ amount: Number(amount), token: "USDC", description: desc }) });
+      const j = await r.json();
+      if (j.ok) { setAmount(""); setDesc(""); setLinkTouched(false); refresh(); }
+      else setLinkMsg(j.error || "Could not create the payment link.");
+    } catch {
+      setLinkMsg("Couldn't reach the server. Check your connection and try again.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      <h1 className="mb-1 text-2xl font-semibold text-foreground">Invoices</h1>
+      <p className="mb-6 text-sm text-muted-foreground">Create shareable payment links and on-chain payment requests.</p>
+
+      <Card title="Create payment link" className="mb-4">
+        <div className="flex flex-wrap gap-2">
+          <Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount (USDC)" className="w-40" />
+          <Input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Description (optional)" className="w-56" />
+          <Button onClick={createLink} disabled={!amount || busy}>{busy ? "Creating…" : "Create link"}</Button>
+        </div>
+        {linkTouched && linkAmountErr && <p className="mt-2 text-xs text-danger">{linkAmountErr}</p>}
+        {linkMsg && <p className="mt-2 text-xs text-danger">{linkMsg}</p>}
+        {!merchant && <p className="mt-2 text-xs text-muted-foreground">Create a workspace in Settings to keep these links tied to your business.</p>}
+      </Card>
+
+      <Card title="Your links" className="mb-4">
+        {links.length === 0 ? <p className="text-sm text-muted-foreground">No links created yet.</p> : (
+          <ul className="divide-y divide-border text-sm">
+            {links.map((l) => (
+              <li key={l.id} className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-foreground">{l.amount} {l.token} {l.description ? `— ${l.description}` : ""}</p>
+                  <a href={l.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">{l.url}</a>
+                </div>
+                <Badge tone={l.status === "paid" ? "success" : "neutral"}>{l.status}</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      {onchain?.configured && (
+        <Card title="On-chain payment requests">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+            <Input value={invMerchant} onChange={(e) => setInvMerchant(e.target.value)} placeholder="0x merchant wallet" className="flex-1 text-xs" />
+            <Input value={invAmount} onChange={(e) => setInvAmount(e.target.value)} placeholder="amount (USDC)" inputMode="decimal" className="w-32 text-xs" />
+            <Button
+              disabled={invBusy || !invMerchant || !invAmount}
+              onClick={() => {
+                setInvTouched(true);
+                if (!isValidAddress(invMerchant) || !isValidAmount(invAmount)) return;
+                onchainAction({ action: "create_request", merchant: invMerchant, amount: Number(invAmount) }, "Invoice created");
+              }}
+              className="text-xs"
+            >
+              Create invoice
+            </Button>
+          </div>
+          {invTouched && (invMerchantErr || invAmountErr) && <p className="mb-2 text-xs text-danger">{invMerchantErr || invAmountErr}</p>}
+          {invMsg && <p className="mb-2 text-xs text-muted-foreground">{invMsg}</p>}
+          {onchain.requests.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No payment requests yet.</p>
+          ) : (
+            <>
+              {onchain.requests.length > PAGE_SIZE && (
+                <div className="relative mb-3 max-w-xs">
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={reqQuery}
+                    onChange={(e) => { setReqQuery(e.target.value); setReqPage(1); }}
+                    placeholder="Search merchant or #"
+                    className="w-full pl-9"
+                  />
+                </div>
+              )}
+              {filteredRequests.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No requests match your search.</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr><th className="py-1 pr-3">#</th><th className="pr-3">Merchant</th><th className="pr-3">Amount</th><th className="pr-3">Status</th><th></th></tr>
+                      </thead>
+                      <tbody className="text-foreground">
+                        {reqPageRows.map((rq) => (
+                          <tr key={rq.id} className="border-t border-border">
+                            <td className="py-1.5 pr-3 text-muted-foreground">{rq.id}</td>
+                            <td className="pr-3 font-mono text-xs">{short(rq.merchant)}</td>
+                            <td className="pr-3">{rq.amount} USDC</td>
+                            <td className="pr-3"><Badge tone={rq.paid ? "success" : "warning"}>{rq.paid ? `paid #${rq.paymentId}` : "open"}</Badge></td>
+                            <td className="text-right">
+                              {!rq.paid && (
+                                <Button variant="secondary" disabled={invBusy} onClick={() => onchainAction({ action: "pay_request", requestId: rq.id }, `Paid invoice #${rq.id}`)} className="px-2 py-1 text-xs">
+                                  Pay
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {reqTotalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Page {reqPage} of {reqTotalPages} ({filteredRequests.length} results)</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => setReqPage((p) => Math.max(1, p - 1))} disabled={reqPage === 1} className="rounded-md border border-border px-3 py-1.5 disabled:opacity-40">Previous</button>
+                        <button onClick={() => setReqPage((p) => Math.min(reqTotalPages, p + 1))} disabled={reqPage === reqTotalPages} className="rounded-md border border-border px-3 py-1.5 disabled:opacity-40">Next</button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}

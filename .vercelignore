@@ -1,0 +1,13 @@
+# NEVER upload local env files — they hold the agent private key.
+.env
+.env.local
+.env*.local
+
+# build + deps (Vercel installs/builds on its own)
+node_modules
+.next
+out
+
+# logs / local
+*.log
+.DS_Store

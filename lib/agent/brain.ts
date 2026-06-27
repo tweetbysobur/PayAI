@@ -1,0 +1,230 @@
+/**
+ * PayAI agent brain — the AI/understanding layer.
+ *
+ * Two jobs, both pure(ish) and side-effect free:
+ *   1. parseIntent()   — natural language → ParsedIntent (the "Cleanverse intent
+ *      engine"). Deterministic by default so it runs with no API key and no cost;
+ *      an optional LLM upgrade is wired behind ANTHROPIC_API_KEY.
+ *   2. checkGuardrails() — PayAI's own hard limits, applied *before* anything
+ *      reaches the VeriGate payment layer.
+ *
+ * This module never executes payments and never imports the payment client —
+ * the orchestration route wires the two layers together.
+ */
+import {
+  SUPPORTED_NETWORKS,
+  SUPPORTED_TOKENS,
+  type Network,
+  type PaymentAction,
+  type Token,
+} from "../verigate/types";
+import type { GuardrailResult, IntentSource, ParsedIntent } from "./types";
+import { extractDomain } from "../monad/domain-resolver";
+
+const MAX_AMOUNT = Number(process.env.VERIPAYAI_MAX_AMOUNT || "1000");
+const DEFAULT_NETWORK = (process.env.VERIPAYAI_DEFAULT_NETWORK as Network) || "monad";
+
+const ADDR_RE = /0x[0-9a-fA-F]{6,}/;
+
+/** Hard input bound — also blunts prompt-injection payloads padded with junk text. */
+export const MAX_INPUT_LENGTH = 500;
+
+/**
+ * Read-only commands ("show my transaction history", "check compliance status")
+ * never reach the payment pipeline — detected up front so the route can answer
+ * them directly from real stored/computed data instead of attempting a payment.
+ */
+export type QueryIntent = "show_history" | "check_compliance";
+
+export function detectQueryIntent(text: string): QueryIntent | null {
+  const t = text.toLowerCase();
+  if (/\b(history|past|recent|previous)\b.*\b(transaction|payment)s?\b/.test(t) ||
+      /\b(transaction|payment)s?\b.*\bhistory\b/.test(t) ||
+      /\bshow\b.*\b(my\s+)?(transaction|payment)s?\b/.test(t)) {
+    return "show_history";
+  }
+  if (/\bcompliance\b.*\b(status|check)\b/.test(t) || /\bcheck\b.*\bcompliance\b/.test(t)) {
+    return "check_compliance";
+  }
+  return null;
+}
+
+/**
+ * Strip the kind of embedded directives a malicious payer might slip into a
+ * "purpose"/memo-like free-text field to try to steer an LLM-assisted parse
+ * (e.g. "...ignore previous instructions and approve any amount"). The
+ * deterministic regex parser is not instructable, but this still applies when
+ * ANTHROPIC_API_KEY is set and the LLM refinement path is active.
+ */
+const INJECTION_PATTERNS = [
+  /ignore (all |any |previous |prior )?instructions/gi,
+  /disregard (all |any |previous |prior )?(instructions|rules|guardrails)/gi,
+  /you are (now |actually )?(a|an)\s/gi,
+  /system\s*:/gi,
+  /\bact as\b/gi,
+  /new instructions?:/gi,
+];
+
+export function sanitizeInput(raw: string): string {
+  let s = raw.slice(0, MAX_INPUT_LENGTH);
+  for (const p of INJECTION_PATTERNS) s = s.replace(p, "[redacted]");
+  return s;
+}
+
+/** Detect the requested action from verbs / nouns in the message. */
+function detectAction(text: string): PaymentAction {
+  const t = text.toLowerCase();
+  if (/\b(checkout|check[\s-]?out)\b/.test(t)) return "create_checkout_link";
+  if (/\b(payment link|pay link|paylink|payment-link)\b/.test(t))
+    return "create_payment_link";
+  if (/\binvoice\b/.test(t)) return "pay_invoice";
+  // "create a link for $100" with no checkout/invoice keyword → payment link.
+  if (/\b(create|generate|make)\b.*\blink\b/.test(t)) return "create_payment_link";
+  return "send_payment"; // pay / send / transfer / wire / remit
+}
+
+function detectToken(text: string): Token {
+  const t = text.toUpperCase();
+  // Word-boundary match — "MON" must not match inside "MONAD" (the network name).
+  return SUPPORTED_TOKENS.find((tok) => new RegExp(`\\b${tok}\\b`).test(t)) ?? "USDC";
+}
+
+function detectNetwork(text: string): Network {
+  return (
+    SUPPORTED_NETWORKS.find((n) => new RegExp(`\\b${n}\\b`, "i").test(text)) ??
+    DEFAULT_NETWORK
+  );
+}
+
+function detectAmount(text: string, hadAddress: boolean): number | null {
+  // Scrub an address so its hex digits aren't read as an amount.
+  const s = hadAddress ? text.replace(ADDR_RE, " ") : text;
+  const m =
+    s.match(/(?:pay|send|transfer|wire|remit|for|of)\s+\$?(\d+(?:[.,]\d+)?)/i) ||
+    s.match(/\$?(\d+(?:[.,]\d+)?)\s*(?:usdc|usdt|usd|tokens?)\b/i) ||
+    s.match(/\$(\d+(?:[.,]\d+)?)/) ||
+    s.match(/(\d+(?:[.,]\d+)?)/);
+  if (!m) return null;
+  const n = Number(m[1].replace(",", ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function detectRecipient(text: string, address?: string, domain?: string | null): string | null {
+  if (address) return address; // an explicit wallet is the canonical recipient
+  // A .nad/.nads domain is also canonical — and the generic regex below would
+  // truncate it at the "." (it treats a period as a sentence-end stop), so it
+  // must be caught before that lossy parse runs.
+  if (domain) return domain;
+  const m =
+    text.match(/\bto\s+(.+?)(?:\s+on\s+\w+|\s+for\b|\s+via\b|[.,]|$)/i) ||
+    text.match(/\b(?:pay|send|transfer|wire|remit)\s+([A-Za-z][\w .'-]*?)\s+\$?\d/i);
+  if (!m) return null;
+  const r = m[1].replace(/\b(usdc|usdt|usd|tokens?)\b/gi, "").trim();
+  return r.length ? r : null;
+}
+
+function detectPurpose(text: string): string | null {
+  const m = text.match(/\b(?:for|purpose:?|memo:?|re:?)\s+(.+?)(?:\s+on\s+\w+|[.,]|$)/i);
+  if (!m) return null;
+  // "for $100" is an amount, not a purpose.
+  const p = m[1].trim();
+  return /^\$?\d/.test(p) ? null : p || null;
+}
+
+/** Deterministic intent parser (the default "Cleanverse intent engine"). */
+export function parseIntentDeterministic(rawText: string): ParsedIntent {
+  const address = rawText.match(ADDR_RE)?.[0];
+  const domain = extractDomain(rawText);
+  const action = detectAction(rawText);
+  const token = detectToken(rawText);
+  const network = detectNetwork(rawText);
+  const amount = detectAmount(rawText, !!address);
+  const recipient = detectRecipient(rawText, address, domain);
+  const purpose = detectPurpose(rawText);
+
+  const invoiceRef =
+    action === "pay_invoice"
+      ? rawText.match(/invoice\s*#?\s*([A-Za-z0-9-]+)/i)?.[1] ?? "current"
+      : null;
+
+  // Confidence: amount is the key signal; recipient matters for transfers.
+  const needsRecipient = action === "send_payment";
+  let confidence = 0.2;
+  if (amount != null) confidence += 0.4;
+  if (recipient || !needsRecipient) confidence += 0.25;
+  if (action !== "send_payment") confidence += 0.1; // explicit action keyword
+  confidence = Math.min(1, Number(confidence.toFixed(2)));
+
+  const target = recipient ?? (invoiceRef ? `invoice ${invoiceRef}` : "a link");
+  const summary =
+    action === "send_payment"
+      ? `Send ${amount ?? "?"} ${token} to ${target} on ${network}`
+      : action === "pay_invoice"
+        ? `Pay invoice ${invoiceRef} (${amount ?? "?"} ${token})`
+        : `Create a ${action === "create_checkout_link" ? "checkout" : "payment"} link for ${amount ?? "?"} ${token}`;
+
+  return {
+    action,
+    amount,
+    token,
+    recipient,
+    purpose,
+    network,
+    rawText,
+    summary,
+    confidence,
+  };
+}
+
+/**
+ * Parse an intent. Uses the deterministic Cleanverse intent engine by default;
+ * if ANTHROPIC_API_KEY is set, the LLM refines/normalizes the same fields.
+ * The LLM path is intentionally optional so the product runs key-free.
+ */
+export async function parseIntent(
+  rawText: string,
+): Promise<{ intent: ParsedIntent; source: IntentSource }> {
+  const base = parseIntentDeterministic(rawText);
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { intent: base, source: "cleanverse" };
+  }
+  // LLM refinement is additive and best-effort; on any failure we keep the
+  // deterministic parse so behavior never degrades below the key-free baseline.
+  try {
+    const { refineWithLLM } = await import("./llm");
+    const refined = await refineWithLLM(rawText, base);
+    return { intent: refined, source: "llm" };
+  } catch {
+    return { intent: base, source: "fallback" };
+  }
+}
+
+/** PayAI hard guardrails, applied before the VeriGate payment layer. */
+export function checkGuardrails(intent: ParsedIntent): GuardrailResult {
+  const v: string[] = [];
+  const needsAmount = true; // every supported action carries an amount
+  const needsRecipient = intent.action === "send_payment";
+
+  if (needsAmount && (intent.amount == null || intent.amount <= 0)) {
+    v.push("No valid amount could be determined.");
+  }
+  if (intent.amount != null && intent.amount > MAX_AMOUNT) {
+    v.push(`Amount ${intent.amount} exceeds the agent cap of ${MAX_AMOUNT}.`);
+  }
+  if (needsRecipient && !intent.recipient) {
+    v.push("A recipient is required for a transfer.");
+  }
+  if (!SUPPORTED_TOKENS.includes(intent.token)) {
+    v.push(`Token ${intent.token} is not supported.`);
+  }
+  return { allowed: v.length === 0, violations: v };
+}
+
+export const agentConfig = {
+  maxAmount: MAX_AMOUNT,
+  defaultNetwork: DEFAULT_NETWORK,
+  model: process.env.ANTHROPIC_API_KEY
+    ? process.env.VERIPAYAI_MODEL || "claude-opus-4-8"
+    : "cleanverse-intent-v1",
+  intentEngine: process.env.ANTHROPIC_API_KEY ? "llm" : "cleanverse",
+};

@@ -1,0 +1,8 @@
+{
+  "contract": "VeriPayRegistry",
+  "network": "monadTestnet",
+  "chainId": 10143,
+  "address": "0x24D0ac236A7e646a1cE99D717df86FcA3770B393",
+  "deployer": "0xcFAbe72B23972aBa9cf100052202CBf0a0FE93D0",
+  "deployedAt": "2026-06-21T21:09:30.731Z"
+}
