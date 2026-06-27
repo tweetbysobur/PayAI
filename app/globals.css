@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+/*
+ * PayAI design tokens — dark-mode fintech canvas.
+ * Never hardcode hex/HSL in components; always style through these classes.
+ */
+:root {
+  color-scheme: dark;
+
+  --background: 240 7% 4%;         /* #09090b — deep background */
+  --panel: 240 4% 7%;              /* #111113 — surface */
+  --foreground: 0 0% 100%;         /* primary text */
+  --muted-foreground: 240 5% 65%;  /* #a1a1aa — muted text */
+
+  --primary: 262 83% 58%;          /* #7c3aed — primary purple, the signature accent */
+  --primary-foreground: 0 0% 100%; /* white text on purple */
+  --secondary: 258 90% 66%;        /* #8b5cf6 — secondary purple / hover state */
+
+  --success: 142 71% 45%;          /* #22c55e */
+  --warning: 38 92% 50%;           /* #f59e0b */
+  --danger: 0 84% 60%;             /* #ef4444 */
+
+  --border: 240 4% 16%;            /* #27272a */
+  --input: 240 4% 11%;
+  --ring: 262 83% 58%;
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-panel: hsl(var(--panel));
+  --color-card: hsl(var(--panel));
+  --color-foreground: hsl(var(--foreground));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-danger: hsl(var(--danger));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
