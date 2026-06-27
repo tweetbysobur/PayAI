@@ -5,10 +5,11 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
   ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
+  ReceiptText, Copy, Check,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { PipelineStepper } from "@/components/PipelineStepper";
-import { useAgentConsole, DECISION, short, friendlyError } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, friendlyError } from "@/lib/hooks/useAgentConsole";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
@@ -40,8 +41,8 @@ export default function Payments() {
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"MON" | "USDC">("MON");
   const [recipient, setRecipient] = useState("");
-  const [showProof, setShowProof] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [switchErr, setSwitchErr] = useState<string | null>(null);
 
@@ -63,17 +64,28 @@ export default function Payments() {
 
   function submit() {
     if (!canSubmit) return;
-    setShowProof(false);
     setShowChecks(false);
+    setCopied(false);
     c.run(`Send ${amount} ${token} to ${recipient}`);
+  }
+  function copyHash(hash: string) {
+    navigator.clipboard?.writeText(hash).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }).catch(() => {});
   }
   const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
 
+  const hasResultArea = c.loading || c.err || c.res || c.history.length > 0;
+
   return (
-    <div className="mx-auto max-w-xl">
+    <div className="mx-auto max-w-5xl">
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">Send Payment</h1>
       <p className="mb-6 text-sm text-muted-foreground">Pay any wallet address or .nads domain on Monad.</p>
 
+      <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+        {/* LEFT — composer */}
+        <div>
       {/* Sender context — trust: who is paying, from where */}
       <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
@@ -103,7 +115,7 @@ export default function Payments() {
       {switchErr && <p className="mb-3 text-xs text-danger">{switchErr}</p>}
 
       {/* Payment composer */}
-      <Card className="mb-4 p-6">
+      <Card className="p-6">
         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</label>
         <div className="mb-5 flex items-end gap-3 border-b border-border pb-4">
           <input
@@ -153,22 +165,38 @@ export default function Payments() {
         </Button>
         {!wallet.address && <p className="mt-2 text-center text-xs text-warning">Connect your wallet from the top bar to sign on-chain payments.</p>}
       </Card>
+        </div>
+
+        {/* RIGHT — live verification, receipt, recent */}
+        <div className="space-y-4">
+      {/* Empty state — keeps the two-column layout balanced before a payment */}
+      {!hasResultArea && (
+        <Card className="flex min-h-[18rem] flex-col items-center justify-center p-6 text-center">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-input text-muted-foreground">
+            <ReceiptText size={22} />
+          </div>
+          <p className="text-sm font-medium text-foreground">Your receipt appears here</p>
+          <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+            Enter an amount and recipient, then send — the on-chain proof, compliance checks, and explorer link land here.
+          </p>
+        </Card>
+      )}
 
       {/* Live verification — compliance visibility, real-time */}
       {c.loading && (
-        <Card className="mb-4">
+        <Card>
           <p className="mb-4 text-sm font-medium text-foreground">Verifying your payment</p>
           <PipelineStepper steps={c.steps} />
         </Card>
       )}
 
-      {c.err && <Card className="mb-4"><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
+      {c.err && <Card><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
 
       {/* Receipt / result */}
       <AnimatePresence>
         {c.res && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
-            <Card className="mb-4 p-6 text-center">
+            <Card className="p-6 text-center">
               <motion.div
                 initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
                 className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
@@ -207,32 +235,41 @@ export default function Payments() {
                 </div>
               )}
 
-              {/* Blockchain transparency — expandable proof, not buried */}
+              {/* Blockchain transparency — on-chain proof shown plainly, hash front and centre */}
               {c.res.transaction?.txHash && (
-                <div className="mt-3 border-t border-border pt-4 text-left">
-                  <button onClick={() => setShowProof((s) => !s)} className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground">
-                    <span>View on-chain proof</span>
-                    <ChevronDown size={13} className={`transition ${showProof ? "rotate-180" : ""}`} />
-                  </button>
-                  <AnimatePresence>
-                    {showProof && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="mt-2 space-y-1.5 overflow-hidden text-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="text-muted-foreground">Transaction hash</span>
-                          <span className="font-mono text-foreground">{short(c.res.transaction.txHash)}</span>
-                        </div>
-                        {c.res.transaction.blockNumber != null && (
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Block</span>
-                            <span className="text-foreground">{c.res.transaction.blockNumber}</span>
-                          </div>
-                        )}
-                        <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 pt-1 text-primary hover:underline">
-                          View on explorer <ExternalLink size={11} />
-                        </a>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                <div className="mt-4 border-t border-border pt-4 text-left">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">On-chain proof</p>
+
+                  <div className="rounded-lg border border-border bg-input/40 p-3">
+                    <p className="mb-1 text-[11px] text-muted-foreground">Transaction hash</p>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={c.res.transaction.explorerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={c.res.transaction.txHash}
+                        className="block flex-1 break-all font-mono text-xs text-primary hover:underline"
+                      >
+                        {c.res.transaction.txHash}
+                      </a>
+                      <button
+                        onClick={() => copyHash(c.res!.transaction!.txHash!)}
+                        aria-label="Copy transaction hash"
+                        className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                      >
+                        {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Block</span>
+                    <span className="font-mono text-foreground">{c.res.transaction.blockNumber != null ? c.res.transaction.blockNumber : "—"}</span>
+                  </div>
+
+                  <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline">
+                    View on explorer <ExternalLink size={11} />
+                  </a>
                 </div>
               )}
             </Card>
@@ -241,17 +278,19 @@ export default function Payments() {
       </AnimatePresence>
 
       {c.history.length > 0 && (
-        <Card title="Recent" className="mt-4">
+        <Card title="Recent">
           <ul className="space-y-2 text-sm">
             {c.history.map((h, i) => (
-              <li key={i} className="flex items-center justify-between border-b border-border pb-2 last:border-none last:pb-0">
-                <span className="text-foreground">{h.summary}</span>
+              <li key={i} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-none last:pb-0">
+                <span className="truncate text-foreground">{h.summary}</span>
                 <Badge tone={DECISION[h.decision]?.tone ?? "neutral"}>{h.decision}</Badge>
               </li>
             ))}
           </ul>
         </Card>
       )}
+        </div>
+      </div>
     </div>
   );
 }
