@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, ChevronDown, Wallet as WalletIcon } from "lucide-react";
+import { Bell, Wallet as WalletIcon } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { Button } from "@/components/ui";
+import { MonadMark } from "@/components/MonadMark";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
 
 interface Health {
@@ -23,10 +24,18 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
     <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
       <div className="flex items-center gap-2">
         {onMenuClick && <MobileNavTrigger onClick={onMenuClick} />}
-        <div className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
-          <span className={`h-2 w-2 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-border"}`} />
-          <span className="hidden text-foreground sm:inline">{health?.wallet?.network ?? "Connecting…"}</span>
-          <ChevronDown size={12} className="text-muted-foreground" />
+        <div
+          className="flex items-center gap-2 rounded-full border border-border bg-panel py-1.5 pl-2.5 pr-3 text-xs"
+          title={health?.verigate.connected ? "Connected to Monad" : "Connecting to Monad…"}
+        >
+          <MonadMark size={15} />
+          <span className="hidden font-medium text-foreground sm:inline">{health?.wallet?.network ?? "Monad"}</span>
+          <span className="relative ml-0.5 flex h-1.5 w-1.5">
+            {health?.verigate.connected && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
+            )}
+            <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-muted-foreground"}`} />
+          </span>
         </div>
       </div>
 
