@@ -8,11 +8,14 @@ import {
   MessageSquare, Brain, ShieldHalf, Zap, CheckCircle2, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
   ScrollText, Wallet as WalletIcon, Eye, Hash, Blocks, BadgeCheck,
+  Rocket, BookOpen, Code2, LifeBuoy, Compass,
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
+import { GitHubMark, XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
+import pkg from "../package.json";
 
 interface Health {
   verigate: { connected: boolean; mode: string };
@@ -169,11 +172,37 @@ function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: He
   );
 }
 
-const FOOTER_LINKS = [
-  { label: "Privacy", href: "/privacy" },
-  { label: "Terms", href: "/terms" },
-  { label: "Monad", href: "https://monad.xyz" },
-  { label: "Explorer", href: MONAD_EXPLORER },
+const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
+const X_URL = "https://x.com/tweetbysobur";
+
+const FOOTER_COLUMNS = [
+  {
+    title: "Product",
+    links: [
+      { label: "Launch App", href: "/connect", icon: Rocket, internal: true },
+      { label: "Documentation", href: `${GITHUB_URL}#readme`, icon: BookOpen, internal: false },
+      { label: "Security", href: "/dashboard/wallets", icon: ShieldCheck, internal: true },
+      { label: "Compliance", href: "/dashboard/compliance", icon: FileCheck2, internal: true },
+    ],
+  },
+  {
+    title: "Developers",
+    links: [
+      { label: "GitHub", href: GITHUB_URL, icon: Code2, internal: false },
+      { label: "Smart Contracts", href: `${GITHUB_URL}/tree/main/contracts`, icon: Blocks, internal: false },
+      { label: "API Reference", href: `${GITHUB_URL}/tree/main/app/api`, icon: ScrollText, internal: false },
+      { label: "Changelog", href: `${GITHUB_URL}/blob/main/CHANGELOG.md`, icon: Compass, internal: false },
+    ],
+  },
+  {
+    title: "Resources",
+    links: [
+      { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
+      { label: "Support", href: `${GITHUB_URL}/issues`, icon: LifeBuoy, internal: false },
+      { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
+      { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
+    ],
+  },
 ];
 
 export default function LandingPage() {
@@ -422,22 +451,94 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      <footer className="border-t border-border py-10">
-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-5 px-6">
-          <div className="flex items-center gap-2">
-            <Logo size={22} />
-            <span className="text-sm font-semibold text-foreground">PayAI</span>
-          </div>
-          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
-            {FOOTER_LINKS.map((l) => (
-              <a key={l.label} href={l.href} target={l.href.startsWith("http") ? "_blank" : undefined} rel={l.href.startsWith("http") ? "noreferrer" : undefined} className="hover:text-foreground">
-                {l.label}
-              </a>
+      <footer className="border-t border-border bg-panel/40">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-5">
+            {/* Brand */}
+            <div className="col-span-2 sm:col-span-3 lg:col-span-2">
+              <Link href="/" className="flex items-center gap-2">
+                <Logo size={26} />
+                <span className="text-base font-semibold text-foreground">PayAI</span>
+              </Link>
+              <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                AI-powered payments with real-time compliance and on-chain settlement, built for Monad.
+              </p>
+              <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
+                <MonadMark size={12} /> Built on Monad Mainnet
+              </div>
+            </div>
+
+            {FOOTER_COLUMNS.map((col) => (
+              <div key={col.title}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{col.title}</p>
+                <ul className="mt-4 space-y-3">
+                  {col.links.map((l) => {
+                    const external = !l.internal;
+                    const Anchor = external ? "a" : Link;
+                    return (
+                      <li key={l.label}>
+                        <Anchor
+                          href={l.href}
+                          {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+                          className="group flex items-center gap-2 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
+                        >
+                          <l.icon size={14} className="text-muted-foreground/60 transition-colors duration-150 group-hover:text-primary" />
+                          {l.label}
+                        </Anchor>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             ))}
-          </nav>
-          <p className="text-center text-xs text-muted-foreground/70">
-            Natural-language intent parsing · Real-time compliance checks · Settlement on Monad mainnet
-          </p>
+          </div>
+
+          {/* Social */}
+          <div className="mt-12 flex items-center gap-3 border-t border-border pt-8">
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="PayAI on GitHub"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <GitHubMark size={16} />
+            </a>
+            <a
+              href={X_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="PayAI on X"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <XMark size={15} />
+            </a>
+          </div>
+
+          {/* Bottom bar */}
+          <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
+            <p>© {new Date().getFullYear()} PayAI. All rights reserved.</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+              <span className="font-mono">v{pkg.version}</span>
+              <span className="hidden h-3 w-px bg-border sm:inline" />
+              <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
+              <span className="hidden h-3 w-px bg-border sm:inline" />
+              {onchain?.configured && onchain.contracts ? (
+                <a
+                  href={onchain.contracts.executorExplorer}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
+                >
+                  <BadgeCheck size={13} /> Contract Live on Monad
+                </a>
+              ) : (
+                <span className="flex items-center gap-1.5 text-muted-foreground/60">
+                  <BadgeCheck size={13} /> Contract status unavailable
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       </footer>
     </main>
