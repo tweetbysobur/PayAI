@@ -4,12 +4,14 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import type { EthProvider } from "./provider";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_ID_HEX, MONAD_CHAIN_NAME, MONAD_RPC_URLS, MONAD_EXPLORER } from "@/lib/monad/public";
 
+const STORAGE_KEY = "veripay_wallet_connected";
+
 export interface WalletState {
   address: string | null;
   chainId: number | null;
   error: string | null;
   connect: () => Promise<string>;
-  disconnect: () => void;
+  disconnect: () => Promise<void>;
   switchNetwork: () => Promise<void>;
   sendTransaction: (tx: { to: string; data?: string; value?: string }) => Promise<string>;
   waitForReceipt: (hash: string) => Promise<unknown>;
@@ -39,11 +41,25 @@ function useWalletState(): WalletState {
     setChainId(parseInt(hex, 16));
   }, []);
 
-  // No silent auto-reconnect: a payments app should not appear "connected" on
-  // a fresh load just because the wallet authorized the site in a past
-  // session. The user must explicitly click Connect each time. (Within a
-  // single session the WalletProvider keeps the connection across page
-  // navigation — only a full refresh / new tab requires reconnecting.)
+  // Silent reconnect on load — only if the user connected before AND hasn't
+  // explicitly disconnected (Disconnect revokes the wallet permission, so
+  // eth_accounts comes back empty after that and this won't reconnect).
+  useEffect(() => {
+    const eth = window.ethereum;
+    if (!eth || localStorage.getItem(STORAGE_KEY) !== "1") return;
+    (async () => {
+      const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
+      if (accounts[0]) {
+        setAddress(accounts[0]);
+        connectedRef.current = true;
+        await readChain(eth);
+      } else {
+        // Permission was revoked elsewhere — clear the stale flag.
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    })().catch(() => {});
+  }, [readChain]);
+
   useEffect(() => {
     const eth = window.ethereum;
     if (!eth?.on) return;
@@ -75,13 +91,27 @@ function useWalletState(): WalletState {
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
     setAddress(accounts[0]);
     connectedRef.current = true;
+    localStorage.setItem(STORAGE_KEY, "1");
     await readChain(eth);
     return accounts[0];
   }, [readChain]);
 
-  const disconnect = useCallback(() => {
+  // The true opposite of connect: connect *grants* the eth_accounts permission,
+  // so disconnect *revokes* it (EIP-2255 wallet_revokePermissions). The wallet
+  // forgets the authorization, so the next connect asks for fresh approval and
+  // no silent reconnect can bring the session back. Local state is cleared
+  // regardless, so wallets that don't support revoke still disconnect cleanly.
+  const disconnect = useCallback(async () => {
     setAddress(null);
+    setChainId(null);
     connectedRef.current = false;
+    localStorage.removeItem(STORAGE_KEY);
+    const eth = window.ethereum;
+    try {
+      await eth?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
+    } catch {
+      // Wallet doesn't support EIP-2255 revoke — local disconnect already done.
+    }
   }, []);
 
   const switchNetwork = useCallback(async () => {
