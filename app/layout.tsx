@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WalletProvider } from "@/lib/wallet/useWallet";
 
 export const metadata: Metadata = {
   title: "PayAI — AI payment agent on Monad",
@@ -12,7 +13,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <WalletProvider>{children}</WalletProvider>
+      </body>
     </html>
   );
 }

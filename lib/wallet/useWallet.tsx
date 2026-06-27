@@ -1,17 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import type { EthProvider } from "./provider";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_ID_HEX, MONAD_CHAIN_NAME, MONAD_RPC_URLS, MONAD_EXPLORER } from "@/lib/monad/public";
 
 const STORAGE_KEY = "veripay_wallet_connected";
 
+export interface WalletState {
+  address: string | null;
+  chainId: number | null;
+  error: string | null;
+  connect: () => Promise<string>;
+  disconnect: () => void;
+  switchNetwork: () => Promise<void>;
+  sendTransaction: (tx: { to: string; data: string }) => Promise<string>;
+  waitForReceipt: (hash: string) => Promise<unknown>;
+  isWrongNetwork: boolean;
+}
+
 /**
- * Shared EIP-1193 wallet hook — connect/disconnect/persistence, network
- * detect+switch, and raw transaction signing. Used by the agent console (to
- * let a connected wallet sign its own payments) and the checkout page.
+ * The real EIP-1193 wallet logic — connect/disconnect/persistence, network
+ * detect+switch, and raw transaction signing. This is an internal
+ * implementation detail: every consumer should use `useWallet()` below
+ * (backed by WalletProvider), NOT this hook directly, otherwise it gets its
+ * own disconnected copy of the wallet state instead of the shared one — the
+ * exact bug that meant connecting from the top bar didn't update the page
+ * content underneath it.
  */
-export function useWallet() {
+function useWalletState(): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,4 +165,28 @@ export function useWallet() {
     waitForReceipt,
     isWrongNetwork: address != null && chainId != null && chainId !== MONAD_CHAIN_ID,
   };
+}
+
+const WalletContext = createContext<WalletState | null>(null);
+
+/**
+ * Wraps the app once (root layout) so every component — top bar, payment
+ * composer, wallets page, connect page — shares ONE real wallet connection
+ * instead of each independently re-implementing eth_accounts/eth_chainId.
+ * Connecting anywhere updates everywhere immediately, with no dependency on
+ * every consumer having separately registered its own provider-event
+ * listener in time.
+ */
+export function WalletProvider({ children }: { children: ReactNode }) {
+  const state = useWalletState();
+  return <WalletContext.Provider value={state}>{children}</WalletContext.Provider>;
+}
+
+/** The shared wallet connection — must be used under <WalletProvider> (mounted in the root layout). */
+export function useWallet(): WalletState {
+  const ctx = useContext(WalletContext);
+  if (!ctx) {
+    throw new Error("useWallet() must be used within <WalletProvider> — check that it's mounted in the root layout.");
+  }
+  return ctx;
 }
