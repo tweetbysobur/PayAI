@@ -27,13 +27,13 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-screen w-60 flex-col border-r border-border bg-panel/60 lg:flex">
-      <div className="flex items-center gap-2 border-b border-border px-5 py-5">
+      <Link href="/" title="Back to home" className="flex items-center gap-2 border-b border-border px-5 py-5 transition hover:bg-input/40">
         <Logo size={32} />
         <div>
           <p className="text-sm font-semibold leading-none text-foreground">PayAI</p>
           <p className="text-[11px] leading-none text-muted-foreground">AI-Powered Payments</p>
         </div>
-      </div>
+      </Link>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         {NAV.map((item) => {

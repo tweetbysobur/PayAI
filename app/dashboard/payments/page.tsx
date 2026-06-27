@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { PipelineStepper } from "@/components/PipelineStepper";
-import { useAgentConsole, DECISION, friendlyError } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
@@ -209,7 +209,7 @@ export default function Payments() {
                   {c.res.intent.amount} {c.res.intent.token}
                 </p>
               )}
-              <p className="mt-1 text-sm text-muted-foreground">{c.res.intent.summary}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
               {NEXT_STEP[c.res.decision] && <p className="mt-2 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
               {c.res.guardrail.violations.length > 0 && <p className="mt-2 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
 
@@ -282,7 +282,7 @@ export default function Payments() {
           <ul className="space-y-2 text-sm">
             {c.history.map((h, i) => (
               <li key={i} className="flex items-center justify-between gap-3 border-b border-border pb-2 last:border-none last:pb-0">
-                <span className="truncate text-foreground">{h.summary}</span>
+                <span className="truncate text-foreground">{phraseSummary(h.summary, h.decision)}</span>
                 <Badge tone={DECISION[h.decision]?.tone ?? "neutral"}>{h.decision}</Badge>
               </li>
             ))}

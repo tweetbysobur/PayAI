@@ -2,19 +2,40 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Sparkles, X } from "lucide-react";
+import {
+  Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
+  ExternalLink, CornerDownLeft, ArrowUpRight, FileText, ListChecks,
+} from "lucide-react";
 import { PipelineStepper } from "@/components/PipelineStepper";
-import { Badge } from "@/components/ui";
-import { useAgentConsole, DECISION, short } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, short, phraseSummary } from "@/lib/hooks/useAgentConsole";
 
-const EXAMPLES = ["Send 5 MON to gentle.nads", "Create invoice for 50 USDC", "Show today's transactions"];
+const EXAMPLES = [
+  { label: "Send 5 MON to gentle.nads", icon: ArrowUpRight },
+  { label: "Create invoice for 50 USDC", icon: FileText },
+  { label: "Show today's transactions", icon: ListChecks },
+];
+
+const STATUS_ICON: Record<string, typeof CheckCircle2> = {
+  executed: CheckCircle2,
+  needs_review: Clock3,
+  blocked: XCircle,
+  refused: XCircle,
+  error: AlertTriangle,
+  ready_to_sign: Clock3,
+};
+const STATUS_RING: Record<string, string> = {
+  executed: "bg-success/12 text-success",
+  needs_review: "bg-warning/12 text-warning",
+  blocked: "bg-danger/12 text-danger",
+  refused: "bg-danger/12 text-danger",
+  error: "bg-input text-muted-foreground",
+  ready_to_sign: "bg-warning/12 text-warning",
+};
 
 /**
- * AI Command Bar — Cmd+K (or the floating button) opens a focused overlay
- * that runs ONE command through the real agent pipeline and shows the
- * result inline, then closes. This is the AI surface the spec calls for:
- * an assistant feature living on top of the dashboard, not a chat page that
- * replaces it.
+ * AI Command Bar — Cmd+K (or the floating button) opens a focused overlay that
+ * runs ONE command through the real agent pipeline and shows the result inline.
+ * The AI surface lives on top of the dashboard, not as a separate chat page.
  */
 export function CommandBar() {
   const [open, setOpen] = useState(false);
@@ -37,6 +58,9 @@ export function CommandBar() {
     if (open) setTimeout(() => inputRef.current?.focus(), 50);
   }, [open]);
 
+  const res = c.res;
+  const StatusIcon = res ? STATUS_ICON[res.decision] ?? AlertTriangle : null;
+
   return (
     <>
       <button
@@ -52,34 +76,49 @@ export function CommandBar() {
         {open && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-[12vh]"
+            className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 px-4 pt-[12vh] backdrop-blur-sm"
             onClick={() => setOpen(false)}
           >
             <motion.div
               initial={{ opacity: 0, y: -16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-lg rounded-xl border border-border bg-panel shadow-2xl"
+              className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
             >
-              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-                <Sparkles size={16} className="text-primary" />
+              {/* Search row */}
+              <div className="flex items-center gap-3 border-b border-border px-4 py-3.5">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                  <Sparkles size={15} />
+                </span>
                 <input
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && c.intent && c.run(c.intent)}
-                  placeholder="Send 5 MON to gentle.nads…"
-                  className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                  onKeyDown={(e) => e.key === "Enter" && c.intent && !c.loading && c.run(c.intent)}
+                  placeholder="Ask PayAI — e.g. Send 5 MON to gentle.nads"
+                  className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
-                <button onClick={() => setOpen(false)} aria-label="Close" className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
+                <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>
               </div>
 
-              <div className="max-h-[50vh] overflow-y-auto p-4">
-                {!c.res && !c.info && !c.loading && (
-                  <div className="flex flex-wrap gap-2">
-                    {EXAMPLES.map((ex) => (
-                      <button key={ex} onClick={() => { c.setIntent(ex); c.run(ex); }}
-                        className="rounded-full border border-border bg-input px-3 py-1.5 text-xs text-muted-foreground hover:border-primary/50 hover:text-primary">{ex}</button>
-                    ))}
+              <div className="max-h-[52vh] overflow-y-auto p-4">
+                {/* Idle — suggestions */}
+                {!res && !c.info && !c.loading && !c.err && (
+                  <div>
+                    <p className="mb-2.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Try</p>
+                    <div className="space-y-1.5">
+                      {EXAMPLES.map((ex) => (
+                        <button
+                          key={ex.label}
+                          onClick={() => { c.setIntent(ex.label); c.run(ex.label); }}
+                          className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm text-foreground transition hover:border-border hover:bg-input"
+                        >
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input text-muted-foreground transition group-hover:text-primary">
+                            <ex.icon size={14} />
+                          </span>
+                          {ex.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -89,31 +128,73 @@ export function CommandBar() {
                   </div>
                 )}
 
-                {c.err && <p className="text-sm text-danger">{c.err}</p>}
+                {c.err && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
+                    <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {c.err}
+                  </div>
+                )}
 
-                {c.res && (
-                  <div>
-                    <div className="mb-2 flex items-center gap-2">
-                      <Badge tone={DECISION[c.res.decision].tone}>{DECISION[c.res.decision].label}</Badge>
-                      <span className="text-xs text-muted-foreground">{Math.round(c.res.confidence * 100)}% confidence</span>
+                {res && !c.loading && (
+                  <div className="rounded-xl border border-border bg-input/30 p-4">
+                    <div className="flex items-center gap-3">
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${STATUS_RING[res.decision] ?? "bg-input text-muted-foreground"}`}>
+                        {StatusIcon && <StatusIcon size={18} />}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{DECISION[res.decision].label}</p>
+                        <p className="text-xs text-muted-foreground">{Math.round(res.confidence * 100)}% confidence</p>
+                      </div>
+                      {res.intent.amount != null && (
+                        <span className="ml-auto shrink-0 text-right text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
+                          {res.intent.amount} <span className="text-xs font-medium text-muted-foreground">{res.intent.token}</span>
+                        </span>
+                      )}
                     </div>
-                    <p className="text-sm text-foreground">{c.res.intent.summary}</p>
-                    {c.res.transaction?.txHash && (
-                      <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block font-mono text-xs text-primary hover:underline">
-                        {short(c.res.transaction.txHash)} — verify on-chain ↗
+
+                    <p className="mt-3 text-sm text-muted-foreground">{phraseSummary(res.intent.summary, res.decision)}</p>
+
+                    {res.guardrail.violations.length > 0 && (
+                      <p className="mt-2 text-xs text-danger">{res.guardrail.violations.join(" ")}</p>
+                    )}
+
+                    {res.transaction?.txHash && (
+                      <a
+                        href={res.transaction.explorerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary transition hover:border-primary/40"
+                      >
+                        {short(res.transaction.txHash)} <ExternalLink size={11} />
                       </a>
                     )}
-                    {c.res.guardrail.violations.length > 0 && <p className="mt-2 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
                   </div>
                 )}
 
-                {c.info && (
-                  <div className="text-sm text-foreground">
+                {c.info && !c.loading && (
+                  <div className="rounded-xl border border-border bg-input/30 p-4 text-sm text-foreground">
                     {c.info.query === "show_history"
-                      ? `${c.info.count ?? c.info.history?.length ?? 0} recorded transaction(s).`
-                      : c.info.compliance ? `${Math.round(c.info.compliance.approvalRate * 100)}% approval rate.` : "No data."}
+                      ? `You have ${c.info.count ?? c.info.history?.length ?? 0} recorded transaction${(c.info.count ?? 0) === 1 ? "" : "s"}.`
+                      : c.info.query === "show_balance"
+                        ? c.info.balance
+                          ? `Your wallet holds ${c.info.balance.mon.toFixed(4)} MON and ${c.info.balance.usdc.toFixed(2)} USDC.`
+                          : c.info.error ?? "Couldn't read your balance."
+                        : c.info.query === "scheduled_payment"
+                          ? c.info.error ?? "Scheduled payments aren't available yet."
+                          : c.info.compliance
+                            ? `${Math.round(c.info.compliance.approvalRate * 100)}% approval rate across your payments.`
+                            : "No data yet."}
                   </div>
                 )}
+              </div>
+
+              {/* Footer hints */}
+              <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <kbd className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-0.5"><CornerDownLeft size={10} /> Enter</kbd> to run
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <kbd className="rounded border border-border px-1.5 py-0.5">Esc</kbd> to close
+                </span>
               </div>
             </motion.div>
           </motion.div>
