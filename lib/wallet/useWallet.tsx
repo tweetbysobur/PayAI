@@ -1,10 +1,8 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { EthProvider } from "./provider";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_ID_HEX, MONAD_CHAIN_NAME, MONAD_RPC_URLS, MONAD_EXPLORER } from "@/lib/monad/public";
-
-const STORAGE_KEY = "veripay_wallet_connected";
 
 export interface WalletState {
   address: string | null;
@@ -31,32 +29,32 @@ function useWalletState(): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // True only after the user explicitly connects this session — guards the
+  // accountsChanged listener so a wallet event can never silently connect a
+  // session the user never opted into.
+  const connectedRef = useRef(false);
 
   const readChain = useCallback(async (eth: EthProvider) => {
     const hex = (await eth.request({ method: "eth_chainId" })) as string;
     setChainId(parseInt(hex, 16));
   }, []);
 
-  // Silent reconnect on load — only if the user connected before (no popup).
-  useEffect(() => {
-    const eth = window.ethereum;
-    if (!eth || localStorage.getItem(STORAGE_KEY) !== "1") return;
-    (async () => {
-      const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
-      if (accounts[0]) {
-        setAddress(accounts[0]);
-        await readChain(eth);
-      }
-    })().catch(() => {});
-  }, [readChain]);
-
+  // No silent auto-reconnect: a payments app should not appear "connected" on
+  // a fresh load just because the wallet authorized the site in a past
+  // session. The user must explicitly click Connect each time. (Within a
+  // single session the WalletProvider keeps the connection across page
+  // navigation — only a full refresh / new tab requires reconnecting.)
   useEffect(() => {
     const eth = window.ethereum;
     if (!eth?.on) return;
     const onAccounts = (...args: unknown[]) => {
+      // Ignore wallet account events until the user has explicitly connected
+      // this session — otherwise the app could silently connect off a stray
+      // accountsChanged event from a previously-authorized wallet.
+      if (!connectedRef.current) return;
       const accounts = args[0] as string[];
       if (accounts[0]) setAddress(accounts[0]);
-      else { setAddress(null); localStorage.removeItem(STORAGE_KEY); }
+      else { setAddress(null); connectedRef.current = false; }
     };
     const onChain = (...args: unknown[]) => setChainId(parseInt(args[0] as string, 16));
     eth.on("accountsChanged", onAccounts);
@@ -76,14 +74,14 @@ function useWalletState(): WalletState {
     }
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
     setAddress(accounts[0]);
-    localStorage.setItem(STORAGE_KEY, "1");
+    connectedRef.current = true;
     await readChain(eth);
     return accounts[0];
   }, [readChain]);
 
   const disconnect = useCallback(() => {
     setAddress(null);
-    localStorage.removeItem(STORAGE_KEY);
+    connectedRef.current = false;
   }, []);
 
   const switchNetwork = useCallback(async () => {
