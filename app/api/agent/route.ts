@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
   // status") never touch the payment pipeline — answer them directly from
   // real stored data and stop.
   const query = detectQueryIntent(text);
-  if (query === "scheduled_payment") {
+  // Only treat as the "manage/cancel" info case when it isn't a parseable
+  // create request — otherwise the schedule-create branch below handles it.
+  if (query === "scheduled_payment" && !parseScheduleIntent(text)) {
     return NextResponse.json({
       decision: "info",
       query: "scheduled_payment",
