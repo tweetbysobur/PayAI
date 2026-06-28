@@ -37,7 +37,18 @@ export default function Overview() {
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
+  const [nadName, setNadName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Reverse-resolve the connected wallet to its primary .nad name (if any).
+  useEffect(() => {
+    if (!wallet.address) { setNadName(null); return; }
+    let cancelled = false;
+    fetch(`/api/nns/primary-name?address=${wallet.address}`)
+      .then((r) => r.json()).then((j) => { if (!cancelled) setNadName(j.name ?? null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [wallet.address]);
 
   const refresh = useCallback(() => {
     fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
@@ -119,14 +130,22 @@ export default function Overview() {
               {wallet.address ? <Identicon address={wallet.address} size={40} /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-input text-muted-foreground"><Wallet size={18} /></span>}
               <div>
                 <div className="flex items-center gap-2">
-                  <p className="font-mono text-sm text-foreground">{wallet.address ? short(wallet.address) : "No wallet connected"}</p>
+                  {nadName ? (
+                    <p className="text-sm font-semibold text-foreground">{nadName}</p>
+                  ) : (
+                    <p className="font-mono text-sm text-foreground">{wallet.address ? short(wallet.address) : "No wallet connected"}</p>
+                  )}
                   {wallet.address && (
                     <button onClick={copyAddr} className="text-muted-foreground transition hover:text-foreground" title="Copy address">
                       {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                     </button>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">{wallet.address ? "Connected wallet" : <Link href="/connect" className="text-primary hover:underline">Connect to get started →</Link>}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {wallet.address
+                    ? (nadName ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
+                    : <Link href="/connect" className="text-primary hover:underline">Connect to get started →</Link>}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-5">
