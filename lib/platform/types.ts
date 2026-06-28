@@ -23,6 +23,30 @@ export interface TxLogEntry {
   summary: string;
 }
 
+/** A recurring or one-off payment scheduled to fire automatically when due. */
+export type ScheduleCadence = "once" | "daily" | "weekly" | "monthly";
+export type ScheduleStatus = "upcoming" | "completed" | "cancelled";
+
+export interface ScheduledPayment {
+  id: string;
+  merchantId: string;
+  amount: number;
+  token: string;
+  /** Resolved 0x address the payment settles to. */
+  recipient: string;
+  /** Original .nad/.nads domain, when the recipient was resolved from one. */
+  domain?: string | null;
+  cadence: ScheduleCadence;
+  /** Unix ms of the next (or only) scheduled run. */
+  nextRun: number;
+  status: ScheduleStatus;
+  createdAt: number;
+  /** Every fired run, newest first — real on-chain receipts, never fabricated. */
+  runs: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string }[];
+  /** Optional human label/memo. */
+  memo?: string;
+}
+
 export type LinkStatus = "active" | "paid" | "expired";
 
 export interface PaymentLink {

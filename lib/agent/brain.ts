@@ -62,6 +62,89 @@ export function detectSwapIntent(text: string): SwapIntent | null {
   return { fromToken: from, toToken: to, amount: Number.isFinite(amount as number) ? amount : null };
 }
 
+/** A parsed scheduled payment: the payment fields + when/how often it fires. */
+export interface ScheduleParse {
+  amount: number | null;
+  token: Token;
+  recipient: string | null;
+  cadence: "once" | "daily" | "weekly" | "monthly";
+  /** Unix ms of first/next run, or null when a date was required but not given. */
+  nextRun: number | null;
+  /** True when the user clearly asked to schedule but gave no usable time. */
+  needsTime: boolean;
+}
+
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** Next occurrence (00:00 UTC) of a given weekday index, strictly in the future. */
+function nextWeekday(idx: number, from = new Date()): number {
+  const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  let delta = (idx - d.getUTCDay() + 7) % 7;
+  if (delta === 0) delta = 7; // "every friday" said on a Friday → next Friday
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.getTime();
+}
+
+/**
+ * Parse a scheduling request ("schedule 10 USDC to gentle.nads every friday",
+ * "pay 5 MON to 0x… on 2026-07-01", "send 2 USDC to alice every month").
+ * Returns null when the text isn't a scheduling request. The payment fields
+ * reuse the same deterministic parser as instant payments, so recipient/amount/
+ * token detection stays identical — only the timing layer is added here.
+ */
+export function parseScheduleIntent(text: string): ScheduleParse | null {
+  const t = text.toLowerCase();
+  const isSchedule =
+    /\b(schedule|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
+    /\b(daily|weekly|monthly)\b/.test(t) ||
+    /\b(tomorrow|next\s+(week|month)|on\s+\d{4}-\d{2}-\d{2}|in\s+\d+\s+(day|week|month)s?)\b/.test(t);
+  if (!isSchedule) return null;
+
+  const base = parseIntentDeterministic(text);
+
+  let cadence: ScheduleParse["cadence"] = "once";
+  if (/\b(daily|every\s+day)\b/.test(t)) cadence = "daily";
+  else if (/\b(weekly|every\s+week|every\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t)) cadence = "weekly";
+  else if (/\b(monthly|every\s+month)\b/.test(t)) cadence = "monthly";
+
+  // First-run resolution, most specific first.
+  let nextRun: number | null = null;
+  const iso = t.match(/on\s+(\d{4})-(\d{2})-(\d{2})/);
+  const inN = t.match(/in\s+(\d+)\s+(day|week|month)s?/);
+  const weekday = WEEKDAYS.findIndex((w) => new RegExp(`\\b${w}\\b`).test(t));
+  if (iso) {
+    nextRun = Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), 9);
+  } else if (/\btomorrow\b/.test(t)) {
+    const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  } else if (inN) {
+    const n = Number(inN[1]); const unit = inN[2];
+    const d = new Date();
+    if (unit === "day") d.setUTCDate(d.getUTCDate() + n);
+    else if (unit === "week") d.setUTCDate(d.getUTCDate() + n * 7);
+    else d.setUTCMonth(d.getUTCMonth() + n);
+    d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  } else if (weekday >= 0) {
+    nextRun = nextWeekday(weekday) + 9 * 3_600_000; // 09:00 UTC that day
+  } else if (cadence === "daily") {
+    const d = new Date(); d.setUTCDate(d.getUTCDate() + 1); d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  } else if (cadence === "monthly") {
+    const d = new Date(); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  } else if (/next\s+week/.test(t)) {
+    const d = new Date(); d.setUTCDate(d.getUTCDate() + 7); d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  } else if (/next\s+month/.test(t)) {
+    const d = new Date(); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCHours(9, 0, 0, 0); nextRun = d.getTime();
+  }
+
+  return {
+    amount: base.amount,
+    token: base.token,
+    recipient: base.recipient,
+    cadence,
+    nextRun,
+    needsTime: nextRun == null,
+  };
+}
+
 export function detectQueryIntent(text: string): QueryIntent | null {
   const t = text.toLowerCase();
   // Checked first: "schedule 10 USDC every Friday" / "cancel my next scheduled

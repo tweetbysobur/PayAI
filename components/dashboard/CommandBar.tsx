@@ -21,6 +21,7 @@ const EXAMPLES = [
 const CAPABILITIES: { verb: string; example: string }[] = [
   { verb: "Swap", example: "swap 1 MON to USDC" },
   { verb: "Send", example: "send 5 MON to gentle.nads" },
+  { verb: "Schedule", example: "schedule 10 USDC to gentle.nads every Friday" },
   { verb: "Invoice", example: "create invoice for 50 USDC" },
   { verb: "Balance", example: "what's my balance" },
   { verb: "History", example: "show today's transactions" },
@@ -287,7 +288,17 @@ export function CommandBar() {
                   </motion.div>
                 )}
 
-                {c.info && !c.loading && (
+                {c.info && !c.loading && c.info.query === "scheduled" && (
+                  <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-success">
+                      <CheckCircle2 size={16} /> Payment scheduled
+                    </div>
+                    <p className="mt-1.5 text-sm text-foreground">{c.info.scheduleSummary}</p>
+                    <a href="/dashboard/scheduled" className="mt-2.5 inline-block text-xs text-primary hover:underline">Manage scheduled payments →</a>
+                  </div>
+                )}
+
+                {c.info && !c.loading && c.info.query !== "scheduled" && (
                   <div className="rounded-xl border border-border bg-input/30 p-4 text-sm text-foreground">
                     {c.info.query === "show_history"
                       ? `You have ${c.info.count ?? c.info.history?.length ?? 0} recorded transaction${(c.info.count ?? 0) === 1 ? "" : "s"}.`

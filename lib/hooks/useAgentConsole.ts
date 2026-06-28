@@ -70,7 +70,9 @@ export interface Onchain {
 }
 export interface InfoResult {
   decision: "info";
-  query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
+  query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment" | "scheduled";
+  /** Human summary of a just-created schedule, e.g. "10 USDC to gentle.nads, every Friday — next Jul 3." */
+  scheduleSummary?: string;
   count?: number;
   history?: { at: number; decision: string; summary: string; amount: number | null; token: string; txHash?: string; explorerUrl?: string }[];
   compliance?: { approved: number; rejected: number; review: number; blocked: number; approvalRate: number };
@@ -296,6 +298,21 @@ export function useAgentConsole() {
       }
       if (decision === "swap_error") {
         setErr(json.error || "Couldn't build the swap.");
+        return;
+      }
+      if (decision === "schedule_error") {
+        setErr(json.error || "Couldn't create the schedule.");
+        return;
+      }
+      if (decision === "scheduled") {
+        const s = (json as { schedule?: { amount: number; token: string; domain?: string | null; recipient: string; cadence: string; nextRun: number } }).schedule;
+        const cadence = s?.cadence === "once" ? "one-time" : s?.cadence;
+        const when = s ? new Date(s.nextRun).toLocaleString() : "";
+        setInfo({
+          decision: "info", query: "scheduled",
+          scheduleSummary: s ? `${s.amount} ${s.token} to ${s.domain ?? s.recipient.slice(0, 6) + "…" + s.recipient.slice(-4)} · ${cadence} · first run ${when}` : "Schedule created.",
+        });
+        loadOnchain();
         return;
       }
       if (decision === "swap_ready" && json.swap) {

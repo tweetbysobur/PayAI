@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { agentConfig, checkGuardrails, detectQueryIntent, detectSwapIntent, MAX_INPUT_LENGTH, parseIntent, sanitizeInput } from "@/lib/agent/brain";
+import { agentConfig, checkGuardrails, detectQueryIntent, detectSwapIntent, MAX_INPUT_LENGTH, parseIntent, parseScheduleIntent, sanitizeInput } from "@/lib/agent/brain";
 import type { AgentResult, TraceEntry } from "@/lib/agent/types";
 import { assessRisk, execute, runCompliance } from "@/lib/verigate/client";
 import type { PaymentRequest } from "@/lib/verigate/types";
@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       decision: "info",
       query: "scheduled_payment",
-      error: "Scheduled and recurring payments aren't available yet — PayAI only supports payments you send right now. Send this payment manually each time it's due, and check back as recurring payments are built.",
+      error: "To manage or cancel an existing schedule, open Scheduled Payments in your dashboard. To create one, say e.g. \"schedule 10 USDC to gentle.nads every Friday\".",
       success: false,
-    }, { status: 501 });
+    }, { status: 200 });
   }
   if (query === "show_history") {
     const { listTx } = await import("@/lib/platform/store");
@@ -130,6 +130,53 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       return NextResponse.json({ decision: "swap_error", error: e instanceof Error ? e.message : "Couldn't build the swap.", success: false }, { status: 502 });
     }
+  }
+
+  // 0a-bis. Scheduled / recurring payment ("schedule 10 USDC to gentle.nads
+  // every friday"). Creates a real schedule that the cron runner fires through
+  // the custodial agent path when due — it is NOT settled now. Validated up
+  // front (amount cap, resolvable recipient) so a bad schedule never persists.
+  const sched = parseScheduleIntent(text);
+  if (sched) {
+    if (sched.amount == null || sched.amount <= 0) {
+      return NextResponse.json({ decision: "schedule_error", error: "Tell me how much to schedule, e.g. \"schedule 10 USDC to gentle.nads every Friday\".", success: false }, { status: 400 });
+    }
+    if (sched.amount > agentConfig.maxAmount) {
+      return NextResponse.json({ decision: "schedule_error", error: `Amount ${sched.amount} exceeds the agent cap of ${agentConfig.maxAmount}.`, success: false }, { status: 422 });
+    }
+    if (!sched.recipient) {
+      return NextResponse.json({ decision: "schedule_error", error: "Who should the scheduled payment go to? Add a recipient, e.g. \"…to gentle.nads\".", success: false }, { status: 400 });
+    }
+    if (sched.needsTime || sched.nextRun == null) {
+      return NextResponse.json({ decision: "schedule_error", error: "When should it run? Add a time, e.g. \"every Friday\", \"tomorrow\", \"on 2026-07-01\", or \"in 3 days\".", success: false }, { status: 400 });
+    }
+    // Resolve the recipient to a real address (domain → payee → 0x), same rules
+    // as an instant payment, so a schedule can never fire to an unresolved name.
+    let recipient = sched.recipient;
+    let domain: string | null = null;
+    if (!isAddress(recipient)) {
+      if (isDomainName(recipient)) {
+        const { resolveDomain } = await import("@/lib/monad/domain-resolver");
+        const dom = extractDomain(recipient) ?? recipient;
+        const resolution = await resolveDomain(dom);
+        if (!resolution.resolvedAddress) {
+          return NextResponse.json({ decision: "schedule_error", error: `Couldn't resolve ${dom}. Check the name and try again.`, success: false }, { status: 422 });
+        }
+        domain = resolution.domain;
+        recipient = resolution.resolvedAddress;
+      } else {
+        const payee = resolvePayee(recipient);
+        if (!payee) {
+          return NextResponse.json({ decision: "schedule_error", error: `"${recipient}" isn't a valid address, .nad domain, or known payee.`, success: false }, { status: 422 });
+        }
+        recipient = payee.address;
+      }
+    }
+    const { createSchedule } = await import("@/lib/platform/schedules");
+    const row = await createSchedule(merchantId, {
+      amount: sched.amount, token: sched.token, recipient, domain, cadence: sched.cadence, nextRun: sched.nextRun,
+    });
+    return NextResponse.json({ decision: "scheduled", schedule: row, success: true });
   }
 
   // 0b. Idempotency claim — every decision-producing path below (refused,

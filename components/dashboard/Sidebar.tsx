@@ -4,13 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
-  ShieldCheck, BarChart3, Wallet, Settings,
+  ShieldCheck, BarChart3, Wallet, Settings, CalendarClock,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
   { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
+  { href: "/dashboard/scheduled", label: "Scheduled", icon: CalendarClock, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
   { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments" },
