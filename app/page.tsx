@@ -8,7 +8,7 @@ import {
   MessageSquare, Brain, ShieldHalf, Zap, CheckCircle2, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
   ScrollText, Wallet as WalletIcon, Eye, Hash, Blocks, BadgeCheck,
-  Rocket, BookOpen, Code2, LifeBuoy, Compass,
+  Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles,
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { Logo } from "@/components/Logo";
@@ -61,6 +61,43 @@ const SECURITY = [
   { icon: Lock, title: "Wallet Ownership" },
   { icon: ShieldHalf, title: "Compliance Controls" },
   { icon: ScrollText, title: "Audit Trail" },
+];
+
+const TECHNOLOGY = [
+  { icon: Network, title: "Monad Mainnet", body: "Every payment settles on Monad's high-performance L1 — sub-second finality, real on-chain receipts." },
+  { icon: Blocks, title: "Smart Contracts", body: "A deployed PaymentExecutor with idempotent settlement and on-chain per-tx and daily caps." },
+  { icon: Brain, title: "AI Payment Engine", body: "Natural-language intent parsing turns plain English into structured, verifiable payments." },
+  { icon: ShieldHalf, title: "VeriGate Compliance", body: "Screening, risk scoring, and travel-rule checks run before any transaction is signed." },
+  { icon: Lock, title: "Wallet Security", body: "Non-custodial by design — you approve every payment in your own wallet. Keys never leave it." },
+];
+
+const FEATURES = [
+  { icon: Brain, title: "AI Payments", body: "Pay in plain language." },
+  { icon: Coins, title: "MON & USDC", body: "Native and stablecoin transfers." },
+  { icon: ArrowDownLeft, title: "Token Swaps", body: "Swap MON ↔ USDC on-chain." },
+  { icon: AtSign, title: ".nads Domains", body: "Send to human-readable names." },
+  { icon: MessageSquare, title: "Scheduled Payments", body: "Recurring & future-dated." },
+  { icon: ScrollText, title: "Transaction History", body: "Full, exportable audit trail." },
+  { icon: LayoutDashboard, title: "Wallet Dashboard", body: "Balances, stats, insights." },
+  { icon: Receipt, title: "Analytics", body: "Volume and trends over time." },
+  { icon: ShieldHalf, title: "Compliance", body: "Screened on every payment." },
+  { icon: ExternalLink, title: "Explorer Integration", body: "Verify every tx on Monad." },
+];
+
+const FAQS = [
+  { q: "Is PayAI custodial? Who controls my funds?", a: "PayAI is non-custodial. You connect your own wallet and approve every payment yourself — your private keys never leave your wallet, and PayAI never asks for your seed phrase." },
+  { q: "What network do payments settle on?", a: "Monad Mainnet (chain ID 143). Every transfer, swap, and scheduled payment is a real on-chain transaction you can verify on the Monad explorer." },
+  { q: "Which assets can I send?", a: "Native MON and USDC. You can also swap between them on-chain, and send to .nads domain names which resolve to real addresses." },
+  { q: "How do scheduled payments work without me signing each time?", a: "Recurring and future-dated payments settle through an authorized agent contract bounded by on-chain per-transaction and daily caps — so automated payments can never exceed limits you control." },
+  { q: "How does compliance work?", a: "Before any payment is signed, VeriGate runs address screening, risk scoring, and travel-rule checks. Payments that fail hard checks are blocked; borderline ones are held for review." },
+  { q: "Is the smart contract verified?", a: "Yes — the PaymentExecutor and registry are deployed and live on Monad Mainnet. The footer links directly to the contract on the explorer." },
+];
+
+const TRUST = [
+  { icon: Network, title: "Live on Mainnet", body: "Running on Monad Mainnet — not a testnet demo." },
+  { icon: BadgeCheck, title: "Smart Contract Verified", body: "Settlement contract deployed and live on-chain." },
+  { icon: Brain, title: "AI Verified Intent", body: "Every instruction parsed and confirmed before signing." },
+  { icon: Blocks, title: "On-Chain Settlement", body: "Real transactions, real receipts, fully traceable." },
 ];
 
 const shortAddr = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
@@ -253,13 +290,22 @@ export default function LandingPage() {
             <h1 className="flex flex-wrap items-center gap-3 text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
               AI-Powered Payments on Monad <MonadMark size={40} className="inline-block translate-y-1" />
             </h1>
-            <p className="mt-5 max-w-md text-base text-muted-foreground">
-              Send MON and USDC using natural language, compliance checks, and on-chain settlement.
+            <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
+              Send, swap, and schedule MON and USDC by simply describing what you want. Every payment is
+              screened for compliance and settled on Monad Mainnet — non-custodial, verifiable, instant.
             </p>
-            <div className="mt-8 flex items-center gap-3">
-              <Link href="/connect" className="rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
-                Launch App
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/connect" className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+                <Sparkles size={15} /> Launch App
               </Link>
+              <a href="#how" className="rounded-md border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:bg-input">
+                See how it works
+              </a>
+            </div>
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> Non-custodial</span>
+              <span className="flex items-center gap-1.5"><BadgeCheck size={12} className="text-success" /> Live on Monad Mainnet</span>
+              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Compliance-screened</span>
             </div>
           </motion.div>
 
@@ -293,8 +339,29 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Technology */}
+      <section className="border-t border-border bg-panel/30 py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Built on serious infrastructure</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">PayAI combines an AI payment engine, real compliance, and on-chain settlement — no mock layers.</p>
+          </motion.div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {TECHNOLOGY.map((t, i) => (
+              <motion.div key={t.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }} whileHover={{ y: -3 }}>
+                <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><t.icon size={18} /></div>
+                  <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* How It Works */}
-      <section className="mx-auto max-w-6xl px-6 py-16">
+      <section id="how" className="mx-auto max-w-6xl px-6 py-16">
         <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-5 sm:gap-2">
           <div className="absolute left-0 right-0 top-7 hidden h-px bg-border sm:block" />
           {FLOW.map((step, i) => (
@@ -351,6 +418,25 @@ export default function LandingPage() {
               </AnimatePresence>
             </Link>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="mx-auto max-w-6xl px-6 py-20">
+        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-foreground">Everything you need to move money</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Only shipped, working features — each one settles real value on Monad Mainnet.</p>
+        </motion.div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {FEATURES.map((f, i) => (
+            <motion.div key={f.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 5) * 0.04, duration: 0.3 }} whileHover={{ y: -3 }}>
+              <div className="h-full rounded-xl border border-border bg-panel p-4 transition-colors hover:border-primary/30">
+                <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary"><f.icon size={16} /></div>
+                <h3 className="text-sm font-semibold text-foreground">{f.title}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.body}</p>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </section>
 
@@ -440,6 +526,37 @@ export default function LandingPage() {
               )}
             </Card>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Trust signals — real, not testimonials */}
+      <section className="border-t border-border bg-panel/30 py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Trust the chain, not the claim</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">No paid reviews. Just verifiable on-chain facts.</p>
+          </motion.div>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {TRUST.map((t, i) => (
+              <motion.div key={t.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.05, duration: 0.35 }}>
+                <div className="flex h-full flex-col items-center rounded-xl border border-border bg-panel p-5 text-center">
+                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-success/12 text-success"><t.icon size={19} /></div>
+                  <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t.body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="mx-auto max-w-3xl px-6 py-20">
+        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-8 text-center text-3xl font-semibold tracking-tight text-foreground">
+          Frequently asked questions
+        </motion.h2>
+        <div className="space-y-3">
+          {FAQS.map((f) => <FaqItem key={f.q} q={f.q} a={f.a} />)}
         </div>
       </section>
 
@@ -548,5 +665,33 @@ export default function LandingPage() {
         </div>
       </footer>
     </main>
+  );
+}
+
+/** Accessible FAQ accordion row — keyboard-operable, animated height. */
+function FaqItem({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-panel">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-input/40"
+      >
+        <span className="text-sm font-medium text-foreground">{q}</span>
+        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180 text-primary" : ""}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+            <p className="px-5 pb-4 text-sm leading-relaxed text-muted-foreground">{a}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
