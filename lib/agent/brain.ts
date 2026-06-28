@@ -36,6 +36,32 @@ export const MAX_INPUT_LENGTH = 500;
  */
 export type QueryIntent = "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
 
+/** A parsed swap request — distinct from a payment (two tokens, no recipient). */
+export interface SwapIntent {
+  fromToken: "MON" | "USDC";
+  toToken: "MON" | "USDC";
+  amount: number | null;
+}
+
+/**
+ * Detect a token swap up front ("swap 1 MON to USDC", "convert 5 USDC for MON",
+ * "exchange 2 MON into USDC"). Swaps go through the DEX path, not the payment
+ * pipeline — they have a from-token and a to-token and no recipient. Returns
+ * null when the text isn't a swap so the normal pipeline runs.
+ */
+export function detectSwapIntent(text: string): SwapIntent | null {
+  const t = text.toLowerCase();
+  if (!/\b(swap|convert|exchange|trade)\b/.test(t)) return null;
+  // "<verb> [amount] <FROM> (to|for|into|->) <TO>"
+  const m = t.match(/\b(?:swap|convert|exchange|trade)\b[^a-z0-9]*(\d+(?:[.,]\d+)?)?\s*(mon|usdc)\b\s*(?:to|for|into|->|→|>)?\s*(mon|usdc)\b/);
+  if (!m) return null;
+  const from = m[2].toUpperCase() as "MON" | "USDC";
+  const to = m[3].toUpperCase() as "MON" | "USDC";
+  if (from === to) return null;
+  const amount = m[1] != null ? Number(m[1].replace(",", ".")) : null;
+  return { fromToken: from, toToken: to, amount: Number.isFinite(amount as number) ? amount : null };
+}
+
 export function detectQueryIntent(text: string): QueryIntent | null {
   const t = text.toLowerCase();
   // Checked first: "schedule 10 USDC every Friday" / "cancel my next scheduled

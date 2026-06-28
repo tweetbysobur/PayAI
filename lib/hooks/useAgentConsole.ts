@@ -78,6 +78,25 @@ export interface InfoResult {
   error?: string;
 }
 
+/* ── Swap (DEX) ─────────────────────────────────────────────────────────────
+   Swaps don't use the payment pipeline — they read a live DEX quote and sign
+   one or two transactions (optional approval + the swap). Its own state shape. */
+export interface SwapStep { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }
+export interface SwapQuoteView {
+  fromToken: string; toToken: string; amountIn: number;
+  amountOut: number; minAmountOut: number; feeTier: number; slippage: number; rate: number;
+}
+export interface SwapPlanView { quote: SwapQuoteView; steps: SwapStep[]; summary: string }
+export interface SwapState {
+  phase: "ready" | "signing" | "done" | "error";
+  plan: SwapPlanView;
+  provider?: string;
+  stepIndex: number;
+  txHash?: string;
+  explorerUrl?: string;
+  error?: string;
+}
+
 export const STAGE_LABEL: Record<string, string> = {
   intent: "Understanding the request",
   guardrails: "Safety checks",
@@ -155,6 +174,7 @@ export function useAgentConsole() {
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<AgentResult | null>(null);
   const [info, setInfo] = useState<InfoResult | null>(null);
+  const [swap, setSwap] = useState<SwapState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -205,8 +225,41 @@ export function useAgentConsole() {
     }
   }
 
+  /** Sign the swap's steps in order (approval first when present), verify the
+   *  final tx on-chain, then refresh balances. Non-custodial — the wallet signs. */
+  async function executeSwap(plan: SwapPlanView, provider?: string) {
+    setSwap({ phase: "signing", plan, provider, stepIndex: 0 });
+    try {
+      let lastHash = "";
+      for (let i = 0; i < plan.steps.length; i++) {
+        setSwap((s) => (s ? { ...s, stepIndex: i } : s));
+        lastHash = await wallet.sendTransaction(plan.steps[i].tx);
+        await wallet.waitForReceipt(lastHash);
+      }
+      const r = await fetch("/api/swap/confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: wallet.address,
+          txHash: lastHash,
+          fromToken: plan.quote.fromToken,
+          toToken: plan.quote.toToken,
+          amountIn: plan.quote.amountIn,
+          amountOut: plan.quote.amountOut,
+        }),
+      });
+      const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean };
+      if (!cj.success) throw new Error(cj.error || "The swap could not be confirmed.");
+      setSwap((s) => (s ? { ...s, phase: "done", txHash: lastHash, explorerUrl: cj.explorerUrl } : s));
+      loadOnchain();
+      balances.refresh();
+    } catch (e) {
+      setSwap((s) => (s ? { ...s, phase: "error", error: friendlyError(e instanceof Error ? e.message : "Swap failed.") } : s));
+    }
+  }
+
   async function run(text: string) {
-    setLoading(true); setErr(null); setRes(null); setInfo(null);
+    setLoading(true); setErr(null); setRes(null); setInfo(null); setSwap(null);
     // Reuse the same idempotencyKey for an identical in-flight request — this
     // is what makes "double-click Send" or "close tab, reopen, click Send
     // again before the first request resolves" safe: the resubmission
@@ -226,9 +279,19 @@ export function useAgentConsole() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ intent: text, walletAddress: wallet.address, idempotencyKey }),
       });
-      const json = (await r.json()) as (AgentResult | InfoResult) & { error?: string };
-      if (json.decision === "info") {
+      const json = (await r.json()) as (AgentResult | InfoResult) & { error?: string; swap?: SwapPlanView; provider?: string };
+      const decision = json.decision as string;
+      if (decision === "info") {
         setInfo(json as InfoResult);
+        return;
+      }
+      if (decision === "swap_error") {
+        setErr(json.error || "Couldn't build the swap.");
+        return;
+      }
+      if (decision === "swap_ready" && json.swap) {
+        setLoading(false);
+        await executeSwap(json.swap, json.provider);
         return;
       }
       if (!("intent" in json) || !json.intent) throw new Error(json.error || "Request failed");
@@ -259,7 +322,7 @@ export function useAgentConsole() {
 
   return {
     wallet, balances, walletBusy, setWalletBusy,
-    intent, setIntent, loading, res, info, err, health, history, onchain,
+    intent, setIntent, loading, res, info, swap, setSwap, err, health, history, onchain,
     loadOnchain, run, steps,
   };
 }

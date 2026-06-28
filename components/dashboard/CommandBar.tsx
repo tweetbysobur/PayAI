@@ -5,14 +5,25 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
   ExternalLink, CornerDownLeft, ArrowUpRight, FileText, ListChecks,
+  ArrowLeftRight, Loader2, Wallet,
 } from "lucide-react";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { useAgentConsole, DECISION, short, phraseSummary } from "@/lib/hooks/useAgentConsole";
 
 const EXAMPLES = [
+  { label: "Swap 1 MON to USDC", icon: ArrowLeftRight },
   { label: "Send 5 MON to gentle.nads", icon: ArrowUpRight },
   { label: "Create invoice for 50 USDC", icon: FileText },
   { label: "Show today's transactions", icon: ListChecks },
+];
+
+/** What Ask PayAI can do — surfaced so the bar advertises its full range. */
+const CAPABILITIES: { verb: string; example: string }[] = [
+  { verb: "Swap", example: "swap 1 MON to USDC" },
+  { verb: "Send", example: "send 5 MON to gentle.nads" },
+  { verb: "Invoice", example: "create invoice for 50 USDC" },
+  { verb: "Balance", example: "what's my balance" },
+  { verb: "History", example: "show today's transactions" },
 ];
 
 const STATUS_ICON: Record<string, typeof CheckCircle2> = {
@@ -39,6 +50,7 @@ const STATUS_RING: Record<string, string> = {
  */
 export function CommandBar() {
   const [open, setOpen] = useState(false);
+  const [sel, setSel] = useState(0);
   const c = useAgentConsole();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -55,8 +67,20 @@ export function CommandBar() {
   }, []);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+    if (open) { setSel(0); setTimeout(() => inputRef.current?.focus(), 50); }
   }, [open]);
+
+  // Arrow-key navigation over the example suggestions, shown only while idle.
+  const showExamples = !c.res && !c.info && !c.swap && !c.loading && !c.err;
+
+  function onInputKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (showExamples && !c.intent) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => (s + 1) % EXAMPLES.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => (s - 1 + EXAMPLES.length) % EXAMPLES.length); return; }
+      if (e.key === "Enter") { e.preventDefault(); const ex = EXAMPLES[sel].label; c.setIntent(ex); c.run(ex); return; }
+    }
+    if (e.key === "Enter" && c.intent && !c.loading) c.run(c.intent);
+  }
 
   const res = c.res;
   const StatusIcon = res ? STATUS_ICON[res.decision] ?? AlertTriangle : null;
@@ -83,17 +107,17 @@ export function CommandBar() {
               initial={{ opacity: 0, y: -16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
+              className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
             >
               {/* Search row */}
-              <div className="flex items-center gap-3 border-b border-border px-4 py-3.5">
+              <div className="flex items-center gap-3 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
                   <Sparkles size={15} />
                 </span>
                 <input
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && c.intent && !c.loading && c.run(c.intent)}
+                  onKeyDown={onInputKey}
                   placeholder="Ask PayAI — e.g. Send 5 MON to gentle.nads"
                   className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
@@ -102,20 +126,40 @@ export function CommandBar() {
 
               <div className="max-h-[52vh] overflow-y-auto p-4">
                 {/* Idle — suggestions */}
-                {!res && !c.info && !c.loading && !c.err && (
+                {showExamples && (
                   <div>
                     <p className="mb-2.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Try</p>
                     <div className="space-y-1.5">
-                      {EXAMPLES.map((ex) => (
+                      {EXAMPLES.map((ex, i) => (
                         <button
                           key={ex.label}
+                          onMouseEnter={() => setSel(i)}
                           onClick={() => { c.setIntent(ex.label); c.run(ex.label); }}
-                          className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm text-foreground transition hover:border-border hover:bg-input"
+                          className={`group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition ${
+                            sel === i && !c.intent
+                              ? "border-primary/40 bg-input text-foreground"
+                              : "border-transparent text-foreground hover:border-border hover:bg-input"
+                          }`}
                         >
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input text-muted-foreground transition group-hover:text-primary">
+                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input transition ${sel === i && !c.intent ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>
                             <ex.icon size={14} />
                           </span>
-                          {ex.label}
+                          <span className="flex-1">{ex.label}</span>
+                          {sel === i && !c.intent && (
+                            <CornerDownLeft size={13} className="shrink-0 text-muted-foreground" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border pt-3">
+                      {CAPABILITIES.map((cap) => (
+                        <button
+                          key={cap.verb}
+                          onClick={() => { c.setIntent(cap.example); inputRef.current?.focus(); }}
+                          className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                          title={cap.example}
+                        >
+                          {cap.verb}
                         </button>
                       ))}
                     </div>
@@ -128,6 +172,66 @@ export function CommandBar() {
                   </div>
                 )}
 
+                {/* Swap (DEX) — its own flow, not the payment pipeline */}
+                {c.swap && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="rounded-xl border border-border bg-input/30 p-4"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
+                        {c.swap.phase === "signing" ? <Loader2 size={18} className="animate-spin" /> : c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} className="text-danger" /> : <ArrowLeftRight size={18} />}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground">
+                          {c.swap.phase === "signing" ? "Swapping…" : c.swap.phase === "done" ? "Swap complete" : c.swap.phase === "error" ? "Swap failed" : "Review swap"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          via {c.swap.provider ?? "Uniswap v3"} · {c.swap.plan.quote.feeTier / 10000}% pool · {(c.swap.plan.quote.slippage * 100).toFixed(2)}% max slippage
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-panel px-3 py-3">
+                      <div className="text-center">
+                        <p className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{c.swap.plan.quote.amountIn}</p>
+                        <p className="text-[11px] text-muted-foreground">{c.swap.plan.quote.fromToken}</p>
+                      </div>
+                      <ArrowLeftRight size={15} className="shrink-0 text-muted-foreground" />
+                      <div className="text-center">
+                        <p className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
+                          ≈ {c.swap.plan.quote.amountOut.toFixed(c.swap.plan.quote.toToken === "USDC" ? 2 : 4)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">{c.swap.plan.quote.toToken}</p>
+                      </div>
+                    </div>
+
+                    {c.swap.phase === "signing" && c.swap.plan.steps.length > 1 && (
+                      <p className="mt-2.5 text-xs text-muted-foreground">
+                        Step {c.swap.stepIndex + 1} of {c.swap.plan.steps.length}: {c.swap.plan.steps[c.swap.stepIndex]?.label}
+                      </p>
+                    )}
+                    {c.swap.phase === "signing" && (
+                      <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Wallet size={12} /> Approve in your wallet — settles on Monad in seconds.
+                      </p>
+                    )}
+                    {c.swap.phase === "error" && c.swap.error && (
+                      <p className="mt-2.5 text-xs text-danger">{c.swap.error}</p>
+                    )}
+                    {c.swap.phase === "done" && c.swap.explorerUrl && (
+                      <a
+                        href={c.swap.explorerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary transition hover:border-primary/40"
+                      >
+                        {short(c.swap.txHash)} <ExternalLink size={11} />
+                      </a>
+                    )}
+                  </motion.div>
+                )}
+
                 {c.err && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
                     <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {c.err}
@@ -135,7 +239,10 @@ export function CommandBar() {
                 )}
 
                 {res && !c.loading && (
-                  <div className="rounded-xl border border-border bg-input/30 p-4">
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="rounded-xl border border-border bg-input/30 p-4"
+                  >
                     <div className="flex items-center gap-3">
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${STATUS_RING[res.decision] ?? "bg-input text-muted-foreground"}`}>
                         {StatusIcon && <StatusIcon size={18} />}
@@ -167,7 +274,7 @@ export function CommandBar() {
                         {short(res.transaction.txHash)} <ExternalLink size={11} />
                       </a>
                     )}
-                  </div>
+                  </motion.div>
                 )}
 
                 {c.info && !c.loading && (
@@ -189,11 +296,18 @@ export function CommandBar() {
 
               {/* Footer hints */}
               <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-4">
+                  <span className="flex items-center gap-1.5">
+                    <kbd className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-0.5"><CornerDownLeft size={10} /> Enter</kbd> run
+                  </span>
+                  {showExamples && !c.intent && (
+                    <span className="hidden items-center gap-1.5 sm:flex">
+                      <kbd className="rounded border border-border px-1.5 py-0.5">↑↓</kbd> navigate
+                    </span>
+                  )}
+                </div>
                 <span className="flex items-center gap-1.5">
-                  <kbd className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-0.5"><CornerDownLeft size={10} /> Enter</kbd> to run
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <kbd className="rounded border border-border px-1.5 py-0.5">Esc</kbd> to close
+                  <kbd className="rounded border border-border px-1.5 py-0.5">Esc</kbd> close
                 </span>
               </div>
             </motion.div>
