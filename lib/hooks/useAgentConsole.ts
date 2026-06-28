@@ -258,7 +258,16 @@ export function useAgentConsole() {
     }
   }
 
+  /** Clear everything back to the idle prompt — used after a command finishes
+   *  so the bar returns to its start state instead of holding the old result. */
+  function reset() {
+    setIntent(""); setRes(null); setInfo(null); setSwap(null); setErr(null); setLoading(false);
+  }
+
   async function run(text: string) {
+    // Empty the input the moment a command is dispatched — like a real command
+    // bar, the typed prompt shouldn't linger over the result.
+    setIntent("");
     setLoading(true); setErr(null); setRes(null); setInfo(null); setSwap(null);
     // Reuse the same idempotencyKey for an identical in-flight request — this
     // is what makes "double-click Send" or "close tab, reopen, click Send
@@ -323,6 +332,6 @@ export function useAgentConsole() {
   return {
     wallet, balances, walletBusy, setWalletBusy,
     intent, setIntent, loading, res, info, swap, setSwap, err, health, history, onchain,
-    loadOnchain, run, steps,
+    loadOnchain, run, reset, steps,
   };
 }
