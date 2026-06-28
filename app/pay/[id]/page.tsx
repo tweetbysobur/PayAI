@@ -1,5 +1,6 @@
 import { getLinkGlobal } from "@/lib/platform/store";
 import { PayWithWallet } from "@/components/PayWithWallet";
+import { Logo } from "@/components/Logo";
 
 const STATUS_TONE: Record<string, string> = {
   active: "border-primary/30 bg-primary/10 text-primary",
@@ -19,9 +20,9 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
       <div className="rounded-lg border border-border bg-panel p-7">
-        <p className="text-sm font-medium text-muted-foreground">
-          Veri<span className="text-primary">PAY</span> AI · Payment request
-        </p>
+        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Logo size={20} /> PayAI <span className="text-muted-foreground">· Payment request</span>
+        </div>
 
         {!link ? (
           <div className="mt-6 text-center">

@@ -4,27 +4,43 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
-import { useAgentConsole, friendlyError } from "@/lib/hooks/useAgentConsole";
 import { recipientError, isValidRecipient } from "@/lib/validation";
 
 interface Compliance { approved: number; rejected: number; review: number; blocked: number; approvalRate: number }
 interface Analytics { compliance: Compliance }
+interface CheckResult {
+  recipient: string; domain: string | null; status: string; summary: string;
+  checks: { id: string; label: string; passed: boolean }[];
+  risk: { score: number; level: string };
+}
 
 export default function Compliance() {
   const [a, setA] = useState<Analytics | null>(null);
   const [addr, setAddr] = useState("");
   const [touched, setTouched] = useState(false);
-  const c = useAgentConsole();
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<CheckResult | null>(null);
+  const [err, setErr] = useState<string | null>(null);
   const addrErr = recipientError(addr);
 
   useEffect(() => {
     fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
   }, []);
 
-  function checkAddress() {
+  async function checkAddress() {
     setTouched(true);
     if (!isValidRecipient(addr)) return;
-    c.run(`Check compliance for ${addr.trim()}`);
+    setLoading(true); setErr(null); setResult(null);
+    try {
+      const r = await fetch("/api/compliance/check", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recipient: addr.trim() }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Compliance check failed.");
+      setResult(j as CheckResult);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Compliance check failed.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -64,17 +80,21 @@ export default function Compliance() {
 
         <Card title="Run a compliance check">
           <div className="flex flex-wrap gap-2">
-            <Input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="0x… or domain.nads" className="flex-1" />
-            <Button onClick={checkAddress} disabled={c.loading || !addr}>Check</Button>
+            <Input value={addr} onChange={(e) => setAddr(e.target.value)} onKeyDown={(e) => e.key === "Enter" && checkAddress()} placeholder="0x… or domain.nads" className="flex-1" />
+            <Button onClick={checkAddress} disabled={loading || !addr}>{loading ? "Checking…" : "Check"}</Button>
           </div>
           {touched && addrErr && <p className="mt-2 text-xs text-danger">{addrErr}</p>}
-          {c.err && <p className="mt-3 text-sm text-danger">{friendlyError(c.err)}</p>}
-          {c.res?.compliance && (
+          {err && <p className="mt-3 text-sm text-danger">{err}</p>}
+          {result && (
             <div className="mt-3">
-              <Badge tone={c.res.compliance.status === "approved" ? "success" : "warning"}>{c.res.compliance.status}</Badge>
-              <p className="mt-2 text-sm text-foreground">{c.res.compliance.summary}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={result.status === "approved" ? "success" : result.status === "review" ? "warning" : "danger"}>{result.status}</Badge>
+                <Badge tone={result.risk.level === "low" ? "success" : result.risk.level === "medium" ? "warning" : "danger"}>risk {result.risk.score}/100 · {result.risk.level}</Badge>
+                {result.domain && <span className="font-mono text-xs text-primary">{result.domain}</span>}
+              </div>
+              <p className="mt-2 text-sm text-foreground">{result.summary}</p>
               <ul className="mt-2 space-y-1 text-xs">
-                {c.res.compliance.checks.map((chk) => (
+                {result.checks.map((chk) => (
                   <li key={chk.id} className="flex items-center justify-between">
                     <span className="text-muted-foreground">{chk.label}</span>
                     <Badge tone={chk.passed ? "success" : "danger"}>{chk.passed ? "Passed" : "Failed"}</Badge>
