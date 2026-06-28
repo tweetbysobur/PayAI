@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkGuardrails, detectQueryIntent, MAX_INPUT_LENGTH, parseIntent, sanitizeInput } from "@/lib/agent/brain";
+import { agentConfig, checkGuardrails, detectQueryIntent, detectSwapIntent, MAX_INPUT_LENGTH, parseIntent, sanitizeInput } from "@/lib/agent/brain";
 import type { AgentResult, TraceEntry } from "@/lib/agent/types";
 import { assessRisk, execute, runCompliance } from "@/lib/verigate/client";
 import type { PaymentRequest } from "@/lib/verigate/types";
@@ -96,6 +96,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ decision: "info", query: "show_balance", balance, success: true });
     } catch {
       return NextResponse.json({ decision: "info", query: "show_balance", error: "Couldn't reach Monad to read your balance. Try again.", success: false }, { status: 502 });
+    }
+  }
+
+  // 0a. Token swap ("swap 1 MON to USDC") — a DEX action, not a payment, so it
+  // never enters the compliance/settlement pipeline. PayAI reads a live quote
+  // and hands back unsigned steps; the user's own wallet signs (non-custodial).
+  const swap = detectSwapIntent(text);
+  if (swap) {
+    if (swap.amount == null || swap.amount <= 0) {
+      return NextResponse.json({ decision: "swap_error", error: "Tell me how much to swap, e.g. \"swap 1 MON to USDC\".", success: false }, { status: 400 });
+    }
+    if (swap.amount > agentConfig.maxAmount) {
+      return NextResponse.json({ decision: "swap_error", error: `Amount ${swap.amount} exceeds the agent cap of ${agentConfig.maxAmount}.`, success: false }, { status: 422 });
+    }
+    const { getSwapProvider } = await import("@/lib/monad/swap");
+    const provider = getSwapProvider();
+    if (!provider.isConfigured()) {
+      return NextResponse.json({ decision: "swap_error", error: "Swaps are only available on Monad mainnet.", success: false }, { status: 501 });
+    }
+    if (!walletAddress) {
+      return NextResponse.json({ decision: "swap_error", error: "Connect your wallet to swap.", success: false }, { status: 400 });
+    }
+    try {
+      const plan = await provider.buildPlan(swap.fromToken, swap.toToken, swap.amount, walletAddress as `0x${string}`);
+      return NextResponse.json({
+        decision: "swap_ready",
+        provider: provider.name,
+        swap: plan,
+        confirmRawText: text,
+        success: false,
+      });
+    } catch (e) {
+      return NextResponse.json({ decision: "swap_error", error: e instanceof Error ? e.message : "Couldn't build the swap.", success: false }, { status: 502 });
     }
   }
 
