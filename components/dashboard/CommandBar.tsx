@@ -68,7 +68,17 @@ export function CommandBar() {
 
   useEffect(() => {
     if (open) { setSel(0); setTimeout(() => inputRef.current?.focus(), 50); }
+    // Closing always returns the bar to its idle start state — reopening should
+    // never show a stale result or the previous prompt.
+    else c.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  function startOver() {
+    c.reset();
+    setSel(0);
+    setTimeout(() => inputRef.current?.focus(), 10);
+  }
 
   // Arrow-key navigation over the example suggestions, shown only while idle.
   const showExamples = !c.res && !c.info && !c.swap && !c.loading && !c.err;
@@ -179,8 +189,8 @@ export function CommandBar() {
                     className="rounded-xl border border-border bg-input/30 p-4"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary">
-                        {c.swap.phase === "signing" ? <Loader2 size={18} className="animate-spin" /> : c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} className="text-danger" /> : <ArrowLeftRight size={18} />}
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${c.swap.phase === "done" ? "bg-success/12 text-success" : c.swap.phase === "error" ? "bg-danger/12 text-danger" : "bg-primary/12 text-primary"}`}>
+                        {c.swap.phase === "signing" ? <Loader2 size={18} className="animate-spin" /> : c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} /> : <ArrowLeftRight size={18} />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-foreground">
@@ -291,6 +301,18 @@ export function CommandBar() {
                             ? `${Math.round(c.info.compliance.approvalRate * 100)}% approval rate across your payments.`
                             : "No data yet."}
                   </div>
+                )}
+
+                {/* Once a command reaches a terminal state, offer a clean reset
+                    back to the start instead of leaving the old result sitting. */}
+                {((res && !c.loading) || c.info || c.err || (c.swap && (c.swap.phase === "done" || c.swap.phase === "error"))) && (
+                  <motion.button
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
+                    onClick={startOver}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+                  >
+                    <Sparkles size={14} /> New command
+                  </motion.button>
                 )}
               </div>
 
