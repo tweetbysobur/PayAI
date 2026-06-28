@@ -10,7 +10,7 @@ export interface WalletState {
   address: string | null;
   chainId: number | null;
   error: string | null;
-  connect: () => Promise<string>;
+  connect: (provider?: EthProvider) => Promise<string>;
   disconnect: () => Promise<void>;
   switchNetwork: () => Promise<void>;
   sendTransaction: (tx: { to: string; data?: string; value?: string }) => Promise<string>;
@@ -31,6 +31,11 @@ function useWalletState(): WalletState {
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The specific EIP-1193 provider the user connected with (a chosen wallet
+  // from EIP-6963 discovery, or the default injected one). All requests and
+  // event listeners use this, not a global, so the app talks to the exact
+  // wallet the user picked.
+  const [activeProvider, setActiveProvider] = useState<EthProvider | null>(null);
   // True only after the user explicitly connects this session — guards the
   // accountsChanged listener so a wallet event can never silently connect a
   // session the user never opted into.
@@ -43,13 +48,16 @@ function useWalletState(): WalletState {
 
   // Silent reconnect on load — only if the user connected before AND hasn't
   // explicitly disconnected (Disconnect revokes the wallet permission, so
-  // eth_accounts comes back empty after that and this won't reconnect).
+  // eth_accounts comes back empty after that and this won't reconnect). Uses
+  // the default injected provider; the /connect picker is how a specific
+  // wallet is chosen on a fresh connect.
   useEffect(() => {
     const eth = window.ethereum;
     if (!eth || localStorage.getItem(STORAGE_KEY) !== "1") return;
     (async () => {
       const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
       if (accounts[0]) {
+        setActiveProvider(eth);
         setAddress(accounts[0]);
         connectedRef.current = true;
         await readChain(eth);
@@ -60,13 +68,11 @@ function useWalletState(): WalletState {
     })().catch(() => {});
   }, [readChain]);
 
+  // Bind account/chain listeners to whichever provider is currently active.
   useEffect(() => {
-    const eth = window.ethereum;
+    const eth = activeProvider;
     if (!eth?.on) return;
     const onAccounts = (...args: unknown[]) => {
-      // Ignore wallet account events until the user has explicitly connected
-      // this session — otherwise the app could silently connect off a stray
-      // accountsChanged event from a previously-authorized wallet.
       if (!connectedRef.current) return;
       const accounts = args[0] as string[];
       if (accounts[0]) setAddress(accounts[0]);
@@ -79,16 +85,17 @@ function useWalletState(): WalletState {
       eth.removeListener?.("accountsChanged", onAccounts);
       eth.removeListener?.("chainChanged", onChain);
     };
-  }, []);
+  }, [activeProvider]);
 
-  const connect = useCallback(async (): Promise<string> => {
+  const connect = useCallback(async (provider?: EthProvider): Promise<string> => {
     setError(null);
-    const eth = window.ethereum;
+    const eth = provider ?? window.ethereum;
     if (!eth) {
-      setError("No wallet found. Install MetaMask or another Monad-compatible wallet.");
+      setError("No wallet found. Install MetaMask, Rabby, or another Monad-compatible wallet.");
       throw new Error("No wallet found.");
     }
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+    setActiveProvider(eth);
     setAddress(accounts[0]);
     connectedRef.current = true;
     localStorage.setItem(STORAGE_KEY, "1");
@@ -102,20 +109,21 @@ function useWalletState(): WalletState {
   // no silent reconnect can bring the session back. Local state is cleared
   // regardless, so wallets that don't support revoke still disconnect cleanly.
   const disconnect = useCallback(async () => {
+    const eth = activeProvider ?? window.ethereum;
     setAddress(null);
     setChainId(null);
     connectedRef.current = false;
+    setActiveProvider(null);
     localStorage.removeItem(STORAGE_KEY);
-    const eth = window.ethereum;
     try {
       await eth?.request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] });
     } catch {
       // Wallet doesn't support EIP-2255 revoke — local disconnect already done.
     }
-  }, []);
+  }, [activeProvider]);
 
   const switchNetwork = useCallback(async () => {
-    const eth = window.ethereum;
+    const eth = activeProvider ?? window.ethereum;
     if (!eth) return;
     setError(null);
     try {
@@ -139,13 +147,13 @@ function useWalletState(): WalletState {
       });
       await readChain(eth);
     }
-  }, [readChain]);
+  }, [readChain, activeProvider]);
 
   /** Sign and broadcast a raw transaction with the connected wallet. Supports
    *  both native value transfers (MON: pass `value`, no `data`) and contract
    *  calls (USDC transfer: pass `data`, no `value`). */
   const sendTransaction = useCallback(async (tx: { to: string; data?: string; value?: string }): Promise<string> => {
-    const eth = window.ethereum;
+    const eth = activeProvider ?? window.ethereum;
     if (!eth || !address) throw new Error("Wallet not connected.");
     const params: { from: string; to: string; data?: string; value?: string } = { from: address, to: tx.to };
     if (tx.data && tx.data !== "0x") params.data = tx.data;
@@ -154,7 +162,7 @@ function useWalletState(): WalletState {
       method: "eth_sendTransaction",
       params: [params],
     })) as string;
-  }, [address]);
+  }, [address, activeProvider]);
 
   // Awaiting the receipt is our own RPC read (not the wallet's), so it gets
   // the same fallback treatment as the server: try every configured URL.
