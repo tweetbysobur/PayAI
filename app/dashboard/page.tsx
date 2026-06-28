@@ -1,10 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus, ScrollText, Store } from "lucide-react";
-import { Badge, Card } from "@/components/ui";
+import {
+  ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus,
+  ScrollText, Store, Wallet, Copy, Check, CalendarClock, TrendingUp, Coins, Activity, Sparkles,
+} from "lucide-react";
+import { Badge, Card, CountUp } from "@/components/ui";
+import { Identicon } from "@/components/Identicon";
+import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 
@@ -14,9 +19,11 @@ interface Compliance { approved: number; rejected: number; review: number; block
 interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: number; total: number }; compliance: Compliance }
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 interface Onchain { configured: boolean; stats: { payments: number; volume: number; approved: number; rejected: number; requests: number } | null }
+interface Schedule { id: string; amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number; status: string }
 
-const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
+const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const DAY = 86_400_000;
 
 const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "neutral",
@@ -28,10 +35,15 @@ export default function Overview() {
   const [a, setA] = useState<Analytics | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const refresh = useCallback(() => {
     fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
+    fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
+    fetch("/api/schedule").then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).catch(() => {});
     fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history" }) })
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
   }, []);
@@ -47,48 +59,106 @@ export default function Overview() {
   const totalUsdc = balances.usdc ? Number(balances.usdc) : null;
   const monShare = totalMon != null && totalUsdc != null && totalMon + totalUsdc > 0 ? totalMon / (totalMon + totalUsdc) : null;
 
+  // Period transaction counts (computed from real settled history).
+  const counts = useMemo(() => {
+    const now = Date.now();
+    const settled = history.filter((h) => h.decision === "executed");
+    return {
+      lifetime: settled.length,
+      month: settled.filter((h) => now - h.at <= 30 * DAY).length,
+      week: settled.filter((h) => now - h.at <= 7 * DAY).length,
+    };
+  }, [history]);
+
+  // AI insights — derived from real settled payments, never fabricated.
+  const insights = useMemo(() => {
+    const settled = history.filter((h) => h.decision === "executed" && h.amount != null);
+    if (settled.length === 0) return null;
+    const largest = settled.reduce((m, h) => (h.amount! > (m.amount ?? 0) ? h : m), settled[0]);
+    const byAsset = settled.reduce<Record<string, number>>((acc, h) => { acc[h.token] = (acc[h.token] ?? 0) + 1; return acc; }, {});
+    const topAsset = Object.entries(byAsset).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "—";
+    const byDay = settled.reduce<Record<string, number>>((acc, h) => { const d = new Date(h.at).toLocaleDateString(undefined, { weekday: "long" }); acc[d] = (acc[d] ?? 0) + 1; return acc; }, {});
+    const topDay = Object.entries(byDay).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "—";
+    const avg = settled.reduce((s, h) => s + (h.amount ?? 0), 0) / settled.length;
+    return { largest, topAsset, topDay, avg };
+  }, [history]);
+
+  const upcoming = schedules.filter((s) => s.status === "upcoming");
+  const network = health?.wallet?.network ?? "Monad";
+  const walletStatus = !wallet.address ? { label: "Not connected", tone: "neutral" as const } : wallet.isWrongNetwork ? { label: "Wrong network", tone: "warning" as const } : { label: "Active", tone: "success" as const };
+
+  function copyAddr() {
+    if (!wallet.address) return;
+    navigator.clipboard?.writeText(wallet.address);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
   return (
     <div className="mx-auto max-w-7xl">
       <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Here&apos;s what&apos;s happening with your payments today.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+          <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90">
             <Send size={14} /> Send Payment
           </Link>
-          <Link href="/dashboard/wallets" className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-input">
+          <Link href="/dashboard/wallets" className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">
             <ArrowDownLeft size={14} /> Receive
           </Link>
         </div>
       </motion.div>
 
-      {/* KPI cards */}
+      {/* Wallet summary */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="mb-5">
+        <Card className="!p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {wallet.address ? <Identicon address={wallet.address} size={40} /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-input text-muted-foreground"><Wallet size={18} /></span>}
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-sm text-foreground">{wallet.address ? short(wallet.address) : "No wallet connected"}</p>
+                  {wallet.address && (
+                    <button onClick={copyAddr} className="text-muted-foreground transition hover:text-foreground" title="Copy address">
+                      {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                    </button>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">{wallet.address ? "Connected wallet" : <Link href="/connect" className="text-primary hover:underline">Connect to get started →</Link>}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-5">
+              <div className="text-right">
+                <div className="flex items-center justify-end gap-1.5 text-sm font-medium text-foreground"><MonadMark size={14} /> {network}</div>
+                <p className="mt-0.5 text-xs text-muted-foreground">Network</p>
+              </div>
+              <div className="text-right">
+                <Badge tone={walletStatus.tone}>{walletStatus.label}</Badge>
+                <p className="mt-1 text-xs text-muted-foreground">Status</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </motion.div>
+
+      {/* Portfolio + headline KPIs (animated) */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Wallet balance (MON)", value: totalMon != null ? fmt(totalMon) : wallet.address ? "—" : "connect wallet", unit: totalMon != null ? "MON" : null, icon: ArrowUpRight, tone: "primary" as const },
-          { label: "Wallet balance (USDC)", value: totalUsdc != null ? fmt(totalUsdc) : wallet.address ? "—" : "connect wallet", unit: totalUsdc != null ? "USDC" : null, icon: ArrowDownLeft, tone: "success" as const },
-          { label: "On-chain volume", value: onchain?.stats ? fmt(onchain.stats.volume) : "—", unit: onchain?.stats ? "USDC" : null, icon: Receipt, tone: "neutral" as const },
-          { label: "Transactions", value: r ? `${r.settledCount + r.failedCount}` : "—", unit: null, icon: ShieldCheck, tone: "neutral" as const },
+          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, tone: "primary" as const },
+          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, tone: "success" as const },
+          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "USDC", placeholder: "—", icon: Receipt, tone: "neutral" as const },
+          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, tone: "neutral" as const },
         ].map((k, i) => {
-          const iconTone = {
-            primary: "bg-primary/12 text-primary",
-            success: "bg-success/12 text-success",
-            neutral: "bg-input text-muted-foreground",
-          }[k.tone];
+          const iconTone = { primary: "bg-primary/12 text-primary", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
           return (
-            <motion.div
-              key={k.label}
-              initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}
-              whileHover={{ y: -2 }}
-            >
+            <motion.div key={k.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} whileHover={{ y: -2 }}>
               <Card className="p-5 transition-colors hover:border-primary/30">
-                <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconTone}`}>
-                  <k.icon size={16} />
-                </div>
+                <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconTone}`}><k.icon size={16} /></div>
                 <p className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
-                  {k.value}{k.unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{k.unit}</span>}
+                  {k.value != null ? <CountUp value={k.value} decimals={k.decimals} /> : k.placeholder}
+                  {k.value != null && k.unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{k.unit}</span>}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">{k.label}</p>
               </Card>
@@ -97,25 +167,49 @@ export default function Overview() {
         })}
       </div>
 
+      {/* Payment statistics + Payment volume */}
+      <div className="mb-5 grid gap-4 lg:grid-cols-2">
+        <Card title="Payment statistics">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            {[{ k: "Lifetime", v: counts.lifetime }, { k: "This month", v: counts.month }, { k: "This week", v: counts.week }].map((s) => (
+              <div key={s.k} className="rounded-lg border border-border bg-input/30 py-3">
+                <p className="text-xl font-semibold text-foreground [font-variant-numeric:tabular-nums]"><CountUp value={s.v} /></p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{s.k}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card title="Payment volume" right={r ? <span className="text-xs text-muted-foreground">{r.currency}</span> : undefined}>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            {[{ k: "Lifetime", v: r?.total ?? 0 }, { k: "This month", v: r?.thisMonth ?? 0 }, { k: "This week", v: r?.thisWeek ?? 0 }].map((s) => (
+              <div key={s.k} className="rounded-lg border border-border bg-input/30 py-3">
+                <p className="text-xl font-semibold text-foreground [font-variant-numeric:tabular-nums]"><CountUp value={s.v} decimals={2} /></p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{s.k}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        {/* Recent transactions — recipient, domain, asset, amount, status, explorer */}
+        {/* Recent transactions */}
         <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline">View all</Link>}>
           {history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No transactions yet.</p>
+            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K) — it settles on Monad in seconds." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-                  <tr><th className="py-1.5 pr-3">Recipient</th><th className="pr-3">Domain</th><th className="pr-3">Asset</th><th className="pr-3">Amount</th><th className="pr-3">Status</th><th>Explorer</th></tr>
+                  <tr><th className="py-1.5 pr-3">Recipient</th><th className="pr-3">Asset</th><th className="pr-3">Amount</th><th className="pr-3">Status</th><th className="pr-3">When</th><th>Explorer</th></tr>
                 </thead>
                 <tbody className="text-foreground">
                   {history.slice(0, 6).map((h, i) => (
                     <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }} className="border-t border-border">
-                      <td className="py-1.5 pr-3 font-mono text-xs">{short(h.recipient)}</td>
-                      <td className="pr-3 text-xs text-primary">{h.domain ?? "—"}</td>
+                      <td className="py-1.5 pr-3 font-mono text-xs">{h.domain ?? short(h.recipient)}</td>
                       <td className="pr-3">{h.token}</td>
-                      <td className="pr-3">{h.amount ?? "—"}</td>
+                      <td className="pr-3 [font-variant-numeric:tabular-nums]">{h.amount ?? "—"}</td>
                       <td className="pr-3"><Badge tone={DECISION_TONE[h.decision] ?? "neutral"}>{h.decision}</Badge></td>
+                      <td className="pr-3 text-xs text-muted-foreground">{new Date(h.at).toLocaleDateString()}</td>
                       <td>{h.txHash && h.explorerUrl ? <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary hover:underline">{short(h.txHash)} ↗</a> : "—"}</td>
                     </motion.tr>
                   ))}
@@ -125,63 +219,96 @@ export default function Overview() {
           )}
         </Card>
 
-        {/* Compliance status — real, from VeriGate aggregate */}
-        <Card title="Compliance status">
+        {/* Compliance status */}
+        <Card title="Compliance center">
           {a ? (
             <div className="flex flex-col items-center">
               <div className="relative h-32 w-32" title={`${Math.round(a.compliance.approvalRate * 100)}% approval rate`}>
                 <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
                   <circle cx="64" cy="64" r="54" fill="none" stroke="var(--color-border)" strokeWidth="10" />
-                  <motion.circle
-                    cx="64" cy="64" r="54" fill="none" stroke="var(--color-success)" strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={2 * Math.PI * 54}
-                    initial={{ strokeDashoffset: 2 * Math.PI * 54 }}
-                    animate={{ strokeDashoffset: 2 * Math.PI * 54 * (1 - a.compliance.approvalRate) }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                  />
+                  <motion.circle cx="64" cy="64" r="54" fill="none" stroke="var(--color-success)" strokeWidth="10" strokeLinecap="round"
+                    strokeDasharray={2 * Math.PI * 54} initial={{ strokeDashoffset: 2 * Math.PI * 54 }}
+                    animate={{ strokeDashoffset: 2 * Math.PI * 54 * (1 - a.compliance.approvalRate) }} transition={{ duration: 0.8, ease: "easeOut" }} />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
                   <ShieldCheck className="mb-1 text-success" size={22} />
-                  <span className="text-sm font-semibold text-foreground">{a.compliance.approvalRate >= 0.7 ? "Low Risk" : "Review"}</span>
+                  <span className="text-sm font-semibold text-foreground">{Math.round(a.compliance.approvalRate * 100)}%</span>
                 </div>
               </div>
               <div className="mt-4 grid w-full grid-cols-3 gap-2 text-center text-xs">
                 <div><p className="text-foreground">{a.compliance.approved}</p><p className="text-muted-foreground">Approved</p></div>
-                <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Review</p></div>
-                <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Blocked</p></div>
+                <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Pending</p></div>
+                <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
               <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline">View Compliance Center →</Link>
             </div>
-          ) : <p className="text-sm text-muted-foreground">No payments processed yet — compliance status will appear here.</p>}
+          ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened — results appear here." />}
         </Card>
       </div>
 
+      {/* AI insights + Scheduled preview */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <Card title="AI insights">
+          {insights ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { icon: TrendingUp, label: "Largest payment", value: `${fmt(insights.largest.amount ?? 0)} ${insights.largest.token}` },
+                { icon: Coins, label: "Most used asset", value: insights.topAsset },
+                { icon: Activity, label: "Most active day", value: insights.topDay },
+                { icon: Sparkles, label: "Average payment", value: fmt(insights.avg) },
+              ].map((it) => (
+                <div key={it.label} className="rounded-lg border border-border bg-input/30 p-3">
+                  <it.icon size={15} className="mb-2 text-primary" />
+                  <p className="text-sm font-semibold text-foreground">{it.value}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{it.label}</p>
+                </div>
+              ))}
+            </div>
+          ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments, PayAI surfaces patterns here." />}
+        </Card>
+
+        <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline">Manage</Link>}>
+          {upcoming.length === 0 ? (
+            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to gentle.nads every Friday".' />
+          ) : (
+            <div className="space-y-2.5">
+              {upcoming.slice(0, 3).map((s) => (
+                <div key={s.id} className="flex items-center justify-between rounded-lg border border-border bg-input/30 px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <CalendarClock size={15} className="text-primary" />
+                    <div>
+                      <p className="text-sm text-foreground">{s.amount} {s.token} → {s.domain ?? short(s.recipient)}</p>
+                      <p className="text-xs text-muted-foreground">{s.cadence} · {new Date(s.nextRun).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Asset allocation + 7d activity */}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        {/* Asset allocation — real connected-wallet balances */}
         <Card title="Asset allocation">
           {monShare != null ? (
             <div className="flex items-center gap-6">
               <div className="relative h-28 w-28 shrink-0" title={`MON ${Math.round(monShare * 100)}% · USDC ${Math.round((1 - monShare) * 100)}%`}>
                 <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
                   <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-secondary)" strokeWidth="14" />
-                  <motion.circle
-                    cx="56" cy="56" r="44" fill="none" stroke="var(--color-primary)" strokeWidth="14"
-                    strokeDasharray={2 * Math.PI * 44}
-                    initial={{ strokeDashoffset: 2 * Math.PI * 44 }}
-                    animate={{ strokeDashoffset: 2 * Math.PI * 44 * (1 - monShare) }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                  />
+                  <motion.circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-primary)" strokeWidth="14"
+                    strokeDasharray={2 * Math.PI * 44} initial={{ strokeDashoffset: 2 * Math.PI * 44 }}
+                    animate={{ strokeDashoffset: 2 * Math.PI * 44 * (1 - monShare) }} transition={{ duration: 0.8, ease: "easeOut" }} />
                 </svg>
               </div>
               <div className="flex-1 space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-primary" />MON</span><span className="text-muted-foreground">{fmt(totalMon ?? 0)}</span></div>
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-secondary" />USDC</span><span className="text-muted-foreground">{fmt(totalUsdc ?? 0)}</span></div>
+                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-primary" />MON</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalMon ?? 0)}</span></div>
+                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-secondary" />USDC</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalUsdc ?? 0)}</span></div>
               </div>
             </div>
-          ) : <p className="text-sm text-muted-foreground">Connect your wallet to see real balances.</p>}
+          ) : <EmptyHint icon={Wallet} title="Connect your wallet" hint="Real MON and USDC balances appear here once connected." />}
         </Card>
 
-        {/* Revenue trend — real, from /api/analytics */}
         <Card title="Payment activity (7d)">
           {a?.trend.length ? (
             <div className="flex h-32 items-end gap-2">
@@ -198,7 +325,7 @@ export default function Overview() {
                 );
               })}
             </div>
-          ) : <p className="text-sm text-muted-foreground">No data yet.</p>}
+          ) : <EmptyHint icon={Activity} title="No activity yet" hint="Your daily payment volume will chart here." />}
         </Card>
       </div>
 
@@ -208,11 +335,11 @@ export default function Overview() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { label: "Send Payment", sub: "Pay anyone instantly", icon: Send, href: "/dashboard/payments" },
+            { label: "Schedule", sub: "Recurring payments", icon: CalendarClock, href: "/dashboard/scheduled" },
             { label: "Create Invoice", sub: "Request payments", icon: FileText, href: "/dashboard/invoices" },
             { label: "Add Recipient", sub: "Save contact", icon: UserPlus, href: "/dashboard/recipients" },
-            { label: "Compliance Check", sub: "Verify address", icon: ShieldCheck, href: "/dashboard/compliance" },
-            { label: "View Audit Logs", sub: "Check history", icon: ScrollText, href: "/dashboard/transactions" },
-            { label: "Merchant Dashboard", sub: "Manage business", icon: Store, href: "/dashboard/analytics" },
+            { label: "Audit Logs", sub: "Check history", icon: ScrollText, href: "/dashboard/transactions" },
+            { label: "Analytics", sub: "Business metrics", icon: Store, href: "/dashboard/analytics" },
           ].map((q) => (
             <Link key={q.label} href={q.href} className="group rounded-lg border border-border bg-panel p-4 transition hover:border-primary/40">
               <q.icon size={18} className="mb-2 text-muted-foreground group-hover:text-primary" />
@@ -222,6 +349,16 @@ export default function Overview() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyHint({ icon: Icon, title, hint }: { icon: typeof Receipt; title: string; hint: string }) {
+  return (
+    <div className="flex flex-col items-center py-6 text-center">
+      <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-input text-muted-foreground"><Icon size={18} /></span>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="mt-1 max-w-xs text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }
