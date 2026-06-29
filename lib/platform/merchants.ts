@@ -56,6 +56,16 @@ export async function getMerchantById(id: string): Promise<Merchant | null> {
   return mem.get(id) ?? null;
 }
 
+/** Every registered merchant id — used to aggregate platform-wide activity across all tenants. */
+export async function listAllMerchantIds(): Promise<string[]> {
+  const r = await getRedis();
+  if (r) {
+    const h = (await r.hgetall(MERCHANTS_KEY)) ?? {};
+    return Object.keys(h);
+  }
+  return [...mem.keys()];
+}
+
 export async function getMerchantByApiKey(apiKey: string): Promise<Merchant | null> {
   const r = await getRedis();
   if (r) {
