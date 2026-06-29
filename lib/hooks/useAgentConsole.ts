@@ -40,10 +40,10 @@ export interface Health {
   model: string;
   cleanverse: { engine: string };
   verigate: { mode: string; connected: boolean; detail: string };
-  wallet: {
-    configured: boolean; address: string | null; network: string;
-    chainId: number; nativeBalance: string | null; symbol: string;
-  } | null;
+  // Deliberately excludes the agent wallet's address/balance — /api/health is
+  // public and unauthenticated; only whether a signer is configured + the
+  // active network are exposed.
+  wallet: { configured: boolean; network: string; chainId: number } | null;
 }
 export interface HistoryRow {
   at: string; decision: string; summary: string;

@@ -2,10 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button, Card, Input } from "@/components/ui";
-import { MONAD_EXPLORER } from "@/lib/monad/public";
-import { MonadMark } from "@/components/MonadMark";
-
-interface Health { wallet: { configured: boolean; address: string | null; network: string; chainId: number; nativeBalance: string | null; symbol: string } | null }
 
 export default function Settings() {
   const [merchant, setMerchant] = useState<{ id: string; name: string; apiKey: string; wallet?: string } | null>(null);
@@ -14,11 +10,9 @@ export default function Settings() {
   const [msg, setMsg] = useState<string | null>(null);
   const [walletBusy, setWalletBusy] = useState(false);
   const [signupBusy, setSignupBusy] = useState(false);
-  const [health, setHealth] = useState<Health | null>(null);
 
   useEffect(() => {
     try { const saved = localStorage.getItem("veripay_merchant"); if (saved) setMerchant(JSON.parse(saved)); } catch {}
-    fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
   }, []);
 
   const authHeaders = useCallback((): Record<string, string> => {
@@ -105,20 +99,6 @@ export default function Settings() {
           </div>
         )}
         {msg && <p className="mt-3 break-all rounded-md bg-input p-2 text-xs text-warning">{msg}</p>}
-      </Card>
-
-      <Card title="Platform agent wallet">
-        {health?.wallet?.configured ? (
-          <>
-            <p className="font-mono text-sm text-foreground">{health.wallet.address}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <MonadMark size={11} /> {health.wallet.network} · chain {health.wallet.chainId}
-              {" · "}
-              <a href={`${MONAD_EXPLORER}/address/${health.wallet.address}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">View on explorer ↗</a>
-            </p>
-            <p className="mt-2 text-sm text-foreground">{health.wallet.nativeBalance != null ? Number(health.wallet.nativeBalance).toFixed(4) : "—"} {health.wallet.symbol} (gas balance)</p>
-          </>
-        ) : <p className="text-sm text-muted-foreground">No agent wallet configured yet — settlement will activate once one is set.</p>}
       </Card>
     </div>
   );
