@@ -60,31 +60,3 @@ export function getWalletClient(): WalletClient {
   }
   return createWalletClient({ account, chain: getChain(), transport: getTransport() });
 }
-
-/** Public, safe-to-expose wallet info for the dashboard / health endpoint. */
-export async function getWalletInfo(): Promise<{
-  configured: boolean;
-  address: string | null;
-  network: string;
-  chainId: number;
-  nativeBalance: string | null;
-  symbol: string;
-}> {
-  const chain = getChain();
-  const account = getAgentAccount();
-  const base = {
-    configured: !!account,
-    address: account?.address ?? null,
-    network: chain.name,
-    chainId: chain.id,
-    symbol: chain.nativeCurrency.symbol,
-    nativeBalance: null as string | null,
-  };
-  if (!account) return base;
-  try {
-    const bal = await getPublicClient().getBalance({ address: account.address });
-    return { ...base, nativeBalance: formatEther(bal) };
-  } catch {
-    return base; // RPC unreachable — still report the configured address
-  }
-}

@@ -27,7 +27,7 @@ function memOf(m: string) {
 /* ── Transaction log ────────────────────────────────────────────────────── */
 
 export async function recordTx(merchantId: string, entry: Omit<TxLogEntry, "id" | "at">): Promise<TxLogEntry> {
-  const row: TxLogEntry = { id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, at: Date.now(), ...entry };
+  const row: TxLogEntry = { id: `tx_${crypto.randomUUID()}`, at: Date.now(), ...entry };
   const r = await getRedis();
   if (r) {
     await r.lpush(txKey(merchantId), row);
@@ -56,7 +56,7 @@ export async function createLink(
   merchantId: string,
   input: { amount: number; token?: string; memo?: string; expiresInDays?: number | null; recipient?: string },
 ): Promise<PaymentLink> {
-  const id = Math.random().toString(36).slice(2, 10);
+  const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
   const now = Date.now();
   const link: PaymentLink = {
     id,
