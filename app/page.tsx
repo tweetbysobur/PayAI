@@ -31,6 +31,19 @@ interface Onchain {
   payments: OnchainPayment[];
   explorerTxBase?: string;
 }
+/** Platform-wide totals across every tenant — aggregate only, no per-payment detail. */
+interface PlatformActivity {
+  totalPayments: number;
+  volumeByToken: Record<string, number>;
+}
+
+/** "12.4 MON · 6.47 USDC" — every nonzero asset, never blended into one misleading number. */
+function formatVolume(byToken: Record<string, number>): string {
+  const parts = Object.entries(byToken)
+    .filter(([, v]) => v > 0)
+    .map(([token, v]) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${token}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
 
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-8)}`;
 
@@ -251,11 +264,15 @@ const FOOTER_COLUMNS = [
 export default function LandingPage() {
   const [health, setHealth] = useState<Health | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
+  const [activity, setActivity] = useState<PlatformActivity | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
+    // Platform-wide totals — covers wallet-signed sends/swaps too, not just
+    // payments settled through the on-chain agent contract (onchain.stats).
+    fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -486,17 +503,17 @@ export default function LandingPage() {
           <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
             <Card className="mx-auto max-w-lg">
               <div className="mb-3 flex items-center justify-between">
-                <Badge tone={onchain?.configured ? "success" : "neutral"}>{onchain?.configured ? "Live on Mainnet" : "Connecting…"}</Badge>
+                <Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"} mainnet</span>
               </div>
               <dl className="space-y-2.5 text-sm">
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
                   <dt className="flex items-center gap-1.5 text-muted-foreground"><Receipt size={13} /> Total payments processed</dt>
-                  <dd className="font-mono text-foreground">{stats ? stats.payments.toLocaleString() : "—"}</dd>
+                  <dd className="font-mono text-foreground">{activity ? activity.totalPayments.toLocaleString() : "—"}</dd>
                 </div>
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
                   <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Total payment volume</dt>
-                  <dd className="font-mono text-foreground">{stats ? `${stats.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : "—"}</dd>
+                  <dd className="font-mono text-foreground">{activity ? formatVolume(activity.volumeByToken) : "—"}</dd>
                 </div>
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
                   <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Contract</dt>

@@ -7,6 +7,7 @@
  */
 import "server-only";
 import { listTx } from "./store";
+import { DEMO_TENANT, listAllMerchantIds } from "./merchants";
 import type {
   AnalyticsSnapshot,
   Customer,
@@ -159,6 +160,38 @@ export function buildSummary(snap: AnalyticsSnapshot): string {
     `Compliance approval rate is ${Math.round(snap.compliance.approvalRate * 100)}%.`,
     snap.insights.find((i) => i.severity !== "info") ? `⚠ ${snap.insights.find((i) => i.severity !== "info")!.title}.` : "No anomalies flagged.",
   ].filter(Boolean).join(" ");
+}
+
+export interface PlatformActivity {
+  /** Settled (executed) payments across every tenant — counts every real
+   *  payment PayAI has processed, custodial or wallet-signed, not just the
+   *  ones anchored on PaymentExecutor (most payments are direct wallet sends
+   *  that never touch that contract). */
+  totalPayments: number;
+  /** Settled volume, summed separately per token — never blended into one
+   *  number across different assets, which would misrepresent the amount. */
+  volumeByToken: Record<string, number>;
+}
+
+/**
+ * Platform-wide activity for the public landing page: an aggregate count and
+ * per-token volume across every tenant (the shared demo workspace plus any
+ * registered merchants). Deliberately returns ONLY aggregate numbers — never
+ * a list of payments, recipients, or wallet addresses — so it's safe to
+ * expose on an unauthenticated, public endpoint.
+ */
+export async function getPlatformActivity(): Promise<PlatformActivity> {
+  const merchantIds = await listAllMerchantIds();
+  const tenantIds = [...new Set([DEMO_TENANT, ...merchantIds])];
+  const txLists = await Promise.all(tenantIds.map((id) => listTx(id)));
+  const allTxs = txLists.flat();
+
+  const settled = allTxs.filter(isSettled);
+  const volumeByToken: Record<string, number> = {};
+  for (const t of settled) {
+    volumeByToken[t.token] = (volumeByToken[t.token] ?? 0) + (t.amount ?? 0);
+  }
+  return { totalPayments: settled.length, volumeByToken };
 }
 
 /** Assemble the full snapshot from the tx log + on-chain merchant names. */
