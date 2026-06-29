@@ -105,8 +105,19 @@ export function getStablecoin(): {
         "0xaC0893567D43C3E7e6e35a72803df05416C1f20D"
   ) as `0x${string}` | undefined;
 
+  // Never fall back to the zero address — a misconfigured mainnet deploy
+  // would otherwise build real USDC transfers against 0x0 instead of failing
+  // loudly. Throw so the issue surfaces at request time, not silently on-chain.
+  if (!address) {
+    throw new Error(
+      net === "mainnet"
+        ? "MONAD_MAINNET_USDC is not set — refusing to use a stablecoin address."
+        : "MONAD_TESTNET_USDC is not set — refusing to use a stablecoin address.",
+    );
+  }
+
   return {
-    address: address ?? ("0x0000000000000000000000000000000000000000" as const),
+    address,
     decimals: Number(process.env.MONAD_USDC_DECIMALS ?? 6),
     symbol: "USDC",
   };

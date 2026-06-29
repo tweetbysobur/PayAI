@@ -36,7 +36,7 @@ export async function createSchedule(
   input: { amount: number; token: string; recipient: string; domain?: string | null; cadence: ScheduleCadence; nextRun: number; memo?: string },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
-    id: `sch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    id: `sch_${crypto.randomUUID()}`,
     merchantId,
     amount: input.amount,
     token: input.token,
