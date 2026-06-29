@@ -9,10 +9,6 @@ import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
 import { MonadMark } from "@/components/MonadMark";
 
-interface Health {
-  wallet: { configured: boolean; address: string | null; network: string; chainId: number; nativeBalance: string | null; symbol: string } | null;
-}
-
 interface OnchainContracts {
   configured: boolean;
   contracts?: { paymentExecutor: string; merchantRegistry: string; executorExplorer: string };
@@ -40,7 +36,6 @@ const fmtUsd = (n?: number | null) => (n != null ? `$${n.toLocaleString(undefine
 export default function Wallets() {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
-  const [health, setHealth] = useState<Health | null>(null);
   const [onchainContracts, setOnchainContracts] = useState<OnchainContracts | null>(null);
   const [busy, setBusy] = useState(false);
   const [intel, setIntel] = useState<WalletIntel | null>(null);
@@ -49,7 +44,6 @@ export default function Wallets() {
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchainContracts).catch(() => {});
   }, []);
 
@@ -107,7 +101,7 @@ export default function Wallets() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Wallets</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Your connected wallet, the platform&apos;s settlement wallet, and live on-chain intelligence.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Your connected wallet and live on-chain intelligence.</p>
         </div>
         {wallet.address && (
           <Button variant="secondary" onClick={loadIntel} disabled={loading} className="flex items-center gap-1.5 text-xs">
@@ -116,7 +110,7 @@ export default function Wallets() {
         )}
       </div>
 
-      <div className="mb-4 grid gap-4 lg:grid-cols-2">
+      <div className="mb-4">
         <Card title="Your wallet">
           {wallet.address ? (
             <div className="flex items-center justify-between">
@@ -139,23 +133,6 @@ export default function Wallets() {
             </Button>
           )}
           {wallet.address && <Button variant="ghost" onClick={wallet.disconnect} className="mt-3 text-xs hover:text-danger">Disconnect</Button>}
-        </Card>
-
-        <Card title="Platform agent wallet">
-          {health?.wallet?.configured ? (
-            <>
-              <p className="font-mono text-sm text-foreground">{short(health.wallet.address)}</p>
-              <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MonadMark size={11} /> {health.wallet.network} · chain {health.wallet.chainId}
-                {" · "}
-                <a href={`${MONAD_EXPLORER}/address/${health.wallet.address}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">View on explorer ↗</a>
-              </p>
-              <div className="mt-3 flex items-center gap-2">
-                <Badge tone="success">Live</Badge>
-                <span className="text-sm text-foreground">{health.wallet.nativeBalance != null ? Number(health.wallet.nativeBalance).toFixed(4) : "—"} {health.wallet.symbol} gas balance</span>
-              </div>
-            </>
-          ) : <p className="text-sm text-muted-foreground">No agent wallet configured yet — settlement will activate once one is set.</p>}
         </Card>
       </div>
 

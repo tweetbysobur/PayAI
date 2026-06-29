@@ -19,7 +19,9 @@ import pkg from "../package.json";
 
 interface Health {
   verigate: { connected: boolean; mode: string };
-  wallet: { address: string | null; network: string; chainId: number; nativeBalance: string | null; symbol: string } | null;
+  // /api/health intentionally exposes only network/config status here, never
+  // an internal wallet's address or balance (see /api/health/route.ts).
+  wallet: { configured: boolean; network: string; chainId: number } | null;
 }
 interface OnchainPayment { id: number; merchant: string; amount: number; riskScore: number; compliance: number; timestamp: number }
 interface Onchain {
@@ -192,18 +194,21 @@ function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: He
       </div>
     );
   }
+  // Deliberately shows network/contract status only — never an internal
+  // wallet's address or balance. Every visitor here is anonymous; a wallet
+  // identity (yours or PayAI's own) has no place in an unauthenticated demo.
   return (
     <div className="space-y-3 p-5">
       <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-2 flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary"><WalletIcon size={13} /></div>
-          <span className="font-mono text-[11px] text-muted-foreground">{shortAddr(health?.wallet?.address)}</span>
+          <span className="text-[11px] text-muted-foreground">Your connected wallet appears here</span>
         </div>
-        <div className="text-sm font-semibold text-foreground">{health?.wallet?.nativeBalance != null ? `${Number(health.wallet.nativeBalance).toFixed(4)} MON` : "—"}</div>
+        <div className="text-sm font-semibold text-foreground">Non-custodial — you sign every payment</div>
       </div>
       <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"}</div>
-        <Badge tone={health?.wallet?.address ? "success" : "neutral"}>{health?.wallet?.address ? "Live" : "Connecting…"}</Badge>
+        <Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live" : "Connecting…"}</Badge>
       </div>
     </div>
   );
