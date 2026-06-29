@@ -355,7 +355,13 @@ export default function LandingPage() {
             </div>
             <div className="mt-3 flex justify-center gap-1.5">
               {SCREENS.map((s) => (
-                <button key={s.key} onClick={() => setActiveScreen(s.key)} className={`h-1.5 w-6 rounded-full transition ${activeScreen === s.key ? "bg-primary" : "bg-border"}`} />
+                <button
+                  key={s.key}
+                  onClick={() => setActiveScreen(s.key)}
+                  aria-label={`Show ${s.label} preview`}
+                  aria-current={activeScreen === s.key ? "true" : undefined}
+                  className={`h-1.5 w-6 rounded-full transition ${activeScreen === s.key ? "bg-primary" : "bg-border"}`}
+                />
               ))}
             </div>
           </motion.div>
