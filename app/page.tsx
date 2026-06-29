@@ -102,8 +102,6 @@ const TRUST = [
   { icon: Blocks, title: "On-Chain Settlement", body: "Real transactions, real receipts, fully traceable." },
 ];
 
-const shortAddr = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
-
 /** Live previews of the real dashboard, driven by the same /api/health + /api/onchain data the dashboard itself reads — never fabricated mockups. */
 function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null }) {
   const stats = onchain?.stats ?? null;
@@ -149,17 +147,20 @@ function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: He
     );
   }
   if (screen === "transactions") {
+    // Aggregate, anonymized preview — never a specific payment's merchant
+    // address. This is a public marketing page, not an audit trail; the real
+    // per-payment detail (with merchant identity) lives in the authenticated
+    // dashboard at /dashboard/transactions.
     return (
       <div className="space-y-2 p-5">
-        <div className="grid grid-cols-4 gap-2 px-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-          <span>Merchant</span><span>Asset</span><span>Amount</span><span>Status</span>
+        <div className="grid grid-cols-3 gap-2 px-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+          <span>Asset</span><span>Amount</span><span>Status</span>
         </div>
         {payments.length === 0 ? (
           <p className="px-1 text-[11px] text-muted-foreground">No on-chain payments yet — live transactions will appear here.</p>
         ) : (
           payments.slice(-4).reverse().map((p) => (
-            <div key={p.id} className="grid grid-cols-4 items-center gap-2 rounded-lg border border-border bg-panel p-3">
-              <span className="font-mono text-[10px] text-foreground">{shortAddr(p.merchant)}</span>
+            <div key={p.id} className="grid grid-cols-3 items-center gap-2 rounded-lg border border-border bg-panel p-3">
               <span className="text-[10px] text-muted-foreground">USDC</span>
               <span className="text-[10px] text-foreground">{p.amount.toFixed(2)}</span>
               <Badge tone={p.compliance === 1 ? "success" : "warning"}>{p.compliance === 1 ? "Approved" : "Review"}</Badge>
@@ -263,7 +264,7 @@ export default function LandingPage() {
     return () => clearInterval(t);
   }, []);
 
-  const latestPayment = onchain?.payments?.[onchain.payments.length - 1] ?? null;
+  const stats = onchain?.stats ?? null;
 
   return (
     <main className="min-h-screen bg-background">
@@ -473,62 +474,44 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Blockchain Transparency */}
+      {/* Platform Status — aggregate, platform-wide stats only. Never a
+          specific payment's detail: that would mean showing a real merchant's
+          wallet address on a public marketing page. Numbers are read live
+          from the PaymentExecutor contract; when the suite isn't configured
+          or has zero activity, that's reported truthfully rather than
+          replaced with a placeholder figure. */}
       <section id="compliance" className="py-20">
         <div className="mx-auto max-w-3xl px-6">
-          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">Blockchain Transparency</h2>
+          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">Platform Status</h2>
           <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
             <Card className="mx-auto max-w-lg">
               <div className="mb-3 flex items-center justify-between">
-                <Badge tone={latestPayment ? "success" : "neutral"}>{latestPayment ? "Settled" : "Live — awaiting first payment"}</Badge>
+                <Badge tone={onchain?.configured ? "success" : "neutral"}>{onchain?.configured ? "Live on Mainnet" : "Connecting…"}</Badge>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"} mainnet</span>
               </div>
-              {latestPayment ? (
-                <dl className="space-y-2.5 text-sm">
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Transaction Hash</dt>
-                    <dd className="font-mono text-xs text-foreground">{short(latestPayment.merchant)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><ExternalLink size={13} /> Explorer Link</dt>
-                    <dd>
-                      <a href={`${onchain?.explorerTxBase ?? MONAD_EXPLORER + "/tx/"}${latestPayment.id}`} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">View</a>
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Block Confirmation</dt>
-                    <dd className="text-foreground">Confirmed</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Settlement Status</dt>
-                    <dd><Badge tone={latestPayment.compliance === 1 ? "success" : "neutral"}>{latestPayment.compliance === 1 ? "Approved" : "Pending"}</Badge></dd>
-                  </div>
-                </dl>
-              ) : (
-                <dl className="space-y-2.5 text-sm">
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Transaction Hash</dt>
-                    <dd className="text-xs text-muted-foreground">Awaiting first payment</dd>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><ExternalLink size={13} /> Explorer Link</dt>
-                    <dd className="flex items-center gap-1 font-mono text-xs text-foreground">
-                      {onchain?.contracts ? short(onchain.contracts.paymentExecutor) : "—"}
-                      {onchain?.contracts && (
-                        <a href={onchain.contracts.executorExplorer} target="_blank" rel="noreferrer" className="text-primary hover:underline"><ExternalLink size={12} /></a>
-                      )}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between border-b border-border pb-2.5">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Block Confirmation</dt>
-                    <dd className="text-xs text-muted-foreground">—</dd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Settlement Status</dt>
-                    <dd><Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live" : "Connecting…"}</Badge></dd>
-                  </div>
-                </dl>
-              )}
+              <dl className="space-y-2.5 text-sm">
+                <div className="flex items-center justify-between border-b border-border pb-2.5">
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Receipt size={13} /> Total payments processed</dt>
+                  <dd className="font-mono text-foreground">{stats ? stats.payments.toLocaleString() : "—"}</dd>
+                </div>
+                <div className="flex items-center justify-between border-b border-border pb-2.5">
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Total payment volume</dt>
+                  <dd className="font-mono text-foreground">{stats ? `${stats.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC` : "—"}</dd>
+                </div>
+                <div className="flex items-center justify-between border-b border-border pb-2.5">
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Contract</dt>
+                  <dd className="flex items-center gap-1 font-mono text-xs text-foreground">
+                    {onchain?.contracts ? short(onchain.contracts.paymentExecutor) : "Not yet deployed"}
+                    {onchain?.contracts && (
+                      <a href={onchain.contracts.executorExplorer} target="_blank" rel="noreferrer" className="text-primary hover:underline"><ExternalLink size={12} /></a>
+                    )}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Compliance status</dt>
+                  <dd><Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live" : "Connecting…"}</Badge></dd>
+                </div>
+              </dl>
             </Card>
           </motion.div>
         </div>
