@@ -10,6 +10,10 @@ import { NextRequest, NextResponse } from "next/server";
  * Returns empty/zeroed data (not an error) when the suite isn't configured, so
  * the dashboard degrades gracefully in mock mode.
  */
+// GET takes no request input, so Next.js could otherwise statically cache the
+// first response and serve stale on-chain stats to every caller forever.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const { executorEnabled, getOnchainStats, getOnchainPayments, getOnchainMerchants, getOnchainRequests } =

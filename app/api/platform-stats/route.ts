@@ -10,7 +10,14 @@ import { NextResponse } from "next/server";
  * payments are direct wallet-to-wallet sends/swaps that settle without ever
  * calling that contract, so a public stat reading only the contract would
  * under-report real activity.
+ *
+ * force-dynamic: this handler takes no request input (no cookies/headers/
+ * searchParams), so Next.js would otherwise treat it as static and bake in
+ * whatever the KV read returned at build time — serving that same stale
+ * snapshot to every visitor forever instead of live totals.
  */
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const { getPlatformActivity } = await import("@/lib/platform/analytics");

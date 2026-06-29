@@ -12,6 +12,10 @@ import { checkVeriGate, getMode } from "@/lib/verigate/client";
  * signer is configured (a boolean) plus the active network are exposed —
  * enough for the UI's "settlement available" checks, nothing sensitive.
  */
+// Takes no request input, so Next.js could otherwise statically cache the
+// first response — this must always reflect live chain/RPC status.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const verigate = await checkVeriGate();
   const { getChain } = await import("@/lib/monad/config");
