@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { useIdentity } from "@/lib/hooks/useIdentity";
 import { timeAgo } from "@/lib/hooks/useAgentConsole";
 import type { NotifItem } from "@/lib/hooks/useNotifications";
 import { Button } from "@/components/ui";
@@ -28,6 +29,7 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
 export function Topbar({ health, notifications = [], onOpenNotifications, onMenuClick }: { health: Health | null; notifications?: NotifItem[]; onOpenNotifications?: () => void; onMenuClick?: () => void }) {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
+  const identity = useIdentity(wallet.address);
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
 
@@ -90,7 +92,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
             aria-label="Disconnect wallet"
           >
             <Identicon address={wallet.address} size={20} />
-            {wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}
+            {identity.display}
           </button>
         )}
 

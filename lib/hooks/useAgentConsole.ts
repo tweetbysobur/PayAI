@@ -71,7 +71,7 @@ export interface Onchain {
 export interface InfoResult {
   decision: "info";
   query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment" | "scheduled";
-  /** Human summary of a just-created schedule, e.g. "10 USDC to gentle.nads, every Friday — next Jul 3." */
+  /** Human summary of a just-created schedule, e.g. "10 USDC to alex.nads, every Friday — next Jul 3." */
   scheduleSummary?: string;
   count?: number;
   history?: { at: number; decision: string; summary: string; amount: number | null; token: string; txHash?: string; explorerUrl?: string }[];
