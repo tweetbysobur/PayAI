@@ -204,7 +204,7 @@ export function useAgentConsole() {
     }, ...h].slice(0, 10));
   }
 
-  async function signAndConfirm(unsignedTx: { to: string; data: string; value?: string; from: string }, confirmRawText: string) {
+  async function signAndConfirm(unsignedTx: { to: string; data: string; value?: string; from: string }, confirmRawText: string, requestId?: string) {
     setWalletBusy(true);
     try {
       const hash = await wallet.sendTransaction(unsignedTx);
@@ -212,7 +212,7 @@ export function useAgentConsole() {
       const r = await fetch("/api/agent/confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ rawText: confirmRawText, walletAddress: unsignedTx.from, txHash: hash }),
+        body: JSON.stringify({ rawText: confirmRawText, walletAddress: unsignedTx.from, txHash: hash, requestId }),
       });
       const json = (await r.json()) as AgentResult & { error?: string };
       if (!json.intent) throw new Error(json.error || "Could not confirm the payment.");
@@ -323,7 +323,7 @@ export function useAgentConsole() {
       if (!("intent" in json) || !json.intent) throw new Error(json.error || "Request failed");
       setRes(json);
       if (json.decision === "ready_to_sign" && json.unsignedTx && json.confirmRawText) {
-        await signAndConfirm(json.unsignedTx, json.confirmRawText);
+        await signAndConfirm(json.unsignedTx, json.confirmRawText, (json as { requestId?: string }).requestId);
         return;
       }
       pushHistory(json);

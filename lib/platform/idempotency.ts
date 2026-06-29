@@ -76,6 +76,23 @@ export async function claimRequest<T>(
   return { claimed: true };
 }
 
+/**
+ * Read a completed record's stored result without claiming or mutating it.
+ * Returns the result only when the request finished (`status === "done"`),
+ * else null. Used by the confirm path to replay the exact approved intent
+ * instead of re-deriving it from raw text (which could drift).
+ */
+export async function peekRequest<T>(requestId: string): Promise<T | null> {
+  const r = await getRedis();
+  if (r) {
+    const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
+    return existing?.status === "done" ? (existing.result ?? null) : null;
+  }
+  pruneMem();
+  const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
+  return existing?.status === "done" ? ((existing.result as T) ?? null) : null;
+}
+
 /** Store the final outcome under a claimed request id so retries replay it. */
 export async function completeRequest<T>(requestId: string, result: T): Promise<void> {
   const record: IdempotencyRecord<T> = { status: "done", result, createdAt: Date.now() };

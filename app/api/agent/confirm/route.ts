@@ -5,7 +5,7 @@ import { assessRisk, runCompliance } from "@/lib/verigate/client";
 import type { PaymentRequest } from "@/lib/verigate/types";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain, resolveDomain } from "@/lib/monad/domain-resolver";
-import { claimRequest, completeRequest, releaseRequest } from "@/lib/platform/idempotency";
+import { claimRequest, completeRequest, peekRequest, releaseRequest } from "@/lib/platform/idempotency";
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const limited = await rateLimited(req, "agent");
   if (limited) return limited;
 
-  let body: { rawText?: string; walletAddress?: string; txHash?: string };
+  let body: { rawText?: string; walletAddress?: string; txHash?: string; requestId?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
   const rawText = body.rawText?.trim();
   const walletAddress = body.walletAddress?.trim();
   const txHash = body.txHash?.trim();
+  const approvalRequestId = body.requestId?.trim();
   if (!rawText || rawText.length > MAX_INPUT_LENGTH) {
     return NextResponse.json({ error: "rawText is required and must be within the length limit." }, { status: 400 });
   }
@@ -59,31 +60,55 @@ export async function POST(req: NextRequest) {
 
   const trace: TraceEntry[] = [];
 
-  // Re-derive the same approved request server-side — never trust the client
-  // for amount/recipient, only for "this is the text that was approved."
-  const { intent, source } = await parseIntent(rawText);
-  trace.push({ step: "intent", status: "ok", detail: `Re-derived via ${source}: ${intent.action} · ${intent.amount ?? "?"} ${intent.token} → ${intent.recipient ?? "(none)"}.` });
+  // Prefer replaying the EXACT intent that was approved (persisted under the
+  // approval's requestId at /api/agent time, with its recipient already
+  // resolved to a 0x address). This is drift-proof: the payment we verify and
+  // record is byte-for-byte what was approved, not a fresh re-parse of the
+  // text that could diverge if the intent engine changes between approval and
+  // confirm. Fall back to re-deriving from text only when the stored record
+  // isn't available (cold start, no KV, or TTL expiry).
+  type ParsedIntentT = Awaited<ReturnType<typeof parseIntent>>["intent"];
+  type IntentSourceT = Awaited<ReturnType<typeof parseIntent>>["source"];
+  let intent: ParsedIntentT | undefined;
+  let source: IntentSourceT = "fallback";
+  if (approvalRequestId) {
+    const stored = await peekRequest<{ intent?: ParsedIntentT; source?: IntentSourceT }>(approvalRequestId);
+    if (stored?.intent) {
+      intent = stored.intent;
+      source = stored.source ?? source;
+      trace.push({ step: "intent", status: "ok", detail: `Replayed approved intent: ${intent.action} · ${intent.amount ?? "?"} ${intent.token} → ${intent.recipient ?? "(none)"}.` });
+    }
+  }
 
-  // Replay the same recipient resolution the original approval used, so a
-  // .nad/.nads domain that resolved cleanly the first time resolves again
-  // here (not re-treated as an unresolved name and rejected).
-  if (intent.recipient && !isAddress(intent.recipient)) {
-    if (isDomainName(intent.recipient)) {
-      const domain = extractDomain(intent.recipient) ?? intent.recipient;
-      const resolution = await resolveDomain(domain);
-      if (!resolution.resolvedAddress) {
-        await releaseRequest(confirmKey);
-        return NextResponse.json({ error: resolution.error ?? "Unable to resolve domain" }, { status: 422 });
-      }
-      intent.domain = resolution.domain;
-      intent.recipient = resolution.resolvedAddress;
-      trace.push({ step: "domain", status: "ok", detail: `Resolved ${resolution.domain} → ${resolution.resolvedAddress}${resolution.cached ? " (cached)" : ""}` });
-    } else {
-      const payee = resolvePayee(intent.recipient);
-      if (payee) {
-        intent.payeeName = payee.name;
-        intent.recipient = payee.address;
-        trace.push({ step: "directory", status: "ok", detail: `Resolved payee "${payee.name}" → ${payee.address}` });
+  if (!intent) {
+    // Fallback: re-derive the approved request server-side — never trust the
+    // client for amount/recipient, only for "this is the text that was approved."
+    const parsed = await parseIntent(rawText);
+    intent = parsed.intent;
+    source = parsed.source;
+    trace.push({ step: "intent", status: "ok", detail: `Re-derived via ${source}: ${intent.action} · ${intent.amount ?? "?"} ${intent.token} → ${intent.recipient ?? "(none)"}.` });
+
+    // Replay the same recipient resolution the original approval used, so a
+    // .nad/.nads domain that resolved cleanly the first time resolves again
+    // here (not re-treated as an unresolved name and rejected).
+    if (intent.recipient && !isAddress(intent.recipient)) {
+      if (isDomainName(intent.recipient)) {
+        const domain = extractDomain(intent.recipient) ?? intent.recipient;
+        const resolution = await resolveDomain(domain);
+        if (!resolution.resolvedAddress) {
+          await releaseRequest(confirmKey);
+          return NextResponse.json({ error: resolution.error ?? "Unable to resolve domain" }, { status: 422 });
+        }
+        intent.domain = resolution.domain;
+        intent.recipient = resolution.resolvedAddress;
+        trace.push({ step: "domain", status: "ok", detail: `Resolved ${resolution.domain} → ${resolution.resolvedAddress}${resolution.cached ? " (cached)" : ""}` });
+      } else {
+        const payee = resolvePayee(intent.recipient);
+        if (payee) {
+          intent.payeeName = payee.name;
+          intent.recipient = payee.address;
+          trace.push({ step: "directory", status: "ok", detail: `Resolved payee "${payee.name}" → ${payee.address}` });
+        }
       }
     }
   }
