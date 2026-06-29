@@ -86,7 +86,7 @@ function nextWeekday(idx: number, from = new Date()): number {
 }
 
 /**
- * Parse a scheduling request ("schedule 10 USDC to gentle.nads every friday",
+ * Parse a scheduling request ("schedule 10 USDC to alex.nads every friday",
  * "pay 5 MON to 0x… on 2026-07-01", "send 2 USDC to alice every month").
  * Returns null when the text isn't a scheduling request. The payment fields
  * reuse the same deterministic parser as instant payments, so recipient/amount/

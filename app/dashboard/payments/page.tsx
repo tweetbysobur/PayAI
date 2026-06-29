@@ -10,6 +10,7 @@ import {
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
+import { useIdentity } from "@/lib/hooks/useIdentity";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
@@ -56,6 +57,7 @@ export default function Payments() {
   const amountErr = amountError(amount);
   const recipientErr = recipientError(recipient);
   const wallet = c.wallet;
+  const identity = useIdentity(wallet.address);
   const available = token === "MON" ? c.balances.mon : c.balances.usdc;
   const insufficientBalance =
     wallet.address != null && !c.balances.loading && available != null &&
@@ -91,7 +93,7 @@ export default function Payments() {
         <div className="flex items-center gap-2 text-muted-foreground">
           <WalletIcon size={13} className={wallet.address ? "text-primary" : ""} />
           {wallet.address ? (
-            <span className="font-mono text-foreground">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>
+            <span className="font-mono text-foreground">{identity.display}</span>
           ) : (
             <span>No wallet connected</span>
           )}
@@ -155,7 +157,7 @@ export default function Payments() {
         <Input
           value={recipient}
           onChange={(e) => setRecipient(e.target.value)}
-          placeholder="gentle.nads or 0x…"
+          placeholder="alex.nads or 0x…"
           className="w-full"
         />
         {recipientErr && <p className="mt-1.5 text-xs text-danger">{recipientErr}</p>}

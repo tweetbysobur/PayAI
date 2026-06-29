@@ -12,6 +12,7 @@ import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { useIdentity } from "@/lib/hooks/useIdentity";
 
 interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
@@ -32,23 +33,13 @@ const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"
 export default function Overview() {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
+  const identity = useIdentity(wallet.address);
   const [a, setA] = useState<Analytics | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
-  const [nadName, setNadName] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  // Reverse-resolve the connected wallet to its primary .nad name (if any).
-  useEffect(() => {
-    if (!wallet.address) { setNadName(null); return; }
-    let cancelled = false;
-    fetch(`/api/nns/primary-name?address=${wallet.address}`)
-      .then((r) => r.json()).then((j) => { if (!cancelled) setNadName(j.name ?? null); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [wallet.address]);
 
   const refresh = useCallback(() => {
     fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
@@ -130,10 +121,10 @@ export default function Overview() {
               {wallet.address ? <Identicon address={wallet.address} size={40} /> : <span className="flex h-10 w-10 items-center justify-center rounded-full bg-input text-muted-foreground"><Wallet size={18} /></span>}
               <div>
                 <div className="flex items-center gap-2">
-                  {nadName ? (
-                    <p className="text-sm font-semibold text-foreground">{nadName}</p>
+                  {identity.domain ? (
+                    <p className="text-sm font-semibold text-foreground">{identity.domain}</p>
                   ) : (
-                    <p className="font-mono text-sm text-foreground">{wallet.address ? short(wallet.address) : "No wallet connected"}</p>
+                    <p className="font-mono text-sm text-foreground">{wallet.address ? identity.display : "No wallet connected"}</p>
                   )}
                   {wallet.address && (
                     <button onClick={copyAddr} className="text-muted-foreground transition hover:text-foreground" title="Copy address">
@@ -143,7 +134,7 @@ export default function Overview() {
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {wallet.address
-                    ? (nadName ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
+                    ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
                     : <Link href="/connect" className="text-primary hover:underline">Connect to get started →</Link>}
                 </p>
               </div>
@@ -288,7 +279,7 @@ export default function Overview() {
 
         <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline">Manage</Link>}>
           {upcoming.length === 0 ? (
-            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to gentle.nads every Friday".' />
+            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to alex.nads every Friday".' />
           ) : (
             <div className="space-y-2.5">
               {upcoming.slice(0, 3).map((s) => (

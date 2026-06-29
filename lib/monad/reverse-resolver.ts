@@ -1,6 +1,6 @@
 /**
  * Reverse .nads resolution — wallet address → primary NNS name (e.g.
- * 0x25b8… → "gentle.nad"). Uses the official @nadnameservice/nns-viem-sdk
+ * 0x25b8… → "alex.nad"). Uses the official @nadnameservice/nns-viem-sdk
  * against the active Monad network's public client. NNS is live on Monad
  * mainnet; on a network where it isn't deployed this returns null rather than
  * a fabricated name.

@@ -6,6 +6,7 @@ import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, Tren
 import { Badge, Button, Card } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
 import { MonadMark } from "@/components/MonadMark";
 
@@ -35,6 +36,7 @@ const fmtUsd = (n?: number | null) => (n != null ? `$${n.toLocaleString(undefine
 
 export default function Wallets() {
   const wallet = useWallet();
+  const identity = useIdentity(wallet.address);
   const balances = useWalletBalances(wallet.address);
   const [onchainContracts, setOnchainContracts] = useState<OnchainContracts | null>(null);
   const [busy, setBusy] = useState(false);
@@ -115,7 +117,7 @@ export default function Wallets() {
           {wallet.address ? (
             <div className="flex items-center justify-between">
               <div>
-                <p className="flex items-center gap-2 font-mono text-sm text-foreground"><WalletIcon size={14} className="text-primary" /> {short(wallet.address)}</p>
+                <p className="flex items-center gap-2 font-mono text-sm text-foreground"><WalletIcon size={14} className="text-primary" /> {identity.display}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {wallet.chainId != null ? <><MonadMark size={11} /> Chain {wallet.chainId}</> : "—"}
                   {" · "}

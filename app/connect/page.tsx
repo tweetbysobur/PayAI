@@ -8,10 +8,12 @@ import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useDiscoveredWallets, type EIP6963ProviderDetail } from "@/lib/wallet/discovery";
+import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
 export default function ConnectPage() {
   const wallet = useWallet();
+  const identity = useIdentity(wallet.address);
   const detected = useDiscoveredWallets();
   const [pending, setPending] = useState<string | null>(null); // rdns currently connecting
   const [switching, setSwitching] = useState(false);
@@ -96,7 +98,7 @@ export default function ConnectPage() {
                   <div className="flex items-center justify-center gap-2 rounded-lg border border-success/30 bg-success/10 px-3 py-2.5 text-xs font-medium text-success">
                     <CheckCircle2 size={14} /> Connected on {MONAD_CHAIN_NAME}
                   </div>
-                  <p className="text-center font-mono text-xs text-muted-foreground">{wallet.address?.slice(0, 10)}…{wallet.address?.slice(-6)}</p>
+                  <p className="text-center font-mono text-xs text-muted-foreground">{identity.display}</p>
                   <Link href="/dashboard" className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
                     Continue to dashboard <ArrowRight size={15} />
                   </Link>
