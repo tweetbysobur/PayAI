@@ -38,7 +38,7 @@ MONAD_MAINNET_USDC=<real_usdc_address>
 MONAD_MAINNET_PAYMENT_EXECUTOR=<from step 3>
 MONAD_MAINNET_MERCHANT_REGISTRY=<from step 3>
 MONAD_AGENT_PRIVATE_KEY=<mainnet_pk>     # server-only; NEVER commit / NEVER ship to a public client
-VERIGATE_MODE=monad
+PAYAI_MODE=monad
 ```
 `getNetwork()` switches `getChain()`, `getStablecoin()`, `getPaymentExecutor()`,
 and `getMerchantRegistry()` to the mainnet values automatically — no code change.

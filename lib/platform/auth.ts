@@ -3,18 +3,12 @@
  *
  * This gates REAL-MONEY EXECUTION only — it is distinct from tenancy (which is
  * resolved separately from `x-merchant-key`). Policy (fail-closed):
- *   - No live execution (mock/demo) → open. No funds can move; tenancy scopes data.
- *   - Live execution (VERIGATE_MODE=monad with MONAD_AGENT_PRIVATE_KEY, OR
- *     VERIGATE_MODE=live which forwards real transfers to a VeriGate instance):
+ *   - Simulation mode → open. No funds can move; tenancy scopes data.
+ *   - Monad execution (PAYAI_MODE=monad with MONAD_AGENT_PRIVATE_KEY):
  *       · VERIPAYAI_API_KEY unset → REFUSE (don't expose an unprotected signer).
  *       · set → require a matching `x-api-key` / `Authorization: Bearer`.
  *
- * VERIGATE_MODE=live moves real funds via the VeriGate pipeline even without a
- * Monad signer configured, so it must be treated as "live" here too — gating
- * only on mode==="monad" would let anyone reach a configured live VeriGate
- * instance with no API key at all.
- *
- * Checks env directly (no viem import) so the auth path stays light in mock mode.
+ * Checks env directly (no viem import) so the auth path stays light in simulation mode.
  */
 import { NextRequest, NextResponse } from "next/server";
 
@@ -27,9 +21,8 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 /** Returns a 401/403 response to short-circuit, or null when the request may proceed. */
 export function authError(req: NextRequest): NextResponse | null {
-  const mode = process.env.VERIGATE_MODE;
-  const signerLive =
-    (mode === "monad" && !!process.env.MONAD_AGENT_PRIVATE_KEY) || mode === "live";
+  const mode = process.env.PAYAI_MODE;
+  const signerLive = mode === "monad" && !!process.env.MONAD_AGENT_PRIVATE_KEY;
 
   // No live signer → nothing to protect here (data access is scoped by tenancy).
   if (!signerLive) return null;

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkGuardrails, MAX_INPUT_LENGTH, parseIntent } from "@/lib/agent/brain";
 import type { AgentResult, TraceEntry } from "@/lib/agent/types";
-import { assessRisk, runCompliance } from "@/lib/verigate/client";
-import type { PaymentRequest } from "@/lib/verigate/types";
+import { assessRisk, runValidation } from "@/lib/payment/engine";
+import type { PaymentRequest } from "@/lib/payment/types";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain, resolveDomain } from "@/lib/monad/domain-resolver";
 import { claimRequest, completeRequest, peekRequest, releaseRequest } from "@/lib/platform/idempotency";
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     action: intent.action, amount: intent.amount, token: intent.token,
     recipient: intent.recipient, purpose: intent.purpose, network: intent.network,
   };
-  const compliance = runCompliance(request);
+  const compliance = runValidation(request);
   trace.push({ step: "compliance", status: compliance.status === "approved" ? "ok" : "blocked", detail: compliance.summary });
   const risk = assessRisk(request);
   trace.push({ step: "risk", status: risk.level === "low" ? "ok" : risk.level === "medium" ? "warn" : "blocked", detail: `Risk ${risk.score}/100 (${risk.level}).` });

@@ -1,79 +1,97 @@
-# VeriPAYai — Architecture & Decisions
+# PayAI — Architecture & Decisions
 
-## Decisions locked (Day 0)
+PayAI is a standalone, non-custodial AI payment platform built on Monad Mainnet.
+A user describes a payment in plain English; PayAI parses the intent, validates and
+risk-scores it, has the user's own wallet sign it, and settles it on-chain through
+PayAI's smart contracts. Every module below belongs to PayAI and runs entirely
+in-house.
 
-1. **Relationship to VeriGate:** VeriPAYai **plugs into VeriGate**. VeriPAYai is the AI
-   agent (understand → decide → pay); VeriGate is the trust layer it calls for
-   verification, permission/limit enforcement, and audit logging.
+## Core principles
 
-2. **Stack:** match VeriGate's foundation, add the AI-agent brain on top.
-   - **Next.js 16 + TypeScript + Tailwind 4** — app, UI/control panel, API routes.
-   - **viem** — Monad wallet abstraction + settlement.
-   - **Reuse VeriGate's `lib/cleanverse`** types/client — VeriPAYai *is* a Cleanverse agent.
-   - **`@anthropic-ai/sdk` + Claude Opus 4.8** — the agent brain (intent parsing,
-     decision loop, tool-use to call payment functions). Sonnet 4.6 as cost fallback.
-   - **HTTP → VeriGate** trust-layer API for verify/enforce/log.
+1. **Non-custodial.** Every transaction is signed by the user's own wallet. PayAI never
+   holds keys for user funds and never asks for a seed phrase.
+2. **Self-contained.** Intent parsing, validation, risk scoring, execution, settlement,
+   analytics, and notifications are all internal PayAI engines. There are no external
+services, third-party orchestration layers, or dependencies on any other project.
+3. **Verifiable.** Every settled payment is a real on-chain transaction, anchored by
+   PayAI's contracts and viewable on the Monad explorer.
 
-## Component map
+## Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│ VeriPAYai (Cleanverse agent)                              │
-│                                                           │
-│  User intent ──► [Agent brain: Claude + tool-use]         │
-│                        │                                  │
-│            structured payment request                     │
-│                        │                                  │
-│                        ▼                                  │
-│                 [Decision loop]                           │
-│                        │                                  │
-└────────────────────────┼──────────────────────────────────┘
-                         │  HTTP (secure API)
-                         ▼
-            ┌────────────────────────────┐
-            │ VeriGate trust layer        │
-            │  /api/pay  · permission      │
-            │  engine · audit log          │
-            └─────────────┬───────────────┘
-                         │ approved
-                         ▼
-                     ┌────────┐
-                     │ Monad  │  settlement (viem)
-                     └────────┘
+User
+  │  natural language
+  ▼
+PayAI AI Engine ─────────► Intent Parser
+                               │
+                               ▼
+                         Validation Engine   (recipient, token, amount, balance, network)
+                               │
+                               ▼
+                          Risk Engine        (limits, security checks, 0–100 score)
+                               │
+                               ▼
+                        Wallet Signature      (user signs in their own wallet)
+                               │
+                               ▼
+                        Execution Engine      (prepares the transaction)
+                               │
+                               ▼
+                       Settlement Engine ───► Smart Contract ───► Monad Mainnet
+                               │                                       │
+                               ▼                                       ▼
+                       Analytics Engine  ◄──────────────────────  Explorer
+                               │
+                               ▼
+                     Notification Engine  ───►  Dashboard
 ```
 
-## VeriGate API surface VeriPAYai will consume
+## Internal engines
 
-(from inspecting `C:\Users\USER\Documents\VERIGATE`)
-- `POST /api/pay` — submit a payment for verification + execution.
-- `GET/POST /api/invoices`, `/api/invoices/[id]/pay` — invoice flows.
-- `GET/POST /api/merchant/settings` — merchant/permission config.
-- `/api/apass/*` — agent pass: `issue`, `status`, `faucet`.
-- `/api/attempts`, `/api/health` — telemetry/health.
+| Engine | Responsibility | Code |
+| --- | --- | --- |
+| **Intent Engine** | Understands natural-language payment instructions. | `lib/agent/` |
+| **Validation Engine** | Validates recipient, token, amount, balances, and network. | `lib/payment/engine.ts` (`runValidation`) |
+| **Risk Engine** | Applies payment limits and security checks; produces a 0–100 score. | `lib/payment/engine.ts` (`assessRisk`) |
+| **Execution Engine** | Prepares the transaction and drives wallet interaction. | `lib/payment/engine.ts` (`execute`) + `lib/monad/` |
+| **Settlement Engine** | Broadcasts and confirms transactions on Monad Mainnet. | `lib/monad/` + `contracts/` |
+| **Analytics Engine** | Indexes payments, transaction history, and user statistics. | `lib/platform/analytics.ts` |
+| **Notification Engine** | Surfaces confirmations and payment updates. | `lib/hooks/useNotifications.ts` |
 
-> TODO: confirm request/response schemas against VeriGate's `lib/cleanverse/types.ts`
-> and the `route.ts` handlers before wiring the client.
+## Stack
 
-## Proposed VeriPAYai layout
+- **Next.js (App Router) + TypeScript + Tailwind** — app, dashboard, and API routes.
+- **viem** — Monad wallet abstraction, transaction building, and settlement.
+- **Anthropic Claude** — the intent engine (natural-language → structured payment).
+- **Solidity (Monad Mainnet)** — `PaymentExecutor` + registry contracts for on-chain
+  settlement, idempotent execution, and per-tx/daily/merchant spend limits.
+
+## Execution modes
+
+PayAI runs in one of two modes, controlled by `PAYAI_MODE`:
+
+- `simulation` — deterministic, offline-safe simulation of settlement (no funds move).
+  Useful for local development and demos.
+- `monad` — real on-chain settlement on Monad Mainnet through PayAI's smart contracts.
+
+## Layout
 
 ```
 VeriPAYai/
 ├── app/
 │   ├── api/
-│   │   ├── agent/route.ts      # entrypoint: intent → agent loop
-│   │   └── health/route.ts
-│   ├── page.tsx                # agent control panel / demo UI
+│   │   ├── agent/route.ts        # entrypoint: intent → validate → risk → execute
+│   │   ├── health/route.ts       # engine + network status
+│   │   └── ...
+│   ├── dashboard/                # payments, transactions, analytics, compliance, wallets
+│   ├── page.tsx                  # landing page
 │   └── layout.tsx
 ├── lib/
-│   ├── agent/                  # Claude brain: prompt, tools, decision loop
-│   ├── cleanverse/             # reused/adapted from VeriGate
-│   ├── verigate/               # client for VeriGate trust-layer API
-│   └── web3/monad.ts           # viem settlement helpers
+│   ├── agent/                    # Intent Engine (Claude parsing + decision loop)
+│   ├── payment/                  # Validation, Risk, Execution engines + payment types
+│   ├── monad/                    # viem settlement, contracts, config
+│   └── platform/                 # analytics, store, auth, idempotency
+├── contracts/                    # PaymentExecutor + registry (Solidity)
 ├── docs/
 └── README.md
 ```
-
-## Open questions
-- Exact VeriGate `/api/pay` payload contract (intent fields, signatures, limits).
-- Where does VeriPAYai's agent wallet live — its own key, or VeriGate-issued aPass?
-- Auth between VeriPAYai and VeriGate (API key? signed request?).

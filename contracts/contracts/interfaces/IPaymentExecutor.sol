@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 /**
  * @title IPaymentExecutor
- * @notice Interface for the VeriPAY on-chain execution layer: stablecoin and
+ * @notice Interface for the PayAI on-chain execution layer: stablecoin and
  *         native MON payments with embedded AI/compliance metadata, replay
  *         protection, and per-transaction/daily/merchant spend limits.
  */
@@ -15,11 +15,11 @@ interface IPaymentExecutor {
     }
 
     struct Payment {
-        address agent;        // VeriPAY agent wallet that executed
+        address agent;        // PayAI agent wallet that executed
         address merchant;     // recipient
         address token;        // stablecoin contract, or address(0) for native MON
         uint256 amount;       // base units (wei for native MON)
-        uint16 riskScore;     // 0–100 from VeriGate
+        uint16 riskScore;     // 0–100 from PayAI risk engine
         Compliance compliance;
         bytes32 aiDecisionHash; // hash of the AI decision metadata
         bytes32 ref;            // off-chain reference (intent / invoice id)

@@ -89,7 +89,7 @@ export function explorerAddress(address: string): string {
 
 /**
  * The stablecoin used for transfers, per network. Testnet defaults to the
- * Cleanverse sandbox aUSDC (6 decimals) already used by VeriGate; override per
+ * Testnet defaults to a sandbox aUSDC (6 decimals); override per
  * network via env. USDC is 6 decimals on most chains.
  */
 export function getStablecoin(): {

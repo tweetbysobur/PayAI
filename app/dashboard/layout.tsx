@@ -8,7 +8,7 @@ import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 
 interface Health {
-  verigate: { connected: boolean; mode: string };
+  payment: { connected: boolean; engine: string };
   wallet: { network: string; chainId: number } | null;
 }
 

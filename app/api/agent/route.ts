@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { agentConfig, checkGuardrails, detectQueryIntent, detectSwapIntent, MAX_INPUT_LENGTH, parseIntent, parseScheduleIntent, sanitizeInput } from "@/lib/agent/brain";
 import type { AgentResult, TraceEntry } from "@/lib/agent/types";
-import { assessRisk, execute, runCompliance } from "@/lib/verigate/client";
-import type { PaymentRequest } from "@/lib/verigate/types";
+import { assessRisk, execute, runValidation } from "@/lib/payment/engine";
+import type { PaymentRequest } from "@/lib/payment/types";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import { recordTx } from "@/lib/platform/store";
@@ -12,11 +12,11 @@ import { claimRequest, completeRequest, computeRequestId, releaseRequest } from 
 /**
  * POST /api/agent — the full VeriPAY AI pipeline.
  *
- *   understand (Cleanverse intent)  →  parsed intent + confidence
- *   guardrails (VeriPAYai)          →  allow / refuse
- *   compliance (VeriGate)           →  approved / review / rejected
- *   risk       (VeriGate)           →  0–100 score
- *   execution  (VeriGate provider)  →  tx / link result   (only if cleared)
+ *   understand (intent engine)       →  parsed intent + confidence
+ *   guardrails (PayAI)              →  allow / refuse
+ *   validation (PayAI engine)       →  approved / review / rejected
+ *   risk       (PayAI engine)       →  0–100 score
+ *   execution  (PayAI provider)     →  tx / link result   (only if cleared)
  *
  * Every stage appends to a reasoning trace, returned alongside the structured
  * decision so the dashboard can show exactly how the agent reasoned.
@@ -312,8 +312,8 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // 3. Compliance.
-    const compliance = runCompliance(request);
+    // 3. Validation.
+    const compliance = runValidation(request);
     trace.push({
       step: "compliance",
       status: compliance.status === "approved" ? "ok" : compliance.status === "review" ? "warn" : "blocked",

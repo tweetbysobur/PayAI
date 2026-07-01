@@ -14,7 +14,7 @@ import {
   type Network,
   type PaymentAction,
   type Token,
-} from "../verigate/types";
+} from "../payment/types";
 import type { ParsedIntent } from "./types";
 
 const ACTIONS: PaymentAction[] = [

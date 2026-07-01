@@ -38,8 +38,8 @@ export interface AgentResult {
 }
 export interface Health {
   model: string;
-  cleanverse: { engine: string };
-  verigate: { mode: string; connected: boolean; detail: string };
+  intentEngine: { engine: string };
+  payment: { engine: string; connected: boolean; detail: string };
   // Deliberately excludes the agent wallet's address/balance — /api/health is
   // public and unauthenticated; only whether a signer is configured + the
   // active network are exposed.

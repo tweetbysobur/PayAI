@@ -1,16 +1,15 @@
 /**
- * VeriGate client — the payment/compliance layer.
+ * PayAI payment engine — the validation and execution layer.
  *
  * Three responsibilities, all operating on a normalized PaymentRequest:
- *   1. runCompliance() — deterministic compliance checks (sanctions, KYC posture,
+ *   1. runValidation() — deterministic validation checks (sanctions, KYC posture,
  *      travel-rule documentation, asset/network support).
  *   2. assessRisk()    — weighted 0–100 risk score with explainable factors.
  *   3. execute()       — performs the action through a PaymentProvider.
  *
- * Execution is provider-based: a MockProvider (default) simulates settlement so
- * the whole product is demoable offline, and a LiveProvider seam forwards real
- * transfers to a running VeriGate instance. Swap is controlled by VERIGATE_MODE
- * with zero changes to callers — the "easy migration later" requirement.
+ * Execution is provider-based: a SimulationProvider (default) simulates settlement
+ * so the whole product is demoable offline. Swap is controlled by PAYAI_MODE
+ * with zero changes to callers.
  *
  * Server-only.
  */
@@ -29,30 +28,26 @@ import { NATIVE_TOKENS, SUPPORTED_NETWORKS, SUPPORTED_TOKENS } from "./types";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Above this amount, travel-rule documentation (a purpose) is expected. */
-const TRAVEL_RULE_THRESHOLD = Number(process.env.VERIGATE_TRAVEL_RULE || "250");
+const TRAVEL_RULE_THRESHOLD = Number(process.env.PAYAI_TRAVEL_RULE_THRESHOLD || "250");
 /** Demo denylist — names/addresses that fail sanctions screening. */
-const DENYLIST = (process.env.VERIGATE_DENYLIST || "sanctioned,blocked,ofac")
+const DENYLIST = (process.env.PAYAI_DENYLIST || "sanctioned,blocked,ofac")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 /** Exact wallet addresses to block (screens the real 0x recipient, not just names). */
-const ADDRESS_DENYLIST = (process.env.VERIGATE_ADDRESS_DENYLIST || "")
+const ADDRESS_DENYLIST = (process.env.PAYAI_ADDRESS_DENYLIST || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
 export function getMode(): ExecutionMode {
-  const m = process.env.VERIGATE_MODE as ExecutionMode;
-  return m === "live" || m === "monad" ? m : "mock";
+  const m = process.env.PAYAI_MODE;
+  return m === "monad" ? "monad" : "simulation";
 }
 
-export function verigateUrl(): string {
-  return process.env.VERIGATE_URL || "http://localhost:3200";
-}
+/* ── Validation engine ──────────────────────────────────────────────────── */
 
-/* ── Compliance engine ──────────────────────────────────────────────────── */
-
-export function runCompliance(req: PaymentRequest): ComplianceResult {
+export function runValidation(req: PaymentRequest): ComplianceResult {
   const checks: ComplianceCheck[] = [];
   const isTransfer = req.action === "send_payment" || req.action === "pay_invoice";
   const recipientText = (req.recipient || "").toLowerCase();
@@ -139,10 +134,10 @@ export function runCompliance(req: PaymentRequest): ComplianceResult {
     status,
     checks,
     summary: hardFail
-      ? "Failed a mandatory compliance check."
+      ? "Failed a mandatory validation check."
       : softFail
         ? "Passed mandatory checks; flagged for review."
-        : "All compliance checks passed.",
+        : "All validation checks passed.",
   };
 }
 
@@ -204,10 +199,10 @@ function explorer(network: Network, txHash: string): string {
 }
 
 /** Default provider — deterministic, offline-safe simulation. */
-const mockProvider: PaymentProvider = {
-  mode: "mock",
+const simulationProvider: PaymentProvider = {
+  mode: "simulation",
   async execute(req) {
-    const base = { network: req.network, mode: "mock" as const, amount: req.amount ?? undefined, token: req.token };
+    const base = { network: req.network, mode: "simulation" as const, amount: req.amount ?? undefined, token: req.token };
     switch (req.action) {
       case "send_payment": {
         const txHash = fakeTxHash();
@@ -230,70 +225,10 @@ const mockProvider: PaymentProvider = {
 };
 
 /**
- * Live provider seam — forwards real transfers to a running VeriGate instance.
- * Transfers map to VeriGate's verified /api/pay pipeline; link/invoice actions
- * have no VeriGate endpoint yet and fall back to simulation (flagged as such).
- * This is the single place to wire production VeriGate APIs.
- */
-const liveProvider: PaymentProvider = {
-  mode: "live",
-  async execute(req) {
-    if (req.action !== "send_payment") {
-      // No live endpoint for links/invoices yet — simulate but stay honest.
-      const sim = await mockProvider.execute(req);
-      return { ...sim, mode: "live", detail: `${sim.detail} (simulated — no live VeriGate endpoint).` };
-    }
-    const txHash = await runVeriGatePipeline(req);
-    return {
-      status: "settled",
-      mode: "live",
-      network: req.network,
-      txHash,
-      explorerUrl: explorer(req.network, txHash),
-      amount: req.amount ?? undefined,
-      token: req.token,
-      recipient: req.recipient ?? undefined,
-      detail: `Settled via VeriGate (${verigateUrl()}).`,
-    };
-  },
-};
-
-/** Drive VeriGate's 5-step /api/pay pipeline; returns the settlement txHash. */
-async function runVeriGatePipeline(req: PaymentRequest): Promise<string> {
-  const steps = ["identity", "asset", "compliance", "settle", "audit"] as const;
-  let txHash = "0x0";
-  for (const step of steps) {
-    const body: Record<string, unknown> = {
-      step,
-      chain: req.network,
-      persona: "verified",
-    };
-    if (step === "settle") {
-      body.amount = String(req.amount ?? 0);
-      body.merchant = req.recipient ?? "";
-    }
-    if (step === "audit") body.txHash = txHash;
-
-    const res = await fetch(`${verigateUrl()}/api/pay`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      cache: "no-store",
-    });
-    const json = (await res.json()) as { ok?: boolean; txHash?: string; error?: string };
-    if (!res.ok || json.error || json.ok === false) {
-      throw new Error(json.error || `VeriGate ${step} failed`);
-    }
-    if (step === "settle" && json.txHash) txHash = json.txHash;
-  }
-  return txHash;
-}
-
-/**
  * Monad provider — real on-chain settlement (USDC/USDT ERC-20, or native MON).
  * Transfers and invoice payments go on-chain (require a resolvable address);
  * link actions have no on-chain action and are simulated. The executor is
- * dynamically imported so mock-mode builds never load viem/signing code.
+ * dynamically imported so simulation-mode builds never load viem/signing code.
  *
  * Every execution requires `req.requestId` (the idempotency key) — this
  * provider never moves funds without one, since that key is what makes a
@@ -304,7 +239,7 @@ const monadProvider: PaymentProvider = {
   async execute(req) {
     const isTransfer = req.action === "send_payment" || req.action === "pay_invoice";
     if (!isTransfer) {
-      const sim = await mockProvider.execute(req);
+      const sim = await simulationProvider.execute(req);
       return { ...sim, mode: "monad", detail: `${sim.detail} (off-chain — links are not on-chain).` };
     }
     if (!req.recipient || !/^0x[0-9a-fA-F]{40}$/.test(req.recipient)) {
@@ -395,7 +330,7 @@ const monadProvider: PaymentProvider = {
 
     // Fallback (no PaymentExecutor configured): direct transfer — ERC-20 for
     // stablecoins, native send for MON — then a best-effort anchor to the
-    // first-gen VeriPayRegistry (stablecoins only; native has no anchor here).
+    // VeriPayRegistry (stablecoins only; native has no anchor here).
     if (isNative) {
       const { estimateNativeGas, executeNativeTransfer } = await import("../monad/executor");
       let gasEstimate: string | undefined;
@@ -472,8 +407,7 @@ const monadProvider: PaymentProvider = {
 function getProvider(): PaymentProvider {
   const mode = getMode();
   if (mode === "monad") return monadProvider;
-  if (mode === "live") return liveProvider;
-  return mockProvider;
+  return simulationProvider;
 }
 
 export async function execute(req: PaymentRequest): Promise<TransactionResult> {
@@ -482,28 +416,18 @@ export async function execute(req: PaymentRequest): Promise<TransactionResult> {
 
 /* ── Health ─────────────────────────────────────────────────────────────── */
 
-/** Report VeriGate connectivity for /api/health (never throws). */
-export async function checkVeriGate(): Promise<{ mode: ExecutionMode; connected: boolean; detail: string }> {
+/** Report PayAI payment engine connectivity for /api/health (never throws). */
+export async function checkPaymentEngine(): Promise<{ engine: string; connected: boolean; detail: string }> {
   const mode = getMode();
-  if (mode === "mock") {
-    return { mode, connected: true, detail: "Mock execution — no external calls." };
+  if (mode === "simulation") {
+    return { engine: "simulation", connected: true, detail: "Simulation mode — no external calls." };
   }
-  if (mode === "monad") {
-    try {
-      const { getPublicClient } = await import("../monad/wallet");
-      const block = await getPublicClient().getBlockNumber();
-      return { mode, connected: true, detail: `Monad RPC reachable (block ${block}).` };
-    } catch (e) {
-      return { mode, connected: false, detail: e instanceof Error ? e.message : "Monad RPC unreachable." };
-    }
-  }
+  // monad
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 1500);
-    const res = await fetch(`${verigateUrl()}/api/health`, { signal: ctrl.signal, cache: "no-store" });
-    clearTimeout(t);
-    return { mode, connected: res.ok, detail: res.ok ? `Reachable at ${verigateUrl()}.` : `HTTP ${res.status}.` };
+    const { getPublicClient } = await import("../monad/wallet");
+    const block = await getPublicClient().getBlockNumber();
+    return { engine: "monad", connected: true, detail: `Monad RPC reachable (block ${block}).` };
   } catch (e) {
-    return { mode, connected: false, detail: e instanceof Error ? e.message : "Unreachable." };
+    return { engine: "monad", connected: false, detail: e instanceof Error ? e.message : "Monad RPC unreachable." };
   }
 }
