@@ -115,30 +115,35 @@ const TRUST = [
   { icon: Blocks, title: "On-Chain Settlement", body: "Real transactions, real receipts, fully traceable." },
 ];
 
-/** Live previews of the real dashboard, driven by the same /api/health + /api/onchain data the dashboard itself reads — never fabricated mockups. */
-function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null }) {
+/** Live previews of the real dashboard. Headline totals come from the same
+ *  /api/platform-stats aggregate the hero chips + Platform Status section use
+ *  (so every number on the page agrees); the on-chain contract read (/api/onchain)
+ *  drives the per-payment detail where available. Never fabricated mockups. */
+function MiniScreen({ screen, health, onchain, activity }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null; activity: PlatformActivity | null }) {
   const stats = onchain?.stats ?? null;
   const payments = onchain?.payments ?? [];
 
   if (screen === "dashboard") {
     const approvalRate = stats && stats.approved + stats.rejected > 0 ? stats.approved / (stats.approved + stats.rejected) : null;
+    const volumeStr = activity ? formatVolume(activity.volumeByToken) : "—";
+    const paymentsStr = activity ? activity.totalPayments.toLocaleString() : stats ? `${stats.payments}` : "—";
     return (
       <div className="grid grid-cols-3 gap-3 p-5">
         {[
-          { icon: ArrowUpRight, label: "Volume", value: stats ? `${stats.volume.toFixed(0)} USDC` : "—" },
-          { icon: ArrowDownLeft, label: "Payments", value: stats ? `${stats.payments}` : "—" },
+          { icon: ArrowUpRight, label: "Volume", value: volumeStr },
+          { icon: ArrowDownLeft, label: "Payments", value: paymentsStr },
           { icon: Receipt, label: "Requests", value: stats ? `${stats.requests}` : "—" },
         ].map((k) => (
           <div key={k.label} className="rounded-lg border border-border bg-panel p-3">
             <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-md bg-primary/12 text-primary"><k.icon size={13} /></div>
-            <div className="text-sm font-semibold text-foreground">{k.value}</div>
+            <div className="text-xs font-semibold leading-tight text-foreground">{k.value}</div>
             <div className="mt-1 text-[10px] text-muted-foreground">{k.label}</div>
           </div>
         ))}
         <div className="col-span-2 rounded-lg border border-border bg-panel p-3">
           <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground/70">Recent payments</div>
           {payments.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground">No payments yet</p>
+            <p className="text-[10px] text-muted-foreground">{activity && activity.totalPayments > 0 ? `${activity.totalPayments} settled — view the full history in the app.` : "No payments yet"}</p>
           ) : (
             <div className="flex h-16 items-end gap-1.5">
               {payments.slice(-7).map((p, i) => {
@@ -366,7 +371,7 @@ export default function LandingPage() {
               </div>
               <AnimatePresence mode="wait">
                 <motion.div key={activeScreen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} />
+                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} activity={activity} />
                 </motion.div>
               </AnimatePresence>
             </div>
@@ -459,7 +464,7 @@ export default function LandingPage() {
               </div>
               <AnimatePresence mode="wait">
                 <motion.div key={activeScreen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} />
+                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} activity={activity} />
                 </motion.div>
               </AnimatePresence>
             </Link>
