@@ -87,7 +87,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
         {wallet.address && (
           <button
             onClick={wallet.disconnect}
-            className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40"
+            className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Disconnect"
             aria-label="Disconnect wallet"
           >
@@ -100,7 +100,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           <button
             onClick={() => { const next = !showNotifs; setShowNotifs(next); if (!next) onOpenNotifications?.(); }}
             aria-label={notifications.length > 0 ? `Notifications (${notifications.length} unread)` : "Notifications"}
-            className="relative rounded-full border border-border bg-panel p-2 text-muted-foreground hover:text-foreground"
+            className="relative rounded-full border border-border bg-panel p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell size={16} />
             {notifications.length > 0 && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-danger" />}
@@ -122,7 +122,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                   {notifications.length > 0 && (
                     <button
                       onClick={() => { onOpenNotifications?.(); setShowNotifs(false); }}
-                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary"
+                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                     >
                       <CheckCheck size={12} /> Mark all read
                     </button>

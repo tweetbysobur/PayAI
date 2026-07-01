@@ -28,7 +28,7 @@ export function Sidebar() {
 
   return (
     <aside className="hidden h-screen w-60 flex-col border-r border-border bg-panel/60 lg:flex">
-      <Link href="/" title="Back to home" className="flex items-center gap-2 border-b border-border px-5 py-5 transition hover:bg-input/40">
+      <Link href="/" title="Back to home" className="flex items-center gap-2 border-b border-border px-5 py-5 transition hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
         <Logo size={32} />
         <div>
           <p className="text-sm font-semibold leading-none text-foreground">PayAI</p>
@@ -52,7 +52,7 @@ export function Sidebar() {
               <Link
                 href={item.href}
                 aria-disabled={item.soon}
-                className={`mb-0.5 flex items-center justify-between rounded-md px-3 py-2 text-sm transition ${
+                className={`mb-0.5 flex items-center justify-between rounded-md px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-input hover:text-foreground"
                 } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
               >

@@ -13,7 +13,7 @@ export function MobileNavTrigger({ onClick }: { onClick: () => void }) {
     <button
       onClick={onClick}
       aria-label="Open navigation menu"
-      className="rounded-md border border-border bg-panel p-2 text-foreground lg:hidden"
+      className="rounded-md border border-border bg-panel p-2 text-foreground lg:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Menu size={16} />
     </button>

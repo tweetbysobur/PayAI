@@ -104,10 +104,10 @@ export default function Overview() {
           <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+          <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             <Send size={14} /> Send Payment
           </Link>
-          <Link href="/dashboard/wallets" className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">
+          <Link href="/dashboard/wallets" className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ArrowDownLeft size={14} /> Receive
           </Link>
         </div>
@@ -135,7 +135,7 @@ export default function Overview() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {wallet.address
                     ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
-                    : <Link href="/connect" className="text-primary hover:underline">Connect to get started →</Link>}
+                    : <Link href="/connect" className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
                 </p>
               </div>
             </div>
@@ -203,7 +203,7 @@ export default function Overview() {
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Recent transactions */}
-        <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline">View all</Link>}>
+        <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
           {history.length === 0 ? (
             <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K) — it settles on Monad in seconds." />
           ) : (
@@ -250,7 +250,7 @@ export default function Overview() {
                 <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Pending</p></div>
                 <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
-              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline">View Compliance Center →</Link>
+              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View Compliance Center →</Link>
             </div>
           ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened — results appear here." />}
         </Card>
@@ -277,7 +277,7 @@ export default function Overview() {
           ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments, PayAI surfaces patterns here." />}
         </Card>
 
-        <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline">Manage</Link>}>
+        <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
           {upcoming.length === 0 ? (
             <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to alex.nads every Friday".' />
           ) : (
@@ -351,7 +351,7 @@ export default function Overview() {
             { label: "Audit Logs", sub: "Check history", icon: ScrollText, href: "/dashboard/transactions" },
             { label: "Analytics", sub: "Business metrics", icon: Store, href: "/dashboard/analytics" },
           ].map((q) => (
-            <Link key={q.label} href={q.href} className="group rounded-lg border border-border bg-panel p-4 transition hover:border-primary/40">
+            <Link key={q.label} href={q.href} className="group rounded-lg border border-border bg-panel p-4 transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <q.icon size={18} className="mb-2 text-muted-foreground group-hover:text-primary" />
               <p className="text-sm font-medium text-foreground">{q.label}</p>
               <p className="text-xs text-muted-foreground">{q.sub}</p>
