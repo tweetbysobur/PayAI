@@ -13,6 +13,7 @@ import {
 import { Badge, Card } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
+import { VolumeInline } from "@/components/TokenLogo";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../package.json";
@@ -125,12 +126,13 @@ function MiniScreen({ screen, health, onchain, activity }: { screen: ScreenKey; 
 
   if (screen === "dashboard") {
     const approvalRate = stats && stats.approved + stats.rejected > 0 ? stats.approved / (stats.approved + stats.rejected) : null;
-    const volumeStr = activity ? formatVolume(activity.volumeByToken) : "—";
+    const hasVolume = activity && Object.values(activity.volumeByToken).some((v) => v > 0);
+    const volumeEl = hasVolume ? <VolumeInline byToken={activity!.volumeByToken} size={11} /> : "—";
     const paymentsStr = activity ? activity.totalPayments.toLocaleString() : stats ? `${stats.payments}` : "—";
     return (
       <div className="grid grid-cols-3 gap-3 p-5">
         {[
-          { icon: ArrowUpRight, label: "Volume", value: volumeStr },
+          { icon: ArrowUpRight, label: "Volume", value: volumeEl },
           { icon: ArrowDownLeft, label: "Payments", value: paymentsStr },
           { icon: Receipt, label: "Requests", value: stats ? `${stats.requests}` : "—" },
         ].map((k) => (
@@ -273,11 +275,18 @@ export default function LandingPage() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
 
   useEffect(() => {
-    fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
-    fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
     // Platform-wide totals — covers wallet-signed sends/swaps too, not just
     // payments settled through the on-chain agent contract (onchain.stats).
-    fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
+    // Polled so the live volume/payment index keeps climbing as the product is
+    // used, without a manual refresh.
+    const load = () => {
+      fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
+      fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
+      fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -338,10 +347,9 @@ export default function LandingPage() {
                   <span className="font-mono font-medium text-foreground">{activity.totalPayments.toLocaleString()}</span>
                   <span className="text-muted-foreground">payments processed</span>
                 </div>
-                {formatVolume(activity.volumeByToken) !== "—" && (
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs">
-                    <Hash size={12} className="text-primary" />
-                    <span className="font-mono font-medium text-foreground">{formatVolume(activity.volumeByToken)}</span>
+                {Object.values(activity.volumeByToken).some((v) => v > 0) && (
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs text-foreground">
+                    <VolumeInline byToken={activity.volumeByToken} size={13} />
                     <span className="text-muted-foreground">volume</span>
                   </div>
                 )}
