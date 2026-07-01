@@ -325,7 +325,24 @@ export default function LandingPage() {
                 See how it works
               </a>
             </div>
-            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+            {/* Live platform stats — same data as Platform Status section below */}
+            {activity && (activity.totalPayments > 0 || Object.values(activity.volumeByToken).some((v) => v > 0)) && (
+              <div className="mt-7 flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs">
+                  <Receipt size={12} className="text-primary" />
+                  <span className="font-mono font-medium text-foreground">{activity.totalPayments.toLocaleString()}</span>
+                  <span className="text-muted-foreground">payments processed</span>
+                </div>
+                {formatVolume(activity.volumeByToken) !== "—" && (
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs">
+                    <Hash size={12} className="text-primary" />
+                    <span className="font-mono font-medium text-foreground">{formatVolume(activity.volumeByToken)}</span>
+                    <span className="text-muted-foreground">volume</span>
+                  </div>
+                )}
+              </div>
+            )}
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> Non-custodial</span>
               <span className="flex items-center gap-1.5"><BadgeCheck size={12} className="text-success" /> Live on Monad Mainnet</span>
               <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Compliance-screened</span>
