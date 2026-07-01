@@ -7,7 +7,7 @@ import {
   ShieldCheck, Lock, Network, ArrowUpRight, ArrowDownLeft, Receipt,
   MessageSquare, Brain, ShieldHalf, Zap, CheckCircle2, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
-  ScrollText, Wallet as WalletIcon, Eye, Hash, Blocks, BadgeCheck,
+  ScrollText, Wallet as WalletIcon, Hash, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles,
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
@@ -67,21 +67,6 @@ const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; hr
   { key: "wallets", label: "Wallet Management", icon: WalletIcon, href: "/dashboard/wallets" },
 ];
 
-const WHY = [
-  { icon: Brain, title: "Natural Language Payments" },
-  { icon: AtSign, title: ".nads Domain Resolution" },
-  { icon: ShieldHalf, title: "Compliance First" },
-  { icon: Network, title: "On-Chain Settlement" },
-  { icon: Eye, title: "Real Transaction Visibility" },
-];
-
-const SECURITY = [
-  { icon: FileCheck2, title: "Smart Contract Execution" },
-  { icon: Lock, title: "Wallet Ownership" },
-  { icon: ShieldHalf, title: "Compliance Controls" },
-  { icon: ScrollText, title: "Audit Trail" },
-];
-
 const TECHNOLOGY = [
   { icon: Network, title: "Monad Mainnet", body: "Every payment settles on Monad's high-performance L1 — sub-second finality, real on-chain receipts." },
   { icon: Blocks, title: "Smart Contracts", body: "A deployed PaymentExecutor with idempotent settlement and on-chain per-tx and daily caps." },
@@ -110,13 +95,6 @@ const FAQS = [
   { q: "How do scheduled payments work without me signing each time?", a: "Recurring and future-dated payments settle through an authorized agent contract bounded by on-chain per-transaction and daily caps — so automated payments can never exceed limits you control." },
   { q: "How does compliance work?", a: "Before any payment is signed, PayAI's Validation Engine runs address screening, risk scoring, and travel-rule checks. Payments that fail hard checks are blocked; borderline ones are held for review." },
   { q: "Is the smart contract verified?", a: "Yes — the PaymentExecutor and registry are deployed and live on Monad Mainnet. The footer links directly to the contract on the explorer." },
-];
-
-const TRUST = [
-  { icon: Network, title: "Live on Mainnet", body: "Running on Monad Mainnet — not a testnet demo." },
-  { icon: BadgeCheck, title: "Smart Contract Verified", body: "Settlement contract deployed and live on-chain." },
-  { icon: Brain, title: "AI Verified Intent", body: "Every instruction parsed and confirmed before signing." },
-  { icon: Blocks, title: "On-Chain Settlement", body: "Real transactions, real receipts, fully traceable." },
 ];
 
 /** Live previews of the real dashboard, driven entirely by the same
@@ -457,47 +435,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Product Showcase */}
-      <section id="product" className="border-t border-border bg-panel/30 py-20">
-        <div className="mx-auto max-w-5xl px-6">
-          <motion.h2
-            initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
-            className="mb-8 text-center text-3xl font-semibold tracking-tight text-foreground"
-          >
-            Product
-          </motion.h2>
-
-          <div className="mb-6 flex flex-wrap justify-center gap-2">
-            {SCREENS.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setActiveScreen(s.key)}
-                className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition ${
-                  activeScreen === s.key ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <s.icon size={13} /> {s.label}
-              </button>
-            ))}
-          </div>
-
-          <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
-            <Link href={SCREENS.find((s) => s.key === activeScreen)!.href} className="mx-auto block max-w-2xl overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl transition hover:border-primary/30">
-              <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2.5">
-                <span className="h-2 w-2 rounded-full bg-border" />
-                <span className="h-2 w-2 rounded-full bg-border" />
-                <span className="h-2 w-2 rounded-full bg-border" />
-              </div>
-              <AnimatePresence mode="wait">
-                <motion.div key={activeScreen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} activity={activity} />
-                </motion.div>
-              </AnimatePresence>
-            </Link>
-          </motion.div>
-        </div>
-      </section>
-
       {/* Features */}
       <section id="features" className="mx-auto max-w-6xl px-6 py-20">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
@@ -514,34 +451,6 @@ export default function LandingPage() {
               </div>
             </motion.div>
           ))}
-        </div>
-      </section>
-
-      {/* Why PayAI */}
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">Why PayAI</h2>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-          {WHY.map((w, i) => (
-            <motion.div key={w.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }} className="flex flex-col items-center gap-2 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/12 text-primary"><w.icon size={17} /></div>
-              <p className="text-xs font-medium leading-snug text-foreground">{w.title}</p>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* Security */}
-      <section id="security" className="border-t border-border bg-panel/30 py-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">Security</h2>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {SECURITY.map((s, i) => (
-              <motion.div key={s.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.06, duration: 0.35 }} className="flex flex-col items-center gap-2 text-center">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-success/12 text-success"><s.icon size={17} /></div>
-                <p className="text-xs font-medium leading-snug text-foreground">{s.title}</p>
-              </motion.div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -585,27 +494,6 @@ export default function LandingPage() {
               </dl>
             </Card>
           </motion.div>
-        </div>
-      </section>
-
-      {/* Trust signals — real, not testimonials */}
-      <section className="border-t border-border bg-panel/30 py-20">
-        <div className="mx-auto max-w-6xl px-6">
-          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Trust the chain, not the claim</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">No paid reviews. Just verifiable on-chain facts.</p>
-          </motion.div>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {TRUST.map((t, i) => (
-              <motion.div key={t.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.05, duration: 0.35 }}>
-                <div className="flex h-full flex-col items-center rounded-xl border border-border bg-panel p-5 text-center">
-                  <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-success/12 text-success"><t.icon size={19} /></div>
-                  <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t.body}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
         </div>
       </section>
 
