@@ -171,27 +171,42 @@ export interface PlatformActivity {
   /** Settled volume, summed separately per token — never blended into one
    *  number across different assets, which would misrepresent the amount. */
   volumeByToken: Record<string, number>;
+  /** Aggregate compliance outcome across every payment (approval rate etc.). */
+  compliance: ComplianceMetrics;
+  /** Settled payments per day for the last 7 days — real activity series. */
+  trend: TrendPoint[];
+  /** The most recent settled payments as {token, amount} ONLY — no recipient,
+   *  sender, or tx hash, so nothing here identifies a user. Powers the public
+   *  "recent activity" preview without leaking anyone's wallet or history. */
+  recent: { token: string; amount: number }[];
 }
 
 /**
- * Platform-wide activity for the public landing page: an aggregate count and
- * per-token volume across every tenant (the shared demo workspace plus any
- * registered merchants). Deliberately returns ONLY aggregate numbers — never
- * a list of payments, recipients, or wallet addresses — so it's safe to
- * expose on an unauthenticated, public endpoint.
+ * Platform-wide activity for the public landing page: aggregate counts, per-token
+ * volume, compliance rate, a 7-day trend, and recent (anonymized) amounts across
+ * every tenant. Deliberately returns ONLY aggregate/non-identifying numbers —
+ * never a recipient, sender, or wallet address — so it's safe to expose on an
+ * unauthenticated, public endpoint.
  */
 export async function getPlatformActivity(): Promise<PlatformActivity> {
   const merchantIds = await listAllMerchantIds();
   const tenantIds = [...new Set([DEMO_TENANT, ...merchantIds])];
   const txLists = await Promise.all(tenantIds.map((id) => listTx(id)));
-  const allTxs = txLists.flat();
+  const allTxs = txLists.flat().sort((a, b) => b.at - a.at);
 
   const settled = allTxs.filter(isSettled);
   const volumeByToken: Record<string, number> = {};
   for (const t of settled) {
     volumeByToken[t.token] = (volumeByToken[t.token] ?? 0) + (t.amount ?? 0);
   }
-  return { totalPayments: settled.length, volumeByToken };
+  const recent = settled.slice(0, 8).map((t) => ({ token: t.token, amount: t.amount ?? 0 }));
+  return {
+    totalPayments: settled.length,
+    volumeByToken,
+    compliance: computeCompliance(allTxs),
+    trend: computeTrend(allTxs, 7),
+    recent,
+  };
 }
 
 /** Assemble the full snapshot from the tx log + on-chain merchant names.

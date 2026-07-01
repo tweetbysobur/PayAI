@@ -13,7 +13,7 @@ import {
 import { Badge, Card } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
-import { VolumeInline } from "@/components/TokenLogo";
+import { VolumeInline, TokenLogo } from "@/components/TokenLogo";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../package.json";
@@ -32,10 +32,13 @@ interface Onchain {
   payments: OnchainPayment[];
   explorerTxBase?: string;
 }
-/** Platform-wide totals across every tenant — aggregate only, no per-payment detail. */
+/** Platform-wide totals across every tenant — aggregate + anonymized only. */
 interface PlatformActivity {
   totalPayments: number;
   volumeByToken: Record<string, number>;
+  compliance: { approved: number; rejected: number; review: number; blocked: number; approvalRate: number };
+  trend: { date: string; revenue: number; count: number }[];
+  recent: { token: string; amount: number }[];
 }
 
 /** "12.4 MON · 6.47 USDC" — every nonzero asset, never blended into one misleading number. */
@@ -116,120 +119,137 @@ const TRUST = [
   { icon: Blocks, title: "On-Chain Settlement", body: "Real transactions, real receipts, fully traceable." },
 ];
 
-/** Live previews of the real dashboard. Headline totals come from the same
- *  /api/platform-stats aggregate the hero chips + Platform Status section use
- *  (so every number on the page agrees); the on-chain contract read (/api/onchain)
- *  drives the per-payment detail where available. Never fabricated mockups. */
-function MiniScreen({ screen, health, onchain, activity }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null; activity: PlatformActivity | null }) {
-  const stats = onchain?.stats ?? null;
-  const payments = onchain?.payments ?? [];
+/** Live previews of the real dashboard, driven entirely by the same
+ *  /api/platform-stats aggregate the hero chips + Platform Status use — so every
+ *  screen shows real, current numbers that agree with the rest of the page.
+ *  Strictly aggregate + anonymized (counts, volume, an approval rate, recent
+ *  amounts with no recipient) — never a wallet address or a specific user's
+ *  history. Never fabricated. */
+function MiniScreen({ screen, health, activity }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null; activity: PlatformActivity | null }) {
+  const hasVolume = activity && Object.values(activity.volumeByToken).some((v) => v > 0);
+  const approvalPct = activity ? Math.round(activity.compliance.approvalRate * 100) : null;
 
   if (screen === "dashboard") {
-    const approvalRate = stats && stats.approved + stats.rejected > 0 ? stats.approved / (stats.approved + stats.rejected) : null;
-    const hasVolume = activity && Object.values(activity.volumeByToken).some((v) => v > 0);
-    const volumeEl = hasVolume ? <VolumeInline byToken={activity!.volumeByToken} size={11} /> : "—";
-    const paymentsStr = activity ? activity.totalPayments.toLocaleString() : stats ? `${stats.payments}` : "—";
+    const trend = activity?.trend ?? [];
+    const maxRev = Math.max(1, ...trend.map((t) => t.revenue));
     return (
-      <div className="grid grid-cols-3 gap-3 p-5">
-        {[
-          { icon: ArrowUpRight, label: "Volume", value: volumeEl },
-          { icon: ArrowDownLeft, label: "Payments", value: paymentsStr },
-          { icon: Receipt, label: "Requests", value: stats ? `${stats.requests}` : "—" },
-        ].map((k) => (
-          <div key={k.label} className="rounded-lg border border-border bg-panel p-3">
-            <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-md bg-primary/12 text-primary"><k.icon size={13} /></div>
-            <div className="text-xs font-semibold leading-tight text-foreground">{k.value}</div>
-            <div className="mt-1 text-[10px] text-muted-foreground">{k.label}</div>
-          </div>
-        ))}
-        <div className="col-span-2 rounded-lg border border-border bg-panel p-3">
-          <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground/70">Recent payments</div>
-          {payments.length === 0 ? (
-            <p className="text-[10px] text-muted-foreground">{activity && activity.totalPayments > 0 ? `${activity.totalPayments} settled — view the full history in the app.` : "No payments yet"}</p>
-          ) : (
-            <div className="flex h-16 items-end gap-1.5">
-              {payments.slice(-7).map((p, i) => {
-                const max = Math.max(1, ...payments.map((x) => x.amount));
-                return <div key={i} className="flex-1 rounded-t bg-primary/50" style={{ height: `${Math.max(8, (p.amount / max) * 100)}%` }} />;
-              })}
+      <div className="space-y-3 p-5">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { icon: ArrowUpRight, label: "Volume", value: hasVolume ? <VolumeInline byToken={activity!.volumeByToken} size={11} /> : "—" },
+            { icon: Receipt, label: "Payments", value: activity ? activity.totalPayments.toLocaleString() : "—" },
+            { icon: ShieldCheck, label: "Approval", value: approvalPct != null ? `${approvalPct}%` : "—" },
+          ].map((k) => (
+            <div key={k.label} className="rounded-xl border border-border bg-panel p-3">
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary"><k.icon size={13} /></div>
+              <div className="text-xs font-semibold leading-tight text-foreground">{k.value}</div>
+              <div className="mt-1 text-[10px] text-muted-foreground">{k.label}</div>
             </div>
-          )}
+          ))}
         </div>
-        <div className="rounded-lg border border-border bg-panel p-3">
-          <div className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground/70">Approval</div>
-          {approvalRate != null ? (
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border-4 border-success/70 text-[10px] font-semibold text-foreground">
-              {Math.round(approvalRate * 100)}%
-            </div>
-          ) : <p className="text-center text-[10px] text-muted-foreground">No data</p>}
+        <div className="rounded-xl border border-border bg-panel p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Payment volume · 7d</span>
+            <span className="flex items-center gap-1 text-[10px] text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> live</span>
+          </div>
+          <div className="flex h-20 items-end gap-1.5">
+            {(trend.length ? trend : Array.from({ length: 7 }, () => ({ date: "", revenue: 0 }))).map((t, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1">
+                <div className="w-full rounded-t bg-gradient-to-t from-primary/40 to-primary" style={{ height: `${Math.max(4, (t.revenue / maxRev) * 64)}px` }} />
+                <span className="text-[8px] text-muted-foreground/60">{t.date ? t.date.slice(5) : ""}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
   }
+
   if (screen === "transactions") {
-    // Aggregate, anonymized preview — never a specific payment's merchant
-    // address. This is a public marketing page, not an audit trail; the real
-    // per-payment detail (with merchant identity) lives in the authenticated
-    // dashboard at /dashboard/transactions.
+    // Recent settled payments — real token + amount, anonymized (no recipient,
+    // sender, or hash). The full, per-user detail lives in the signed-in app.
+    const recent = activity?.recent ?? [];
     return (
       <div className="space-y-2 p-5">
-        <div className="grid grid-cols-3 gap-2 px-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-          <span>Asset</span><span>Amount</span><span>Status</span>
+        <div className="grid grid-cols-[1.2fr_1fr_0.8fr] gap-2 px-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+          <span>Asset</span><span>Amount</span><span className="text-right">Status</span>
         </div>
-        {payments.length === 0 ? (
-          <p className="px-1 text-[11px] text-muted-foreground">No on-chain payments yet — live transactions will appear here.</p>
+        {recent.length === 0 ? (
+          <p className="px-1 text-[11px] text-muted-foreground">Live payments appear here as they settle.</p>
         ) : (
-          payments.slice(-4).reverse().map((p) => (
-            <div key={p.id} className="grid grid-cols-3 items-center gap-2 rounded-lg border border-border bg-panel p-3">
-              <span className="text-[10px] text-muted-foreground">USDC</span>
-              <span className="text-[10px] text-foreground">{p.amount.toFixed(2)}</span>
-              <Badge tone={p.compliance === 1 ? "success" : "warning"}>{p.compliance === 1 ? "Approved" : "Review"}</Badge>
+          recent.slice(0, 5).map((p, i) => (
+            <div key={i} className="grid grid-cols-[1.2fr_1fr_0.8fr] items-center gap-2 rounded-xl border border-border bg-panel px-3 py-2.5">
+              <span className="flex items-center gap-1.5 text-[11px] text-foreground"><TokenLogo token={p.token} size={14} /> {p.token}</span>
+              <span className="font-mono text-[11px] text-foreground">{p.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+              <span className="flex justify-end"><Badge tone="success">Settled</Badge></span>
             </div>
           ))
         )}
       </div>
     );
   }
+
   if (screen === "compliance") {
-    const approved = stats?.approved ?? 0;
-    const rejected = stats?.rejected ?? 0;
-    const rate = approved + rejected > 0 ? approved / (approved + rejected) : null;
+    const c = activity?.compliance;
+    const rate = c ? c.approvalRate : 0;
+    const rows = [
+      { label: "Approved", value: c?.approved ?? 0, tone: "text-success" },
+      { label: "Needs review", value: c?.review ?? 0, tone: "text-warning" },
+      { label: "Rejected", value: (c?.rejected ?? 0) + (c?.blocked ?? 0), tone: "text-danger" },
+    ];
     return (
       <div className="grid grid-cols-2 gap-3 p-5">
-        <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-panel p-4">
-          <div className="relative h-20 w-20">
-            <svg width="80" height="80" viewBox="0 0 80 80" className="-rotate-90">
-              <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-border)" strokeWidth="7" />
-              {rate != null && (
-                <circle cx="40" cy="40" r="32" fill="none" stroke="var(--color-success)" strokeWidth="7" strokeLinecap="round" strokeDasharray={2 * Math.PI * 32} strokeDashoffset={2 * Math.PI * 32 * (1 - rate)} />
-              )}
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-panel p-4">
+          <div className="relative h-24 w-24">
+            <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
+              <circle cx="48" cy="48" r="38" fill="none" stroke="var(--color-border)" strokeWidth="8" />
+              <circle cx="48" cy="48" r="38" fill="none" stroke="var(--color-success)" strokeWidth="8" strokeLinecap="round" strokeDasharray={2 * Math.PI * 38} strokeDashoffset={2 * Math.PI * 38 * (1 - rate)} />
             </svg>
-            <div className="absolute inset-0 flex items-center justify-center"><ShieldCheck size={18} className="text-success" /></div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <ShieldCheck size={16} className="mb-0.5 text-success" />
+              <span className="text-sm font-semibold text-foreground">{approvalPct ?? 0}%</span>
+            </div>
           </div>
+          <span className="mt-2 text-[10px] text-muted-foreground">Approval rate</span>
         </div>
-        <div className="space-y-2 rounded-lg border border-border bg-panel p-4">
-          <div className="flex items-center justify-between"><span className="text-[11px] text-muted-foreground">Approved</span><span className="text-[11px] text-foreground">{approved}</span></div>
-          <div className="flex items-center justify-between"><span className="text-[11px] text-muted-foreground">Rejected</span><span className="text-[11px] text-foreground">{rejected}</span></div>
-          <div className="flex items-center justify-between"><span className="text-[11px] text-muted-foreground">Requests</span><span className="text-[11px] text-foreground">{stats?.requests ?? 0}</span></div>
+        <div className="flex flex-col justify-center gap-2.5 rounded-xl border border-border bg-panel p-4">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground">{r.label}</span>
+              <span className={`text-sm font-semibold ${r.tone}`}>{r.value}</span>
+            </div>
+          ))}
         </div>
       </div>
     );
   }
-  // Deliberately shows network/contract status only — never an internal
-  // wallet's address or balance. Every visitor here is anonymous; a wallet
-  // identity (yours or PayAI's own) has no place in an unauthenticated demo.
+
+  // Wallets — a feature highlight (a user's real wallet is private and never
+  // shown here), dressed with the live network + real platform reach.
   return (
     <div className="space-y-3 p-5">
-      <div className="rounded-lg border border-border bg-panel p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-primary"><WalletIcon size={13} /></div>
-          <span className="text-[11px] text-muted-foreground">Your connected wallet appears here</span>
+      <div className="rounded-xl border border-border bg-gradient-to-br from-primary/[0.08] to-transparent p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary"><WalletIcon size={15} /></div>
+          <div>
+            <p className="text-[11px] font-medium text-foreground">Your wallet, your keys</p>
+            <p className="text-[10px] text-muted-foreground">Non-custodial — you sign every payment</p>
+          </div>
         </div>
-        <div className="text-sm font-semibold text-foreground">Non-custodial — you sign every payment</div>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1 rounded-full border border-border bg-panel px-2 py-1 text-[10px] text-foreground"><Lock size={10} className="text-success" /> Keys never leave</span>
+          <span className="flex items-center gap-1 rounded-full border border-border bg-panel px-2 py-1 text-[10px] text-foreground"><MonadMark size={10} /> {health?.wallet?.network ?? "Monad"}</span>
+        </div>
       </div>
-      <div className="rounded-lg border border-border bg-panel p-4">
-        <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"}</div>
-        <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live" : "Connecting…"}</Badge>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-border bg-panel p-3">
+          <div className="text-sm font-semibold text-foreground">{activity ? activity.totalPayments.toLocaleString() : "—"}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">Payments settled</div>
+        </div>
+        <div className="rounded-xl border border-border bg-panel p-3">
+          <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
+          <div className="mt-1.5 text-[10px] text-muted-foreground">Settlement network</div>
+        </div>
       </div>
     </div>
   );
@@ -294,8 +314,6 @@ export default function LandingPage() {
     const t = setInterval(() => setActiveScreen((s) => order[(order.indexOf(s) + 1) % order.length]), 3200);
     return () => clearInterval(t);
   }, []);
-
-  const stats = onchain?.stats ?? null;
 
   return (
     <main className="min-h-screen bg-background">
