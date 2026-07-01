@@ -8,6 +8,7 @@ import {
   ReceiptText, Copy, Check,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
+import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -132,11 +133,11 @@ export default function Payments() {
               <button
                 key={t}
                 onClick={() => setToken(t)}
-                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   token === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {t}
+                <TokenLogo token={t} size={14} /> {t}
               </button>
             ))}
           </div>
@@ -207,8 +208,8 @@ export default function Payments() {
               </motion.div>
               <p className="text-lg font-semibold text-foreground">{DECISION[c.res.decision].label}</p>
               {c.res.intent.amount != null && (
-                <p className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-                  {c.res.intent.amount} {c.res.intent.token}
+                <p className="mt-1 flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
+                  <TokenLogo token={c.res.intent.token} size={22} /> {c.res.intent.amount} {c.res.intent.token}
                 </p>
               )}
               <p className="mt-1 text-sm text-muted-foreground">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
