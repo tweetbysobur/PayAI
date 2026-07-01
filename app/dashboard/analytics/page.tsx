@@ -6,8 +6,9 @@ import { Card } from "@/components/ui";
 
 interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
-interface TopCustomer { recipient: string; total: number; count: number }
-interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: number; total: number }; topCustomers?: TopCustomer[]; insights?: string[] }
+interface Insight { id: string; severity: string; title: string; detail: string; suggestion?: string }
+interface TopCustomer { address: string; name?: string; totalPaid: number; paymentCount: number }
+interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: number; total: number }; topCustomers?: TopCustomer[]; insights?: Insight[] }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 
@@ -61,9 +62,9 @@ export default function AnalyticsPage() {
           {a?.topCustomers?.length ? (
             <ul className="divide-y divide-border text-sm">
               {a.topCustomers.map((t) => (
-                <li key={t.recipient} className="flex items-center justify-between py-2">
-                  <span className="font-mono text-xs text-foreground">{short(t.recipient)}</span>
-                  <span className="text-muted-foreground">{t.total.toFixed(2)} ({t.count}x)</span>
+                <li key={t.address} className="flex items-center justify-between py-2">
+                  <span className="font-mono text-xs text-foreground">{t.name ?? short(t.address)}</span>
+                  <span className="text-muted-foreground">{t.totalPaid.toFixed(2)} ({t.paymentCount}x)</span>
                 </li>
               ))}
             </ul>
@@ -72,8 +73,14 @@ export default function AnalyticsPage() {
 
         <Card title="Insights">
           {a?.insights?.length ? (
-            <ul className="space-y-2 text-sm text-foreground">
-              {a.insights.map((ins, i) => <li key={i}>• {ins}</li>)}
+            <ul className="space-y-3">
+              {a.insights.map((ins) => (
+                <li key={ins.id} className="rounded-lg border border-border bg-input/30 p-3">
+                  <p className="text-sm font-medium text-foreground">{ins.title}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{ins.detail}</p>
+                  {ins.suggestion && <p className="mt-1 text-xs text-primary">{ins.suggestion}</p>}
+                </li>
+              ))}
             </ul>
           ) : <p className="text-sm text-muted-foreground">Not enough data for insights yet.</p>}
         </Card>
