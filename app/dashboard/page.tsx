@@ -42,13 +42,18 @@ export default function Overview() {
   const [copied, setCopied] = useState(false);
 
   const refresh = useCallback(() => {
-    fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
+    // Scope the user's own views to their connected wallet — the server returns
+    // only this wallet's history/analytics, never another user's (see
+    // /api/analytics + /api/agent show_history). Without a wallet, there's no
+    // identity to scope to, so these come back empty by design.
+    const walletHeaders = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
+    fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
     fetch("/api/schedule").then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).catch(() => {});
-    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history" }) })
+    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
-  }, []);
+  }, [wallet.address]);
 
   useEffect(() => {
     refresh();

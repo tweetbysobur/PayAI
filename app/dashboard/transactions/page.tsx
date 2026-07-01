@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Badge, Card, Input } from "@/components/ui";
+import { useWallet } from "@/lib/wallet/useWallet";
 
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 
@@ -14,6 +15,7 @@ const STATUS_FILTERS = ["all", "executed", "needs_review", "blocked", "refused"]
 const PAGE_SIZE = 15;
 
 export default function Transactions() {
+  const wallet = useWallet();
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -21,9 +23,12 @@ export default function Transactions() {
   const [page, setPage] = useState(1);
 
   useEffect(() => {
-    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history" }) })
+    // Scoped to the connected wallet — only the user's own transactions come
+    // back. Without a wallet there's no identity to scope to, so it stays empty.
+    setLoading(true);
+    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).finally(() => setLoading(false));
-  }, []);
+  }, [wallet.address]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -73,7 +78,7 @@ export default function Transactions() {
         {loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : history.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No transactions yet.</p>
+          <p className="text-sm text-muted-foreground">{wallet.address ? "No transactions yet." : "Connect your wallet to see your transactions."}</p>
         ) : filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground">No transactions match your search.</p>
         ) : (

@@ -203,6 +203,8 @@ export async function POST(req: NextRequest) {
     token: intent.token,
     recipient: intent.recipient,
     domain: intent.domain ?? null,
+    // Verified on-chain: receipt.from === walletAddress was checked above.
+    sender: walletAddress,
     riskScore: risk.score,
     compliance: compliance.status,
     txHash,

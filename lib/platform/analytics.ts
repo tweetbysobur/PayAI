@@ -194,9 +194,12 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
   return { totalPayments: settled.length, volumeByToken };
 }
 
-/** Assemble the full snapshot from the tx log + on-chain merchant names. */
-export async function getAnalytics(merchantId: string): Promise<AnalyticsSnapshot> {
-  const txs = await listTx(merchantId);
+/** Assemble the full snapshot from the tx log + on-chain merchant names.
+ *  When `sender` is given, the snapshot covers only that wallet's activity —
+ *  so a connected user's analytics reflect their own payments, not the whole
+ *  shared demo tenant. */
+export async function getAnalytics(merchantId: string, opts?: { sender?: string | null }): Promise<AnalyticsSnapshot> {
+  const txs = await listTx(merchantId, { sender: opts?.sender });
   let names: Record<string, string> = {};
   try {
     const { getOnchainMerchants } = await import("../monad/contracts");
