@@ -1,4 +1,16 @@
+<div align="center">
+
+<img src="public/payai-logo.svg" width="88" height="88" alt="PayAI logo" />
+
 # PayAI
+
+**Pay on Monad by typing what you want.**
+
+[Live app](https://veripayai.vercel.app) · [Report an issue](https://github.com/tweetbysobur/PayAI/issues)
+
+</div>
+
+---
 
 Pay someone on Monad by typing what you want. "Send 10 USDC to alex.nads" gets parsed,
 checked, and settled on-chain — you sign it in your own wallet, and there's a real
@@ -6,8 +18,6 @@ transaction hash at the end you can look up on the explorer.
 
 That's the whole idea. No dashboards full of forms, no copy-pasting addresses, no
 custody. You talk, PayAI figures out the transaction, your wallet approves it.
-
-Live at **[veripayai.vercel.app](https://veripayai.vercel.app)** · settling on Monad Mainnet.
 
 ## How it works
 
@@ -38,6 +48,16 @@ A message goes through a short pipeline before anything touches the chain:
 Every stage is a plain TypeScript module in this repo. Nothing is farmed out to a
 third-party service, and there's no external "trust layer" in the loop — validation,
 risk, execution, and settlement all live in `lib/`.
+
+## Screenshots
+
+| Landing | Dashboard | Send a payment |
+| --- | --- | --- |
+| ![Landing page](docs/screenshots/landing.png) | ![Dashboard overview](docs/screenshots/dashboard.png) | ![Send payment](docs/screenshots/payments.png) |
+
+| Transactions | Analytics | Compliance |
+| --- | --- | --- |
+| ![Transaction history](docs/screenshots/transactions.png) | ![Analytics](docs/screenshots/analytics.png) | ![Compliance center](docs/screenshots/compliance.png) |
 
 ## What it does today
 
