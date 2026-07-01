@@ -14,7 +14,7 @@ import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
 
 interface Health {
-  verigate: { connected: boolean; mode: string };
+  payment: { connected: boolean; engine: string };
   wallet: { network: string; chainId: number } | null;
 }
 
@@ -39,15 +39,15 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
         {onMenuClick && <MobileNavTrigger onClick={onMenuClick} />}
         <div
           className="flex items-center gap-2 rounded-full border border-border bg-panel py-1.5 pl-2.5 pr-3 text-xs"
-          title={health?.verigate.connected ? "Connected to Monad" : "Connecting to Monad…"}
+          title={health?.payment.connected ? "Connected to Monad" : "Connecting to Monad…"}
         >
           <MonadMark size={15} />
           <span className="hidden font-medium text-foreground sm:inline">{health?.wallet?.network ?? "Monad"}</span>
           <span className="relative ml-0.5 flex h-1.5 w-1.5">
-            {health?.verigate.connected && (
+            {health?.payment.connected && (
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
             )}
-            <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-muted-foreground"}`} />
+            <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.payment.connected ? "bg-success" : "bg-muted-foreground"}`} />
           </span>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { PaymentRequest } from "@/lib/verigate/types";
+import type { PaymentRequest } from "@/lib/payment/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { dueSchedules, recordRun } = await import("@/lib/platform/schedules");
-  const { runCompliance, assessRisk, execute } = await import("@/lib/verigate/client");
+  const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
   const { recordTx } = await import("@/lib/platform/store");
 
   const due = await dueSchedules();
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         requestId: `sch:${s.id}:${dueSlot}`,
       };
 
-      const compliance = runCompliance(request);
+      const compliance = runValidation(request);
       const risk = assessRisk(request);
       request.riskScore = risk.score;
 

@@ -18,7 +18,7 @@ import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../package.json";
 
 interface Health {
-  verigate: { connected: boolean; mode: string };
+  payment: { connected: boolean; engine: string };
   // /api/health intentionally exposes only network/config status here, never
   // an internal wallet's address or balance (see /api/health/route.ts).
   wallet: { configured: boolean; network: string; chainId: number } | null;
@@ -82,7 +82,7 @@ const TECHNOLOGY = [
   { icon: Network, title: "Monad Mainnet", body: "Every payment settles on Monad's high-performance L1 — sub-second finality, real on-chain receipts." },
   { icon: Blocks, title: "Smart Contracts", body: "A deployed PaymentExecutor with idempotent settlement and on-chain per-tx and daily caps." },
   { icon: Brain, title: "AI Payment Engine", body: "Natural-language intent parsing turns plain English into structured, verifiable payments." },
-  { icon: ShieldHalf, title: "VeriGate Compliance", body: "Screening, risk scoring, and travel-rule checks run before any transaction is signed." },
+  { icon: ShieldHalf, title: "Payment Validation", body: "PayAI Validation Engine. Every payment is validated for recipient, amount, risk, and limits before being signed." },
   { icon: Lock, title: "Wallet Security", body: "Non-custodial by design — you approve every payment in your own wallet. Keys never leave it." },
 ];
 
@@ -104,7 +104,7 @@ const FAQS = [
   { q: "What network do payments settle on?", a: "Monad Mainnet (chain ID 143). Every transfer, swap, and scheduled payment is a real on-chain transaction you can verify on the Monad explorer." },
   { q: "Which assets can I send?", a: "Native MON and USDC. You can also swap between them on-chain, and send to .nads domain names which resolve to real addresses." },
   { q: "How do scheduled payments work without me signing each time?", a: "Recurring and future-dated payments settle through an authorized agent contract bounded by on-chain per-transaction and daily caps — so automated payments can never exceed limits you control." },
-  { q: "How does compliance work?", a: "Before any payment is signed, VeriGate runs address screening, risk scoring, and travel-rule checks. Payments that fail hard checks are blocked; borderline ones are held for review." },
+  { q: "How does compliance work?", a: "Before any payment is signed, PayAI's Validation Engine runs address screening, risk scoring, and travel-rule checks. Payments that fail hard checks are blocked; borderline ones are held for review." },
   { q: "Is the smart contract verified?", a: "Yes — the PaymentExecutor and registry are deployed and live on Monad Mainnet. The footer links directly to the contract on the explorer." },
 ];
 
@@ -222,7 +222,7 @@ function MiniScreen({ screen, health, onchain }: { screen: ScreenKey; health: He
       </div>
       <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"}</div>
-        <Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live" : "Connecting…"}</Badge>
+        <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live" : "Connecting…"}</Badge>
       </div>
     </div>
   );
@@ -304,10 +304,10 @@ export default function LandingPage() {
               <MonadMark size={13} />
               <span className="font-medium text-foreground">{health?.wallet?.network ?? "Monad"}</span>
               <span className="relative ml-0.5 flex h-1.5 w-1.5">
-                {health?.verigate.connected && (
+                {health?.payment.connected && (
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
                 )}
-                <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.verigate.connected ? "bg-success" : "bg-muted-foreground"}`} />
+                <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.payment.connected ? "bg-success" : "bg-muted-foreground"}`} />
               </span>
             </div>
             <h1 className="flex flex-wrap items-center gap-3 text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
@@ -526,7 +526,7 @@ export default function LandingPage() {
           <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
             <Card className="mx-auto max-w-lg">
               <div className="mb-3 flex items-center justify-between">
-                <Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
+                <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"} mainnet</span>
               </div>
               <dl className="space-y-2.5 text-sm">
@@ -549,7 +549,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Compliance status</dt>
-                  <dd><Badge tone={health?.verigate.connected ? "success" : "neutral"}>{health?.verigate.connected ? "Live" : "Connecting…"}</Badge></dd>
+                  <dd><Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live" : "Connecting…"}</Badge></dd>
                 </div>
               </dl>
             </Card>

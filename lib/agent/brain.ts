@@ -2,11 +2,11 @@
  * PayAI agent brain — the AI/understanding layer.
  *
  * Two jobs, both pure(ish) and side-effect free:
- *   1. parseIntent()   — natural language → ParsedIntent (the "Cleanverse intent
- *      engine"). Deterministic by default so it runs with no API key and no cost;
+ *   1. parseIntent()   — natural language → ParsedIntent (the PayAI intent
+ *      engine). Deterministic by default so it runs with no API key and no cost;
  *      an optional LLM upgrade is wired behind ANTHROPIC_API_KEY.
  *   2. checkGuardrails() — PayAI's own hard limits, applied *before* anything
- *      reaches the VeriGate payment layer.
+ *      reaches the payment layer.
  *
  * This module never executes payments and never imports the payment client —
  * the orchestration route wires the two layers together.
@@ -17,7 +17,7 @@ import {
   type Network,
   type PaymentAction,
   type Token,
-} from "../verigate/types";
+} from "../payment/types";
 import type { GuardrailResult, IntentSource, ParsedIntent } from "./types";
 import { extractDomain } from "../monad/domain-resolver";
 
@@ -253,7 +253,7 @@ function detectPurpose(text: string): string | null {
   return /^\$?\d/.test(p) ? null : p || null;
 }
 
-/** Deterministic intent parser (the default "Cleanverse intent engine"). */
+/** Deterministic intent parser (the default PayAI intent engine). */
 export function parseIntentDeterministic(rawText: string): ParsedIntent {
   const address = rawText.match(ADDR_RE)?.[0];
   const domain = extractDomain(rawText);
@@ -299,7 +299,7 @@ export function parseIntentDeterministic(rawText: string): ParsedIntent {
 }
 
 /**
- * Parse an intent. Uses the deterministic Cleanverse intent engine by default;
+ * Parse an intent. Uses the deterministic PayAI intent engine by default;
  * if ANTHROPIC_API_KEY is set, the LLM refines/normalizes the same fields.
  * The LLM path is intentionally optional so the product runs key-free.
  */
@@ -308,7 +308,7 @@ export async function parseIntent(
 ): Promise<{ intent: ParsedIntent; source: IntentSource }> {
   const base = parseIntentDeterministic(rawText);
   if (!process.env.ANTHROPIC_API_KEY) {
-    return { intent: base, source: "cleanverse" };
+    return { intent: base, source: "deterministic" };
   }
   // LLM refinement is additive and best-effort; on any failure we keep the
   // deterministic parse so behavior never degrades below the key-free baseline.
@@ -321,7 +321,7 @@ export async function parseIntent(
   }
 }
 
-/** PayAI hard guardrails, applied before the VeriGate payment layer. */
+/** PayAI hard guardrails, applied before the payment layer. */
 export function checkGuardrails(intent: ParsedIntent): GuardrailResult {
   const v: string[] = [];
   const needsAmount = true; // every supported action carries an amount
@@ -347,6 +347,6 @@ export const agentConfig = {
   defaultNetwork: DEFAULT_NETWORK,
   model: process.env.ANTHROPIC_API_KEY
     ? process.env.VERIPAYAI_MODEL || "claude-opus-4-8"
-    : "cleanverse-intent-v1",
-  intentEngine: process.env.ANTHROPIC_API_KEY ? "llm" : "cleanverse",
+    : "payai-intent-v1",
+  intentEngine: process.env.ANTHROPIC_API_KEY ? "llm" : "deterministic",
 };

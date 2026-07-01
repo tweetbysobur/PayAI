@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { agentConfig } from "@/lib/agent/brain";
-import { checkVeriGate, getMode } from "@/lib/verigate/client";
+import { checkPaymentEngine, getMode } from "@/lib/payment/engine";
 
 /**
  * GET /api/health — liveness + dependency status. Public, unauthenticated.
  *
- * Reports the agent, the Cleanverse intent engine, the active model, and the
- * VeriGate/execution connection. The Agent Wallet's address and live balance
+ * Reports the agent, the intent engine, the active model, and the
+ * payment engine connection. The Agent Wallet's address and live balance
  * are deliberately NOT included — this is a public endpoint, and that wallet
  * is an internal settlement signer, not user-facing data. Only whether a
  * signer is configured (a boolean) plus the active network are exposed —
@@ -17,7 +17,7 @@ import { checkVeriGate, getMode } from "@/lib/verigate/client";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const verigate = await checkVeriGate();
+  const paymentEngine = await checkPaymentEngine();
   const { getChain } = await import("@/lib/monad/config");
   const chain = getChain();
 
@@ -33,12 +33,12 @@ export async function GET() {
     service: "veripay-ai",
     status: "ok",
     agent: { status: "ready" },
-    cleanverse: { status: "connected", engine: agentConfig.intentEngine },
+    intentEngine: { status: "connected", engine: agentConfig.intentEngine },
     model: agentConfig.model,
-    verigate: {
-      mode: verigate.mode,
-      connected: verigate.connected,
-      detail: verigate.detail,
+    payment: {
+      engine: paymentEngine.engine,
+      connected: paymentEngine.connected,
+      detail: paymentEngine.detail,
     },
     wallet,
     domains: {

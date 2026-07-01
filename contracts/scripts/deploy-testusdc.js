@@ -2,9 +2,9 @@ const hre = require("hardhat");
 
 /**
  * Deploys a test USDC (MockERC20, 6dp) to Monad testnet and mints a balance to
- * the agent wallet, so PaymentExecutor can move real funds end-to-end. The
- * Cleanverse aUSDC requires an A-Pass to hold; this test token lets the agent
- * demonstrate genuine on-chain settlement without that gating.
+ * the agent wallet, so PaymentExecutor can move real funds end-to-end. This
+ * test token lets the agent demonstrate genuine on-chain settlement on testnet
+ * without depending on any externally-gated stablecoin.
  */
 async function main() {
   const [deployer] = await hre.ethers.getSigners();

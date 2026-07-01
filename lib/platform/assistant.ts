@@ -1,7 +1,7 @@
 /**
  * AI Payment Assistant — answers natural-language questions over the merchant's
  * own data and performs quick actions (create link / invoice). Deterministic and
- * key-free (the same "Cleanverse intent engine" philosophy as the agent): it
+ * key-free (the same deterministic-first philosophy as the agent): it
  * classifies the question, then answers from the analytics engine + store.
  *
  * Server-only.

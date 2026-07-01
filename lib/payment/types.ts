@@ -1,5 +1,5 @@
 /**
- * VeriGate — payment-layer domain types.
+ * PayAI payment-layer domain types.
  *
  * This module is the single source of truth for *what the payment system can do*
  * (actions, tokens, networks) and *what it returns* (compliance, risk, execution).
@@ -40,7 +40,7 @@ export interface PaymentRequest {
   network: Network;
   /** Original invoice reference for pay_invoice. */
   invoiceRef?: string | null;
-  /** VeriGate risk score (0–100), set after assessment; anchored on-chain. */
+  /** PayAI risk score (0–100), set after assessment; anchored on-chain. */
   riskScore?: number;
   /** Idempotency key — required for any execution that moves funds. */
   requestId?: string;
@@ -86,7 +86,7 @@ export interface RiskAssessment {
 
 /* ── Execution ──────────────────────────────────────────────────────────── */
 
-export type ExecutionMode = "mock" | "live" | "monad";
+export type ExecutionMode = "simulation" | "monad";
 export type TxStatus = "settled" | "pending" | "skipped" | "failed";
 
 export interface TransactionResult {

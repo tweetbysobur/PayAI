@@ -3,10 +3,10 @@ pragma solidity 0.8.24;
 
 /**
  * @title VeriPayRegistry
- * @notice On-chain audit trail for VeriPAY AI. Every payment that clears the
- *         off-chain pipeline (Cleanverse intent → guardrails → VeriGate
- *         compliance + risk) is anchored here, binding the compliance decision
- *         and risk score to an immutable on-chain record.
+ * @notice On-chain audit trail for PayAI. Every payment that clears the
+ *         off-chain pipeline (intent parsing → validation → risk scoring) is
+ *         anchored here, binding the validation decision and risk score to an
+ *         immutable on-chain record.
  *
  *         Two ways to record:
  *           - recordPayment(): anchor an already-settled transfer (audit only).
@@ -28,11 +28,11 @@ contract VeriPayRegistry {
 
     /* ── Storage ────────────────────────────────────────────────────────── */
     struct Payment {
-        address agent;       // the VeriPAY agent wallet that submitted it
+        address agent;       // the PayAI agent wallet that submitted it
         address recipient;   // payee
         address token;       // stablecoin contract (USDC/aUSDC)
         uint256 amount;      // base units
-        uint16 riskScore;    // 0–100, from VeriGate risk engine
+        uint16 riskScore;    // 0–100, from PayAI risk engine
         uint64 timestamp;    // block time
         bytes32 purposeHash; // keccak256 of the payment purpose / memo
         bytes32 ref;         // off-chain reference (intent id / invoice)

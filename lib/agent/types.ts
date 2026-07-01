@@ -13,7 +13,7 @@ import type {
   RiskAssessment,
   Token,
   TransactionResult,
-} from "../verigate/types";
+} from "../payment/types";
 
 /** The structured intent extracted from a user's natural-language request. */
 export interface ParsedIntent {
@@ -36,7 +36,7 @@ export interface ParsedIntent {
 }
 
 /** How the intent was parsed. */
-export type IntentSource = "cleanverse" | "llm" | "fallback";
+export type IntentSource = "deterministic" | "llm" | "fallback";
 
 /** PayAI-side guardrail outcome, evaluated before the payment layer runs. */
 export interface GuardrailResult {

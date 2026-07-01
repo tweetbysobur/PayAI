@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { PaymentRequest } from "@/lib/verigate/types";
+import type { PaymentRequest } from "@/lib/payment/types";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 
@@ -7,8 +7,8 @@ import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
  * POST /api/compliance/check — screen a single recipient (address or .nads
  * domain) on demand. This is its own endpoint, not the agent pipeline, because
  * "check compliance for 0x…" collides with the read-only check_compliance query
- * intent (which returns aggregate stats). Here we run the real VeriGate
- * screening + risk assessment against the resolved address and return the
+ * intent (which returns aggregate stats). Here we run the PayAI Validation
+ * Engine + risk assessment against the resolved address and return the
  * per-address result.
  */
 export async function POST(req: NextRequest) {
@@ -41,11 +41,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { runCompliance, assessRisk } = await import("@/lib/verigate/client");
+  const { runValidation, assessRisk } = await import("@/lib/payment/engine");
   // A nominal request so screening + risk run against the address itself; the
   // amount is not what's being checked here, the counterparty is.
   const request: PaymentRequest = { action: "send_payment", amount: 1, token: "USDC", recipient, purpose: null, network: "monad" };
-  const compliance = runCompliance(request);
+  const compliance = runValidation(request);
   const risk = assessRisk(request);
 
   return NextResponse.json({
