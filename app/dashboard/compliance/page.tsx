@@ -5,6 +5,7 @@ import { motion } from "motion/react";
 import { ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { recipientError, isValidRecipient } from "@/lib/validation";
+import { useWallet } from "@/lib/wallet/useWallet";
 
 interface Compliance { approved: number; rejected: number; review: number; blocked: number; approvalRate: number }
 interface Analytics { compliance: Compliance }
@@ -15,6 +16,7 @@ interface CheckResult {
 }
 
 export default function Compliance() {
+  const wallet = useWallet();
   const [a, setA] = useState<Analytics | null>(null);
   const [addr, setAddr] = useState("");
   const [touched, setTouched] = useState(false);
@@ -24,8 +26,10 @@ export default function Compliance() {
   const addrErr = recipientError(addr);
 
   useEffect(() => {
-    fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
-  }, []);
+    // Aggregate risk is scoped to the connected wallet's own payments.
+    const headers = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
+    fetch("/api/analytics", { headers }).then((r) => r.json()).then(setA).catch(() => {});
+  }, [wallet.address]);
 
   async function checkAddress() {
     setTouched(true);

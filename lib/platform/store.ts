@@ -40,10 +40,15 @@ export async function recordTx(merchantId: string, entry: Omit<TxLogEntry, "id" 
   return row;
 }
 
-export async function listTx(merchantId: string): Promise<TxLogEntry[]> {
+export async function listTx(merchantId: string, opts?: { sender?: string | null }): Promise<TxLogEntry[]> {
   const r = await getRedis();
-  if (r) return (await r.lrange(txKey(merchantId), 0, MAX_TX - 1)) as TxLogEntry[];
-  return memOf(merchantId).txLog;
+  const all = r ? ((await r.lrange(txKey(merchantId), 0, MAX_TX - 1)) as TxLogEntry[]) : memOf(merchantId).txLog;
+  // When a wallet is given, return ONLY that wallet's own entries — this is how a
+  // connected user's dashboard stays private even though wallet-only users share
+  // the demo tenant's store. No wallet → full tenant view (merchant accounts).
+  const sender = opts?.sender?.trim().toLowerCase();
+  if (!sender) return all;
+  return all.filter((t: TxLogEntry) => (t.sender ?? "").toLowerCase() === sender);
 }
 
 /* ── Payment links ──────────────────────────────────────────────────────── */

@@ -16,6 +16,11 @@ export interface TxLogEntry {
   recipient: string | null;
   /** The original .nad/.nads domain, when the recipient was resolved from one. */
   domain?: string | null;
+  /** The wallet that initiated this payment. Used to scope a connected user's
+   *  dashboard to their OWN activity — one user never sees another's history,
+   *  even though wallet-only users share the demo tenant's store. Null for the
+   *  custodial/agent path (no end-user wallet) and read-only outcomes. */
+  sender?: string | null;
   riskScore: number | null;
   compliance: string | null;
   txHash?: string;

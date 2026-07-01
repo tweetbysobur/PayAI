@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Card } from "@/components/ui";
+import { useWallet } from "@/lib/wallet/useWallet";
 
 interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
@@ -13,11 +14,14 @@ interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: nu
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 
 export default function AnalyticsPage() {
+  const wallet = useWallet();
   const [a, setA] = useState<Analytics | null>(null);
 
   useEffect(() => {
-    fetch("/api/analytics").then((r) => r.json()).then(setA).catch(() => {});
-  }, []);
+    // Scoped to the connected wallet — a user's analytics reflect only their own payments.
+    const headers = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
+    fetch("/api/analytics", { headers }).then((r) => r.json()).then(setA).catch(() => {});
+  }, [wallet.address]);
 
   return (
     <div className="mx-auto max-w-6xl">

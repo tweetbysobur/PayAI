@@ -43,6 +43,13 @@ export async function POST(req: NextRequest) {
   // "sign with this account"; the on-chain receipt is what's actually verified.
   const walletAddress = body.walletAddress && isAddress(body.walletAddress) ? body.walletAddress : null;
 
+  // How to scope read-only history/compliance so users stay private:
+  //   - merchant account (its own tenant) → full view (sender = null)
+  //   - shared demo tenant + connected wallet → only that wallet's entries
+  //   - shared demo tenant + NO wallet → nothing (connect to see your history)
+  const { DEMO_TENANT } = await import("@/lib/platform/merchants");
+  const senderScope = merchantId === DEMO_TENANT ? (walletAddress ?? "__none__") : null;
+
   const rawInput = body.intent?.trim();
   if (!rawInput) {
     return NextResponse.json({ error: "intent is required" }, { status: 400 });
@@ -68,7 +75,8 @@ export async function POST(req: NextRequest) {
   }
   if (query === "show_history") {
     const { listTx } = await import("@/lib/platform/store");
-    const rows = await listTx(merchantId);
+    // Scope to the connected wallet so a user only ever sees their own history.
+    const rows = await listTx(merchantId, { sender: senderScope });
     return NextResponse.json({
       decision: "info",
       query: "show_history",
@@ -80,7 +88,7 @@ export async function POST(req: NextRequest) {
   if (query === "check_compliance") {
     const { listTx } = await import("@/lib/platform/store");
     const { computeCompliance } = await import("@/lib/platform/analytics");
-    const rows = await listTx(merchantId);
+    const rows = await listTx(merchantId, { sender: senderScope });
     return NextResponse.json({
       decision: "info",
       query: "check_compliance",
@@ -232,6 +240,7 @@ export async function POST(req: NextRequest) {
       token: result.intent.token,
       recipient: result.intent.recipient,
       domain: result.intent.domain ?? null,
+      sender: walletAddress,
       riskScore: result.riskScore,
       compliance: result.compliance?.status ?? null,
       txHash: result.transaction?.txHash,
