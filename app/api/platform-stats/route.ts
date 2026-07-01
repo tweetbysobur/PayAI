@@ -24,6 +24,12 @@ export async function GET() {
     const activity = await getPlatformActivity();
     return NextResponse.json(activity);
   } catch {
-    return NextResponse.json({ totalPayments: 0, volumeByToken: {} });
+    return NextResponse.json({
+      totalPayments: 0,
+      volumeByToken: {},
+      compliance: { approved: 0, rejected: 0, review: 0, blocked: 0, approvalRate: 0 },
+      trend: [],
+      recent: [],
+    });
   }
 }
