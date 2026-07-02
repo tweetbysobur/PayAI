@@ -370,7 +370,7 @@ export default function LandingPage() {
                 <span className="h-2 w-2 rounded-full bg-border" />
                 <span className="h-2 w-2 rounded-full bg-border" />
                 <div className="ml-2 flex items-center gap-1.5 rounded-full border border-border bg-panel px-2 py-0.5 text-[10px] text-muted-foreground">
-                  veripayai.vercel.app/dashboard
+                  usepayai.xyz/dashboard
                 </div>
               </div>
               <AnimatePresence mode="wait">
