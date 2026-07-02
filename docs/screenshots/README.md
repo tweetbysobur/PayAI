@@ -4,7 +4,7 @@ Drop the images referenced by the main README here, using these exact filenames:
 
 | File | What to capture |
 | --- | --- |
-| `landing.png` | The landing page hero (veripayai.vercel.app) |
+| `landing.png` | The landing page hero (usepayai.xyz) |
 | `dashboard.png` | The dashboard Overview (`/dashboard`) |
 | `payments.png` | Send a payment (`/dashboard/payments`) — ideally mid-flow or a completed receipt |
 | `transactions.png` | Transaction history (`/dashboard/transactions`) |

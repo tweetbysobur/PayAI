@@ -6,7 +6,7 @@
 
 **Pay on Monad by typing what you want.**
 
-[Live app](https://veripayai.vercel.app) · [Report an issue](https://github.com/tweetbysobur/PayAI/issues)
+[Live app](https://usepayai.xyz) · [Report an issue](https://github.com/tweetbysobur/PayAI/issues)
 
 </div>
 
