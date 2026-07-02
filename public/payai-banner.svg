@@ -1,0 +1,41 @@
+<svg width="1500" height="500" viewBox="0 0 1500 500" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b0f17" />
+      <stop offset="100%" stop-color="#161233" />
+    </linearGradient>
+    <radialGradient id="glow" cx="82%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#7C3AED" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1500" height="500" fill="url(#bg)" />
+  <rect width="1500" height="500" fill="url(#glow)" />
+
+  <!-- Mark -->
+  <g transform="translate(90, 130)">
+    <rect width="120" height="120" rx="28" fill="#7C3AED" />
+    <path d="M20.65 6.03 L16 16 L25.97 11.35 A11 11 0 1 1 20.65 6.03 Z"
+          fill="white" transform="translate(30,30) scale(3.4)" />
+  </g>
+
+  <!-- Wordmark + tagline -->
+  <text x="250" y="215" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700"
+        letter-spacing="-1.5" fill="#ffffff">PayAI</text>
+  <text x="250" y="265" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#9aa3b2">
+    Pay on Monad by typing what you want
+  </text>
+
+  <!-- Chips -->
+  <g font-family="Arial, Helvetica, sans-serif" font-size="20" fill="#c9cfda">
+    <rect x="250" y="310" width="220" height="52" rx="26" fill="none" stroke="#26304a" stroke-width="1.5" />
+    <text x="278" y="343">Non-custodial</text>
+
+    <rect x="490" y="310" width="290" height="52" rx="26" fill="none" stroke="#26304a" stroke-width="1.5" />
+    <text x="518" y="343">Live on Monad Mainnet</text>
+
+    <rect x="800" y="310" width="240" height="52" rx="26" fill="none" stroke="#26304a" stroke-width="1.5" />
+    <text x="828" y="343">AI payment engine</text>
+  </g>
+</svg>
