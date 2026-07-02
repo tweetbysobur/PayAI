@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
-import { Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, ExternalLink, Loader2, ArrowRight } from "lucide-react";
+import { Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, ExternalLink, Loader2, ArrowRight, Smartphone } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
@@ -20,6 +20,19 @@ export default function ConnectPage() {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const hasLegacy = typeof window !== "undefined" && !!window.ethereum;
+
+  // Mobile detection + wallet-app deep links. A normal phone browser has no
+  // injected wallet, so "install an extension" is a dead end there. Instead we
+  // deep-link into a wallet app's built-in dapp browser, where window.ethereum
+  // exists and connecting works. Computed after mount to avoid hydration drift.
+  const [isMobile, setIsMobile] = useState(false);
+  const [dappPath, setDappPath] = useState("usepayai.xyz/connect");
+  useEffect(() => {
+    setIsMobile(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent));
+    setDappPath(window.location.host + window.location.pathname);
+  }, []);
+  const metamaskLink = `https://metamask.app.link/dapp/${dappPath}`;
+  const trustLink = `https://link.trustwallet.com/open_url?url=https://${dappPath}`;
 
   async function connectWith(detail: EIP6963ProviderDetail) {
     setLocalError(null);
@@ -162,6 +175,23 @@ export default function ConnectPage() {
                       {pending === "__legacy__" ? <Loader2 size={16} className="animate-spin" /> : <WalletIcon size={16} />}
                       {pending === "__legacy__" ? "Connecting…" : "Connect wallet"}
                     </button>
+                  ) : isMobile ? (
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2 rounded-lg border border-border bg-input/40 px-3 py-2.5 text-xs text-muted-foreground">
+                        <Smartphone size={14} className="mt-0.5 shrink-0 text-primary" />
+                        <span>To connect on your phone, open PayAI inside your wallet app&apos;s browser.</span>
+                      </div>
+                      <a href={metamaskLink} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+                        <WalletIcon size={16} /> Open in MetaMask
+                      </a>
+                      <a href={trustLink} className="flex items-center justify-between rounded-lg border border-border px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
+                        Open in Trust Wallet <ArrowRight size={14} className="text-muted-foreground" />
+                      </a>
+                      <p className="pt-1 text-center text-xs text-muted-foreground">
+                        Already in a wallet browser?{" "}
+                        <button onClick={connectLegacy} className="text-primary underline underline-offset-2">Tap to connect</button>.
+                      </p>
+                    </div>
                   ) : (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
