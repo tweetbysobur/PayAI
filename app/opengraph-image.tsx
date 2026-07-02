@@ -4,7 +4,7 @@ import { ImageResponse } from "next/og";
 // next/og — this is the preview investors, Telegram, X, and grant reviewers see
 // when the link is shared. Mirrors the app: deep navy canvas, purple PayAI mark.
 export const runtime = "edge";
-export const alt = "PayAI — AI-powered payments on Monad";
+export const alt = "PayAI · Payments on Monad";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 

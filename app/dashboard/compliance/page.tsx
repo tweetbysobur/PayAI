@@ -79,7 +79,7 @@ export default function Compliance() {
                 <div><p className="text-foreground">{a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
             </div>
-          ) : <p className="text-sm text-muted-foreground">No payments processed yet — risk scoring will appear here.</p>}
+          ) : <p className="text-sm text-muted-foreground">No payments yet. Risk scoring appears here once you send one.</p>}
         </Card>
 
         <Card title="Run a compliance check">

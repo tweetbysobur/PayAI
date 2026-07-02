@@ -147,7 +147,7 @@ export default function Wallets() {
               wallet.isWrongNetwork ? (
                 <Badge tone="danger">Wrong network</Badge>
               ) : (
-                <Badge tone="success">{wallet.chainId === MONAD_CHAIN_ID ? "Monad — verified" : `Chain ${wallet.chainId}`}</Badge>
+                <Badge tone="success">{wallet.chainId === MONAD_CHAIN_ID ? "Monad verified" : `Chain ${wallet.chainId}`}</Badge>
               )
             ) : <Badge tone="neutral">Not connected</Badge>}
           </div>
@@ -174,7 +174,7 @@ export default function Wallets() {
       {/* Wallet Intelligence */}
       {!wallet.address ? (
         <Card>
-          <p className="text-sm text-muted-foreground">Connect your wallet above to see Wallet Intelligence — real balances, payment history, and on-chain activity for your address.</p>
+          <p className="text-sm text-muted-foreground">Connect your wallet above to see your real balances, payment history, and on-chain activity.</p>
         </Card>
       ) : loading && !intel ? (
         <div className="space-y-4">
@@ -199,7 +199,7 @@ export default function Wallets() {
           <Button variant="secondary" onClick={loadIntel} className="mt-3 text-xs">Try again</Button>
         </Card>
       ) : intel && !intel.configured ? (
-        <Card><p className="text-sm text-muted-foreground">On-chain payment history isn&apos;t available yet — the PaymentExecutor contract isn&apos;t configured on this network.</p></Card>
+        <Card><p className="text-sm text-muted-foreground">On-chain payment history isn&apos;t available yet. The PaymentExecutor contract isn&apos;t configured on this network.</p></Card>
       ) : intel ? (
         <>
           <h2 className="mb-3 mt-2 text-sm font-medium text-foreground">Wallet Intelligence</h2>
@@ -249,7 +249,7 @@ export default function Wallets() {
           <div className="mb-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
             <Card title="Payment volume (last 14 days with activity)">
               {dailyVolume.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No payment activity yet — volume will chart here once you send or receive through PayAI.</p>
+                <p className="text-sm text-muted-foreground">No payment activity yet. Volume will chart here once you send or receive through PayAI.</p>
               ) : (
                 <div className="flex h-36 items-end gap-2 overflow-x-auto">
                   {dailyVolume.map((d, i) => {
@@ -288,7 +288,7 @@ export default function Wallets() {
                     <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-secondary" />USDC</span><span className="text-muted-foreground">{fmt(assetSplit.usdc)}</span></div>
                   </div>
                 </div>
-              ) : <p className="text-sm text-muted-foreground">No balance yet — connect a funded wallet to see allocation.</p>}
+              ) : <p className="text-sm text-muted-foreground">No balance yet. Connect a funded wallet to see allocation.</p>}
             </Card>
           </div>
 

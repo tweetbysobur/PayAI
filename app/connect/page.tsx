@@ -51,7 +51,7 @@ export default function ConnectPage() {
     try {
       await wallet.switchNetwork();
     } catch {
-      setLocalError(`Couldn't switch automatically — please switch to ${MONAD_CHAIN_NAME} in your wallet.`);
+      setLocalError(`Couldn't switch automatically. Please switch to ${MONAD_CHAIN_NAME} in your wallet.`);
     } finally {
       setSwitching(false);
     }
@@ -87,7 +87,7 @@ export default function ConnectPage() {
           <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
             {connected
               ? `You're connected on ${MONAD_CHAIN_NAME}.`
-              : `Connect a wallet on ${MONAD_CHAIN_NAME} to access your dashboard. PayAI is non-custodial — you approve every payment yourself.`}
+              : `Connect a wallet on ${MONAD_CHAIN_NAME} to access your dashboard. PayAI is non-custodial, so you approve every payment yourself.`}
           </p>
 
           <div className="mt-7">
@@ -115,7 +115,7 @@ export default function ConnectPage() {
               {wrongNetwork && (
                 <motion.div key="wrong-network" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
                   <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
-                    <AlertTriangle size={14} className="shrink-0" /> Wrong network — switch to {MONAD_CHAIN_NAME} to continue.
+                    <AlertTriangle size={14} className="shrink-0" /> Wrong network. Switch to {MONAD_CHAIN_NAME} to continue.
                   </div>
                   <button
                     onClick={handleSwitch}
