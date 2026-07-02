@@ -50,13 +50,13 @@ export default function OgImage() {
             <div>typing what you want.</div>
           </div>
           <div style={{ color: "#9aa3b2", fontSize: "32px", lineHeight: 1.3, maxWidth: "900px" }}>
-            AI-powered, non-custodial payments — natural language in, on-chain settlement out.
+            Send, swap, and schedule payments just by describing them.
           </div>
         </div>
 
         {/* Footer chips */}
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          {["Non-custodial", "Live on Monad Mainnet", "AI payment engine"].map((t) => (
+          {["You stay in control", "Arrives in seconds", "Built on Monad"].map((t) => (
             <div
               key={t}
               style={{

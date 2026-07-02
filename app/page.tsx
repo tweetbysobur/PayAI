@@ -7,7 +7,7 @@ import {
   ShieldCheck, Lock, Network, ArrowUpRight, ArrowDownLeft, Receipt,
   MessageSquare, Brain, ShieldHalf, Zap, CheckCircle2, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
-  ScrollText, Wallet as WalletIcon, Hash, Blocks, BadgeCheck,
+  ScrollText, Wallet as WalletIcon, Eye, Hash, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles,
 } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
@@ -52,11 +52,9 @@ function formatVolume(byToken: Record<string, number>): string {
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-8)}`;
 
 const FLOW = [
-  { icon: MessageSquare, title: "Enter Payment Instruction" },
-  { icon: Brain, title: "AI Understands Intent" },
-  { icon: ShieldHalf, title: "Compliance Engine Runs Checks" },
-  { icon: Zap, title: "Monad Executes Settlement" },
-  { icon: CheckCircle2, title: "Transaction Confirmed On-Chain" },
+  { icon: MessageSquare, title: "Say what you want to pay" },
+  { icon: WalletIcon, title: "Approve it in your wallet" },
+  { icon: Zap, title: "It arrives in seconds" },
 ];
 
 type ScreenKey = "dashboard" | "transactions" | "compliance" | "wallets";
@@ -68,33 +66,32 @@ const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; hr
 ];
 
 const TECHNOLOGY = [
-  { icon: Network, title: "Monad Mainnet", body: "Every payment settles on Monad's high-performance L1 — sub-second finality, real on-chain receipts." },
-  { icon: Blocks, title: "Smart Contracts", body: "A deployed PaymentExecutor with idempotent settlement and on-chain per-tx and daily caps." },
-  { icon: Brain, title: "AI Payment Engine", body: "Natural-language intent parsing turns plain English into structured, verifiable payments." },
-  { icon: ShieldHalf, title: "Payment Validation", body: "PayAI Validation Engine. Every payment is validated for recipient, amount, risk, and limits before being signed." },
-  { icon: Lock, title: "Wallet Security", body: "Non-custodial by design — you approve every payment in your own wallet. Keys never leave it." },
+  { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
+  { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
+  { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day — with a receipt you can always look up." },
+  { icon: Eye, title: "Nothing to hide", body: "Every payment is recorded permanently, so you can prove it happened whenever you need to." },
 ];
 
 const FEATURES = [
-  { icon: Brain, title: "AI Payments", body: "Pay in plain language." },
-  { icon: Coins, title: "MON & USDC", body: "Native and stablecoin transfers." },
-  { icon: ArrowDownLeft, title: "Token Swaps", body: "Swap MON ↔ USDC on-chain." },
-  { icon: AtSign, title: ".nads Domains", body: "Send to human-readable names." },
-  { icon: MessageSquare, title: "Scheduled Payments", body: "Recurring & future-dated." },
-  { icon: ScrollText, title: "Transaction History", body: "Full, exportable audit trail." },
-  { icon: LayoutDashboard, title: "Wallet Dashboard", body: "Balances, stats, insights." },
-  { icon: Receipt, title: "Analytics", body: "Volume and trends over time." },
-  { icon: ShieldHalf, title: "Compliance", body: "Screened on every payment." },
-  { icon: ExternalLink, title: "Explorer Integration", body: "Verify every tx on Monad." },
+  { icon: MessageSquare, title: "Pay by typing", body: "Just describe it — we handle the rest." },
+  { icon: Coins, title: "Send MON & USDC", body: "The coins people actually use." },
+  { icon: ArrowDownLeft, title: "Swap instantly", body: "Move between MON and USDC in a tap." },
+  { icon: AtSign, title: "Pay a name", body: "Use easy names, not long addresses." },
+  { icon: MessageSquare, title: "Schedule payments", body: "Set it once, we send it on time." },
+  { icon: ScrollText, title: "Full history", body: "Every payment, in one place." },
+  { icon: LayoutDashboard, title: "Your dashboard", body: "Balances and activity at a glance." },
+  { icon: Receipt, title: "Clear insights", body: "See where your money goes." },
+  { icon: ShieldHalf, title: "Built-in safety", body: "Every payment checked before it sends." },
+  { icon: ExternalLink, title: "Always verifiable", body: "Prove any payment, anytime." },
 ];
 
 const FAQS = [
-  { q: "Is PayAI custodial? Who controls my funds?", a: "PayAI is non-custodial. You connect your own wallet and approve every payment yourself — your private keys never leave your wallet, and PayAI never asks for your seed phrase." },
-  { q: "What network do payments settle on?", a: "Monad Mainnet (chain ID 143). Every transfer, swap, and scheduled payment is a real on-chain transaction you can verify on the Monad explorer." },
-  { q: "Which assets can I send?", a: "Native MON and USDC. You can also swap between them on-chain, and send to .nads domain names which resolve to real addresses." },
-  { q: "How do scheduled payments work without me signing each time?", a: "Recurring and future-dated payments settle through an authorized agent contract bounded by on-chain per-transaction and daily caps — so automated payments can never exceed limits you control." },
-  { q: "How does compliance work?", a: "Before any payment is signed, PayAI's Validation Engine runs address screening, risk scoring, and travel-rule checks. Payments that fail hard checks are blocked; borderline ones are held for review." },
-  { q: "Is the smart contract verified?", a: "Yes — the PaymentExecutor and registry are deployed and live on Monad Mainnet. The footer links directly to the contract on the explorer." },
+  { q: "Who controls my money?", a: "You do. PayAI never holds your funds — you approve every payment yourself, and we never ask for your seed phrase or private keys." },
+  { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
+  { q: "What can I send?", a: "You can send MON and USDC, swap between them in a tap, and pay easy-to-remember names instead of long wallet addresses." },
+  { q: "Can I set up payments in advance?", a: "Yes. Schedule recurring or future payments with limits you set, and PayAI sends them on time — never beyond the limits you choose." },
+  { q: "Is it safe?", a: "Every payment is checked before it sends — the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
+  { q: "Can I verify my payments?", a: "Always. Every payment is recorded permanently and publicly, so you can prove exactly what happened, anytime." },
 ];
 
 /** Live previews of the real dashboard, driven entirely by the same
@@ -320,12 +317,12 @@ export default function LandingPage() {
                 <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.payment.connected ? "bg-success" : "bg-muted-foreground"}`} />
               </span>
             </div>
-            <h1 className="flex flex-wrap items-center gap-3 text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              AI-Powered Payments on Monad <MonadMark size={40} className="inline-block translate-y-1" />
+            <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
+              Move money by simply describing it.
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
-              Send, swap, and schedule MON and USDC by simply describing what you want. Every payment is
-              screened for compliance and settled on Monad Mainnet — non-custodial, verifiable, instant.
+              Send, swap, and schedule payments just by saying what you want. You approve every payment
+              from your own wallet — and it arrives in seconds.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/connect" className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90">
@@ -341,7 +338,7 @@ export default function LandingPage() {
                 <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs">
                   <Receipt size={12} className="text-primary" />
                   <span className="font-mono font-medium text-foreground">{activity.totalPayments.toLocaleString()}</span>
-                  <span className="text-muted-foreground">payments processed</span>
+                  <span className="text-muted-foreground">payments sent</span>
                 </div>
                 {Object.values(activity.volumeByToken).some((v) => v > 0) && (
                   <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs text-foreground">
@@ -352,9 +349,9 @@ export default function LandingPage() {
               </div>
             )}
             <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> Non-custodial</span>
-              <span className="flex items-center gap-1.5"><BadgeCheck size={12} className="text-success" /> Live on Monad Mainnet</span>
-              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Compliance-screened</span>
+              <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> You stay in control</span>
+              <span className="flex items-center gap-1.5"><Zap size={12} className="text-success" /> Arrives in seconds</span>
+              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Every payment checked</span>
             </div>
           </motion.div>
 
@@ -398,8 +395,8 @@ export default function LandingPage() {
       <section className="border-t border-border bg-panel/30 py-20">
         <div className="mx-auto max-w-6xl px-6">
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Built on serious infrastructure</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">PayAI combines an AI payment engine, real compliance, and on-chain settlement — no mock layers.</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Money you can trust PayAI with</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You stay in control of your funds, every payment is checked before it sends, and everything arrives in seconds.</p>
           </motion.div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {TECHNOLOGY.map((t, i) => (
@@ -417,7 +414,7 @@ export default function LandingPage() {
 
       {/* How It Works */}
       <section id="how" className="mx-auto max-w-6xl px-6 py-16">
-        <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-5 sm:gap-2">
+        <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-2">
           <div className="absolute left-0 right-0 top-7 hidden h-px bg-border sm:block" />
           {FLOW.map((step, i) => (
             <motion.div
@@ -439,7 +436,7 @@ export default function LandingPage() {
       <section id="features" className="mx-auto max-w-6xl px-6 py-20">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
           <h2 className="text-3xl font-semibold tracking-tight text-foreground">Everything you need to move money</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Only shipped, working features — each one settles real value on Monad Mainnet.</p>
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Real features that work today — nothing coming soon.</p>
         </motion.div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {FEATURES.map((f, i) => (
@@ -462,7 +459,7 @@ export default function LandingPage() {
           replaced with a placeholder figure. */}
       <section id="compliance" className="py-20">
         <div className="mx-auto max-w-3xl px-6">
-          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">Platform Status</h2>
+          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">PayAI, in numbers</h2>
           <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
             <Card className="mx-auto max-w-lg">
               <div className="mb-3 flex items-center justify-between">
@@ -471,15 +468,15 @@ export default function LandingPage() {
               </div>
               <dl className="space-y-2.5 text-sm">
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Receipt size={13} /> Total payments processed</dt>
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Receipt size={13} /> Payments sent</dt>
                   <dd className="font-mono text-foreground">{activity ? activity.totalPayments.toLocaleString() : "—"}</dd>
                 </div>
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Total payment volume</dt>
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Total moved</dt>
                   <dd className="font-mono text-foreground">{activity ? formatVolume(activity.volumeByToken) : "—"}</dd>
                 </div>
                 <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Contract</dt>
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Verified on-chain</dt>
                   <dd className="flex items-center gap-1 font-mono text-xs text-foreground">
                     {onchain?.contracts ? short(onchain.contracts.paymentExecutor) : "Not yet deployed"}
                     {onchain?.contracts && (
@@ -488,7 +485,7 @@ export default function LandingPage() {
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Compliance status</dt>
+                  <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Status</dt>
                   <dd><Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live" : "Connecting…"}</Badge></dd>
                 </div>
               </dl>
@@ -511,7 +508,7 @@ export default function LandingPage() {
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           <h2 className="text-4xl font-semibold tracking-tight text-foreground">
-            Start Sending Payments with AI
+            Start moving money in seconds.
           </h2>
           <div className="mt-8 flex items-center justify-center gap-3">
             <Link href="/connect" className="rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
@@ -531,7 +528,7 @@ export default function LandingPage() {
                 <span className="text-base font-semibold text-foreground">PayAI</span>
               </Link>
               <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                AI-powered payments with real-time compliance and on-chain settlement, built for Monad.
+                Send, swap, and schedule payments just by describing them. You stay in control, and money arrives in seconds.
               </p>
               <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
                 <MonadMark size={12} /> Built on Monad Mainnet
