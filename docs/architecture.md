@@ -77,7 +77,7 @@ PayAI runs in one of two modes, controlled by `PAYAI_MODE`:
 ## Layout
 
 ```
-VeriPAYai/
+PayAI/
 ├── app/
 │   ├── api/
 │   │   ├── agent/route.ts        # entrypoint: intent → validate → risk → execute
