@@ -236,7 +236,7 @@ export default function Overview() {
         </Card>
 
         {/* Compliance status */}
-        <Card title="Compliance center">
+        <Card title="Payment checks">
           {a ? (
             <div className="flex flex-col items-center">
               <div className="relative h-32 w-32" title={`${Math.round(a.compliance.approvalRate * 100)}% approval rate`}>
@@ -256,7 +256,7 @@ export default function Overview() {
                 <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Pending</p></div>
                 <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
-              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View Compliance Center →</Link>
+              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View payment checks →</Link>
             </div>
           ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened. Results appear here." />}
         </Card>

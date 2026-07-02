@@ -49,8 +49,8 @@ export default function Compliance() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <h1 className="mb-1 text-2xl font-semibold text-foreground">Compliance Center</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Risk scoring and compliance checks across all payments.</p>
+      <h1 className="mb-1 text-2xl font-semibold text-foreground">Payment checks</h1>
+      <p className="mb-6 text-sm text-muted-foreground">Rules-based screening on every payment: address denylist, risk scoring, and large-transfer checks. Third-party sanctions screening is on our roadmap.</p>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
         <Card title="Aggregate risk">
