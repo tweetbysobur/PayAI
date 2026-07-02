@@ -213,11 +213,11 @@ const simulationProvider: PaymentProvider = {
         return { ...base, status: "settled", txHash, explorerUrl: explorer(req.network, txHash), detail: `Paid invoice ${req.invoiceRef ?? "current"} (${req.amount} ${req.token}).` };
       }
       case "create_payment_link": {
-        const link = `https://pay.veripay.ai/l/${Math.random().toString(36).slice(2, 10)}`;
+        const link = `https://pay.payai.app/l/${Math.random().toString(36).slice(2, 10)}`;
         return { ...base, status: "settled", link, detail: `Payment link for ${req.amount} ${req.token} created.` };
       }
       case "create_checkout_link": {
-        const link = `https://pay.veripay.ai/checkout/${Math.random().toString(36).slice(2, 10)}`;
+        const link = `https://pay.payai.app/checkout/${Math.random().toString(36).slice(2, 10)}`;
         return { ...base, status: "settled", link, detail: `Checkout link for ${req.amount} ${req.token} created.` };
       }
     }

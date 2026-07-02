@@ -1,4 +1,4 @@
-# Monad Mainnet cutover — VeriPAY AI
+# Monad Mainnet cutover — PayAI
 
 Testnet (chain 10143) is fully deployed and verified. Mainnet (chain 143) is
 **code-ready** — the config, Hardhat network, and deploy scripts all support it.

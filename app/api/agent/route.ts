@@ -10,7 +10,7 @@ import { authError } from "@/lib/platform/auth";
 import { claimRequest, completeRequest, computeRequestId, releaseRequest } from "@/lib/platform/idempotency";
 
 /**
- * POST /api/agent — the full VeriPAY AI pipeline.
+ * POST /api/agent — the full PayAI pipeline.
  *
  *   understand (intent engine)       →  parsed intent + confidence
  *   guardrails (PayAI)              →  allow / refuse

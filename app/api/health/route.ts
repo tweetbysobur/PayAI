@@ -30,7 +30,7 @@ export async function GET() {
   const { getNnsContractAddress } = await import("@/lib/monad/domain-resolver");
 
   return NextResponse.json({
-    service: "veripay-ai",
+    service: "payai",
     status: "ok",
     agent: { status: "ready" },
     intentEngine: { status: "connected", engine: agentConfig.intentEngine },

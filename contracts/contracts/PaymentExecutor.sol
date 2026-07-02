@@ -10,7 +10,7 @@ interface IERC20 {
 
 /**
  * @title PaymentExecutor
- * @notice VeriPAY AI's on-chain execution layer. Authorized agents execute
+ * @notice PayAI's on-chain execution layer. Authorized agents execute
  *         stablecoin or native MON payments that carry their AI/compliance
  *         metadata (risk score, decision hash, compliance status), so every
  *         settlement is an auditable on-chain record.
