@@ -76,7 +76,13 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               variant="secondary"
               className="text-xs"
               disabled={busy}
-              onClick={() => { setBusy(true); wallet.connect().catch(() => {}).finally(() => setBusy(false)); }}
+              onClick={() => {
+                // No injected wallet (typical on a phone browser) — send them to
+                // /connect, which offers wallet-app deep links instead of a
+                // dead-end error.
+                if (typeof window !== "undefined" && !window.ethereum) { window.location.href = "/connect"; return; }
+                setBusy(true); wallet.connect().catch(() => {}).finally(() => setBusy(false));
+              }}
             >
               {busy ? "Connecting…" : "Connect wallet"}
             </Button>

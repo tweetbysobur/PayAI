@@ -104,7 +104,7 @@ export function CommandBar() {
       >
         <Sparkles size={16} />
         Ask PayAI
-        <kbd className="ml-1 rounded border border-primary-foreground/30 px-1.5 py-0.5 text-[10px] opacity-80">⌘K</kbd>
+        <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1.5 py-0.5 text-[10px] opacity-80 sm:inline-block">⌘K</kbd>
       </button>
 
       <AnimatePresence>
@@ -129,8 +129,8 @@ export function CommandBar() {
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
                   onKeyDown={onInputKey}
-                  placeholder="Ask PayAI — e.g. Send 5 MON to alex.nads"
-                  className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground/70"
+                  placeholder="Ask PayAI, e.g. Send 5 MON to alex.nads"
+                  className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
                 <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>
               </div>
@@ -224,7 +224,7 @@ export function CommandBar() {
                     )}
                     {c.swap.phase === "signing" && (
                       <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Wallet size={12} /> Approve in your wallet — settles on Monad in seconds.
+                        <Wallet size={12} /> Approve in your wallet. Settles on Monad in seconds.
                       </p>
                     )}
                     {c.swap.phase === "error" && c.swap.error && (
