@@ -1,15 +1,15 @@
 # Screenshots
 
-Drop the images referenced by the main README here, using these exact filenames:
+Used by the main README's Screenshots table. Current set:
 
-| File | What to capture |
+| File | Shows |
 | --- | --- |
 | `landing.png` | The landing page hero (usepayai.xyz) |
 | `dashboard.png` | The dashboard Overview (`/dashboard`) |
-| `payments.png` | Send a payment (`/dashboard/payments`) — ideally mid-flow or a completed receipt |
-| `transactions.png` | Transaction history (`/dashboard/transactions`) |
-| `analytics.png` | Analytics (`/dashboard/analytics`) |
-| `compliance.png` | Compliance center (`/dashboard/compliance`) |
+| `payments.png` | A completed payment on `/dashboard/payments` |
+
+To add more (e.g. transactions, analytics, compliance), drop a PNG here and
+add a matching row/cell to the Screenshots table in [`README.md`](../../README.md).
 
 Tips:
 - Full-width browser shots at a consistent window size look best side by side.

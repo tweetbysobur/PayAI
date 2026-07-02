@@ -55,10 +55,6 @@ risk, execution, and settlement all live in `lib/`.
 | --- | --- | --- |
 | ![Landing page](docs/screenshots/landing.png) | ![Dashboard overview](docs/screenshots/dashboard.png) | ![Send payment](docs/screenshots/payments.png) |
 
-| Transactions | Analytics | Compliance |
-| --- | --- | --- |
-| ![Transaction history](docs/screenshots/transactions.png) | ![Analytics](docs/screenshots/analytics.png) | ![Compliance center](docs/screenshots/compliance.png) |
-
 ## What it does today
 
 - Parses plain-English payment instructions into structured transactions
