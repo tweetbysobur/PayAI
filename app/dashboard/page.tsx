@@ -10,6 +10,7 @@ import {
 import { Badge, Card, CountUp } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
+import { TokenLogo } from "@/components/TokenLogo";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -161,16 +162,16 @@ export default function Overview() {
       {/* Portfolio + headline KPIs (animated) */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, tone: "primary" as const },
-          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, tone: "success" as const },
-          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "USDC", placeholder: "—", icon: Receipt, tone: "neutral" as const },
-          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, tone: "neutral" as const },
+          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, token: "MON" as const, tone: "primary" as const },
+          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, token: "USDC" as const, tone: "success" as const },
+          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "USDC", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const },
+          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const },
         ].map((k, i) => {
           const iconTone = { primary: "bg-primary/12 text-primary", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
           return (
             <motion.div key={k.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} whileHover={{ y: -2 }}>
               <Card className="p-5 transition-colors hover:border-primary/30">
-                <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconTone}`}><k.icon size={16} /></div>
+                <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconTone}`}>{k.token ? <TokenLogo token={k.token} size={18} /> : <k.icon size={16} />}</div>
                 <p className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
                   {k.value != null ? <CountUp value={k.value} decimals={k.decimals} /> : k.placeholder}
                   {k.value != null && k.unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{k.unit}</span>}
@@ -317,8 +318,8 @@ export default function Overview() {
                 </svg>
               </div>
               <div className="flex-1 space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-primary" />MON</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalMon ?? 0)}</span></div>
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-secondary" />USDC</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalUsdc ?? 0)}</span></div>
+                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><TokenLogo token="MON" size={16} />MON</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalMon ?? 0)}</span></div>
+                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><TokenLogo token="USDC" size={16} />USDC</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalUsdc ?? 0)}</span></div>
               </div>
             </div>
           ) : <EmptyHint icon={Wallet} title="Connect your wallet" hint="Real MON and USDC balances appear here once connected." />}
