@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { Card } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
+import { TokenLogo } from "@/components/TokenLogo";
 
 interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
@@ -30,13 +31,15 @@ export default function AnalyticsPage() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Total revenue", value: a ? `${a.revenue.total.toFixed(2)} ${a.revenue.currency}` : "—" },
-          { label: "This month", value: a ? `${a.revenue.thisMonth.toFixed(2)} ${a.revenue.currency}` : "—" },
-          { label: "Success rate", value: a ? `${Math.round(a.revenue.successRate * 100)}%` : "—" },
-          { label: "Settled / Failed", value: a ? `${a.revenue.settledCount} / ${a.revenue.failedCount}` : "—" },
+          { label: "Total revenue", value: a ? `${a.revenue.total.toFixed(2)} ${a.revenue.currency}` : "—", coin: true },
+          { label: "This month", value: a ? `${a.revenue.thisMonth.toFixed(2)} ${a.revenue.currency}` : "—", coin: true },
+          { label: "Success rate", value: a ? `${Math.round(a.revenue.successRate * 100)}%` : "—", coin: false },
+          { label: "Settled / Failed", value: a ? `${a.revenue.settledCount} / ${a.revenue.failedCount}` : "—", coin: false },
         ].map((k) => (
           <Card key={k.label} className="p-4">
-            <p className="text-xl font-semibold text-foreground">{k.value}</p>
+            <p className="flex items-center gap-1.5 text-xl font-semibold text-foreground">
+              {k.coin && a && <TokenLogo token={a.revenue.currency} size={17} />}{k.value}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">{k.label}</p>
           </Card>
         ))}
