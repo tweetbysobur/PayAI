@@ -332,23 +332,7 @@ export default function LandingPage() {
                 See how it works
               </a>
             </div>
-            {/* Live platform stats — same data as Platform Status section below */}
-            {activity && (activity.totalPayments > 0 || Object.values(activity.volumeByToken).some((v) => v > 0)) && (
-              <div className="mt-7 flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs">
-                  <Receipt size={12} className="text-primary" />
-                  <span className="font-mono font-medium text-foreground">{activity.totalPayments.toLocaleString()}</span>
-                  <span className="text-muted-foreground">payments sent</span>
-                </div>
-                {Object.values(activity.volumeByToken).some((v) => v > 0) && (
-                  <div className="flex items-center gap-2 rounded-lg border border-border bg-panel px-3.5 py-2 text-xs text-foreground">
-                    <VolumeInline byToken={activity.volumeByToken} size={13} />
-                    <span className="text-muted-foreground">volume</span>
-                  </div>
-                )}
-              </div>
-            )}
-            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> You stay in control</span>
               <span className="flex items-center gap-1.5"><Zap size={12} className="text-success" /> Arrives in seconds</span>
               <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Every payment checked</span>
