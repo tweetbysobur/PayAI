@@ -1,59 +1,51 @@
-# Monad Mainnet cutover — PayAI
+# Monad Mainnet deployment
 
-Testnet (chain 10143) is fully deployed and verified. Mainnet (chain 143) is
-**code-ready** — the config, Hardhat network, and deploy scripts all support it.
-The remaining steps require **real funds** and a **real USDC address**, so they
-are done by you (they cannot be automated safely).
+PayAI is live on Monad Mainnet (chain ID `143`) at [usepayai.xyz](https://usepayai.xyz).
+This is a record of what's deployed, not a setup guide — see the README for
+running the project locally.
 
-> ⚠️ Mainnet moves real money. The agent signs autonomously, so the signer is a
-> hot wallet. Use a **fresh, dedicated key**, fund it minimally, and never reuse
-> the testnet key. Do **not** put the mainnet key in a public deployment without
-> an auth gate on `/api/agent`.
+## Deployed contracts
 
-## 1. Create a fresh mainnet agent wallet
-```bash
-node -e "const {generatePrivateKey,privateKeyToAccount}=require('viem/accounts');const pk=generatePrivateKey();console.log('PK',pk);console.log('ADDR',privateKeyToAccount(pk).address)"
-```
-Store the PK in a secret manager. Fund the address with a small amount of real
-**MON** (for gas) and the **USDC** you intend to pay with.
+| Contract | Address | Deployed |
+| --- | --- | --- |
+| PaymentExecutor | [`0x2919eAbb…085da`](https://monadexplorer.com/address/0x2919eAbbef3A56d9975821031e2C2764BBB085da) | 2026-06-24 |
+| MerchantRegistry | [`0x89A42a8d…dA439`](https://monadexplorer.com/address/0x89A42a8dCcB6219b068E636ad9953d5488cDa439) | 2026-06-24 |
 
-## 2. Get the canonical Monad-mainnet USDC address
-Confirm the official USDC (or your chosen stablecoin) contract on Monad mainnet,
-and its decimals (USDC is usually 6).
+Both are verified on the Monad explorer. `PaymentExecutor` enforces replay
+protection (a payment's `requestId` can only ever settle once) and on-chain
+per-transaction and daily spend caps for the agent path — the limits aren't
+just app-layer checks, the contract itself refuses to exceed them.
 
-## 3. Deploy the suite to mainnet
+## Operating mode
+
+`PAYAI_MODE=monad` — every payment is a real on-chain transaction, not a
+simulation. The app's default (`simulation`) is only for local development,
+so a fresh clone doesn't need funds or an agent key to run.
+
+## Signer
+
+Scheduled and recurring payments settle through a dedicated agent wallet,
+bounded by the on-chain caps above. Interactive payments never touch it: the
+connected wallet signs its own transaction, and PayAI only ever proposes,
+never holds a key for user funds.
+
+The agent wallet is a hot wallet by necessity (it signs autonomously), kept
+funded minimally and never reused across environments.
+
+## Redeploying the contracts
+
+If you fork this and want your own deployment:
+
 ```bash
 cd contracts
-MONAD_AGENT_PRIVATE_KEY=<mainnet_pk> MONAD_MAINNET_RPC=https://rpc.monad.xyz \
+MONAD_AGENT_PRIVATE_KEY=<your_key> MONAD_MAINNET_RPC=https://rpc.monad.xyz \
   npx hardhat run scripts/deploy-suite.js --network monad
-# → prints MerchantRegistry + PaymentExecutor mainnet addresses (deployed-suite.json)
 ```
 
-## 4. Point the app at mainnet
-In `.env.local` (and your host's env):
-```
-MONAD_NETWORK=mainnet
-MONAD_MAINNET_RPC=https://rpc.monad.xyz
-MONAD_MAINNET_USDC=<real_usdc_address>
-MONAD_MAINNET_PAYMENT_EXECUTOR=<from step 3>
-MONAD_MAINNET_MERCHANT_REGISTRY=<from step 3>
-MONAD_AGENT_PRIVATE_KEY=<mainnet_pk>     # server-only; NEVER commit / NEVER ship to a public client
-PAYAI_MODE=monad
-```
-`getNetwork()` switches `getChain()`, `getStablecoin()`, `getPaymentExecutor()`,
-and `getMerchantRegistry()` to the mainnet values automatically — no code change.
+Then point the app at the new addresses via `MONAD_MAINNET_PAYMENT_EXECUTOR`
+and `MONAD_MAINNET_MERCHANT_REGISTRY` (see `.env.example`). `getNetwork()`
+switches every mainnet/testnet-dependent value automatically from
+`MONAD_NETWORK` — no code change needed.
 
-## 5. Lower the guardrail cap for first live runs
-```
-VERIPAYAI_MAX_AMOUNT=25
-```
-Start small, confirm a real settlement on the mainnet explorer, then raise it.
-
-## Checklist
-- [ ] Fresh mainnet key created + stored securely
-- [ ] Wallet funded with MON (gas) + USDC
-- [ ] Canonical mainnet USDC address confirmed
-- [ ] Suite deployed to `--network monad`
-- [ ] `.env` switched to mainnet values
-- [ ] Auth gate on `/api/agent` if the signer is on a public deployment
-- [ ] First small live payment verified on the explorer
+> Mainnet moves real money. Use a fresh, dedicated key for the agent wallet,
+> fund it minimally, and never commit it or ship it to a public client.
