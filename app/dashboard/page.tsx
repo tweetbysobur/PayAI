@@ -211,7 +211,7 @@ export default function Overview() {
         {/* Recent transactions */}
         <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
           {history.length === 0 ? (
-            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K) — it settles on Monad in seconds." />
+            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K). It settles on Monad in seconds." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -258,7 +258,7 @@ export default function Overview() {
               </div>
               <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View Compliance Center →</Link>
             </div>
-          ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened — results appear here." />}
+          ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened. Results appear here." />}
         </Card>
       </div>
 

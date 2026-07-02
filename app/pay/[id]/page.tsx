@@ -61,7 +61,7 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
                   <>
                     <PayWithWallet linkId={link.id} amount={link.amount} recipient={link.recipient as `0x${string}`} />
                     <p className="mt-2 text-center text-xs text-muted-foreground">
-                      Pays directly from your wallet on Monad — no funds pass through us.
+                      Pays directly from your wallet on Monad. No funds pass through us.
                     </p>
                   </>
                 ) : (

@@ -68,12 +68,12 @@ const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; hr
 const TECHNOLOGY = [
   { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
   { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
-  { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day — with a receipt you can always look up." },
+  { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day, with a receipt you can always look up." },
   { icon: Eye, title: "Nothing to hide", body: "Every payment is recorded permanently, so you can prove it happened whenever you need to." },
 ];
 
 const FEATURES = [
-  { icon: MessageSquare, title: "Pay by typing", body: "Just describe it — we handle the rest." },
+  { icon: MessageSquare, title: "Pay by typing", body: "Just describe it, and we handle the rest." },
   { icon: Coins, title: "Send MON & USDC", body: "The coins people actually use." },
   { icon: ArrowDownLeft, title: "Swap instantly", body: "Move between MON and USDC in a tap." },
   { icon: AtSign, title: "Pay a name", body: "Use easy names, not long addresses." },
@@ -86,11 +86,11 @@ const FEATURES = [
 ];
 
 const FAQS = [
-  { q: "Who controls my money?", a: "You do. PayAI never holds your funds — you approve every payment yourself, and we never ask for your seed phrase or private keys." },
+  { q: "Who controls my money?", a: "You do. PayAI never holds your funds. You approve every payment yourself, and we never ask for your seed phrase or private keys." },
   { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
   { q: "What can I send?", a: "You can send MON and USDC, swap between them in a tap, and pay easy-to-remember names instead of long wallet addresses." },
-  { q: "Can I set up payments in advance?", a: "Yes. Schedule recurring or future payments with limits you set, and PayAI sends them on time — never beyond the limits you choose." },
-  { q: "Is it safe?", a: "Every payment is checked before it sends — the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
+  { q: "Can I set up payments in advance?", a: "Yes. Schedule recurring or future payments with limits you set, and PayAI sends them on time, never beyond the limits you choose." },
+  { q: "Is it safe?", a: "Every payment is checked before it sends: the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
   { q: "Can I verify my payments?", a: "Always. Every payment is recorded permanently and publicly, so you can prove exactly what happened, anytime." },
 ];
 
@@ -208,7 +208,7 @@ function MiniScreen({ screen, health, activity }: { screen: ScreenKey; health: H
           <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary"><WalletIcon size={15} /></div>
           <div>
             <p className="text-[11px] font-medium text-foreground">Your wallet, your keys</p>
-            <p className="text-[10px] text-muted-foreground">Non-custodial — you sign every payment</p>
+            <p className="text-[10px] text-muted-foreground">Non-custodial. You sign every payment.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -322,7 +322,7 @@ export default function LandingPage() {
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
               Send, swap, and schedule payments just by saying what you want. You approve every payment
-              from your own wallet — and it arrives in seconds.
+              from your own wallet, and it arrives in seconds.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/connect" className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90">
@@ -436,7 +436,7 @@ export default function LandingPage() {
       <section id="features" className="mx-auto max-w-6xl px-6 py-20">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
           <h2 className="text-3xl font-semibold tracking-tight text-foreground">Everything you need to move money</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Real features that work today — nothing coming soon.</p>
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Real features that work today. Nothing coming soon.</p>
         </motion.div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {FEATURES.map((f, i) => (

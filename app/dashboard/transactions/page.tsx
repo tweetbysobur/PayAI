@@ -129,7 +129,7 @@ export default function Transactions() {
         ) : !wallet.address ? (
           <EmptyState icon={Wallet} title="Connect your wallet" hint="Your transactions are private to your wallet. Connect it from the top bar to see your history." />
         ) : history.length === 0 ? (
-          <EmptyState icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K) — it settles on Monad in seconds and appears here." />
+          <EmptyState icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K). It settles on Monad in seconds and appears here." />
         ) : filtered.length === 0 ? (
           <EmptyState icon={Search} title="No matches" hint="No transactions match your search or filter." />
         ) : (

@@ -16,7 +16,7 @@ import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
 const NEXT_STEP: Record<string, string> = {
-  needs_review: "This payment is being reviewed — you'll be notified once it clears.",
+  needs_review: "This payment is being reviewed. You'll be notified once it clears.",
   blocked: "This payment did not clear compliance and was not sent.",
   refused: "This payment was declined before settlement.",
   error: "Something interrupted settlement. No funds were moved.",
@@ -51,7 +51,7 @@ export default function Payments() {
   async function handleSwitchNetwork() {
     setSwitchErr(null); setSwitching(true);
     try { await c.wallet.switchNetwork(); }
-    catch { setSwitchErr(`Couldn't switch automatically — switch to ${MONAD_CHAIN_NAME} in your wallet.`); }
+    catch { setSwitchErr(`Couldn't switch automatically. Switch to ${MONAD_CHAIN_NAME} in your wallet.`); }
     finally { setSwitching(false); }
   }
 
@@ -145,7 +145,7 @@ export default function Payments() {
         {amountErr && <p className="-mt-4 mb-4 text-xs text-danger">{amountErr}</p>}
         {!amountErr && insufficientBalance && (
           <p className="-mt-4 mb-4 text-xs text-danger">
-            Insufficient {token} balance — you have {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}.
+            Insufficient {token} balance. You have {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}.
           </p>
         )}
         {!amountErr && wallet.address && !c.balances.loading && available != null && !insufficientBalance && isValidAmount(amount) && (
@@ -180,7 +180,7 @@ export default function Payments() {
           </div>
           <p className="text-sm font-medium text-foreground">Your receipt appears here</p>
           <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-            Enter an amount and recipient, then send — the on-chain proof, compliance checks, and explorer link land here.
+            Enter an amount and recipient, then send. Your receipt and explorer link land here.
           </p>
         </Card>
       )}
