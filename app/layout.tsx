@@ -4,7 +4,7 @@ import { WalletProvider } from "@/lib/wallet/useWallet";
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
 const DESCRIPTION =
-  "An autonomous AI payment agent that initiates, validates, and settles payments on Monad — non-custodial, compliance-screened, and fully on-chain.";
+  "Send, swap, and schedule payments just by describing them. You approve every payment from your own wallet — and it arrives in seconds.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
