@@ -1,8 +1,0 @@
-{
-  "network": "monad",
-  "chainId": 143,
-  "merchantRegistry": "0x2Be4365C21A896283C35B46EFAa013CBC50C11Bf",
-  "paymentExecutor": "0xC359AA2A25A6c5C4B7962d4A2B989552efDea3E5",
-  "deployer": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
-  "deployedAt": "2026-06-24T17:19:03.057Z"
-}

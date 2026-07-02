@@ -61,7 +61,7 @@ type ScreenKey = "dashboard" | "transactions" | "compliance" | "wallets";
 const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; href: string }[] = [
   { key: "dashboard", label: "Payment Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { key: "transactions", label: "Transaction History", icon: ScrollText, href: "/dashboard/transactions" },
-  { key: "compliance", label: "Compliance Center", icon: ShieldCheck, href: "/dashboard/compliance" },
+  { key: "compliance", label: "Payment checks", icon: ShieldCheck, href: "/dashboard/compliance" },
   { key: "wallets", label: "Wallet Management", icon: WalletIcon, href: "/dashboard/wallets" },
 ];
 
