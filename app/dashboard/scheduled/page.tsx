@@ -84,7 +84,7 @@ export default function ScheduledPage() {
             Create one in seconds with Ask PayAI (⌘K). For example:
           </p>
           <div className="mt-3 flex flex-wrap justify-center gap-2">
-            {["schedule 10 USDC to alex.nads every Friday", "pay 5 MON to alice.nad on 2026-07-01", "send 2 USDC to bob monthly"].map((ex) => (
+            {["schedule 10 USDC to a .nad domain every Friday", "pay 5 MON to an address next Monday", "send 2 USDC to a payee monthly"].map((ex) => (
               <code key={ex} className="rounded-md border border-border bg-input px-2.5 py-1 text-xs text-muted-foreground">{ex}</code>
             ))}
           </div>

@@ -12,16 +12,18 @@ import { useAgentConsole, DECISION, short, phraseSummary } from "@/lib/hooks/use
 
 const EXAMPLES = [
   { label: "Swap 1 MON to USDC", icon: ArrowLeftRight },
-  { label: "Send 5 MON to alex.nads", icon: ArrowUpRight },
+  { label: "What's my balance", icon: Wallet },
   { label: "Create invoice for 50 USDC", icon: FileText },
   { label: "Show today's transactions", icon: ListChecks },
 ];
 
-/** What Ask PayAI can do — surfaced so the bar advertises its full range. */
+/** What Ask PayAI can do — surfaced so the bar advertises its full range.
+ *  Send/Schedule are prefill templates (they stop where you type the
+ *  recipient), so the bar never shows a fake example name. */
 const CAPABILITIES: { verb: string; example: string }[] = [
   { verb: "Swap", example: "swap 1 MON to USDC" },
-  { verb: "Send", example: "send 5 MON to alex.nads" },
-  { verb: "Schedule", example: "schedule 10 USDC to alex.nads every Friday" },
+  { verb: "Send", example: "send 5 MON to " },
+  { verb: "Schedule", example: "schedule 10 USDC to " },
   { verb: "Invoice", example: "create invoice for 50 USDC" },
   { verb: "Balance", example: "what's my balance" },
   { verb: "History", example: "show today's transactions" },
@@ -129,7 +131,7 @@ export function CommandBar() {
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
                   onKeyDown={onInputKey}
-                  placeholder="Ask PayAI, e.g. Send 5 MON to alex.nads"
+                  placeholder="Ask PayAI, e.g. swap 1 MON to USDC"
                   className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
                 <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>

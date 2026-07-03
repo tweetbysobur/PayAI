@@ -82,8 +82,8 @@ export default function Recipients() {
 
       <Card title="Add recipient" className="mb-4">
         <div className="flex flex-wrap gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Label (e.g. Alice)" className="w-40" />
-          <Input value={newAddr} onChange={(e) => setNewAddr(e.target.value)} placeholder="0x… or alice.nads" className="w-56" />
+          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Label (e.g. Savings)" className="w-40" />
+          <Input value={newAddr} onChange={(e) => setNewAddr(e.target.value)} placeholder="0x address or .nad domain" className="w-56" />
           <Button onClick={addRecipient} disabled={!newAddr || !newName}>Save</Button>
         </div>
         {addrTouched && newAddrErr && <p className="mt-2 text-xs text-danger">{newAddrErr}</p>}
