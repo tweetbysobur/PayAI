@@ -58,8 +58,13 @@ export default function Overview() {
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 15000);
-    return () => clearInterval(t);
+    // Only poll while the tab is actually visible — background polling drains
+    // the battery and churns the UI on mobile for nothing. Refresh immediately
+    // when the user returns so the data is fresh on focus.
+    const t = setInterval(() => { if (!document.hidden) refresh(); }, 20000);
+    const onVisible = () => { if (!document.hidden) refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, [refresh]);
 
   const r = a?.revenue;

@@ -111,7 +111,7 @@ export function CommandBar() {
         {open && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-start justify-center bg-background/70 px-4 pt-[12vh] backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-start justify-center bg-background/85 px-4 pt-[12vh] sm:bg-background/70 sm:backdrop-blur-sm"
             onClick={() => setOpen(false)}
           >
             <motion.div
