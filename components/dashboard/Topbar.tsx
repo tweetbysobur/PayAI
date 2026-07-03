@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
+import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
 
 interface Health {
   payment: { connected: boolean; engine: string };
@@ -32,6 +33,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
   const identity = useIdentity(wallet.address);
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   return (
     <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
@@ -99,6 +101,17 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           >
             <Identicon address={wallet.address} size={20} />
             {identity.display}
+          </button>
+        )}
+
+        {wallet.address && (
+          <button
+            onClick={() => setReceiveOpen(true)}
+            title="Receive"
+            aria-label="Receive"
+            className="rounded-full border border-border bg-panel p-2 text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <ArrowDownLeft size={16} />
           </button>
         )}
 
@@ -179,6 +192,8 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           </AnimatePresence>
         </div>
       </div>
+
+      <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
     </header>
   );
 }
