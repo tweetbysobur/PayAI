@@ -11,6 +11,7 @@ import { Badge, Card, CountUp } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
+import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -41,6 +42,7 @@ export default function Overview() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   const refresh = useCallback(() => {
     // Scope the user's own views to their connected wallet — the server returns
@@ -118,9 +120,9 @@ export default function Overview() {
           <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             <Send size={14} /> Send Payment
           </Link>
-          <Link href="/dashboard/wallets" className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <button onClick={() => setReceiveOpen(true)} className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <ArrowDownLeft size={14} /> Receive
-          </Link>
+          </button>
         </div>
       </motion.div>
 
@@ -370,6 +372,8 @@ export default function Overview() {
           ))}
         </div>
       </div>
+
+      <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
     </div>
   );
 }
