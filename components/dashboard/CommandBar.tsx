@@ -131,7 +131,7 @@ export function CommandBar() {
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
                   onKeyDown={onInputKey}
-                  placeholder="Ask PayAI, e.g. swap 1 MON to USDC"
+                  placeholder="Ask PayAI to send, swap, schedule, or check your balance"
                   className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
                 <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>

@@ -21,7 +21,18 @@ import {
 import type { GuardrailResult, IntentSource, ParsedIntent } from "./types";
 import { extractDomain } from "../monad/domain-resolver";
 
-const MAX_AMOUNT = Number(process.env.VERIPAYAI_MAX_AMOUNT || "1000");
+// Per-transaction limits, denominated by asset. Stablecoins (USDC/USDT/USD) are
+// dollar-pegged, so their cap is a straight USD amount ($10,000). MON is a
+// separate asset priced in the market; until live USD pricing lands we allow a
+// generous MON amount rather than a tight flat cap, so real payments aren't
+// blocked. (A cumulative per-user USD cap is a planned upgrade.) These use new
+// env names so any stale VERIPAYAI_MAX_AMOUNT is no longer in effect.
+const MAX_USD = Number(process.env.PAYAI_MAX_USD || "10000");
+const MAX_MON = Number(process.env.PAYAI_MAX_MON || "100000");
+/** The cap for a given asset. */
+function capFor(token: Token): number {
+  return token === "MON" ? MAX_MON : MAX_USD;
+}
 const DEFAULT_NETWORK = (process.env.VERIPAYAI_DEFAULT_NETWORK as Network) || "monad";
 
 const ADDR_RE = /0x[0-9a-fA-F]{6,}/;
@@ -330,8 +341,9 @@ export function checkGuardrails(intent: ParsedIntent): GuardrailResult {
   if (needsAmount && (intent.amount == null || intent.amount <= 0)) {
     v.push("No valid amount could be determined.");
   }
-  if (intent.amount != null && intent.amount > MAX_AMOUNT) {
-    v.push(`Amount ${intent.amount} exceeds the agent cap of ${MAX_AMOUNT}.`);
+  const cap = capFor(intent.token);
+  if (intent.amount != null && intent.amount > cap) {
+    v.push(`Amount exceeds the current limit of ${cap.toLocaleString()} ${intent.token} per payment.`);
   }
   if (needsRecipient && !intent.recipient) {
     v.push("A recipient is required for a transfer.");
@@ -342,8 +354,13 @@ export function checkGuardrails(intent: ParsedIntent): GuardrailResult {
   return { allowed: v.length === 0, violations: v };
 }
 
+export { capFor };
 export const agentConfig = {
-  maxAmount: MAX_AMOUNT,
+  /** Generous overall cap for swap/schedule amount checks; payments use the
+   *  per-token capFor() in checkGuardrails. */
+  maxAmount: Math.max(MAX_USD, MAX_MON),
+  maxUsd: MAX_USD,
+  maxMon: MAX_MON,
   defaultNetwork: DEFAULT_NETWORK,
   model: process.env.ANTHROPIC_API_KEY
     ? process.env.VERIPAYAI_MODEL || "claude-opus-4-8"
