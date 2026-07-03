@@ -280,13 +280,13 @@ export default function LandingPage() {
       fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
     };
     load();
-    const t = setInterval(load, 20000);
+    const t = setInterval(() => { if (!document.hidden) load(); }, 20000);
     return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
     const order: ScreenKey[] = ["dashboard", "transactions", "compliance", "wallets"];
-    const t = setInterval(() => setActiveScreen((s) => order[(order.indexOf(s) + 1) % order.length]), 3200);
+    const t = setInterval(() => { if (!document.hidden) setActiveScreen((s) => order[(order.indexOf(s) + 1) % order.length]); }, 3200);
     return () => clearInterval(t);
   }, []);
 
