@@ -292,7 +292,7 @@ export default function Overview() {
 
         <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
           {upcoming.length === 0 ? (
-            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to alex.nads every Friday".' />
+            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to a .nad domain every Friday".' />
           ) : (
             <div className="space-y-2.5">
               {upcoming.slice(0, 3).map((s) => (

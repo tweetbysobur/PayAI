@@ -158,7 +158,7 @@ export default function Payments() {
         <Input
           value={recipient}
           onChange={(e) => setRecipient(e.target.value)}
-          placeholder="alex.nads or 0x…"
+          placeholder=".nad domain or 0x address"
           className="w-full"
         />
         {recipientErr && <p className="mt-1.5 text-xs text-danger">{recipientErr}</p>}
