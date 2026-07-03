@@ -9,6 +9,7 @@ import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
 import { MonadMark } from "@/components/MonadMark";
+import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
 
 interface OnchainContracts {
   configured: boolean;
@@ -44,6 +45,7 @@ export default function Wallets() {
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  const [receiveOpen, setReceiveOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/onchain").then((r) => r.json()).then(setOnchainContracts).catch(() => {});
@@ -106,9 +108,14 @@ export default function Wallets() {
           <p className="mt-0.5 text-sm text-muted-foreground">Your connected wallet and live on-chain intelligence.</p>
         </div>
         {wallet.address && (
-          <Button variant="secondary" onClick={loadIntel} disabled={loading} className="flex items-center gap-1.5 text-xs">
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setReceiveOpen(true)} className="flex items-center gap-1.5 text-xs">
+              <ArrowDownLeft size={13} /> Receive
+            </Button>
+            <Button variant="secondary" onClick={loadIntel} disabled={loading} className="flex items-center gap-1.5 text-xs">
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
+            </Button>
+          </div>
         )}
       </div>
 
@@ -322,6 +329,8 @@ export default function Wallets() {
           </Card>
         </>
       ) : null}
+
+      <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
     </div>
   );
 }
