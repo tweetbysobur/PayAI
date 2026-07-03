@@ -92,7 +92,8 @@ export function CommandBar() {
       if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => (s - 1 + EXAMPLES.length) % EXAMPLES.length); return; }
       if (e.key === "Enter") { e.preventDefault(); const ex = EXAMPLES[sel].label; c.setIntent(ex); c.run(ex); return; }
     }
-    if (e.key === "Enter" && c.intent && !c.loading) c.run(c.intent);
+    // A typed command is submitted by the surrounding <form> (Enter / the phone
+    // keyboard's send key / the send button) — handled there, not here.
   }
 
   const res = c.res;
@@ -123,7 +124,10 @@ export function CommandBar() {
               className="flex w-full flex-col overflow-hidden border-border bg-panel shadow-2xl ring-1 ring-primary/5 sm:max-w-xl sm:rounded-2xl sm:border"
             >
               {/* Search row */}
-              <div className="flex items-center gap-3 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5">
+              <form
+                onSubmit={(e) => { e.preventDefault(); if (c.intent.trim() && !c.loading) c.run(c.intent); }}
+                className="flex items-center gap-2 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5"
+              >
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
                   <Sparkles size={15} />
                 </span>
@@ -131,11 +135,23 @@ export function CommandBar() {
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
                   onKeyDown={onInputKey}
-                  placeholder="Ask PayAI to send, swap, schedule, or check your balance"
+                  enterKeyHint="send"
+                  placeholder="Ask PayAI to send, swap, schedule…"
                   className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
-                <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>
-              </div>
+                {c.intent.trim() ? (
+                  <button
+                    type="submit"
+                    disabled={c.loading}
+                    aria-label="Run command"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    {c.loading ? <Loader2 size={15} className="animate-spin" /> : <ArrowUpRight size={16} />}
+                  </button>
+                ) : (
+                  <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>
+                )}
+              </form>
 
               <div className="flex-1 overflow-y-auto p-4 sm:max-h-[52vh] sm:flex-none">
                 {/* Idle — suggestions */}
