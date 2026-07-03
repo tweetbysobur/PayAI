@@ -148,10 +148,17 @@ export default function Payments() {
             Insufficient {token} balance. You have {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}.
           </p>
         )}
-        {!amountErr && wallet.address && !c.balances.loading && available != null && !insufficientBalance && isValidAmount(amount) && (
-          <p className="-mt-4 mb-4 text-xs text-muted-foreground">
-            Balance: {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}
-          </p>
+        {!amountErr && wallet.address && !c.balances.loading && available != null && !insufficientBalance && (
+          <div className="-mt-4 mb-4 flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Balance: {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}</span>
+            <button
+              type="button"
+              onClick={() => setAmount(String(available))}
+              className="rounded-full border border-border px-2 py-0.5 font-medium text-primary transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Max
+            </button>
+          </div>
         )}
 
         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>

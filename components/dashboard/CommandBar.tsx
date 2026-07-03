@@ -113,14 +113,14 @@ export function CommandBar() {
         {open && (
           <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-start justify-center bg-background/85 px-4 pt-[12vh] sm:bg-background/70 sm:backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-stretch justify-center bg-background/85 sm:items-start sm:bg-background/70 sm:px-4 sm:pt-[12vh] sm:backdrop-blur-sm"
             onClick={() => setOpen(false)}
           >
             <motion.div
               initial={{ opacity: 0, y: -16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
+              className="flex w-full flex-col overflow-hidden border-border bg-panel shadow-2xl ring-1 ring-primary/5 sm:max-w-xl sm:rounded-2xl sm:border"
             >
               {/* Search row */}
               <div className="flex items-center gap-3 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5">
@@ -137,7 +137,7 @@ export function CommandBar() {
                 <button onClick={() => setOpen(false)} aria-label="Close" className="shrink-0 rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"><X size={16} /></button>
               </div>
 
-              <div className="max-h-[52vh] overflow-y-auto p-4">
+              <div className="flex-1 overflow-y-auto p-4 sm:max-h-[52vh] sm:flex-none">
                 {/* Idle — suggestions */}
                 {showExamples && (
                   <div>
