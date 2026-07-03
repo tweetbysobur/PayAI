@@ -111,19 +111,9 @@ export default function Overview() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/dashboard/payments" className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-            <Send size={14} /> Send Payment
-          </Link>
-          <button onClick={() => setReceiveOpen(true)} className="flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            <ArrowDownLeft size={14} /> Receive
-          </button>
-        </div>
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6">
+        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
       </motion.div>
 
       {/* Wallet summary */}
@@ -165,6 +155,16 @@ export default function Overview() {
           </div>
         </Card>
       </motion.div>
+
+      {/* Primary actions — the fast path: pay or get paid */}
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
+        <Link href="/dashboard/payments" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+          <Send size={16} /> Send
+        </Link>
+        <button onClick={() => setReceiveOpen(true)} className="flex items-center justify-center gap-2 rounded-xl border border-border bg-panel px-4 py-3.5 text-sm font-medium text-foreground transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <ArrowDownLeft size={16} /> Receive
+        </button>
+      </div>
 
       {/* Portfolio + headline KPIs (animated) */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
