@@ -35,6 +35,11 @@ export type ScheduleStatus = "upcoming" | "completed" | "cancelled";
 export interface ScheduledPayment {
   id: string;
   merchantId: string;
+  /** The wallet that created this schedule. Used to scope a connected user's
+   *  own schedules on the shared demo tenant — one wallet-only user must
+   *  never see or cancel another's scheduled payment. Null on merchant-account
+   *  tenants, which are already isolated by merchantId. */
+  sender?: string | null;
   amount: number;
   token: string;
   /** Resolved 0x address the payment settles to. */
@@ -57,6 +62,9 @@ export type LinkStatus = "active" | "paid" | "expired";
 export interface PaymentLink {
   id: string;
   merchantId: string;
+  /** The wallet that created this link. Scopes listing to the caller's own
+   *  links on the shared demo tenant, same reasoning as ScheduledPayment.sender. */
+  sender?: string | null;
   url: string;
   amount: number;
   token: string;

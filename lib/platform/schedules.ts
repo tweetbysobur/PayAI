@@ -33,11 +33,12 @@ export function advanceRun(from: number, cadence: ScheduleCadence): number | nul
 
 export async function createSchedule(
   merchantId: string,
-  input: { amount: number; token: string; recipient: string; domain?: string | null; cadence: ScheduleCadence; nextRun: number; memo?: string },
+  input: { amount: number; token: string; recipient: string; domain?: string | null; cadence: ScheduleCadence; nextRun: number; memo?: string; sender?: string | null },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
     id: `sch_${crypto.randomUUID()}`,
     merchantId,
+    sender: input.sender ?? null,
     amount: input.amount,
     token: input.token,
     recipient: input.recipient,
@@ -63,7 +64,7 @@ async function persist(row: ScheduledPayment): Promise<void> {
   }
 }
 
-export async function listSchedules(merchantId: string): Promise<ScheduledPayment[]> {
+export async function listSchedules(merchantId: string, opts?: { sender?: string | null }): Promise<ScheduledPayment[]> {
   const r = await getRedis();
   let rows: ScheduledPayment[];
   if (r) {
@@ -72,6 +73,11 @@ export async function listSchedules(merchantId: string): Promise<ScheduledPaymen
   } else {
     rows = [...mem.values()].filter((s) => s.merchantId === merchantId);
   }
+  // When a wallet is given, return ONLY that wallet's own schedules — this is
+  // what keeps one wallet-only user's recurring payments private from every
+  // other wallet-only user sharing the same demo tenant.
+  const sender = opts?.sender?.trim().toLowerCase();
+  if (sender) rows = rows.filter((s: ScheduledPayment) => (s.sender ?? "").toLowerCase() === sender);
   // Upcoming first (soonest next-run), then completed/cancelled by recency.
   return rows.sort((a, b) => {
     if (a.status === "upcoming" && b.status === "upcoming") return a.nextRun - b.nextRun;
@@ -81,9 +87,14 @@ export async function listSchedules(merchantId: string): Promise<ScheduledPaymen
   });
 }
 
-export async function cancelSchedule(merchantId: string, id: string): Promise<ScheduledPayment | null> {
+export async function cancelSchedule(merchantId: string, id: string, opts?: { sender?: string | null }): Promise<ScheduledPayment | null> {
   const row = await getSchedule(id);
   if (!row || row.merchantId !== merchantId) return null;
+  // On the shared demo tenant, also require the caller's wallet to be the
+  // schedule's own creator — otherwise any wallet-only user could cancel
+  // another user's real scheduled payment just by knowing/guessing its id.
+  const sender = opts?.sender?.trim().toLowerCase();
+  if (sender && (row.sender ?? "").toLowerCase() !== sender) return null;
   if (row.status === "upcoming") row.status = "cancelled";
   await persist(row);
   return row;

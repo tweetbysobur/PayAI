@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { CalendarClock, X, ArrowUpRight, ExternalLink, Repeat, CheckCircle2, Ban } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
+import { useWallet } from "@/lib/wallet/useWallet";
 
 interface ScheduleRun { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string }
 interface Schedule {
@@ -27,19 +28,24 @@ function whenLabel(ms: number): string {
 }
 
 export default function ScheduledPage() {
+  const wallet = useWallet();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Scoped to the connected wallet — on the shared demo tenant, this is what
+  // keeps one user's scheduled payments private from every other user.
   const load = useCallback(() => {
-    fetch("/api/schedule").then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).finally(() => setLoading(false));
-  }, []);
+    const qs = wallet.address ? `?wallet=${wallet.address}` : "";
+    fetch(`/api/schedule${qs}`).then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).finally(() => setLoading(false));
+  }, [wallet.address]);
   useEffect(() => { load(); }, [load]);
 
   async function cancel(id: string) {
     setBusy(id);
     try {
-      await fetch(`/api/schedule?id=${id}`, { method: "DELETE" });
+      const wallet_qs = wallet.address ? `&wallet=${wallet.address}` : "";
+      await fetch(`/api/schedule?id=${id}${wallet_qs}`, { method: "DELETE" });
       load();
     } finally {
       setBusy(null);

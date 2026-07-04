@@ -59,13 +59,14 @@ function baseUrl(): string {
 
 export async function createLink(
   merchantId: string,
-  input: { amount: number; token?: string; memo?: string; expiresInDays?: number | null; recipient?: string },
+  input: { amount: number; token?: string; memo?: string; expiresInDays?: number | null; recipient?: string; sender?: string | null },
 ): Promise<PaymentLink> {
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
   const now = Date.now();
   const link: PaymentLink = {
     id,
     merchantId,
+    sender: input.sender ?? null,
     url: `${baseUrl()}/pay/${id}`,
     amount: input.amount,
     token: input.token || "USDC",
@@ -85,8 +86,11 @@ export async function createLink(
   return link;
 }
 
-/** List a merchant's links, lazily flipping expired ones (newest first). */
-export async function listLinks(merchantId: string): Promise<PaymentLink[]> {
+/** List a merchant's links, lazily flipping expired ones (newest first).
+ *  When a wallet is given, only that wallet's own links come back — keeps one
+ *  wallet-only user's links private from every other user sharing the demo
+ *  tenant, same as transaction history/analytics/schedules. */
+export async function listLinks(merchantId: string, opts?: { sender?: string | null }): Promise<PaymentLink[]> {
   const r = await getRedis();
   let links: PaymentLink[];
   if (r) {
@@ -95,6 +99,8 @@ export async function listLinks(merchantId: string): Promise<PaymentLink[]> {
   } else {
     links = memOf(merchantId).links;
   }
+  const sender = opts?.sender?.trim().toLowerCase();
+  if (sender) links = links.filter((l: PaymentLink) => (l.sender ?? "").toLowerCase() === sender);
   const now = Date.now();
   for (const l of links) {
     if (l.status === "active" && l.expiresAt && l.expiresAt < now) {

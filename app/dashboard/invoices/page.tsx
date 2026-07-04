@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { amountError, isValidAmount, addressError, isValidAddress } from "@/lib/validation";
+import { useWallet } from "@/lib/wallet/useWallet";
 
 interface PayLink { id: string; amount: number; token: string; description?: string; url: string; status: string; createdAt: number }
 interface OnchainRequest { id: number; merchant: string; amount: number; paid: boolean; paymentId: number }
@@ -13,6 +14,7 @@ const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : 
 const PAGE_SIZE = 10;
 
 export default function Invoices() {
+  const wallet = useWallet();
   const [links, setLinks] = useState<PayLink[]>([]);
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
@@ -71,9 +73,14 @@ export default function Invoices() {
     return h;
   }, [merchant]);
 
+  // Scoped to the connected wallet on the shared demo tenant — otherwise every
+  // wallet-only user's links (memo, amount, URL) would be visible to every
+  // other wallet-only user. A merchant account (x-merchant-key) already has
+  // its own isolated tenant, so this only matters pre-signup.
   const refresh = useCallback(() => {
-    fetch("/api/links", { headers: headers() }).then((r) => r.json()).then((j) => setLinks(j.links ?? [])).catch(() => {});
-  }, [headers]);
+    const qs = wallet.address ? `?wallet=${wallet.address}` : "";
+    fetch(`/api/links${qs}`, { headers: headers() }).then((r) => r.json()).then((j) => setLinks(j.links ?? [])).catch(() => {});
+  }, [headers, wallet.address]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -83,7 +90,7 @@ export default function Invoices() {
     if (!isValidAmount(amount)) return;
     setBusy(true);
     try {
-      const r = await fetch("/api/links", { method: "POST", headers: headers(), body: JSON.stringify({ amount: Number(amount), token: "USDC", description: desc }) });
+      const r = await fetch("/api/links", { method: "POST", headers: headers(), body: JSON.stringify({ amount: Number(amount), token: "USDC", description: desc, walletAddress: wallet.address }) });
       const j = await r.json();
       if (j.ok) { setAmount(""); setDesc(""); setLinkTouched(false); refresh(); }
       else setLinkMsg(j.error || "Could not create the payment link.");
