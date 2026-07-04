@@ -57,7 +57,7 @@ export default function Overview() {
     fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
-    fetch("/api/schedule").then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).catch(() => {});
+    fetch(`/api/schedule${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).catch(() => {});
     fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
   }, [wallet.address]);

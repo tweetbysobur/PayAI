@@ -2,13 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * GET  /api/links — list payment links (with lazily-updated expiry status).
- * POST /api/links — create a payment link { amount, memo?, expiresInDays? }.
+ * POST /api/links — create a payment link { amount, memo?, expiresInDays?, walletAddress? }.
+ *
+ * On the shared demo tenant (no merchant account), listing is scoped to the
+ * caller's own wallet — otherwise every wallet-only user's link memos, amounts,
+ * and URLs would be visible to every other wallet-only user.
  */
+async function senderScopeFor(merchantId: string, walletAddress?: string | null): Promise<string | null> {
+  const { DEMO_TENANT } = await import("@/lib/platform/merchants");
+  if (merchantId !== DEMO_TENANT) return null;
+  const { isAddress } = await import("@/lib/payees/directory");
+  return walletAddress && isAddress(walletAddress) ? walletAddress : "__none__";
+}
+
 export async function GET(req: NextRequest) {
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
+  const wallet = new URL(req.url).searchParams.get("wallet");
+  const sender = await senderScopeFor(merchantId, wallet);
   const { listLinks } = await import("@/lib/platform/store");
-  return NextResponse.json({ links: await listLinks(merchantId) });
+  return NextResponse.json({ links: await listLinks(merchantId, { sender }) });
 }
 
 export async function POST(req: NextRequest) {
@@ -19,7 +32,7 @@ export async function POST(req: NextRequest) {
   const limited = await rateLimited(req, "write");
   if (limited) return limited;
 
-  let body: { amount?: number; memo?: string; expiresInDays?: number | null; token?: string };
+  let body: { amount?: number; memo?: string; expiresInDays?: number | null; token?: string; walletAddress?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -34,8 +47,10 @@ export async function POST(req: NextRequest) {
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
   const { getMerchantById, DEMO_TENANT } = await import("@/lib/platform/merchants");
+  const { isAddress } = await import("@/lib/payees/directory");
   const merchant = merchantId === DEMO_TENANT ? null : await getMerchantById(merchantId);
   const recipient = merchant?.wallet || process.env.VERIPAYAI_DEMO_PAYOUT_WALLET || undefined;
+  const sender = body.walletAddress && isAddress(body.walletAddress) ? body.walletAddress : null;
   const { createLink } = await import("@/lib/platform/store");
   const link = await createLink(merchantId, {
     amount,
@@ -43,6 +58,7 @@ export async function POST(req: NextRequest) {
     memo,
     expiresInDays: body.expiresInDays ?? 7,
     recipient,
+    sender,
   });
   return NextResponse.json({ ok: true, link });
 }

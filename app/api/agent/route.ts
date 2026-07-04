@@ -185,6 +185,7 @@ export async function POST(req: NextRequest) {
     const { createSchedule } = await import("@/lib/platform/schedules");
     const row = await createSchedule(merchantId, {
       amount: sched.amount, token: sched.token, recipient, domain, cadence: sched.cadence, nextRun: sched.nextRun,
+      sender: walletAddress,
     });
     return NextResponse.json({ decision: "scheduled", schedule: row, success: true });
   }
