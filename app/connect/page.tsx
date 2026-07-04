@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
-import { Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, ExternalLink, Loader2, ArrowRight, Smartphone } from "lucide-react";
+import { Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, ExternalLink, Loader2, ArrowRight, Smartphone, QrCode } from "lucide-react";
+import { walletConnectAvailable } from "@/lib/wallet/walletconnect";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
@@ -20,6 +21,7 @@ export default function ConnectPage() {
   const [localError, setLocalError] = useState<string | null>(null);
 
   const hasLegacy = typeof window !== "undefined" && !!window.ethereum;
+  const wcAvailable = walletConnectAvailable();
 
   // Mobile detection + wallet-app deep links. A normal phone browser has no
   // injected wallet, so "install an extension" is a dead end there. Instead we
@@ -53,6 +55,20 @@ export default function ConnectPage() {
       await wallet.connect();
     } catch {
       setLocalError("Connection was cancelled or rejected in your wallet.");
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function connectWalletConnect() {
+    setLocalError(null);
+    setPending("__wc__");
+    try {
+      const { openWalletConnect } = await import("@/lib/wallet/walletconnect");
+      const provider = await openWalletConnect();
+      await wallet.connect(provider);
+    } catch {
+      setLocalError("WalletConnect connection was cancelled or failed. Please try again.");
     } finally {
       setPending(null);
     }
@@ -205,6 +221,27 @@ export default function ConnectPage() {
                       </a>
                     </div>
                   )}
+
+                  {/* WalletConnect — works everywhere: QR on desktop, one-tap
+                      deep link to any wallet on mobile (no "open in app" hop). */}
+                  {wcAvailable && (
+                    <>
+                      <div className="flex items-center gap-3 py-0.5">
+                        <div className="h-px flex-1 bg-border" />
+                        <span className="text-[11px] text-muted-foreground">or</span>
+                        <div className="h-px flex-1 bg-border" />
+                      </div>
+                      <button
+                        onClick={connectWalletConnect}
+                        disabled={pending !== null}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/50 hover:bg-input/40 disabled:opacity-60"
+                      >
+                        {pending === "__wc__" ? <Loader2 size={16} className="animate-spin text-primary" /> : <QrCode size={16} className="text-primary" />}
+                        {pending === "__wc__" ? "Connecting…" : "WalletConnect"}
+                      </button>
+                    </>
+                  )}
+
                   {detected.length > 0 && (
                     <p className="pt-1 text-center text-xs text-muted-foreground">You&apos;ll approve the connection in the wallet you choose.</p>
                   )}
