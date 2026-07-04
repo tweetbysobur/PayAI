@@ -435,48 +435,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Platform Status — aggregate, platform-wide stats only. Never a
-          specific payment's detail: that would mean showing a real merchant's
-          wallet address on a public marketing page. Numbers are read live
-          from the PaymentExecutor contract; when the suite isn't configured
-          or has zero activity, that's reported truthfully rather than
-          replaced with a placeholder figure. */}
-      <section id="compliance" className="py-20">
-        <div className="mx-auto max-w-3xl px-6">
-          <h2 className="mb-8 text-center text-2xl font-semibold tracking-tight text-foreground">PayAI, in numbers</h2>
-          <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
-            <Card className="mx-auto max-w-lg">
-              <div className="mb-3 flex items-center justify-between">
-                <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><MonadMark size={11} /> {health?.wallet?.network ?? "Monad"} mainnet</span>
-              </div>
-              <dl className="space-y-2.5 text-sm">
-                <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Receipt size={13} /> Payments sent</dt>
-                  <dd className="font-mono text-foreground">{activity ? activity.totalPayments.toLocaleString() : "—"}</dd>
-                </div>
-                <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Hash size={13} /> Total moved</dt>
-                  <dd className="font-mono text-foreground">{activity ? formatVolume(activity.volumeByToken) : "—"}</dd>
-                </div>
-                <div className="flex items-center justify-between border-b border-border pb-2.5">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><Blocks size={13} /> Verified on-chain</dt>
-                  <dd className="flex items-center gap-1 font-mono text-xs text-foreground">
-                    {onchain?.contracts ? short(onchain.contracts.paymentExecutor) : "Not yet deployed"}
-                    {onchain?.contracts && (
-                      <a href={onchain.contracts.executorExplorer} target="_blank" rel="noreferrer" className="text-primary hover:underline"><ExternalLink size={12} /></a>
-                    )}
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <dt className="flex items-center gap-1.5 text-muted-foreground"><BadgeCheck size={13} /> Status</dt>
-                  <dd><Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live" : "Connecting…"}</Badge></dd>
-                </div>
-              </dl>
-            </Card>
-          </motion.div>
-        </div>
-      </section>
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-3xl px-6 py-20">
