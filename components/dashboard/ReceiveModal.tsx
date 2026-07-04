@@ -10,6 +10,7 @@ import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useIdentity } from "@/lib/hooks/useIdentity";
+import { useToast } from "@/components/Toast";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -23,6 +24,7 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
+  const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const [showAmount, setShowAmount] = useState(false);
   const [token, setToken] = useState<"MON" | "USDC">("MON");
@@ -54,6 +56,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
     if (!address) return;
     navigator.clipboard?.writeText(address).then(() => {
       setCopied(true);
+      toast("Address copied");
       setTimeout(() => setCopied(false), 1600);
     });
   }
@@ -65,6 +68,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
     a.href = canvas.toDataURL("image/png");
     a.download = `payai-${short(address)}.png`;
     a.click();
+    toast("QR code saved");
   }
 
   async function share() {
