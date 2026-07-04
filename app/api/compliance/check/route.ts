@@ -12,6 +12,10 @@ import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
  * per-address result.
  */
 export async function POST(req: NextRequest) {
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "read");
+  if (limited) return limited;
+
   let body: { recipient?: string };
   try {
     body = await req.json();

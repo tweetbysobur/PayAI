@@ -9,6 +9,10 @@ const ADDR = /^0x[a-fA-F0-9]{40}$/;
  * configured:false when the PaymentExecutor isn't deployed on this network.
  */
 export async function GET(req: NextRequest) {
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "read");
+  if (limited) return limited;
+
   const address = req.nextUrl.searchParams.get("address") || "";
   if (!ADDR.test(address)) {
     return NextResponse.json({ ok: false, error: "A valid 0x wallet address is required." }, { status: 400 });
