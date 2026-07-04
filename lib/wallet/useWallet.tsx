@@ -170,18 +170,8 @@ function useWalletState(): WalletState {
   // can't hang the UI forever — the tx is still broadcast; the user just gets
   // a clear "still pending" message instead of an infinite spinner.
   const waitForReceipt = useCallback(async (hash: string) => {
-    const { createPublicClient, fallback, http } = await import("viem");
-    const client = createPublicClient({
-      chain: {
-        id: MONAD_CHAIN_ID,
-        name: MONAD_CHAIN_NAME,
-        nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 },
-        rpcUrls: { default: { http: MONAD_RPC_URLS } },
-      },
-      transport: MONAD_RPC_URLS.length > 1
-        ? fallback(MONAD_RPC_URLS.map((u) => http(u, { retryCount: 3, retryDelay: 500, timeout: 12_000 })), { rank: false })
-        : http(MONAD_RPC_URLS[0], { retryCount: 4, retryDelay: 500, timeout: 12_000 }),
-    });
+    const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
+    const client = await getBrowserPublicClient();
     try {
       return await client.waitForTransactionReceipt({ hash: hash as `0x${string}`, timeout: 90_000 });
     } catch (e) {

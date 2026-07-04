@@ -29,7 +29,7 @@ export async function GET() {
 
   const { getNnsContractAddress } = await import("@/lib/monad/domain-resolver");
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     service: "payai",
     status: "ok",
     agent: { status: "ready" },
@@ -49,4 +49,9 @@ export async function GET() {
       note: "Real Nad Name Service (nad.domains) integration. Not yet deployed on Monad Testnet as of this writing — resolution will return 'Unable to resolve domain' until NNS reaches testnet or the app targets mainnet.",
     },
   });
+  // Every visitor's dashboard/landing page polls this — a short edge cache
+  // absorbs that traffic without the status ever reading more than a few
+  // seconds stale.
+  res.headers.set("Cache-Control", "public, s-maxage=10, stale-while-revalidate=30");
+  return res;
 }

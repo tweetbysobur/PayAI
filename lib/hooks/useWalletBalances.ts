@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS, MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
+import { MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 
 export interface WalletBalances {
   mon: string | null;
@@ -33,11 +33,9 @@ export function useWalletBalances(address: string | null): WalletBalances {
     let cancelled = false;
     setLoading(true);
     (async () => {
-      const { createPublicClient, http, formatEther, fallback } = await import("viem");
-      const client = createPublicClient({
-        chain: { id: MONAD_CHAIN_ID, name: MONAD_CHAIN_NAME, nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 }, rpcUrls: { default: { http: MONAD_RPC_URLS } } },
-        transport: MONAD_RPC_URLS.length > 1 ? fallback(MONAD_RPC_URLS.map((u) => http(u))) : http(MONAD_RPC_URLS[0]),
-      });
+      const { formatEther } = await import("viem");
+      const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
+      const client = await getBrowserPublicClient();
       try {
         const [bal, usdcBal] = await Promise.all([
           client.getBalance({ address: address as `0x${string}` }),
