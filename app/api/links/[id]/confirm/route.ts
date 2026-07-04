@@ -12,6 +12,10 @@ const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
  * it — a client could otherwise claim any hash as proof of payment.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "confirm");
+  if (limited) return limited;
+
   const { id } = await params;
   let body: { txHash?: string };
   try {
@@ -49,8 +53,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: false, error: "Transaction not found or not successful yet." }, { status: 409 });
   }
 
-  const usdc = (process.env.MONAD_TESTNET_USDC || "").toLowerCase();
-  const decimals = Number(process.env.MONAD_USDC_DECIMALS ?? 6);
+  // Use the network-aware stablecoin (MONAD_MAINNET_USDC on mainnet), NOT a
+  // hardcoded testnet address — otherwise on mainnet this checks the wrong
+  // token and no legitimate payment ever verifies. Matches /api/agent/confirm.
+  const { getStablecoin } = await import("@/lib/monad/config");
+  const stablecoin = getStablecoin();
+  const usdc = stablecoin.address.toLowerCase();
+  const decimals = stablecoin.decimals;
   const wanted = BigInt(Math.round(link.amount * 10 ** decimals));
   const recipient = link.recipient.toLowerCase();
 

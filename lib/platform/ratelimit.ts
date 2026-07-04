@@ -36,8 +36,15 @@ async function redis(): Promise<RedisLike | null> {
 }
 
 function clientIp(req: NextRequest): string {
+  // Prefer x-real-ip: on Vercel it's set by the platform to the true client IP
+  // and is NOT settable by the caller. x-forwarded-for's leftmost entry is
+  // attacker-controlled (a client can inject the header; the platform only
+  // appends the real IP), so keying the limiter on it would let an attacker
+  // rotate a fake IP every request and bypass rate limiting entirely.
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const fwd = req.headers.get("x-forwarded-for");
-  return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip"))?.trim() || "unknown";
+  return (fwd ? fwd.split(",")[0].trim() : "") || "unknown";
 }
 
 /** Returns a 429 response when the caller exceeds the window, else null. */

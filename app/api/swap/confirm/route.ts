@@ -8,6 +8,10 @@ import { isAddress } from "@/lib/payees/directory";
  * on-chain receipt is the source of truth, exactly like the payment path.
  */
 export async function POST(req: NextRequest) {
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "confirm");
+  if (limited) return limited;
+
   let body: { walletAddress?: string; txHash?: string; fromToken?: string; toToken?: string; amountIn?: number; amountOut?: number };
   try {
     body = await req.json();
@@ -28,6 +32,13 @@ export async function POST(req: NextRequest) {
   let succeeded = false;
   try {
     const receipt = await pub.waitForTransactionReceipt({ hash: txHash as `0x${string}`, timeout: 90_000 });
+    // The tx must have been sent BY the declared wallet — otherwise anyone could
+    // record a swap under someone else's address, or point at an unrelated
+    // successful tx as "proof". (The swapped amounts remain client-reported;
+    // decoding exact DEX amounts is pool-specific and out of scope here.)
+    if (receipt.from.toLowerCase() !== walletAddress.toLowerCase()) {
+      return NextResponse.json({ error: "Transaction was not sent from the declared wallet." }, { status: 409 });
+    }
     succeeded = receipt.status === "success";
   } catch {
     return NextResponse.json({ error: "Couldn't confirm the swap on-chain yet. Check the explorer — it may still settle.", explorerUrl: explorerTx(txHash) }, { status: 502 });
