@@ -12,6 +12,7 @@ import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 import dynamic from "next/dynamic";
+import { useToast } from "@/components/Toast";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 import { useWallet } from "@/lib/wallet/useWallet";
@@ -38,6 +39,7 @@ export default function Overview() {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
   const identity = useIdentity(wallet.address);
+  const { toast } = useToast();
   const [a, setA] = useState<Analytics | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
@@ -108,6 +110,7 @@ export default function Overview() {
     if (!wallet.address) return;
     navigator.clipboard?.writeText(wallet.address);
     setCopied(true);
+    toast("Address copied");
     setTimeout(() => setCopied(false), 1500);
   }
 

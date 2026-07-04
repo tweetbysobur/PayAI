@@ -23,13 +23,18 @@ const LABEL: Record<string, string> = {
   refused: "Payment refused",
 };
 
-export function useNotifications() {
+export function useNotifications(walletAddress?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
 
   useEffect(() => {
+    // Notifications are the user's OWN payment outcomes — scope the history
+    // fetch to the connected wallet (the server returns nothing without it, by
+    // design), so the bell reflects your activity, not an empty/shared feed.
+    if (!walletAddress) { setNotifications([]); return; }
     let cancelled = false;
     function load() {
-      fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history" }) })
+      if (document.hidden) return;
+      fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress }) })
         .then((r) => r.json())
         .then((j) => {
           if (cancelled) return;
@@ -53,7 +58,7 @@ export function useNotifications() {
     load();
     const t = setInterval(load, 20000);
     return () => { cancelled = true; clearInterval(t); };
-  }, []);
+  }, [walletAddress]);
 
   function markSeen() {
     localStorage.setItem(SEEN_KEY, String(Date.now()));

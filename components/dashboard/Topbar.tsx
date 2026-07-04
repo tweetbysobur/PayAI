@@ -12,6 +12,7 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
+import { useToast } from "@/components/Toast";
 import dynamic from "next/dynamic";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
@@ -33,6 +34,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
   const identity = useIdentity(wallet.address);
+  const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -62,7 +64,13 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
             variant="secondary"
             className="text-xs text-warning"
             disabled={busy}
-            onClick={() => { setBusy(true); wallet.switchNetwork().catch(() => {}).finally(() => setBusy(false)); }}
+            onClick={() => {
+              setBusy(true);
+              wallet.switchNetwork()
+                .then(() => toast("Switched to Monad Mainnet"))
+                .catch(() => toast("Couldn't switch network. Do it in your wallet.", "error"))
+                .finally(() => setBusy(false));
+            }}
           >
             {busy ? "Switching…" : "Wrong network — switch to Monad"}
           </Button>
@@ -85,7 +93,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                 // /connect, which offers wallet-app deep links instead of a
                 // dead-end error.
                 if (typeof window !== "undefined" && !window.ethereum) { window.location.href = "/connect"; return; }
-                setBusy(true); wallet.connect().catch(() => {}).finally(() => setBusy(false));
+                setBusy(true);
+                wallet.connect()
+                  .then(() => toast("Wallet connected"))
+                  .catch(() => toast("Connection cancelled.", "error"))
+                  .finally(() => setBusy(false));
               }}
             >
               {busy ? "Connecting…" : "Connect wallet"}
@@ -96,7 +108,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
 
         {wallet.address && (
           <button
-            onClick={wallet.disconnect}
+            onClick={() => { wallet.disconnect(); toast("Wallet disconnected", "info"); }}
             className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="Disconnect"
             aria-label="Disconnect wallet"
