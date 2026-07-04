@@ -5,13 +5,14 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
   ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
-  ReceiptText, Copy, Check,
+  ReceiptText, Copy, Check, Share2,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
-import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
+import { useToast } from "@/components/Toast";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 
@@ -40,6 +41,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Payments() {
   const c = useAgentConsole();
+  const { toast } = useToast();
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"MON" | "USDC">("MON");
   const [recipient, setRecipient] = useState("");
@@ -74,8 +76,24 @@ export default function Payments() {
   function copyHash(hash: string) {
     navigator.clipboard?.writeText(hash).then(() => {
       setCopied(true);
+      toast("Transaction hash copied");
       setTimeout(() => setCopied(false), 1800);
     }).catch(() => {});
+  }
+  async function shareReceipt() {
+    const res = c.res;
+    if (!res) return;
+    const lines = [
+      phraseSummary(res.intent.summary, res.decision),
+      res.transaction?.txHash ? `Tx: ${res.transaction.explorerUrl}` : null,
+    ].filter(Boolean).join("\n");
+    if (navigator.share) {
+      try { await navigator.share({ title: "PayAI receipt", text: lines }); }
+      catch { /* user cancelled */ }
+    } else {
+      await navigator.clipboard?.writeText(lines).catch(() => {});
+      toast("Receipt copied");
+    }
   }
   const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
 
@@ -223,6 +241,28 @@ export default function Payments() {
               {NEXT_STEP[c.res.decision] && <p className="mt-2 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
               {c.res.guardrail.violations.length > 0 && <p className="mt-2 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
 
+              {/* Receipt details — who, when, on what network */}
+              {c.res.decision === "executed" && (
+                <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-4 text-left text-xs">
+                  {(c.res.intent.domain || c.res.intent.recipient) && (
+                    <div>
+                      <p className="text-muted-foreground">To</p>
+                      <p className="mt-0.5 font-mono text-foreground">{c.res.intent.domain ?? short(c.res.intent.recipient)}</p>
+                    </div>
+                  )}
+                  {c.res.transaction?.blockTimestamp != null && (
+                    <div>
+                      <p className="text-muted-foreground">When</p>
+                      <p className="mt-0.5 text-foreground">{new Date(c.res.transaction.blockTimestamp).toLocaleString()}</p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-muted-foreground">Network</p>
+                    <p className="mt-0.5 text-foreground">{c.res.intent.network === "monad" ? MONAD_CHAIN_NAME : c.res.intent.network}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Compliance visibility — expandable */}
               {c.res.compliance && (
                 <div className="mt-4 border-t border-border pt-4 text-left">
@@ -280,6 +320,13 @@ export default function Payments() {
                   <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline">
                     View on explorer <ExternalLink size={11} />
                   </a>
+
+                  <button
+                    onClick={shareReceipt}
+                    className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary/40"
+                  >
+                    <Share2 size={13} /> Share receipt
+                  </button>
                 </div>
               )}
             </Card>
