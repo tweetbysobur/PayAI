@@ -239,7 +239,7 @@ const FOOTER_COLUMNS = [
     links: [
       { label: "Launch App", href: "/connect", icon: Rocket, internal: true },
       { label: "Documentation", href: `${GITHUB_URL}#readme`, icon: BookOpen, internal: false },
-      { label: "Security", href: "/dashboard/wallets", icon: ShieldCheck, internal: true },
+      { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
       { label: "Compliance", href: "/dashboard/compliance", icon: FileCheck2, internal: true },
     ],
   },

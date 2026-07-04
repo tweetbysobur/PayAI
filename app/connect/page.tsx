@@ -254,8 +254,9 @@ export default function ConnectPage() {
             )}
           </div>
 
-          <div className="mt-7 flex items-center justify-center gap-1.5 border-t border-border pt-5 text-xs text-muted-foreground">
-            <ShieldCheck size={12} /> Your keys never leave your wallet. PayAI never asks for your seed phrase.
+          <div className="mt-7 border-t border-border pt-5 text-center text-xs text-muted-foreground">
+            <p className="flex items-center justify-center gap-1.5"><ShieldCheck size={12} /> Your keys never leave your wallet. PayAI never asks for your seed phrase.</p>
+            <Link href="/security" className="mt-1.5 inline-block text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">How PayAI keeps you safe →</Link>
           </div>
         </motion.div>
       </div>
