@@ -190,30 +190,6 @@ export default function Overview() {
         })}
       </div>
 
-      {/* Payment statistics + Payment volume */}
-      <div className="mb-5 grid gap-4 lg:grid-cols-2">
-        <Card title="Payment statistics">
-          <div className="grid grid-cols-3 gap-3 text-center">
-            {[{ k: "Lifetime", v: counts.lifetime }, { k: "This month", v: counts.month }, { k: "This week", v: counts.week }].map((s) => (
-              <div key={s.k} className="rounded-lg border border-border bg-input/30 py-3">
-                <p className="text-xl font-semibold text-foreground [font-variant-numeric:tabular-nums]"><CountUp value={s.v} /></p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{s.k}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
-        <Card title="Payment volume" right={r ? <span className="text-xs text-muted-foreground">{r.currency}</span> : undefined}>
-          <div className="grid grid-cols-3 gap-3 text-center">
-            {[{ k: "Lifetime", v: r?.total ?? 0 }, { k: "This month", v: r?.thisMonth ?? 0 }, { k: "This week", v: r?.thisWeek ?? 0 }].map((s) => (
-              <div key={s.k} className="rounded-lg border border-border bg-input/30 py-3">
-                <p className="text-xl font-semibold text-foreground [font-variant-numeric:tabular-nums]"><CountUp value={s.v} decimals={2} /></p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{s.k}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
-      </div>
-
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Recent transactions */}
         <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
@@ -308,47 +284,6 @@ export default function Overview() {
               ))}
             </div>
           )}
-        </Card>
-      </div>
-
-      {/* Asset allocation + 7d activity */}
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <Card title="Asset allocation">
-          {monShare != null ? (
-            <div className="flex items-center gap-6">
-              <div className="relative h-28 w-28 shrink-0" title={`MON ${Math.round(monShare * 100)}% · USDC ${Math.round((1 - monShare) * 100)}%`}>
-                <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
-                  <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-secondary)" strokeWidth="14" />
-                  <motion.circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-primary)" strokeWidth="14"
-                    strokeDasharray={2 * Math.PI * 44} initial={{ strokeDashoffset: 2 * Math.PI * 44 }}
-                    animate={{ strokeDashoffset: 2 * Math.PI * 44 * (1 - monShare) }} transition={{ duration: 0.8, ease: "easeOut" }} />
-                </svg>
-              </div>
-              <div className="flex-1 space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><TokenLogo token="MON" size={16} />MON</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalMon ?? 0)}</span></div>
-                <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><TokenLogo token="USDC" size={16} />USDC</span><span className="text-muted-foreground [font-variant-numeric:tabular-nums]">{fmt(totalUsdc ?? 0)}</span></div>
-              </div>
-            </div>
-          ) : <EmptyHint icon={Wallet} title="Connect your wallet" hint="Real MON and USDC balances appear here once connected." />}
-        </Card>
-
-        <Card title="Payment activity (7d)">
-          {a?.trend.length ? (
-            <div className="flex h-32 items-end gap-2">
-              {a.trend.map((t, i) => {
-                const max = Math.max(1, ...a.trend.map((x) => x.revenue));
-                return (
-                  <div key={t.date} className="group relative flex flex-1 flex-col items-center gap-1">
-                    <div className="pointer-events-none absolute -top-7 hidden whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[10px] text-foreground shadow-panel group-hover:block">
-                      {t.revenue.toFixed(2)} ({t.count} tx)
-                    </div>
-                    <motion.div className="w-full max-w-8 rounded-t bg-primary/70 transition-colors group-hover:bg-primary" initial={{ height: 0 }} animate={{ height: `${Math.max(2, (t.revenue / max) * 100)}px` }} transition={{ delay: i * 0.05, duration: 0.4 }} />
-                    <span className="text-[10px] text-muted-foreground/70">{t.date.slice(5)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : <EmptyHint icon={Activity} title="No activity yet" hint="Your daily payment volume will chart here." />}
         </Card>
       </div>
 
