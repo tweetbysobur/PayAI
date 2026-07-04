@@ -1,0 +1,27 @@
+name: Weekly DeltaV update
+
+# Posts the weekly shipping update to the DeltaV startup profile automatically,
+# generated from the week's real git commits. Runs every Thursday at 06:00 WAT
+# (Lagos, UTC+1) = 05:00 UTC. Change the day to Friday by setting the last cron
+# field to 5. Can also be run on demand from the Actions tab.
+on:
+  schedule:
+    - cron: "0 5 * * 4"
+  workflow_dispatch: {}
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so the script can read the week's commits
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Post weekly update to DeltaV
+        env:
+          DELTAV_API_KEY: ${{ secrets.DELTAV_API_KEY }}
+        run: node scripts/deltav-update.mjs --post
