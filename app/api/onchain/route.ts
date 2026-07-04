@@ -14,6 +14,11 @@ import { NextRequest, NextResponse } from "next/server";
 // first response and serve stale on-chain stats to every caller forever.
 export const dynamic = "force-dynamic";
 
+// Same live on-chain data for every caller (no per-user input) — a short edge
+// cache absorbs the dashboard's + landing page's polling instead of re-reading
+// four contract calls from RPC on every single request.
+const CACHE_HEADER = "public, s-maxage=8, stale-while-revalidate=30";
+
 export async function GET() {
   try {
     const { executorEnabled, getOnchainStats, getOnchainPayments, getOnchainMerchants, getOnchainRequests } =
@@ -22,7 +27,9 @@ export async function GET() {
       await import("@/lib/monad/config");
 
     if (!executorEnabled()) {
-      return NextResponse.json({ configured: false, stats: null, payments: [], merchants: [], requests: [] });
+      const res = NextResponse.json({ configured: false, stats: null, payments: [], merchants: [], requests: [] });
+      res.headers.set("Cache-Control", CACHE_HEADER);
+      return res;
     }
 
     const [stats, payments, merchants, requests] = await Promise.all([
@@ -32,7 +39,7 @@ export async function GET() {
       getOnchainRequests(),
     ]);
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       configured: true,
       contracts: {
         paymentExecutor: getPaymentExecutor(),
@@ -45,6 +52,8 @@ export async function GET() {
       requests,
       explorerTxBase: explorerTx(""),
     });
+    res.headers.set("Cache-Control", CACHE_HEADER);
+    return res;
   } catch (e) {
     return NextResponse.json(
       { configured: false, error: e instanceof Error ? e.message : "read failed", stats: null, payments: [], merchants: [] },

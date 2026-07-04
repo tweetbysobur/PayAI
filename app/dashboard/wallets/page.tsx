@@ -9,7 +9,9 @@ import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
 import { MonadMark } from "@/components/MonadMark";
-import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
+import dynamic from "next/dynamic";
+// Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
+const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 
 interface OnchainContracts {
   configured: boolean;

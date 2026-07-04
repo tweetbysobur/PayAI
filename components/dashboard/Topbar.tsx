@@ -12,7 +12,9 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
-import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
+import dynamic from "next/dynamic";
+// Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
+const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 
 interface Health {
   payment: { connected: boolean; engine: string };

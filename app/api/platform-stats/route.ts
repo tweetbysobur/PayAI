@@ -22,7 +22,11 @@ export async function GET() {
   try {
     const { getPlatformActivity } = await import("@/lib/platform/analytics");
     const activity = await getPlatformActivity();
-    return NextResponse.json(activity);
+    const res = NextResponse.json(activity);
+    // Landing page polling hits this from every visitor — cache briefly at the
+    // edge so it's one KV read per window instead of one per request.
+    res.headers.set("Cache-Control", "public, s-maxage=10, stale-while-revalidate=30");
+    return res;
   } catch {
     return NextResponse.json({
       totalPayments: 0,

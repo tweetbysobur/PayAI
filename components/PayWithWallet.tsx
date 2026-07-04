@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { encodeFunctionData, createPublicClient, fallback, http, parseUnits } from "viem";
 import { Button } from "@/components/ui";
 import {
-  MONAD_CHAIN_ID,
   MONAD_CHAIN_ID_HEX,
   MONAD_CHAIN_NAME,
   MONAD_RPC_URLS,
@@ -71,6 +69,7 @@ export function PayWithWallet({ linkId, amount, recipient }: { linkId: string; a
       await ensureChain(eth);
 
       setPhase("sending");
+      const { encodeFunctionData, parseUnits } = await import("viem");
       const data = encodeFunctionData({
         abi: ERC20_TRANSFER_ABI,
         functionName: "transfer",
@@ -83,12 +82,8 @@ export function PayWithWallet({ linkId, amount, recipient }: { linkId: string; a
       setTxHash(hash);
 
       setPhase("confirming");
-      const client = createPublicClient({
-        chain: { id: MONAD_CHAIN_ID, name: MONAD_CHAIN_NAME, nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 }, rpcUrls: { default: { http: MONAD_RPC_URLS } } },
-        transport: MONAD_RPC_URLS.length > 1
-          ? fallback(MONAD_RPC_URLS.map((u) => http(u, { retryCount: 3, retryDelay: 500, timeout: 12_000 })), { rank: false })
-          : http(MONAD_RPC_URLS[0], { retryCount: 4, retryDelay: 500, timeout: 12_000 }),
-      });
+      const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
+      const client = await getBrowserPublicClient();
       await client.waitForTransactionReceipt({ hash: hash as `0x${string}` });
 
       setPhase("verifying");

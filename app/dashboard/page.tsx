@@ -11,7 +11,9 @@ import { Badge, Card, CountUp } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
-import { ReceiveModal } from "@/components/dashboard/ReceiveModal";
+import dynamic from "next/dynamic";
+// Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
+const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
