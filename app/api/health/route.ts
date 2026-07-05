@@ -29,9 +29,16 @@ export async function GET() {
 
   const { getNnsContractAddress } = await import("@/lib/monad/domain-resolver");
 
+  // Reflect real dependency health so an uptime monitor can alert on it — a
+  // health check that always says "ok" is worse than none. In monad mode, an
+  // unreachable RPC / payment engine is "degraded" (HTTP stays 200 so the UI's
+  // polling doesn't false-alarm on transient RPC blips; monitors alert on the
+  // status field).
+  const degraded = getMode() === "monad" && !paymentEngine.connected;
+
   const res = NextResponse.json({
     service: "payai",
-    status: "ok",
+    status: degraded ? "degraded" : "ok",
     agent: { status: "ready" },
     intentEngine: { status: "connected", engine: agentConfig.intentEngine },
     model: agentConfig.model,
