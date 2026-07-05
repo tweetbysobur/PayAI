@@ -21,6 +21,11 @@ const LABEL: Record<string, string> = {
   needs_review: "Payment needs review",
   blocked: "Payment blocked",
   refused: "Payment refused",
+  // Was missing entirely — an execution error (RPC failure, agent-wallet
+  // balance, a scheduled payment auto-pausing after repeated failures) is
+  // exactly the outcome a user most needs to be told about, and it was
+  // silently dropped from notifications because this map had no entry for it.
+  error: "Payment failed",
 };
 
 export function useNotifications(walletAddress?: string | null) {

@@ -30,7 +30,19 @@ export interface TxLogEntry {
 
 /** A recurring or one-off payment scheduled to fire automatically when due. */
 export type ScheduleCadence = "once" | "daily" | "weekly" | "monthly";
-export type ScheduleStatus = "upcoming" | "completed" | "cancelled";
+/** "failed" is terminal and distinct from "cancelled": the user didn't stop it,
+ *  it stopped itself — either a hard compliance block (won't clear on retry)
+ *  or repeated execution errors past the retry budget. Surfaced loudly, never
+ *  silently merged into "cancelled" or quietly re-tried forever. */
+export type ScheduleStatus = "upcoming" | "completed" | "cancelled" | "failed";
+
+/** When a recurring schedule stops on its own, without the user cancelling it.
+ *  "never" (the old default behavior) is discouraged in the UI — real standing
+ *  orders default to a bound. */
+export type ScheduleEndCondition =
+  | { type: "never" }
+  | { type: "after_count"; totalRuns: number }
+  | { type: "until_date"; untilMs: number };
 
 export interface ScheduledPayment {
   id: string;
@@ -55,6 +67,16 @@ export interface ScheduledPayment {
   runs: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string }[];
   /** Optional human label/memo. */
   memo?: string;
+  /** Defaults to `{ type: "never" }` for schedules created before this existed. */
+  endCondition?: ScheduleEndCondition;
+  /** Successful (executed) runs only — checked against after_count. */
+  runsCompleted: number;
+  /** Consecutive execution errors since the last success (or since creation).
+   *  Reset to 0 on every successful run. A hard compliance block does NOT
+   *  count here — that goes straight to "failed" since retrying won't help. */
+  failureCount: number;
+  /** The reason the schedule stopped or is at risk of stopping, for display. */
+  lastError?: string | null;
 }
 
 export type LinkStatus = "active" | "paid" | "expired";
