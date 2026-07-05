@@ -27,6 +27,8 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   needs_review: { icon: Clock3, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
   blocked: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
   refused: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
+  // Was missing — fell back to a neutral checkmark for a genuine failure.
+  error: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */
