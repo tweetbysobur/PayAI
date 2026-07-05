@@ -13,7 +13,6 @@ import "server-only";
 import {
   createPublicClient,
   createWalletClient,
-  formatEther,
   type PublicClient,
   type WalletClient,
 } from "viem";
