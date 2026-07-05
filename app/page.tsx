@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
-  ShieldCheck, Lock, Network, ArrowUpRight, ArrowDownLeft, Receipt,
-  MessageSquare, Brain, ShieldHalf, Zap, CheckCircle2, ExternalLink,
+  ShieldCheck, Lock, ArrowUpRight, ArrowDownLeft, Receipt,
+  MessageSquare, ShieldHalf, Zap, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
-  ScrollText, Wallet as WalletIcon, Eye, Hash, Blocks, BadgeCheck,
+  ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles,
 } from "lucide-react";
-import { Badge, Card } from "@/components/ui";
+import { Badge } from "@/components/ui";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { VolumeInline, TokenLogo } from "@/components/TokenLogo";
@@ -41,15 +41,6 @@ interface PlatformActivity {
   recent: { token: string; amount: number }[];
 }
 
-/** "12.4 MON · 6.47 USDC" — every nonzero asset, never blended into one misleading number. */
-function formatVolume(byToken: Record<string, number>): string {
-  const parts = Object.entries(byToken)
-    .filter(([, v]) => v > 0)
-    .map(([token, v]) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${token}`);
-  return parts.length ? parts.join(" · ") : "—";
-}
-
-const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-8)}`;
 
 const FLOW = [
   { icon: MessageSquare, title: "Say what you want to pay" },

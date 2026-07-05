@@ -1,12 +1,27 @@
-import { dirname } from "path";
-import { fileURLToPath } from "url";
-import { FlatCompat } from "@eslint/eslintrc";
+// Next 16 ships eslint-config-next as native flat-config arrays, so we spread
+// them directly. This avoids the @eslint/eslintrc FlatCompat layer, whose
+// config validator throws "Converting circular structure to JSON" on the
+// eslint-plugin-react config under ESLint 9 — which is why `npm run lint` was
+// previously broken.
+import coreWebVitals from "eslint-config-next/core-web-vitals";
+import typescript from "eslint-config-next/typescript";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const compat = new FlatCompat({ baseDirectory: __dirname });
-
-const eslintConfig = [...compat.extends("next/core-web-vitals", "next/typescript")];
+const eslintConfig = [
+  { ignores: ["contracts/**", ".next/**", "node_modules/**", "test/stubs/**"] },
+  ...coreWebVitals,
+  ...typescript,
+  {
+    // These are React-Compiler advisory rules (new in the React 19 hooks
+    // plugin). They flag patterns that are only a concern under the compiler,
+    // which this app doesn't use — keep them as warnings, not build-failing
+    // errors, but still surface them.
+    rules: {
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/immutability": "warn",
+    },
+  },
+];
 
 export default eslintConfig;

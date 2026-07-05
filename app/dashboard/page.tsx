@@ -73,10 +73,8 @@ export default function Overview() {
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, [refresh]);
 
-  const r = a?.revenue;
   const totalMon = balances.mon ? Number(balances.mon) : null;
   const totalUsdc = balances.usdc ? Number(balances.usdc) : null;
-  const monShare = totalMon != null && totalUsdc != null && totalMon + totalUsdc > 0 ? totalMon / (totalMon + totalUsdc) : null;
 
   // Period transaction counts (computed from real settled history).
   const counts = useMemo(() => {
