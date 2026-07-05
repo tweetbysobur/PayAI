@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e:isolation": "node scripts/e2e-isolation.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
