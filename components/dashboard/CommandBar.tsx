@@ -261,7 +261,22 @@ export function CommandBar() {
                   </motion.div>
                 )}
 
-                {c.err && (
+                {/* A signed transaction broadcast but confirmation didn't finish
+                    yet — never a failed payment, so it gets its own reassuring
+                    banner instead of the red error state. */}
+                {c.pendingRecovery && (
+                  <div className="flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+                    <Loader2 size={15} className={`mt-0.5 shrink-0 ${c.recovering ? "animate-spin" : ""}`} />
+                    <div className="flex-1">
+                      Your transaction was sent and is safe on-chain. Confirming now, do not resend.
+                    </div>
+                    <button onClick={c.retryPendingConfirm} disabled={c.recovering} className="shrink-0 rounded-md border border-warning/30 px-2 py-1 text-xs disabled:opacity-50">
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {c.err && !c.pendingRecovery && (
                   <div className="flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/10 p-3 text-sm text-danger">
                     <AlertTriangle size={15} className="mt-0.5 shrink-0" /> {c.err}
                   </div>
