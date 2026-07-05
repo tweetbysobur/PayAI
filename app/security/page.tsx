@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ShieldCheck, Lock, Eye, KeyRound, FileCheck2, ExternalLink, Repeat, Gauge, Signature } from "lucide-react";
+import { ShieldCheck, Lock, Eye, KeyRound, FileCheck2, ExternalLink, Repeat, Gauge, Signature, Ban } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { GitHubMark } from "@/components/BrandIcons";
@@ -73,6 +73,7 @@ export default function Security() {
               { icon: Signature, title: "Your signature is required", body: "Interactive payments are signed by your own wallet. PayAI can build a transaction but cannot send it." },
               { icon: Repeat, title: "Replay protection", body: "Each payment carries a unique key the contract marks as used, so a retried or duplicated request can never settle twice." },
               { icon: Gauge, title: "On-chain spend limits", body: "Per-transaction and daily caps are enforced by the smart contract itself, not just in the app." },
+              { icon: Ban, title: "Sanctions screening", body: "Every recipient is checked against the OFAC sanctions list before a payment can settle. Flagged addresses are blocked automatically." },
               { icon: FileCheck2, title: "Checked before you sign", body: "Every payment is validated for the right recipient, amount, and limits before it ever reaches your wallet." },
             ].map((s) => (
               <div key={s.title} className="flex gap-3 rounded-xl border border-border bg-panel p-4">
@@ -135,9 +136,10 @@ export default function Security() {
           <h2 className="text-lg font-semibold text-foreground">Straight about where we are</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             PayAI runs on Monad Mainnet today and its code is covered by an automated test suite that runs on every
-            change. We are also honest about what is still ahead: a formal third-party security audit and an
-            integration with a dedicated sanctions-screening provider are on the roadmap, and address screening
-            today is rules-based rather than a licensed service. We would rather tell you that than imply otherwise.
+            change. Recipients are screened against the OFAC sanctions list before every payment. We are also honest
+            about what is still ahead: a formal third-party security audit, and a fuller licensed compliance
+            programme beyond sanctions screening, remain on the roadmap. We would rather tell you that than imply
+            otherwise.
           </p>
         </section>
 

@@ -28,6 +28,23 @@ server-side only, kept funded minimally, and never shipped to the client.
 - **Idempotency** — the application layer also de-duplicates in-flight requests
   (`lib/platform/idempotency.ts`) as a first line of defense.
 
+## Sanctions screening
+
+Every resolved recipient address is screened before a payment is approved
+(`lib/payment/sanctions.ts`). Two layers apply:
+
+- An always-on env denylist (`PAYAI_ADDRESS_DENYLIST`), available at cold start.
+- The **OFAC SDN** sanctioned digital-currency address list, fetched from a
+  public source and cached in memory (override with `PAYAI_SANCTIONS_LIST_URL`,
+  or set it empty to disable the remote list). The check itself is synchronous
+  so validation stays fast; the list refreshes out-of-band.
+
+The screen is **fail-safe**: if the remote list can't be fetched, the
+last-known-good set (plus the env denylist) still applies — an outage never
+silently disables screening, and never blocks every payment. This is address
+screening against the real OFAC list, not a full licensed KYC/AML programme;
+that remains on the roadmap.
+
 ## Secrets
 
 No secrets are committed to this repository, at any point in its history. The
