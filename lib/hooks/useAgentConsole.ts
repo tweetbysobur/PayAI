@@ -218,8 +218,17 @@ export function useAgentConsole() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ rawText: pending.rawText, walletAddress: pending.walletAddress, txHash: pending.txHash, requestId: pending.requestId }),
         });
-        const json = (await r.json()) as AgentResult & { error?: string };
+        const json = (await r.json()) as AgentResult & { error?: string; reverted?: boolean };
         if (!json.intent) {
+          if (json.reverted) {
+            // Definitely mined and definitely failed on-chain — this is a real,
+            // final outcome (gas spent, no funds moved), not "try again later".
+            // Safe to clear the pending record; the user can retry fresh.
+            clearPendingSettlement();
+            setPendingRecovery(null);
+            setErr(json.error || "This payment failed on-chain. No funds were transferred.");
+            return;
+          }
           // Not confirmable yet (e.g. not mined) or genuinely doesn't match —
           // keep the pending record so the user (or the next mount) can retry.
           if (!opts.silent) setErr(friendlyError(json.error || "Could not confirm the payment yet."));
@@ -240,8 +249,16 @@ export function useAgentConsole() {
             fromToken: pending.fromToken, toToken: pending.toToken, amountIn: pending.amountIn, amountOut: pending.amountOut,
           }),
         });
-        const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean };
+        const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
         if (!cj.success) {
+          if (cj.reverted) {
+            // Definite, mined revert — gas spent, no tokens moved. A real final
+            // outcome, safe to clear and let the user try a fresh swap.
+            clearPendingSettlement();
+            setPendingRecovery(null);
+            setErr(cj.error || "This swap failed on-chain. No tokens were swapped.");
+            return;
+          }
           if (!opts.silent) setErr(friendlyError(cj.error || "Could not confirm the swap yet."));
           return;
         }
@@ -290,8 +307,18 @@ export function useAgentConsole() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ rawText: confirmRawText, walletAddress: unsignedTx.from, txHash: hash, requestId }),
       });
-      const json = (await r.json()) as AgentResult & { error?: string };
-      if (!json.intent) throw new Error(json.error || "Could not confirm the payment.");
+      const json = (await r.json()) as AgentResult & { error?: string; reverted?: boolean };
+      if (!json.intent) {
+        if (json.reverted) {
+          // Definite, mined revert — a real final outcome (gas spent, no funds
+          // moved), not "unconfirmed". Safe to clear and let the user retry.
+          clearPendingSettlement();
+          setPendingRecovery(null);
+          setErr(json.error || "This payment failed on-chain. No funds were transferred.");
+          return;
+        }
+        throw new Error(json.error || "Could not confirm the payment.");
+      }
       clearPendingSettlement();
       setPendingRecovery(null);
       setRes(json);
@@ -356,8 +383,18 @@ export function useAgentConsole() {
           amountOut: plan.quote.amountOut,
         }),
       });
-      const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean };
-      if (!cj.success) throw new Error(cj.error || "The swap could not be confirmed.");
+      const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
+      if (!cj.success) {
+        if (cj.reverted) {
+          // Definite, mined revert — gas spent, no tokens moved. A real final
+          // outcome; safe to clear the pending record and let the user retry.
+          clearPendingSettlement();
+          setPendingRecovery(null);
+          setSwap((s) => (s ? { ...s, phase: "error", error: cj.error || "This swap failed on-chain. No tokens were swapped." } : s));
+          return;
+        }
+        throw new Error(cj.error || "The swap could not be confirmed.");
+      }
       clearPendingSettlement();
       setPendingRecovery(null);
       setSwap((s) => (s ? { ...s, phase: "done", txHash: lastHash, explorerUrl: cj.explorerUrl } : s));
