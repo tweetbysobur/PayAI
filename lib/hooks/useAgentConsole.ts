@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { savePendingSettlement, getPendingSettlement, clearPendingSettlement, type PendingSettlement } from "@/lib/hooks/pendingSettlement";
 
 /* Client-side mirror of the API result shapes — identical contract used by
    every command-center layout, so all three variants stay functionally real
@@ -181,6 +182,11 @@ export function useAgentConsole() {
   const [health, setHealth] = useState<Health | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
+  // Non-null exactly when a wallet signature already broadcast a real transaction
+  // but the app hasn't yet confirmed/recorded it — e.g. an RPC hiccup or the tab
+  // closing between broadcast and confirm. Never treat this as a failed payment.
+  const [pendingRecovery, setPendingRecovery] = useState<PendingSettlement | null>(null);
+  const [recovering, setRecovering] = useState(false);
 
   function loadOnchain() {
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
@@ -189,6 +195,67 @@ export function useAgentConsole() {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
     loadOnchain();
   }, []);
+
+  // On mount (and whenever the connected wallet changes), silently try to
+  // finish confirming any settlement that broadcast but never got recorded.
+  useEffect(() => {
+    const pending = getPendingSettlement(wallet.address);
+    if (!pending) { setPendingRecovery(null); return; }
+    setPendingRecovery(pending);
+    void confirmPending(pending, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.address]);
+
+  /** Re-attempt confirming a broadcast tx we never finished recording. Safe to
+   *  call repeatedly — /api/agent/confirm and /api/swap/confirm are both
+   *  idempotent on txHash, so this can never double-record or double-charge. */
+  async function confirmPending(pending: PendingSettlement, opts: { silent?: boolean } = {}) {
+    setRecovering(true);
+    try {
+      if (pending.kind === "payment") {
+        const r = await fetch("/api/agent/confirm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ rawText: pending.rawText, walletAddress: pending.walletAddress, txHash: pending.txHash, requestId: pending.requestId }),
+        });
+        const json = (await r.json()) as AgentResult & { error?: string };
+        if (!json.intent) {
+          // Not confirmable yet (e.g. not mined) or genuinely doesn't match —
+          // keep the pending record so the user (or the next mount) can retry.
+          if (!opts.silent) setErr(friendlyError(json.error || "Could not confirm the payment yet."));
+          return;
+        }
+        clearPendingSettlement();
+        setPendingRecovery(null);
+        setRes(json);
+        pushHistory(json);
+        loadOnchain();
+        balances.refresh();
+      } else {
+        const r = await fetch("/api/swap/confirm", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            walletAddress: pending.walletAddress, txHash: pending.txHash,
+            fromToken: pending.fromToken, toToken: pending.toToken, amountIn: pending.amountIn, amountOut: pending.amountOut,
+          }),
+        });
+        const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean };
+        if (!cj.success) {
+          if (!opts.silent) setErr(friendlyError(cj.error || "Could not confirm the swap yet."));
+          return;
+        }
+        clearPendingSettlement();
+        setPendingRecovery(null);
+        loadOnchain();
+        balances.refresh();
+      }
+    } catch {
+      if (!opts.silent) setErr("Still couldn't reach Monad to confirm. Your transaction is safe — try again shortly.");
+    } finally {
+      setRecovering(false);
+    }
+  }
 
   function pushHistory(json: AgentResult) {
     setHistory((h) => [{
@@ -206,8 +273,17 @@ export function useAgentConsole() {
 
   async function signAndConfirm(unsignedTx: { to: string; data: string; value?: string; from: string }, confirmRawText: string, requestId?: string) {
     setWalletBusy(true);
+    let broadcastHash: string | null = null;
     try {
       const hash = await wallet.sendTransaction(unsignedTx);
+      broadcastHash = hash;
+      // The wallet has now broadcast a REAL transaction — persist immediately,
+      // before anything else can fail. If the tab closes or a request times out
+      // from this point on, the next load recovers this instead of losing it.
+      const pending: PendingSettlement = { kind: "payment", walletAddress: unsignedTx.from, txHash: hash, rawText: confirmRawText, requestId, savedAt: Date.now() };
+      savePendingSettlement(pending);
+      setPendingRecovery(pending);
+
       await wallet.waitForReceipt(hash);
       const r = await fetch("/api/agent/confirm", {
         method: "POST",
@@ -216,26 +292,56 @@ export function useAgentConsole() {
       });
       const json = (await r.json()) as AgentResult & { error?: string };
       if (!json.intent) throw new Error(json.error || "Could not confirm the payment.");
+      clearPendingSettlement();
+      setPendingRecovery(null);
       setRes(json);
       pushHistory(json);
       loadOnchain();
       balances.refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Wallet payment failed.");
+      if (broadcastHash) {
+        // The transaction was signed and broadcast — funds may already have
+        // moved. Never say "failed" here: that invites a user to resend and
+        // genuinely pay twice. The pending record survives for auto-recovery.
+        setErr(`Your payment was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Do not resend — we'll keep checking, or tap Retry.`);
+      } else {
+        setErr(e instanceof Error ? e.message : "Wallet payment failed.");
+      }
     } finally {
       setWalletBusy(false);
     }
+  }
+
+  /** Manually re-attempt whatever settlement is pending (the retry button
+   *  shown alongside the "we couldn't confirm it yet" message). */
+  function retryPendingConfirm() {
+    if (!pendingRecovery) return;
+    setErr(null);
+    void confirmPending(pendingRecovery);
   }
 
   /** Sign the swap's steps in order (approval first when present), verify the
    *  final tx on-chain, then refresh balances. Non-custodial — the wallet signs. */
   async function executeSwap(plan: SwapPlanView, provider?: string) {
     setSwap({ phase: "signing", plan, provider, stepIndex: 0 });
+    let lastHash = "";
     try {
-      let lastHash = "";
       for (let i = 0; i < plan.steps.length; i++) {
         setSwap((s) => (s ? { ...s, stepIndex: i } : s));
         lastHash = await wallet.sendTransaction(plan.steps[i].tx);
+        // Persist after EVERY broadcast step, not just the last: an approval
+        // step broadcasting then the swap step failing still leaves the swap
+        // itself unswapped, but if the final swap tx broadcasts and only the
+        // confirm call afterward fails, this is what recovers it.
+        if (i === plan.steps.length - 1 && wallet.address) {
+          const pending: PendingSettlement = {
+            kind: "swap", walletAddress: wallet.address, txHash: lastHash,
+            fromToken: plan.quote.fromToken, toToken: plan.quote.toToken,
+            amountIn: plan.quote.amountIn, amountOut: plan.quote.amountOut, savedAt: Date.now(),
+          };
+          savePendingSettlement(pending);
+          setPendingRecovery(pending);
+        }
         await wallet.waitForReceipt(lastHash);
       }
       const r = await fetch("/api/swap/confirm", {
@@ -252,11 +358,16 @@ export function useAgentConsole() {
       });
       const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean };
       if (!cj.success) throw new Error(cj.error || "The swap could not be confirmed.");
+      clearPendingSettlement();
+      setPendingRecovery(null);
       setSwap((s) => (s ? { ...s, phase: "done", txHash: lastHash, explorerUrl: cj.explorerUrl } : s));
       loadOnchain();
       balances.refresh();
     } catch (e) {
-      setSwap((s) => (s ? { ...s, phase: "error", error: friendlyError(e instanceof Error ? e.message : "Swap failed.") } : s));
+      const msg = lastHash
+        ? `Your swap transaction was sent (${lastHash.slice(0, 10)}…) but we couldn't confirm it yet. Do not resend — we'll keep checking, or tap Retry.`
+        : friendlyError(e instanceof Error ? e.message : "Swap failed.");
+      setSwap((s) => (s ? { ...s, phase: "error", error: msg } : s));
     }
   }
 
@@ -350,5 +461,8 @@ export function useAgentConsole() {
     wallet, balances, walletBusy, setWalletBusy,
     intent, setIntent, loading, res, info, swap, setSwap, err, health, history, onchain,
     loadOnchain, run, reset, steps,
+    // Recovery for a signed-and-broadcast transaction whose confirm step never
+    // completed — never treat this as a failed payment. See lib/hooks/pendingSettlement.ts.
+    pendingRecovery, recovering, retryPendingConfirm,
   };
 }

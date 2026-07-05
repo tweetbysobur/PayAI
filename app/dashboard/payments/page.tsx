@@ -14,7 +14,7 @@ import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
-import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
+import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 
 const NEXT_STEP: Record<string, string> = {
   needs_review: "This payment is being reviewed. You'll be notified once it clears.",
@@ -218,7 +218,30 @@ export default function Payments() {
         </Card>
       )}
 
-      {c.err && <Card><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
+      {/* A signed transaction broadcast but confirmation didn't finish — this is
+          NEVER a failed payment, so it gets its own reassuring banner instead
+          of the red error card. Recovery is automatic; Retry is just a nudge. */}
+      {c.pendingRecovery && (
+        <Card className="border-warning/30 bg-warning/5">
+          <div className="flex items-start gap-3">
+            <Loader2 size={16} className={`mt-0.5 shrink-0 text-warning ${c.recovering ? "animate-spin" : ""}`} />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-foreground">Confirming your payment…</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Your transaction was sent and is safe on-chain. We&apos;re confirming it now — do not send it again.
+              </p>
+              <a href={`${MONAD_EXPLORER}/tx/${c.pendingRecovery.txHash}`} target="_blank" rel="noreferrer" className="mt-1.5 inline-block font-mono text-xs text-primary hover:underline">
+                {c.pendingRecovery.txHash.slice(0, 14)}…
+              </a>
+            </div>
+            <button onClick={c.retryPendingConfirm} disabled={c.recovering} className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs text-foreground transition hover:bg-input disabled:opacity-50">
+              Retry
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {c.err && !c.pendingRecovery && <Card><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
 
       {/* Receipt / result */}
       <AnimatePresence>
