@@ -123,6 +123,8 @@ export async function POST(req: NextRequest) {
     action: intent.action, amount: intent.amount, token: intent.token,
     recipient: intent.recipient, purpose: intent.purpose, network: intent.network,
   };
+  const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
+  await ensureSanctionsLoaded();
   const compliance = runValidation(request);
   trace.push({ step: "compliance", status: compliance.status === "approved" ? "ok" : "blocked", detail: compliance.summary });
   const risk = assessRisk(request);
