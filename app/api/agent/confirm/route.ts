@@ -7,7 +7,6 @@ import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain, resolveDomain } from "@/lib/monad/domain-resolver";
 import { claimRequest, completeRequest, peekRequest, releaseRequest } from "@/lib/platform/idempotency";
 
-const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
 /**
  * POST /api/agent/confirm — settle a non-custodial agent payment.
@@ -160,30 +159,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Transaction was not sent from the declared wallet." }, { status: 409 });
   }
 
-  const recipient = intent.recipient.toLowerCase();
+  const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits } = await import("@/lib/monad/verify");
+  const recipient = intent.recipient;
   let matched = false;
   if (intent.token === "MON") {
-    // Native transfer: the recipient is the tx's `to` and the amount is the
-    // tx `value` (18-decimal wei) — neither lives in a receipt log, so read
-    // the transaction itself. parseEther matches what the build path encoded.
+    // Native transfer: recipient/amount live on the tx itself (to/value), not
+    // in a receipt log. parseEther matches what the build path encoded.
     const { parseEther } = await import("viem");
     const wanted = parseEther(String(intent.amount));
     try {
       const tx = await client.getTransaction({ hash: txHash as `0x${string}` });
-      matched = tx.to?.toLowerCase() === recipient && tx.value >= wanted;
+      matched = isNativeTransferTo(tx, recipient, wanted);
     } catch {
       matched = false;
     }
   } else {
     const usdc = getStablecoin();
-    const wanted = BigInt(Math.round(intent.amount * 10 ** usdc.decimals));
-    matched = receipt.logs.some((log) => {
-      if (log.address.toLowerCase() !== usdc.address.toLowerCase()) return false;
-      if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) return false;
-      const to = log.topics[2] ? `0x${log.topics[2].slice(-40)}`.toLowerCase() : "";
-      if (to !== recipient) return false;
-      return BigInt(log.data) >= wanted;
-    });
+    const wanted = toBaseUnits(intent.amount, usdc.decimals);
+    matched = hasErc20TransferTo(receipt.logs, usdc.address, recipient, wanted);
   }
   if (!matched) {
     await releaseRequest(confirmKey);

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-
 /**
  * POST /api/links/{id}/confirm — confirm a customer's on-chain USDC transfer
  * and mark the link paid. Body: { txHash }.
@@ -57,20 +55,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // hardcoded testnet address — otherwise on mainnet this checks the wrong
   // token and no legitimate payment ever verifies. Matches /api/agent/confirm.
   const { getStablecoin } = await import("@/lib/monad/config");
+  const { hasErc20TransferTo, toBaseUnits } = await import("@/lib/monad/verify");
   const stablecoin = getStablecoin();
-  const usdc = stablecoin.address.toLowerCase();
-  const decimals = stablecoin.decimals;
-  const wanted = BigInt(Math.round(link.amount * 10 ** decimals));
-  const recipient = link.recipient.toLowerCase();
-
-  const matched = receipt.logs.some((log) => {
-    if (log.address.toLowerCase() !== usdc) return false;
-    if (log.topics[0]?.toLowerCase() !== TRANSFER_TOPIC) return false;
-    const to = log.topics[2] ? `0x${log.topics[2].slice(-40)}`.toLowerCase() : "";
-    if (to !== recipient) return false;
-    const amount = BigInt(log.data);
-    return amount >= wanted;
-  });
+  const wanted = toBaseUnits(link.amount, stablecoin.decimals);
+  const matched = hasErc20TransferTo(receipt.logs, stablecoin.address, link.recipient, wanted);
 
   if (!matched) {
     return NextResponse.json({ ok: false, error: "Transaction does not match this invoice (wrong token, recipient, or amount)." }, { status: 409 });
