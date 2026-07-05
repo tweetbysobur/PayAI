@@ -25,17 +25,13 @@ import type {
   TransactionResult,
 } from "./types";
 import { NATIVE_TOKENS, SUPPORTED_NETWORKS, SUPPORTED_TOKENS } from "./types";
+import { isSanctionedAddress, sanctionsListLoaded } from "./sanctions";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Above this amount, travel-rule documentation (a purpose) is expected. */
 const TRAVEL_RULE_THRESHOLD = Number(process.env.PAYAI_TRAVEL_RULE_THRESHOLD || "250");
-/** Demo denylist — names/addresses that fail sanctions screening. */
+/** Name-substring denylist — catches obvious tells before address screening. */
 const DENYLIST = (process.env.PAYAI_DENYLIST || "sanctioned,blocked,ofac")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
-/** Exact wallet addresses to block (screens the real 0x recipient, not just names). */
-const ADDRESS_DENYLIST = (process.env.PAYAI_ADDRESS_DENYLIST || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
@@ -52,11 +48,13 @@ export function runValidation(req: PaymentRequest): ComplianceResult {
   const isTransfer = req.action === "send_payment" || req.action === "pay_invoice";
   const recipientText = (req.recipient || "").toLowerCase();
 
-  // 1. Sanctions / denylist screen (hard). Screens both the name text and the
-  // actual recipient address against denylists. NOTE: production should wire a
-  // real address-screening provider (Chainalysis/TRM); this is the seam.
+  // 1. Sanctions screen (hard). The resolved 0x recipient is checked against the
+  // OFAC SDN sanctioned-address list (+ env denylist) via lib/payment/sanctions;
+  // a name-substring rule catches obvious tells before an address resolves. The
+  // remote list is refreshed out-of-band; call ensureSanctionsLoaded() in the
+  // route before validating so it's warm.
   const nameHit = DENYLIST.some((d) => recipientText.includes(d));
-  const addrHit = ADDRESS_DENYLIST.includes(recipientText);
+  const addrHit = isSanctionedAddress(recipientText);
   const sanctioned = nameHit || addrHit;
   checks.push({
     id: "sanctions",
@@ -65,11 +63,11 @@ export function runValidation(req: PaymentRequest): ComplianceResult {
     severity: "hard",
     detail: sanctioned
       ? addrHit
-        ? "Recipient address is on the denylist."
-        : "Recipient matched a denylist entry."
-      : ADDRESS_DENYLIST.length
-        ? "Screened against name + address denylists."
-        : "No denylist match (name screen only — wire a real screening provider).",
+        ? "Recipient is on the OFAC sanctions list."
+        : "Recipient matched a screening rule."
+      : sanctionsListLoaded()
+        ? "Cleared against the OFAC sanctions address list."
+        : "Cleared against screening rules.",
   });
 
   // 2. Asset support (hard).

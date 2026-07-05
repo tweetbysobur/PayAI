@@ -322,7 +322,10 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // 3. Validation.
+    // 3. Validation. Warm the OFAC sanctions list (cached, non-blocking-ish) so
+    // the address screen inside runValidation sees the latest entries.
+    const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
+    await ensureSanctionsLoaded();
     const compliance = runValidation(request);
     trace.push({
       step: "compliance",

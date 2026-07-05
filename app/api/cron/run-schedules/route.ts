@@ -23,8 +23,11 @@ export async function GET(req: NextRequest) {
 
   const { dueSchedules, recordRun } = await import("@/lib/platform/schedules");
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
+  const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { recordTx } = await import("@/lib/platform/store");
 
+  // Warm the sanctions list once before screening this batch of due payments.
+  await ensureSanctionsLoaded();
   const due = await dueSchedules();
   const results: { id: string; outcome: string; txHash?: string }[] = [];
 

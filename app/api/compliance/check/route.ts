@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
   }
 
   const { runValidation, assessRisk } = await import("@/lib/payment/engine");
+  const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
+  await ensureSanctionsLoaded();
   // A nominal request so screening + risk run against the address itself; the
   // amount is not what's being checked here, the counterparty is.
   const request: PaymentRequest = { action: "send_payment", amount: 1, token: "USDC", recipient, purpose: null, network: "monad" };
