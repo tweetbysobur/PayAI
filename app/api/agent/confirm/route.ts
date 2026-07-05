@@ -150,6 +150,13 @@ export async function POST(req: NextRequest) {
     }
     receipt = null;
   }
+  if (receipt && receipt.status === "reverted") {
+    // Definitely mined AND definitely failed — this is not "try again later",
+    // it already happened. No funds moved (gas was spent), so it's safe for
+    // the user to retry with a fresh payment rather than wait indefinitely.
+    await releaseRequest(confirmKey);
+    return NextResponse.json({ error: "This transaction failed on-chain (reverted). No funds were transferred. You can safely try again.", reverted: true, txHash }, { status: 409 });
+  }
   if (!receipt || receipt.status !== "success") {
     // Genuinely retryable — the tx may just not be mined yet. Release so the
     // client's "please retry" isn't silently swallowed by a stuck claim.

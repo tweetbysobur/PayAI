@@ -48,7 +48,10 @@ export async function POST(req: NextRequest) {
   const summary = `Swap ${amountIn ?? "?"} ${fromToken ?? "?"} → ${amountOut != null ? Number(amountOut).toFixed(toToken === "USDC" ? 2 : 4) : "?"} ${toToken ?? "?"}`;
 
   if (!succeeded) {
-    return NextResponse.json({ decision: "swap_error", error: "The swap transaction reverted on-chain.", txHash, explorerUrl, success: false }, { status: 502 });
+    // The receipt was fetched successfully, so this is a DEFINITE, mined revert
+    // (not "unknown yet") — the swap failed, gas was spent, but no tokens moved.
+    // Safe for the user to try again with a fresh swap.
+    return NextResponse.json({ decision: "swap_error", error: "The swap transaction reverted on-chain. No tokens were swapped. You can safely try again.", reverted: true, txHash, explorerUrl, success: false }, { status: 502 });
   }
 
   // Record the swap into the merchant transaction log, same as a payment.
