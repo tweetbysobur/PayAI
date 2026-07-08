@@ -108,6 +108,7 @@ contract PaymentExecutor is IPaymentExecutor {
     /// @param cap Initial per-agent daily spend cap, ERC-20 base units (0 = unlimited).
     /// @param initialOwner Cold wallet / multisig — admin only, never a signer for payments.
     /// @param initialAgent Dedicated hot wallet — execution only, no admin power.
+    /// @param maxTx Initial per-payment ceiling, ERC-20 base units (0 = unlimited).
     /// @param capNative Initial per-agent daily spend cap, native MON wei (0 = unlimited).
     /// @param maxTxNative Initial per-payment ceiling, native MON wei (0 = unlimited).
     constructor(
@@ -115,6 +116,7 @@ contract PaymentExecutor is IPaymentExecutor {
         uint256 cap,
         address initialOwner,
         address initialAgent,
+        uint256 maxTx,
         uint256 capNative,
         uint256 maxTxNative
     ) {
@@ -126,11 +128,13 @@ contract PaymentExecutor is IPaymentExecutor {
         isAgent[initialAgent] = true;
         merchantRegistry = IMerchantRegistry(registry);
         dailyCap = cap;
+        maxTxAmount = maxTx;
         dailyCapNative = capNative;
         maxTxAmountNative = maxTxNative;
         emit OwnershipTransferred(address(0), initialOwner);
         emit AgentSet(initialAgent, true);
         emit DailyCapSet(cap);
+        emit MaxTxAmountSet(maxTx);
         emit DailyCapNativeSet(capNative);
         emit MaxTxAmountNativeSet(maxTxNative);
     }

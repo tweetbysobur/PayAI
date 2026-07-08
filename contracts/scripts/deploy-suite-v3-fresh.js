@@ -19,8 +19,8 @@ const hre = require("hardhat");
  *   MONAD_AGENT_PRIVATE_KEY   — deployer/agent key (pays gas, becomes the executor's agent).
  *   NEW_COLD_OWNER_ADDRESS    — the freshly-created cold wallet's PUBLIC address.
  * Optional:
- *   DAILY_CAP                 (USDC base units, 6dp)     default 1,000 USDC
- *   MAX_TX_AMOUNT             (USDC base units, 6dp)     default 100 USDC
+ *   DAILY_CAP                 (USDC base units, 6dp)     default 2,000,000 USDC
+ *   MAX_TX_AMOUNT             (USDC base units, 6dp)     default 1,000,000 USDC
  *   DAILY_CAP_NATIVE_MON      (whole MON → wei)          default 2,000,000
  *   MAX_TX_AMOUNT_NATIVE_MON  (whole MON → wei)          default 1,000,000
  */
@@ -42,8 +42,8 @@ async function main() {
   console.log("Balance:  ", hre.ethers.formatEther(balance), "MON");
   if (balance === 0n) throw new Error(`Deployer has 0 MON. Fund ${deployer.address}.`);
 
-  const DAILY_CAP = BigInt(process.env.DAILY_CAP ?? "1000000000"); // 1,000 USDC
-  const MAX_TX_AMOUNT = BigInt(process.env.MAX_TX_AMOUNT ?? "100000000"); // 100 USDC
+  const DAILY_CAP = BigInt(process.env.DAILY_CAP ?? "2000000000000"); // 2,000,000 USDC (6dp)
+  const MAX_TX_AMOUNT = BigInt(process.env.MAX_TX_AMOUNT ?? "1000000000000"); // 1,000,000 USDC (6dp)
   const DAILY_CAP_NATIVE = hre.ethers.parseEther(process.env.DAILY_CAP_NATIVE_MON ?? "2000000");
   const MAX_TX_AMOUNT_NATIVE = hre.ethers.parseEther(process.env.MAX_TX_AMOUNT_NATIVE_MON ?? "1000000");
 
@@ -54,15 +54,18 @@ async function main() {
   const registryAddr = await registry.getAddress();
   console.log("    MerchantRegistry:", registryAddr);
 
-  console.log("\n2/4 Deploying PaymentExecutor (native caps set at deploy)…");
-  console.log("    maxTxAmountNative:", hre.ethers.formatEther(MAX_TX_AMOUNT_NATIVE), "MON");
-  console.log("    dailyCapNative:   ", hre.ethers.formatEther(DAILY_CAP_NATIVE), "MON");
+  console.log("\n2/4 Deploying PaymentExecutor (all caps set at deploy — no owner call needed)…");
+  console.log("    maxTxAmount (USDC): ", (Number(MAX_TX_AMOUNT) / 1e6).toLocaleString(), "USDC");
+  console.log("    dailyCap (USDC):    ", (Number(DAILY_CAP) / 1e6).toLocaleString(), "USDC");
+  console.log("    maxTxAmountNative:  ", hre.ethers.formatEther(MAX_TX_AMOUNT_NATIVE), "MON");
+  console.log("    dailyCapNative:     ", hre.ethers.formatEther(DAILY_CAP_NATIVE), "MON");
   const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
   const executor = await Executor.deploy(
     registryAddr,
     DAILY_CAP,
     ownerAddr,
     agentAddr,
+    MAX_TX_AMOUNT,
     DAILY_CAP_NATIVE,
     MAX_TX_AMOUNT_NATIVE,
     { gasLimit: 3_500_000 },
