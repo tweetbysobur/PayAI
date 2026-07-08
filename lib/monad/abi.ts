@@ -28,6 +28,17 @@ export const PAYMENT_EXECUTOR_ABI = [
     outputs: [{ name: "id", type: "uint256" }],
   },
   {
+    // Wallet Automation: pull the approved ERC-20 from `from` (the user) to the merchant.
+    type: "function", name: "executePaymentFrom", stateMutability: "nonpayable",
+    inputs: [
+      { name: "from", type: "address" }, { name: "merchant", type: "address" },
+      { name: "token", type: "address" }, { name: "amount", type: "uint256" },
+      { name: "riskScore", type: "uint16" }, { name: "aiDecisionHash", type: "bytes32" },
+      { name: "ref", type: "bytes32" }, { name: "requestId", type: "bytes32" },
+    ],
+    outputs: [{ name: "id", type: "uint256" }],
+  },
+  {
     type: "function", name: "isRequestProcessed", stateMutability: "view",
     inputs: [{ name: "requestId", type: "bytes32" }], outputs: [{ type: "bool" }],
   },
@@ -171,4 +182,55 @@ export const MERCHANT_REGISTRY_ABI = [
     type: "event", name: "MerchantRegistered", anonymous: false,
     inputs: [{ name: "wallet", type: "address", indexed: true }, { name: "name", type: "string", indexed: false }],
   },
+] as const;
+
+/** AutomationVault — Reserved Funds mode. reserve() is user-signed; release()/refund() are agent-triggered. */
+export const AUTOMATION_VAULT_ABI = [
+  {
+    type: "function", name: "reserve", stateMutability: "payable",
+    inputs: [
+      { name: "automationId", type: "bytes32" }, { name: "token", type: "address" },
+      { name: "recipient", type: "address" }, { name: "amount", type: "uint256" },
+    ], outputs: [],
+  },
+  {
+    type: "function", name: "release", stateMutability: "nonpayable",
+    inputs: [
+      { name: "automationId", type: "bytes32" }, { name: "amount", type: "uint256" },
+      { name: "requestId", type: "bytes32" },
+    ], outputs: [],
+  },
+  {
+    type: "function", name: "refund", stateMutability: "nonpayable",
+    inputs: [{ name: "automationId", type: "bytes32" }], outputs: [],
+  },
+  { type: "function", name: "reservedBalance", stateMutability: "view", inputs: [{ name: "automationId", type: "bytes32" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "isReleaseProcessed", stateMutability: "view", inputs: [{ name: "requestId", type: "bytes32" }], outputs: [{ type: "bool" }] },
+  {
+    type: "function", name: "reservations", stateMutability: "view", inputs: [{ name: "", type: "bytes32" }],
+    outputs: [
+      { name: "depositor", type: "address" }, { name: "token", type: "address" },
+      { name: "recipient", type: "address" }, { name: "balance", type: "uint256" }, { name: "exists", type: "bool" },
+    ],
+  },
+  {
+    type: "event", name: "Released", anonymous: false,
+    inputs: [
+      { name: "automationId", type: "bytes32", indexed: true },
+      { name: "recipient", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "remaining", type: "uint256", indexed: false },
+      { name: "requestId", type: "bytes32", indexed: false },
+    ],
+  },
+] as const;
+
+/** Minimal WMON (canonical wrapped-native) interface — deposit to wrap MON→WMON. */
+export const WMON_ABI = [
+  { type: "function", name: "deposit", stateMutability: "payable", inputs: [], outputs: [] },
+  { type: "function", name: "withdraw", stateMutability: "nonpayable", inputs: [{ name: "amount", type: "uint256" }], outputs: [] },
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
 ] as const;

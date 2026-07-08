@@ -161,6 +161,14 @@ export function getMerchantRegistry(): `0x${string}` | null {
     : pickAddr(process.env.MONAD_TESTNET_MERCHANT_REGISTRY, process.env.MONAD_MERCHANT_REGISTRY);
 }
 
+/** AutomationVault contract (Reserved Funds mode) for the active network. */
+export function getAutomationVault(): `0x${string}` | null {
+  const net = getNetwork();
+  return net === "mainnet"
+    ? pickAddr(process.env.MONAD_MAINNET_AUTOMATION_VAULT)
+    : pickAddr(process.env.MONAD_TESTNET_AUTOMATION_VAULT, process.env.MONAD_AUTOMATION_VAULT);
+}
+
 export const monadConfig = {
   getNetwork,
   getChain,
