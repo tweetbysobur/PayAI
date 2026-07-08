@@ -72,7 +72,7 @@ export interface Onchain {
 export interface InfoResult {
   decision: "info";
   query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment" | "scheduled";
-  /** Human summary of a just-created schedule, e.g. "10 USDC to alex.nads, every Friday — next Jul 3." */
+  /** Human summary of a just-created automation, e.g. "10 USDC to alex.nads, every Friday — next Jul 3." */
   scheduleSummary?: string;
   count?: number;
   history?: { at: number; decision: string; summary: string; amount: number | null; token: string; txHash?: string; explorerUrl?: string }[];
@@ -449,7 +449,7 @@ export function useAgentConsole() {
         return;
       }
       if (decision === "schedule_error") {
-        setErr(json.error || "Couldn't create the schedule.");
+        setErr(json.error || "Couldn't create the automation.");
         return;
       }
       if (decision === "scheduled") {
@@ -458,7 +458,7 @@ export function useAgentConsole() {
         const when = s ? new Date(s.nextRun).toLocaleString() : "";
         setInfo({
           decision: "info", query: "scheduled",
-          scheduleSummary: s ? `${s.amount} ${s.token} to ${s.domain ?? s.recipient.slice(0, 6) + "…" + s.recipient.slice(-4)} · ${cadence} · first run ${when}` : "Schedule created.",
+          scheduleSummary: s ? `${s.amount} ${s.token} to ${s.domain ?? s.recipient.slice(0, 6) + "…" + s.recipient.slice(-4)} · ${cadence} · first run ${when}` : "Automation created.",
         });
         loadOnchain();
         return;

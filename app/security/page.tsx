@@ -58,10 +58,10 @@ export default function Security() {
           <h2 className="text-lg font-semibold text-foreground">Non-custodial by design</h2>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             You connect your own wallet and approve every payment yourself. PayAI never holds your funds and never
-            has access to your private keys or seed phrase. The one exception is scheduled and recurring payments:
+            has access to your private keys or seed phrase. The one exception is Payment Automations:
             because you are not there to sign each run, they settle through a dedicated agent that can only spend
             within the per-transaction and daily limits you set on-chain. It cannot exceed those limits, and it
-            cannot touch anything you did not schedule.
+            cannot touch anything you did not automate and confirm.
           </p>
         </section>
 

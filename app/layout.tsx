@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/Toast";
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
 const DESCRIPTION =
-  "Send, swap, and schedule payments just by describing them. You approve every payment from your own wallet, and it arrives in seconds.";
+  "Send, swap, and automate payments on Monad. You approve every payment from your own wallet, and automations require wallet confirmation.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

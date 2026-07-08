@@ -1,0 +1,18 @@
+Spent this stretch making PayAI production-hard and faster.
+
+Security audit (frontend, backend, smart contracts, wallet flows, config):
+→ No fund-loss or key-exposure issues found. Contracts already had split roles, a reentrancy guard, on-chain replay protection, and spend caps
+→ Closed a rate-limit bypass, tightened on-chain payment verification, and locked swap records to the real sender
+→ Added clickjacking protection and a full set of security headers across the app
+
+Performance:
+→ Lighter dashboard and checkout bundles by lazy-loading heavy pieces only when needed
+→ Edge-cached the busy public endpoints, so repeated polling no longer hammers the backend
+→ Removed dead dependencies and deduplicated on-chain client setup
+
+Product:
+→ Receive screen with a scannable QR code to get paid
+→ Raised the payment limit so people can move real amounts
+→ Leaner mobile dashboard and a proper send button in the AI bar
+
+Next: onboarding the first real users.

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -29,6 +29,16 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   refused: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
   // Was missing — fell back to a neutral checkmark for a genuine failure.
   error: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
+  // Payment Automation lifecycle — a distinct visual language from one-off
+  // payment outcomes above, so a glance at the icon says "this is about your
+  // automation," not "this is a payment result."
+  automation_created: { icon: Sparkles, tone: "text-primary", accent: "bg-primary", chip: "bg-primary/12 text-primary" },
+  automation_upcoming_execution: { icon: Clock3, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  automation_executed: { icon: Repeat, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  automation_execution_failed: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
+  automation_paused: { icon: PauseCircle, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  automation_resumed: { icon: PlayCircle, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  automation_cancelled: { icon: Ban, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */

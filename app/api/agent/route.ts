@@ -64,12 +64,12 @@ export async function POST(req: NextRequest) {
   // real stored data and stop.
   const query = detectQueryIntent(text);
   // Only treat as the "manage/cancel" info case when it isn't a parseable
-  // create request — otherwise the schedule-create branch below handles it.
+  // create request — otherwise the automation-create branch below handles it.
   if (query === "scheduled_payment" && !parseScheduleIntent(text)) {
     return NextResponse.json({
       decision: "info",
       query: "scheduled_payment",
-      error: "To manage or cancel an existing schedule, open Scheduled Payments in your dashboard. To create one, say e.g. \"schedule 10 USDC to alex.nads every Friday\".",
+      error: "To manage or cancel an automation, open Payment Automations in your dashboard. The assistant can help draft one, but the dashboard is the primary creation path.",
       success: false,
     }, { status: 200 });
   }
@@ -142,26 +142,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 0a-bis. Scheduled / recurring payment ("schedule 10 USDC to alex.nads
-  // every friday"). Creates a real schedule that the cron runner fires through
+  // 0a-bis. Payment Automation draft ("automate 10 USDC to alex.nads
+  // every friday"). Creates a real automation that the cron runner fires through
   // the custodial agent path when due — it is NOT settled now. Validated up
   // front (amount cap, resolvable recipient) so a bad schedule never persists.
   const sched = parseScheduleIntent(text);
   if (sched) {
     if (sched.amount == null || sched.amount <= 0) {
-      return NextResponse.json({ decision: "schedule_error", error: "Tell me how much to schedule, e.g. \"schedule 10 USDC to alex.nads every Friday\".", success: false }, { status: 400 });
+      return NextResponse.json({ decision: "schedule_error", error: "Tell me the amount for this automation, e.g. \"automate 10 USDC to alex.nads every Friday\".", success: false }, { status: 400 });
     }
     if (sched.amount > agentConfig.maxAmount) {
       return NextResponse.json({ decision: "schedule_error", error: `Amount ${sched.amount} exceeds the agent cap of ${agentConfig.maxAmount}.`, success: false }, { status: 422 });
     }
     if (!sched.recipient) {
-      return NextResponse.json({ decision: "schedule_error", error: "Who should the scheduled payment go to? Add a recipient, e.g. \"…to alex.nads\".", success: false }, { status: 400 });
+      return NextResponse.json({ decision: "schedule_error", error: "Who should this automation pay? Add a recipient, e.g. \"...to alex.nads\".", success: false }, { status: 400 });
     }
     if (sched.needsTime || sched.nextRun == null) {
       return NextResponse.json({ decision: "schedule_error", error: "When should it run? Add a time, e.g. \"every Friday\", \"tomorrow\", \"on 2026-07-01\", or \"in 3 days\".", success: false }, { status: 400 });
     }
     // Resolve the recipient to a real address (domain → payee → 0x), same rules
-    // as an instant payment, so a schedule can never fire to an unresolved name.
+    // as an instant payment, so an automation can never fire to an unresolved name.
     let recipient = sched.recipient;
     let domain: string | null = null;
     if (!isAddress(recipient)) {

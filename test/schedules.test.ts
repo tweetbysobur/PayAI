@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSchedule, recordRun, getSchedule, updateSchedule, advanceRun } from "@/lib/platform/schedules";
 
 // These exercise the single most important reliability decision in the
-// scheduled-payments feature: what happens to the schedule after a run,
+// Payment Automations feature: what happens to the automation after a run,
 // depending on WHY it did or didn't succeed. Getting this wrong either
 // silently skips a payment the user was relying on, or retries a payment
 // that will never clear, forever.
@@ -31,11 +31,11 @@ describe("advanceRun", () => {
 });
 
 describe("recordRun — executed", () => {
-  it("advances a recurring schedule's nextRun and stays upcoming", async () => {
+  it("advances a recurring automation's nextRun and stays active", async () => {
     const s = await makeSchedule();
     const before = s.nextRun;
     const after = await recordRun(s.id, { at: Date.now(), decision: "executed" });
-    expect(after!.status).toBe("upcoming");
+    expect(after!.status).toBe("active");
     expect(after!.nextRun).toBeGreaterThan(before);
     expect(after!.runsCompleted).toBe(1);
     expect(after!.failureCount).toBe(0);
@@ -50,7 +50,7 @@ describe("recordRun — executed", () => {
   it("completes a recurring schedule once its after_count end condition is reached", async () => {
     const s = await makeSchedule({ endCondition: { type: "after_count", totalRuns: 2 } });
     const r1 = await recordRun(s.id, { at: Date.now(), decision: "executed" });
-    expect(r1!.status).toBe("upcoming");
+    expect(r1!.status).toBe("active");
     const r2 = await recordRun(s.id, { at: Date.now(), decision: "executed" });
     expect(r2!.status).toBe("completed");
     expect(r2!.runsCompleted).toBe(2);
@@ -86,7 +86,7 @@ describe("recordRun — execution errors are retried with a bound", () => {
   it("retries a transient error without advancing to the next cadence period", async () => {
     const s = await makeSchedule();
     const after = await recordRun(s.id, { at: Date.now(), decision: "error", detail: "RPC unreachable" });
-    expect(after!.status).toBe("upcoming");
+    expect(after!.status).toBe("active");
     expect(after!.failureCount).toBe(1);
     // Retried soon, but NOT left in the past (which would hammer immediately).
     expect(after!.nextRun).toBeGreaterThan(Date.now());
@@ -103,7 +103,7 @@ describe("recordRun — execution errors are retried with a bound", () => {
 });
 
 describe("updateSchedule", () => {
-  it("edits an upcoming schedule's amount and cadence", async () => {
+  it("edits an active automation's amount and cadence", async () => {
     const s = await makeSchedule();
     const edited = await updateSchedule("merchant-1", s.id, { amount: 25, cadence: "monthly" });
     expect(edited!.amount).toBe(25);

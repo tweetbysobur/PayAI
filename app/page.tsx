@@ -68,7 +68,7 @@ const FEATURES = [
   { icon: Coins, title: "Send MON & USDC", body: "The coins people actually use." },
   { icon: ArrowDownLeft, title: "Swap instantly", body: "Move between MON and USDC in a tap." },
   { icon: AtSign, title: "Pay a name", body: "Use easy names, not long addresses." },
-  { icon: MessageSquare, title: "Schedule payments", body: "Set it once, we send it on time." },
+  { icon: MessageSquare, title: "Payment Automations", body: "Create verified one-time or recurring payments from a dedicated dashboard." },
   { icon: ScrollText, title: "Full history", body: "Every payment, in one place." },
   { icon: LayoutDashboard, title: "Your dashboard", body: "Balances and activity at a glance." },
   { icon: Receipt, title: "Clear insights", body: "See where your money goes." },
@@ -80,7 +80,7 @@ const FAQS = [
   { q: "Who controls my money?", a: "You do. PayAI never holds your funds. You approve every payment yourself, and we never ask for your seed phrase or private keys." },
   { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
   { q: "What can I send?", a: "You can send MON and USDC, swap between them in a tap, and pay easy-to-remember names instead of long wallet addresses." },
-  { q: "Can I set up payments in advance?", a: "Yes. Schedule recurring or future payments with limits you set, and PayAI sends them on time, never beyond the limits you choose." },
+  { q: "Can I set up payments in advance?", a: "Yes. Payment Automations let you create recurring or future payments with limits you set, and PayAI executes them on time, never beyond the limits you choose." },
   { q: "Is it safe?", a: "Every payment is checked before it sends: the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
   { q: "Can I verify my payments?", a: "Always. Every payment is recorded permanently and publicly, so you can prove exactly what happened, anytime." },
 ];
@@ -312,7 +312,7 @@ export default function LandingPage() {
               Move money by simply describing it.
             </h1>
             <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
-              Send, swap, and schedule payments just by saying what you want. You approve every payment
+              Send, swap, and automate payments on Monad. You approve every payment
               from your own wallet, and it arrives in seconds.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -461,7 +461,7 @@ export default function LandingPage() {
                 <span className="text-base font-semibold text-foreground">PayAI</span>
               </Link>
               <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Send, swap, and schedule payments just by describing them. You stay in control, and money arrives in seconds.
+                Send, swap, and automate payments with wallet confirmation. You stay in control, and money arrives in seconds.
               </p>
               <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
                 <MonadMark size={12} /> Built on Monad Mainnet

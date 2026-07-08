@@ -28,28 +28,70 @@ export interface TxLogEntry {
   summary: string;
 }
 
-/** A recurring or one-off payment scheduled to fire automatically when due. */
-export type ScheduleCadence = "once" | "daily" | "weekly" | "monthly";
-/** "failed" is terminal and distinct from "cancelled": the user didn't stop it,
- *  it stopped itself — either a hard compliance block (won't clear on retry)
- *  or repeated execution errors past the retry budget. Surfaced loudly, never
- *  silently merged into "cancelled" or quietly re-tried forever. */
-export type ScheduleStatus = "upcoming" | "completed" | "cancelled" | "failed";
+/**
+ * A lifecycle notification for a Payment Automation — distinct from a payment
+ * TxLogEntry (which is a settlement outcome feeding revenue analytics). This is
+ * a generic, reusable event log: `kind` identifies which automation engine
+ * produced it, so a future engine (payroll, subscriptions, treasury, savings,
+ * installments…) reuses this same shape and the same notification feed
+ * instead of inventing its own — the whole reason this is its own module
+ * rather than folded into the tx log.
+ */
+export type AutomationEventType =
+  | "created" | "upcoming_execution" | "executed" | "execution_failed"
+  | "paused" | "resumed" | "cancelled";
 
-/** When a recurring schedule stops on its own, without the user cancelling it.
+export interface AutomationEvent {
+  id: string;
+  automationId: string;
+  /** Which automation engine raised this — "recurring_payment" today; a future
+   *  kind (e.g. "payroll_run") plugs into the same event log unchanged. */
+  kind: string;
+  merchantId: string;
+  sender?: string | null;
+  type: AutomationEventType;
+  at: number;
+  title: string;
+  detail: string;
+  amount?: number | null;
+  token?: string | null;
+  txHash?: string;
+  explorerUrl?: string;
+}
+
+/** Payment Automation frequency. Custom stays intentionally small in v1. */
+export type AutomationCadence = "once" | "daily" | "weekly" | "monthly" | "custom";
+export type AutomationIntervalUnit = "days" | "weeks" | "months";
+/** One clear status per automation. */
+export type AutomationStatus = "active" | "paused" | "completed" | "cancelled" | "failed" | "scheduled" | "executing";
+
+export type ScheduleCadence = AutomationCadence;
+export type ScheduleStatus = AutomationStatus;
+
+/** When a recurring automation stops on its own, without the user cancelling it.
  *  "never" (the old default behavior) is discouraged in the UI — real standing
  *  orders default to a bound. */
-export type ScheduleEndCondition =
+export type AutomationEndCondition =
   | { type: "never" }
   | { type: "after_count"; totalRuns: number }
   | { type: "until_date"; untilMs: number };
+export type ScheduleEndCondition = AutomationEndCondition;
 
-export interface ScheduledPayment {
+export interface AutomationExecution {
+  at: number;
+  txHash?: string;
+  explorerUrl?: string;
+  decision: string;
+  detail?: string;
+  gasFee?: number;
+}
+
+export interface PaymentAutomation {
   id: string;
   merchantId: string;
-  /** The wallet that created this schedule. Used to scope a connected user's
-   *  own schedules on the shared demo tenant — one wallet-only user must
-   *  never see or cancel another's scheduled payment. Null on merchant-account
+  /** The wallet that created this automation. Used to scope a connected user's
+   *  own automations on the shared demo tenant — one wallet-only user must
+   *  never see or cancel another's automation. Null on merchant-account
    *  tenants, which are already isolated by merchantId. */
   sender?: string | null;
   amount: number;
@@ -58,26 +100,38 @@ export interface ScheduledPayment {
   recipient: string;
   /** Original .nad/.nads domain, when the recipient was resolved from one. */
   domain?: string | null;
-  cadence: ScheduleCadence;
-  /** Unix ms of the next (or only) scheduled run. */
+  cadence: AutomationCadence;
+  intervalCount?: number;
+  intervalUnit?: AutomationIntervalUnit;
+  timezone?: string;
+  purpose: string;
+  /** Unix ms of the next (or only) automation execution. */
   nextRun: number;
-  status: ScheduleStatus;
+  status: AutomationStatus;
   createdAt: number;
+  /** The `nextRun` value an "upcoming execution" reminder has already been sent
+   *  for — prevents re-notifying on every cron tick within the lookahead
+   *  window. Cleared implicitly whenever nextRun advances past it. */
+  remindedForRun?: number | null;
   /** Every fired run, newest first — real on-chain receipts, never fabricated. */
-  runs: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string }[];
+  runs: AutomationExecution[];
   /** Optional human label/memo. */
   memo?: string;
-  /** Defaults to `{ type: "never" }` for schedules created before this existed. */
-  endCondition?: ScheduleEndCondition;
+  /** Defaults to `{ type: "never" }` for automations created before this existed. */
+  endCondition?: AutomationEndCondition;
   /** Successful (executed) runs only — checked against after_count. */
   runsCompleted: number;
   /** Consecutive execution errors since the last success (or since creation).
    *  Reset to 0 on every successful run. A hard compliance block does NOT
    *  count here — that goes straight to "failed" since retrying won't help. */
   failureCount: number;
-  /** The reason the schedule stopped or is at risk of stopping, for display. */
+  /** The reason the automation stopped or is at risk of stopping, for display. */
   lastError?: string | null;
+  signature?: string | null;
+  signatureMessage?: string | null;
 }
+
+export type ScheduledPayment = PaymentAutomation;
 
 export type LinkStatus = "active" | "paid" | "expired";
 

@@ -5,20 +5,20 @@ import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import type { ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
 
 /**
- * GET    /api/schedule?wallet=0x…        — list the caller's scheduled payments.
- * POST   /api/schedule                   — create one from structured fields
- *        (the dedicated form on /dashboard/scheduled — the flagship, first-time
- *        creation path). "schedule 10 USDC to … every Friday" via Ask PayAI
- *        still works too and shares the same recipient resolution and caps.
- * PATCH  /api/schedule?id=…              — edit an upcoming schedule's terms.
- * DELETE /api/schedule?id=…&wallet=0x… — cancel an upcoming schedule.
+ * Legacy compatibility endpoint. New product surfaces should use
+ * /api/automations.
+ *
+ * GET    /api/schedule?wallet=0x…      — list the caller's automations.
+ * POST   /api/schedule                 — create one from structured fields.
+ * PATCH  /api/schedule?id=…            — edit an automation's terms.
+ * DELETE /api/schedule?id=…&wallet=0x… — cancel an automation.
  *
  * On the shared demo tenant (no merchant account), every wallet-only user
  * would otherwise land in the same bucket — so every read/write here is
  * scoped to the caller's own wallet, same as transaction history/analytics. A
  * missing wallet on that tenant resolves to a sentinel that matches nothing,
  * rather than silently falling through to "show/edit/cancel everyone's
- * schedules."
+ * automations."
  */
 async function senderScopeFor(req: NextRequest, merchantId: string, walletFromBody?: string): Promise<string | null> {
   const { DEMO_TENANT } = await import("@/lib/platform/merchants");
@@ -84,8 +84,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "The start time has already passed — choose a time in the future." }, { status: 400 });
   }
 
-  // Resolve the recipient the same way an instant payment does, so a schedule
-  // can never be created pointing at an unresolved name.
+  // Resolve the recipient the same way an instant payment does, so an
+  // automation can never be created pointing at an unresolved name.
   let recipient = recipientInput;
   let domain: string | null = null;
   if (!isAddress(recipient)) {
@@ -183,7 +183,7 @@ export async function PATCH(req: NextRequest) {
   const merchantId = await resolveTenantId(req);
   const sender = await senderScopeFor(req, merchantId, body.walletAddress);
   const row = await updateSchedule(merchantId, id, patch, { sender });
-  if (!row) return NextResponse.json({ error: "Schedule not found, not editable, or not yours." }, { status: 404 });
+  if (!row) return NextResponse.json({ error: "Automation not found, not editable, or not yours." }, { status: 404 });
   return NextResponse.json({ schedule: row, success: true });
 }
 
@@ -195,6 +195,6 @@ export async function DELETE(req: NextRequest) {
   const merchantId = await resolveTenantId(req);
   const sender = await senderScopeFor(req, merchantId);
   const row = await cancelSchedule(merchantId, id, { sender });
-  if (!row) return NextResponse.json({ error: "Schedule not found." }, { status: 404 });
+  if (!row) return NextResponse.json({ error: "Automation not found." }, { status: 404 });
   return NextResponse.json({ schedule: row, success: true });
 }

@@ -1,0 +1,21 @@
+Big week. PayAI went from prototype to a live product on Monad Mainnet.
+
+What shipped:
+→ Live on Monad Mainnet at usepayai.xyz, on our own domain, settling real payments
+→ Rebuilt to run entirely on our own engines, with no outside dependencies
+
+Security, before opening it up:
+→ Every user now sees only their own history and analytics
+→ Locked down execution access and removed all internal wallet details from public pages
+→ Tightened settlement so a payment can't be replayed or sent to a bad address
+
+Product:
+→ New Transactions and Payments screens, with proper MON and USDC branding throughout
+→ Reworked the landing page around live stats and real preview screens
+→ Added a social share card and favicon
+
+Under the hood:
+→ 35 automated tests, plus CI that runs on every change
+→ Security policy, contributor docs, and a tagged v0.2.0 release
+
+Next: onboarding the first real users and putting more volume through the rails.
