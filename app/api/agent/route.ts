@@ -182,12 +182,18 @@ export async function POST(req: NextRequest) {
         recipient = payee.address;
       }
     }
-    const { createSchedule } = await import("@/lib/platform/schedules");
-    const row = await createSchedule(merchantId, {
-      amount: sched.amount, token: sched.token, recipient, domain, cadence: sched.cadence, nextRun: sched.nextRun,
-      sender: walletAddress,
+    // The AI never creates an automation directly — Payment Automations move
+    // money on a recurring basis, and every one of them requires a wallet
+    // signature (see /api/automations POST) before it goes live, the same
+    // hard rule the dashboard's own creator enforces. Hand back the fully
+    // resolved, validated fields as a PREFILL: the client opens the real
+    // Automations creator with these values already filled in, still one
+    // wallet signature away from actually being created.
+    return NextResponse.json({
+      decision: "automation_prefill",
+      prefill: { amount: sched.amount, token: sched.token, recipient, domain, cadence: sched.cadence, nextRun: sched.nextRun },
+      success: false,
     });
-    return NextResponse.json({ decision: "scheduled", schedule: row, success: true });
   }
 
   // 0b. Idempotency claim — every decision-producing path below (refused,
