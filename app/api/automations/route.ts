@@ -15,6 +15,45 @@ async function senderScopeFor(req: NextRequest, merchantId: string, walletFromBo
   return w && isAddress(w) ? w : "__none__";
 }
 
+const MUTATION_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
+
+function mutationMessage(input: { walletAddress: string; automationId: string; action: string; timestamp: number }) {
+  return [
+    "PayAI Automation Update",
+    `Wallet: ${input.walletAddress}`,
+    `Automation: ${input.automationId}`,
+    `Action: ${input.action}`,
+    `Timestamp: ${input.timestamp}`,
+  ].join("\n");
+}
+
+/**
+ * Every mutation to an existing automation (edit, pause, resume, cancel,
+ * delete) — not just its creation — requires proof the caller actually
+ * controls the wallet that owns it. A wallet address is public information
+ * (visible in any transaction) and an automation id is returned to the
+ * client, so without this, anyone who knew both could pause, cancel, or
+ * edit someone else's live recurring payment by sending a plain HTTP
+ * request with a claimed address — no signature required at all. This
+ * closes that gap the same way creation already requires a signature.
+ *
+ * The timestamp inside the signed message is checked against a 5-minute
+ * window so a captured signature can't be replayed indefinitely — it's a
+ * one-shot proof-of-intent for this specific action, not a standing key.
+ */
+async function verifyMutation(input: {
+  walletAddress?: string; automationId: string; action: string;
+  signature?: string; timestamp?: number;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!input.walletAddress || !isAddress(input.walletAddress)) return { ok: false, error: "A valid wallet address is required." };
+  if (!input.signature || !input.timestamp) return { ok: false, error: "Confirm this action in your wallet." };
+  if (Math.abs(Date.now() - input.timestamp) > MUTATION_SIGNATURE_WINDOW_MS) return { ok: false, error: "This confirmation has expired — try again." };
+  const message = mutationMessage({ walletAddress: input.walletAddress, automationId: input.automationId, action: input.action, timestamp: input.timestamp });
+  const signed = await verifyMessage({ address: input.walletAddress as `0x${string}`, message, signature: input.signature as `0x${string}` }).catch(() => false);
+  if (!signed) return { ok: false, error: "Wallet confirmation could not be verified." };
+  return { ok: true };
+}
+
 async function resolveRecipient(input: string): Promise<{ recipient: string; domain: string | null }> {
   let recipient = input.trim();
   let domain: string | null = null;
@@ -189,6 +228,7 @@ export async function PATCH(req: NextRequest) {
 
   let body: {
     walletAddress?: string; action?: "pause" | "resume" | "cancel";
+    signature?: string; timestamp?: number;
     amount?: number; cadence?: string; nextRun?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
   };
@@ -197,6 +237,12 @@ export async function PATCH(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  const verified = await verifyMutation({
+    walletAddress: body.walletAddress, automationId: id, action: body.action ?? "edit",
+    signature: body.signature, timestamp: body.timestamp,
+  });
+  if (!verified.ok) return NextResponse.json({ error: verified.error }, { status: 401 });
 
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
@@ -247,10 +293,23 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  let body: { walletAddress?: string; signature?: string; timestamp?: number } = {};
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    /* DELETE with no body is fine if the caller only used query params before —
+       verifyMutation below will reject it for lacking a signature either way. */
+  }
+  const walletAddress = body.walletAddress ?? new URL(req.url).searchParams.get("wallet") ?? undefined;
+
+  const verified = await verifyMutation({ walletAddress, automationId: id, action: "delete", signature: body.signature, timestamp: body.timestamp });
+  if (!verified.ok) return NextResponse.json({ error: verified.error }, { status: 401 });
+
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const { deleteSchedule } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
-  const sender = await senderScopeFor(req, merchantId);
+  const sender = await senderScopeFor(req, merchantId, walletAddress);
   const ok = await deleteSchedule(merchantId, id, { sender });
   if (!ok) return NextResponse.json({ error: "Automation not found." }, { status: 404 });
   return NextResponse.json({ success: true });
