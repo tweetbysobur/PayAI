@@ -84,6 +84,28 @@ function signatureMessage(input: { walletAddress: string; recipient: string; amo
   ].join("\n");
 }
 
+/** Mirrors the server's mutationMessage() in app/api/automations/route.ts —
+ *  must stay byte-for-byte identical or verifyMessage() rejects every action. */
+function mutationMessage(input: { walletAddress: string; automationId: string; action: string; timestamp: number }) {
+  return [
+    "PayAI Automation Update",
+    `Wallet: ${input.walletAddress}`,
+    `Automation: ${input.automationId}`,
+    `Action: ${input.action}`,
+    `Timestamp: ${input.timestamp}`,
+  ].join("\n");
+}
+
+/** Every mutation to an existing automation — edit, pause, resume, cancel,
+ *  delete — needs proof of wallet ownership, the same as creation. Returns
+ *  null if the user has no wallet connected or cancels the wallet prompt. */
+async function signMutation(walletAddress: string, automationId: string, actionName: string): Promise<{ signature: string; timestamp: number } | null> {
+  const timestamp = Date.now();
+  const message = mutationMessage({ walletAddress, automationId, action: actionName, timestamp });
+  const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, walletAddress] }) as string | undefined;
+  return signature ? { signature, timestamp } : null;
+}
+
 export default function AutomationsPage() {
   const wallet = useWallet();
   const { toast } = useToast();
@@ -122,12 +144,14 @@ export default function AutomationsPage() {
   }, []);
 
   async function action(id: string, actionName: "pause" | "resume" | "cancel" | "delete") {
+    if (!wallet.address) return;
     setBusy(id);
     try {
-      const walletParam = wallet.address ? `?id=${id}&wallet=${wallet.address}` : `?id=${id}`;
+      const proof = await signMutation(wallet.address, id, actionName);
+      if (!proof) throw new Error("Confirmation was cancelled in your wallet.");
       const r = actionName === "delete"
-        ? await fetch(`/api/automations${walletParam}`, { method: "DELETE" })
-        : await fetch(`/api/automations?id=${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ walletAddress: wallet.address, action: actionName }) });
+        ? await fetch(`/api/automations?id=${id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ walletAddress: wallet.address, ...proof }) })
+        : await fetch(`/api/automations?id=${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ walletAddress: wallet.address, action: actionName, ...proof }) });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Action failed.");
       toast(actionName === "resume" ? "Automation resumed" : `Automation ${actionName}d`);
@@ -389,12 +413,14 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
   const invalidTime = !Number.isFinite(nextRun) || nextRun < Date.now() - 60_000;
 
   async function save() {
-    if (invalidAmount || invalidTime || !purpose.trim()) return;
+    if (invalidAmount || invalidTime || !purpose.trim() || !wallet.address) return;
     setSaving(true);
     try {
+      const proof = await signMutation(wallet.address, automation!.id, "edit");
+      if (!proof) throw new Error("Confirmation was cancelled in your wallet.");
       const r = await fetch(`/api/automations?id=${automation!.id}`, {
         method: "PATCH", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ walletAddress: wallet.address, amount: amountNum, nextRun, purpose: purpose.trim() }),
+        body: JSON.stringify({ walletAddress: wallet.address, amount: amountNum, nextRun, purpose: purpose.trim(), ...proof }),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Could not save changes.");
