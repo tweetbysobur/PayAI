@@ -3,10 +3,24 @@
  * automatically when due, settled through the custodial agent path
  * (PaymentExecutor on Monad mainnet, with on-chain per-tx + daily caps).
  *
- * Two indexes are kept in lockstep: a per-merchant hash (for the dashboard's
- * "my automations" view) and a global hash mirror (for the cron runner, which
- * has no tenant context and must scan every merchant's due automations). KV when
- * configured, in-memory fallback for local dev — same seam as store.ts.
+ * Three indexes, kept in lockstep by persist():
+ *   1. A per-merchant hash — the dashboard's "my automations" view.
+ *   2. A global hash mirror — the full record, fetchable by id from anywhere
+ *      (the cron runner has no tenant context).
+ *   3. A global sorted set scored by nextRun, containing ONLY automations
+ *      currently eligible to fire ("active"/"scheduled"). This is what makes
+ *      the cron's due-check a bounded range query instead of pulling every
+ *      automation across every tenant into memory on every single tick —
+ *      the latter doesn't scale past a few thousand records and only gets
+ *      worse since nothing ever prunes completed/cancelled rows from a flat
+ *      hash. The range query is defensive: if it ever throws (e.g. an
+ *      unexpected KV response shape), it falls back to the old full-scan
+ *      method rather than risking a missed or duplicated execution — a
+ *      slower cron tick is an acceptable degradation; a silently-skipped
+ *      payment automation is not.
+ *
+ * KV (Upstash) when configured, in-memory fallback for local dev — same seam
+ * as store.ts.
  *
  * Server-only.
  */
@@ -24,6 +38,8 @@ function label(row: Pick<ScheduledPayment, "amount" | "token" | "domain" | "reci
 
 const mKey = (m: string) => `veripay:${m}:schedules`;
 const GLOBAL_KEY = "veripay:schedules:all";
+const DUE_INDEX_KEY = "veripay:schedules:due-index";
+const LIVE_STATUSES: ScheduleStatus[] = ["active", "scheduled"];
 
 /** After this many consecutive execution errors, an automation auto-pauses to
  *  "failed" instead of retrying forever and quietly burning gas every tick. */
@@ -123,6 +139,20 @@ async function persist(row: ScheduledPayment): Promise<void> {
   if (r) {
     await r.hset(mKey(row.merchantId), { [row.id]: row });
     await r.hset(GLOBAL_KEY, { [row.id]: row });
+    // Keep the due-index in sync at the one place every mutator already goes
+    // through: live (active/scheduled) → indexed by nextRun; anything else
+    // (paused/completed/cancelled/failed) → removed so it's never scanned
+    // again. Defensive: an index-sync failure must never block the write
+    // that actually matters (the record itself already persisted above).
+    try {
+      if (LIVE_STATUSES.includes(row.status)) {
+        await r.zadd(DUE_INDEX_KEY, { score: row.nextRun, member: row.id });
+      } else {
+        await r.zrem(DUE_INDEX_KEY, row.id);
+      }
+    } catch {
+      /* the full-scan fallback in dueSchedules/dueForReminder covers this */
+    }
   } else {
     mem.set(row.id, row);
   }
@@ -243,33 +273,58 @@ export async function getSchedule(id: string): Promise<ScheduledPayment | null> 
   return mem.get(id) ?? null;
 }
 
-/** Every active automation whose nextRun is at or before `now` — the cron's work queue. */
-export async function dueSchedules(now: number = Date.now()): Promise<ScheduledPayment[]> {
+/** Full-scan fallback — correct but O(total automations across every
+ *  tenant), used only when the sorted-set index is unavailable or errors. */
+async function scanAll(): Promise<ScheduledPayment[]> {
   const r = await getRedis();
-  let rows: ScheduledPayment[];
   if (r) {
     const h = (await r.hgetall(GLOBAL_KEY)) ?? {};
-    rows = Object.values(h) as ScheduledPayment[];
-  } else {
-    rows = [...mem.values()];
+    return Object.values(h) as ScheduledPayment[];
   }
-  return rows.filter((s) => (s.status === "active" || s.status === "scheduled") && s.nextRun <= now);
+  return [...mem.values()];
+}
+
+/** Fetch full records for a batch of ids from the global hash. */
+async function fetchByIds(r: NonNullable<Awaited<ReturnType<typeof getRedis>>>, ids: string[]): Promise<ScheduledPayment[]> {
+  const rows = await Promise.all(ids.map((id) => r.hget(GLOBAL_KEY, id)));
+  return rows.filter((v): v is ScheduledPayment => v != null) as ScheduledPayment[];
+}
+
+/** Every active automation whose nextRun is at or before `now` — the cron's
+ *  work queue. Uses the nextRun-scored index (bounded range query) so this
+ *  scales with the number of DUE automations, not the total ever created. */
+export async function dueSchedules(now: number = Date.now()): Promise<ScheduledPayment[]> {
+  const r = await getRedis();
+  if (r) {
+    try {
+      const ids = await r.zrange(DUE_INDEX_KEY, 0, now, { byScore: true });
+      return await fetchByIds(r, ids);
+    } catch {
+      /* index unavailable or malformed — fall through to the full scan below */
+    }
+  }
+  const rows = await scanAll();
+  return rows.filter((s) => LIVE_STATUSES.includes(s.status) && s.nextRun <= now);
 }
 
 /** Every active automation whose nextRun falls within the lookahead window and
  *  hasn't already been reminded for that specific occurrence — the cron's
- *  "upcoming execution" notification queue. */
+ *  "upcoming execution" notification queue. Same indexed range query as
+ *  dueSchedules(), just bounded on both ends instead of one. */
 export async function dueForReminder(windowMs: number, now: number = Date.now()): Promise<ScheduledPayment[]> {
   const r = await getRedis();
-  let rows: ScheduledPayment[];
   if (r) {
-    const h = (await r.hgetall(GLOBAL_KEY)) ?? {};
-    rows = Object.values(h) as ScheduledPayment[];
-  } else {
-    rows = [...mem.values()];
+    try {
+      const ids = await r.zrange(DUE_INDEX_KEY, now, now + windowMs, { byScore: true });
+      const rows = await fetchByIds(r, ids);
+      return rows.filter((s) => s.remindedForRun !== s.nextRun);
+    } catch {
+      /* fall through to the full scan below */
+    }
   }
+  const rows = await scanAll();
   return rows.filter((s) =>
-    (s.status === "active" || s.status === "scheduled") &&
+    LIVE_STATUSES.includes(s.status) &&
     s.nextRun > now && s.nextRun <= now + windowMs &&
     s.remindedForRun !== s.nextRun,
   );

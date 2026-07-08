@@ -20,6 +20,11 @@ export interface RedisLike {
   expire(key: string, seconds: number): Promise<unknown>;
   get(key: string): Promise<unknown>;
   set(key: string, value: unknown): Promise<unknown>;
+  // Sorted-set ops — used to index automations by nextRun so the cron's
+  // due-check is a bounded range query instead of a full-table scan.
+  zadd(key: string, entry: { score: number; member: string }): Promise<unknown>;
+  zrange(key: string, min: number, max: number, opts: { byScore: true }): Promise<string[]>;
+  zrem(key: string, member: string): Promise<unknown>;
 }
 
 let _redis: RedisLike | null | undefined;
