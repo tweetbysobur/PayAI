@@ -148,6 +148,26 @@ export async function POST(req: NextRequest) {
   const signed = await verifyMessage({ address: walletAddress as `0x${string}`, message: expectedMessage, signature: body.signature as `0x${string}` }).catch(() => false);
   if (!signed) return NextResponse.json({ error: "Wallet confirmation could not be verified." }, { status: 401 });
 
+  // Creation-time duplicate-submission protection: a personal_sign signature
+  // is deterministic for a given key + message, so signing the exact same
+  // automation terms twice (a double-click past the client's own disabled-
+  // while-saving guard, or a network retry after a lost response) produces
+  // the identical signature — a natural idempotency key. Without this, a
+  // retried request would silently create a second live recurring payment
+  // with identical terms instead of returning the one that already exists.
+  const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+  const { createHash } = await import("node:crypto");
+  const createKey = `automation-create:${createHash("sha256").update(body.signature).digest("hex")}`;
+  const claim = await claimRequest<{ automationId: string }>(createKey);
+  if (!claim.claimed) {
+    if (claim.status === "done" && claim.result) {
+      const { getSchedule } = await import("@/lib/platform/schedules");
+      const existing = await getSchedule(claim.result.automationId);
+      if (existing) return NextResponse.json({ automation: existing, schedule: existing, success: true, replayed: true });
+    }
+    return NextResponse.json({ error: "This automation is already being created. Please wait." }, { status: 409 });
+  }
+
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const { createSchedule } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
@@ -159,6 +179,7 @@ export async function POST(req: NextRequest) {
     signature: body.signature,
     signatureMessage: expectedMessage,
   });
+  await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
 }
 
