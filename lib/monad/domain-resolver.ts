@@ -47,7 +47,7 @@ const NNS_ABI = [
 const NAD_TLD = ".nad";
 const ACCEPTED_SUFFIXES = [".nad", ".nads"];
 
-/** Matches a single domain-shaped token, e.g. "alex.nads" or "alice.nad". */
+/** Matches a single domain-shaped token, e.g. "name.nads" or "name.nad". */
 const DOMAIN_TOKEN_RE = /\b([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.(nads?)\b/i;
 
 export function isDomainName(text: string): boolean {
