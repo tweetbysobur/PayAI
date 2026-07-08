@@ -18,12 +18,12 @@ const EXAMPLES = [
 ];
 
 /** What Ask PayAI can do — surfaced so the bar advertises its full range.
- *  Send/Schedule are prefill templates (they stop where you type the
+ *  Send/Automate are prefill templates (they stop where you type the
  *  recipient), so the bar never shows a fake example name. */
 const CAPABILITIES: { verb: string; example: string }[] = [
   { verb: "Swap", example: "swap 1 MON to USDC" },
   { verb: "Send", example: "send 5 MON to " },
-  { verb: "Schedule", example: "schedule 10 USDC to " },
+  { verb: "Automate", example: "automate 10 USDC to " },
   { verb: "Invoice", example: "create invoice for 50 USDC" },
   { verb: "Balance", example: "what's my balance" },
   { verb: "History", example: "show today's transactions" },
@@ -136,7 +136,7 @@ export function CommandBar() {
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
                   onKeyDown={onInputKey}
                   enterKeyHint="send"
-                  placeholder="Ask PayAI to send, swap, schedule…"
+                  placeholder="Ask PayAI to send, swap, or prefill an automation..."
                   className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
                 {c.intent.trim() ? (
@@ -324,10 +324,10 @@ export function CommandBar() {
                 {c.info && !c.loading && c.info.query === "scheduled" && (
                   <div className="rounded-xl border border-success/30 bg-success/10 p-4">
                     <div className="flex items-center gap-2 text-sm font-semibold text-success">
-                      <CheckCircle2 size={16} /> Payment scheduled
+                      <CheckCircle2 size={16} /> Automation created
                     </div>
                     <p className="mt-1.5 text-sm text-foreground">{c.info.scheduleSummary}</p>
-                    <a href="/dashboard/scheduled" className="mt-2.5 inline-block text-xs text-primary hover:underline">Manage scheduled payments →</a>
+                    <a href="/dashboard/automations" className="mt-2.5 inline-block text-xs text-primary hover:underline">Manage automations →</a>
                   </div>
                 )}
 
@@ -340,7 +340,7 @@ export function CommandBar() {
                           ? `Your wallet holds ${c.info.balance.mon.toFixed(4)} MON and ${c.info.balance.usdc.toFixed(2)} USDC.`
                           : c.info.error ?? "Couldn't read your balance."
                         : c.info.query === "scheduled_payment"
-                          ? c.info.error ?? "Scheduled payments aren't available yet."
+                          ? c.info.error ?? "Payment Automations are available in the Automations dashboard."
                           : c.info.compliance
                             ? `${Math.round(c.info.compliance.approvalRate * 100)}% approval rate across your payments.`
                             : "No data yet."}

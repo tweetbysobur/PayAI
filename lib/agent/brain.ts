@@ -73,7 +73,7 @@ export function detectSwapIntent(text: string): SwapIntent | null {
   return { fromToken: from, toToken: to, amount: Number.isFinite(amount as number) ? amount : null };
 }
 
-/** A parsed scheduled payment: the payment fields + when/how often it fires. */
+/** A parsed payment automation draft: the payment fields + when/how often it fires. */
 export interface ScheduleParse {
   amount: number | null;
   token: Token;

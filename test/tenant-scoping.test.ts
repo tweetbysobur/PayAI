@@ -4,7 +4,7 @@ import { createLink, listLinks } from "@/lib/platform/store";
 
 // Regression coverage for a real privacy bug: on the shared demo tenant, every
 // wallet-only user (no merchant account) resolves to the SAME merchantId, so
-// scheduled payments and payment links must be scoped by the creating wallet
+// payment automations and payment links must be scoped by the creating wallet
 // or one user can see/cancel another user's real data. No KV env is set in
 // the test runner, so these exercise the in-memory fallback path.
 
@@ -12,8 +12,8 @@ const TENANT = "demo";
 const ALICE = "0x1111111111111111111111111111111111111111";
 const BOB = "0x2222222222222222222222222222222222222222";
 
-describe("scheduled payments — wallet scoping on the shared tenant", () => {
-  it("a wallet only sees its own schedules, not another wallet's", async () => {
+describe("payment automations — wallet scoping on the shared tenant", () => {
+  it("a wallet only sees its own automations, not another wallet's", async () => {
     await createSchedule(TENANT, { amount: 10, token: "USDC", recipient: "0xabc", cadence: "weekly", nextRun: Date.now() + 1000, sender: ALICE });
     await createSchedule(TENANT, { amount: 20, token: "USDC", recipient: "0xdef", cadence: "weekly", nextRun: Date.now() + 1000, sender: BOB });
 
@@ -31,7 +31,7 @@ describe("scheduled payments — wallet scoping on the shared tenant", () => {
     expect(anon).toHaveLength(0);
   });
 
-  it("a wallet cannot cancel another wallet's schedule", async () => {
+  it("a wallet cannot cancel another wallet's automation", async () => {
     const row = await createSchedule(TENANT, { amount: 15, token: "USDC", recipient: "0xbbb", cadence: "monthly", nextRun: Date.now() + 1000, sender: ALICE });
     const asBob = await cancelSchedule(TENANT, row.id, { sender: BOB });
     expect(asBob).toBeNull();

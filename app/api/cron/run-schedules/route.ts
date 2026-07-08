@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * GET /api/cron/run-schedules — fires every due scheduled payment through the
+ * GET /api/cron/run-schedules — fires every due payment automation through the
  * custodial agent path (the agent wallet signs via PaymentExecutor, bounded by
  * the on-chain per-tx + daily caps). Triggered by Vercel Cron.
  *
@@ -21,10 +21,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { dueSchedules, recordRun } = await import("@/lib/platform/schedules");
+  const { dueSchedules, dueForReminder, markReminded, recordRun } = await import("@/lib/platform/schedules");
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { recordTx } = await import("@/lib/platform/store");
+
+  // "Upcoming execution" reminders — anything due within the next 24h that
+  // hasn't already been reminded for this specific occurrence. Runs before the
+  // due-execution loop so a user is notified ahead of time, not just after.
+  const REMINDER_WINDOW_MS = 24 * 60 * 60 * 1000;
+  const upcoming = await dueForReminder(REMINDER_WINDOW_MS);
+  for (const s of upcoming) {
+    await markReminded(s.id);
+  }
 
   // Warm the sanctions list once before screening this batch of due payments.
   await ensureSanctionsLoaded();
@@ -39,7 +48,7 @@ export async function GET(req: NextRequest) {
         amount: s.amount,
         token: s.token as PaymentRequest["token"],
         recipient: s.recipient,
-        purpose: s.memo ?? "Scheduled payment",
+        purpose: s.purpose ?? s.memo ?? "Payment Automation",
         network: "monad",
         requestId: `sch:${s.id}:${dueSlot}`,
       };
@@ -57,7 +66,7 @@ export async function GET(req: NextRequest) {
         await recordTx(s.merchantId, {
           decision: decision as "blocked" | "needs_review", action: "send_payment", amount: s.amount, token: s.token,
           recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
-          summary: `Scheduled: ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
+          summary: `Automation: ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
         });
         results.push({ id: s.id, outcome: decision });
         continue;
@@ -70,7 +79,7 @@ export async function GET(req: NextRequest) {
         decision: ok ? "executed" : "error", action: "send_payment", amount: s.amount, token: s.token,
         recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
         txHash: tx.txHash, explorerUrl: tx.explorerUrl,
-        summary: `Scheduled: sent ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
+        summary: `Automation: sent ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
       });
       results.push({ id: s.id, outcome: ok ? "executed" : "error", txHash: tx.txHash });
     } catch (e) {

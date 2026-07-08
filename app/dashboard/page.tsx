@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus,
-  ScrollText, Store, Wallet, Copy, Check, CalendarClock, TrendingUp, Coins, Activity, Sparkles,
+  ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles,
 } from "lucide-react";
 import { Badge, Card, CountUp } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
@@ -25,7 +25,7 @@ interface Compliance { approved: number; rejected: number; review: number; block
 interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: number; total: number }; compliance: Compliance }
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 interface Onchain { configured: boolean; stats: { payments: number; volume: number; approved: number; rejected: number; requests: number } | null }
-interface Schedule { id: string; amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number; status: string }
+interface Automation { id: string; amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number; status: string; purpose?: string }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -43,7 +43,7 @@ export default function Overview() {
   const [a, setA] = useState<Analytics | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
-  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [automations, setAutomations] = useState<Automation[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
   const [copied, setCopied] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
@@ -57,7 +57,7 @@ export default function Overview() {
     fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {});
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
-    fetch(`/api/schedule${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setSchedules(j.schedules ?? [])).catch(() => {});
+    fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {});
     fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
   }, [wallet.address]);
@@ -100,7 +100,7 @@ export default function Overview() {
     return { largest, topAsset, topDay, avg };
   }, [history]);
 
-  const upcoming = schedules.filter((s) => s.status === "upcoming");
+  const upcoming = automations.filter((s) => s.status === "active" || s.status === "scheduled" || s.status === "executing");
   const network = health?.wallet?.network ?? "Monad";
   const walletStatus = !wallet.address ? { label: "Not connected", tone: "neutral" as const } : wallet.isWrongNetwork ? { label: "Wrong network", tone: "warning" as const } : { label: "Active", tone: "success" as const };
 
@@ -248,7 +248,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      {/* AI insights + Scheduled preview */}
+      {/* AI insights + Automations preview */}
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Card title="AI insights">
           {insights ? (
@@ -269,17 +269,17 @@ export default function Overview() {
           ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments, PayAI surfaces patterns here." />}
         </Card>
 
-        <Card title="Scheduled payments" right={<Link href="/dashboard/scheduled" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
+        <Card title="Payment Automations" right={<Link href="/dashboard/automations" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
           {upcoming.length === 0 ? (
-            <EmptyHint icon={CalendarClock} title="Nothing scheduled" hint='Try "schedule 10 USDC to a .nad domain every Friday".' />
+            <EmptyHint icon={Repeat} title="No automations yet" hint="Create recurring or future-dated payments from the Automations dashboard." />
           ) : (
             <div className="space-y-2.5">
               {upcoming.slice(0, 3).map((s) => (
                 <div key={s.id} className="flex items-center justify-between rounded-lg border border-border bg-input/30 px-3 py-2.5">
                   <div className="flex items-center gap-2.5">
-                    <CalendarClock size={15} className="text-primary" />
+                    <Repeat size={15} className="text-primary" />
                     <div>
-                      <p className="text-sm text-foreground">{s.amount} {s.token} → {s.domain ?? short(s.recipient)}</p>
+                      <p className="text-sm text-foreground">{s.purpose ?? "Automation"} · {s.amount} {s.token}</p>
                       <p className="text-xs text-muted-foreground">{s.cadence} · {new Date(s.nextRun).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -296,7 +296,7 @@ export default function Overview() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { label: "Send Payment", sub: "Pay anyone instantly", icon: Send, href: "/dashboard/payments" },
-            { label: "Schedule", sub: "Recurring payments", icon: CalendarClock, href: "/dashboard/scheduled" },
+            { label: "Automations", sub: "Recurring payments", icon: Repeat, href: "/dashboard/automations" },
             { label: "Create Invoice", sub: "Request payments", icon: FileText, href: "/dashboard/invoices" },
             { label: "Add Recipient", sub: "Save contact", icon: UserPlus, href: "/dashboard/recipients" },
             { label: "Audit Logs", sub: "Check history", icon: ScrollText, href: "/dashboard/transactions" },

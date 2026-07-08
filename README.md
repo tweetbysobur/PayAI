@@ -61,7 +61,7 @@ risk, execution, and settlement all live in `lib/`.
 - Sends MON (native) and USDC (ERC-20)
 - Resolves `.nad` / `.nads` names through the Nad Name Service instead of raw addresses
 - Swaps MON ↔ USDC on-chain
-- Schedules recurring and future-dated payments (these run through a spend-capped agent
+- Creates Payment Automations for recurring and future-dated payments (these run through a spend-capped agent
   contract, since you're not around to sign each one — the caps are set on-chain)
 - Screens every payment: sanctions/denylist check, asset + network support, a
   travel-rule nudge on large transfers, and a risk score
@@ -79,10 +79,10 @@ Interactive payments are non-custodial. You connect your wallet, PayAI builds th
 transaction, you approve it. PayAI never sees your seed phrase and never holds a key for
 your funds.
 
-The one exception is scheduled/recurring payments. Those can't wait for you to click
+The one exception is Payment Automations. Those can't wait for you to click
 "approve" at 9am every Friday, so they go through an agent contract that can only spend
 within per-transaction and daily caps you set on-chain. It can't exceed those limits, and
-it can't touch anything you didn't schedule.
+it can't touch anything you didn't automate and confirm.
 
 ## Stack
 
@@ -112,7 +112,7 @@ To settle for real, set these in `.env.local`:
 PAYAI_MODE=monad                       # real on-chain instead of simulation
 MONAD_NETWORK=mainnet
 MONAD_MAINNET_RPC=https://rpc.monad.xyz
-MONAD_AGENT_PRIVATE_KEY=0x...          # server-side signer for the scheduled/agent path
+MONAD_AGENT_PRIVATE_KEY=0x...          # server-side signer for the automation/agent path
 MONAD_MAINNET_USDC=0x...               # canonical USDC on Monad Mainnet
 MONAD_MAINNET_PAYMENT_EXECUTOR=0x...   # deployed executor
 MONAD_MAINNET_MERCHANT_REGISTRY=0x...
@@ -154,14 +154,14 @@ straight to the executor on the Monad explorer from its footer.
 
 ```
 app/
-  api/            route handlers — agent pipeline, health, onchain, swap, schedule…
+  api/            route handlers — agent pipeline, health, onchain, swap, automations…
   dashboard/      the authenticated app (payments, transactions, analytics, compliance)
   page.tsx        landing page
 lib/
   agent/          intent parsing, guardrails, confidence
   payment/        validation + risk engines, execution providers, payment types
   monad/          chain config, wallet, executor, swap, domain resolution
-  platform/       auth, tenancy, store, analytics, idempotency, schedules
+  platform/       auth, tenancy, store, analytics, idempotency, automations
   hooks/          React hooks
   wallet/         EIP-1193 browser wallet connection
 contracts/        Hardhat + Solidity

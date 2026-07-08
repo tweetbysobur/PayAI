@@ -30,7 +30,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck + test + build on every push/PR.
 lib/agent/      Intent engine — plain-English → structured PaymentRequest
 lib/payment/    engine.ts: runValidation(), assessRisk(), execute(); + types
 lib/monad/      chain config, wallet, contracts, swap, .nads resolution
-lib/platform/   auth, tenancy, store, analytics, idempotency, schedules
+lib/platform/   auth, tenancy, store, analytics, idempotency, automations
 app/            App Router — dashboard/, api/, landing page
 contracts/      PaymentExecutor + MerchantRegistry (Solidity, Hardhat)
 ```
@@ -42,7 +42,7 @@ funds move — safe for local dev) or `monad` (real on-chain). Production runs
 ## Conventions & guardrails
 
 - **Non-custodial.** Interactive payments are signed by the user's wallet.
-  Only scheduled payments use the capped server agent wallet. Never claim
+  Only Payment Automations use the capped server agent wallet. Never claim
   blanket "non-custodial" without that nuance.
 - **No fabricated data.** Never show mock balances, fake stats, or another
   user's data on public surfaces. Empty states use "—", never invented numbers.

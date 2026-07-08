@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 
 interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
+interface AutomationEventRow {
+  id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string;
+}
 
 export interface NotifItem {
   id: string;
@@ -22,7 +25,7 @@ const LABEL: Record<string, string> = {
   blocked: "Payment blocked",
   refused: "Payment refused",
   // Was missing entirely — an execution error (RPC failure, agent-wallet
-  // balance, a scheduled payment auto-pausing after repeated failures) is
+  // balance, an automation auto-pausing after repeated failures) is
   // exactly the outcome a user most needs to be told about, and it was
   // silently dropped from notifications because this map had no entry for it.
   error: "Payment failed",
@@ -32,23 +35,22 @@ export function useNotifications(walletAddress?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
 
   useEffect(() => {
-    // Notifications are the user's OWN payment outcomes — scope the history
-    // fetch to the connected wallet (the server returns nothing without it, by
-    // design), so the bell reflects your activity, not an empty/shared feed.
+    // Notifications are the user's OWN activity — scope every fetch to the
+    // connected wallet (the server returns nothing without it, by design), so
+    // the bell reflects your activity, not an empty/shared feed.
     if (!walletAddress) { setNotifications([]); return; }
     let cancelled = false;
     function load() {
       if (document.hidden) return;
-      fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress }) })
+      const seenAt = Number(localStorage.getItem(SEEN_KEY) ?? 0);
+
+      const payments = fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress }) })
         .then((r) => r.json())
         .then((j) => {
-          if (cancelled) return;
           const rows = (j.history ?? []) as HistoryRow[];
-          const seenAt = Number(localStorage.getItem(SEEN_KEY) ?? 0);
-          const fresh: NotifItem[] = rows
+          return rows
             .filter((h) => h.at > seenAt && LABEL[h.decision])
-            .slice(0, 8)
-            .map((h) => ({
+            .map((h): NotifItem => ({
               id: h.txHash ?? `${h.at}-${h.decision}`,
               decision: h.decision,
               title: LABEL[h.decision],
@@ -56,9 +58,32 @@ export function useNotifications(walletAddress?: string | null) {
               at: h.at,
               explorerUrl: h.explorerUrl,
             }));
-          setNotifications(fresh);
         })
-        .catch(() => {});
+        .catch(() => [] as NotifItem[]);
+
+      // Payment Automation lifecycle events — a real, server-timestamped log
+      // (lib/platform/automationEvents.ts), not inferred from current status.
+      const automations = fetch(`/api/automation-events?wallet=${walletAddress}`)
+        .then((r) => r.json())
+        .then((j) => {
+          const rows = (j.events ?? []) as AutomationEventRow[];
+          return rows
+            .filter((e) => e.at > seenAt)
+            .map((e): NotifItem => ({
+              id: e.id,
+              decision: `automation_${e.type}`,
+              title: e.title,
+              detail: e.detail,
+              at: e.at,
+              explorerUrl: e.explorerUrl,
+            }));
+        })
+        .catch(() => [] as NotifItem[]);
+
+      Promise.all([payments, automations]).then(([fresh, automationFresh]) => {
+        if (cancelled) return;
+        setNotifications([...fresh, ...automationFresh].sort((a, b) => b.at - a.at).slice(0, 10));
+      });
     }
     load();
     const t = setInterval(load, 20000);

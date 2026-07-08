@@ -50,7 +50,7 @@ export default function OgImage() {
             <div>typing what you want.</div>
           </div>
           <div style={{ color: "#9aa3b2", fontSize: "32px", lineHeight: 1.3, maxWidth: "900px" }}>
-            Send, swap, and schedule payments just by describing them.
+            Send, swap, and automate payments on Monad.
           </div>
         </div>
 
