@@ -71,9 +71,7 @@ export interface Onchain {
 }
 export interface InfoResult {
   decision: "info";
-  query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment" | "scheduled";
-  /** Human summary of a just-created automation, e.g. "10 USDC to alex.nads, every Friday — next Jul 3." */
-  scheduleSummary?: string;
+  query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
   count?: number;
   history?: { at: number; decision: string; summary: string; amount: number | null; token: string; txHash?: string; explorerUrl?: string }[];
   compliance?: { approved: number; rejected: number; review: number; blocked: number; approvalRate: number };
@@ -452,15 +450,16 @@ export function useAgentConsole() {
         setErr(json.error || "Couldn't create the automation.");
         return;
       }
-      if (decision === "scheduled") {
-        const s = (json as { schedule?: { amount: number; token: string; domain?: string | null; recipient: string; cadence: string; nextRun: number } }).schedule;
-        const cadence = s?.cadence === "once" ? "one-time" : s?.cadence;
-        const when = s ? new Date(s.nextRun).toLocaleString() : "";
-        setInfo({
-          decision: "info", query: "scheduled",
-          scheduleSummary: s ? `${s.amount} ${s.token} to ${s.domain ?? s.recipient.slice(0, 6) + "…" + s.recipient.slice(-4)} · ${cadence} · first run ${when}` : "Automation created.",
-        });
-        loadOnchain();
+      if (decision === "automation_prefill") {
+        // The AI never creates a Payment Automation on its own — it hands the
+        // fully-resolved fields to the real dashboard creator, which still
+        // requires one wallet signature before anything goes live. Stash the
+        // draft and send the user there instead of faking a "done" state here.
+        const prefill = (json as { prefill?: unknown }).prefill;
+        if (prefill && typeof window !== "undefined") {
+          sessionStorage.setItem("payai_automation_prefill", JSON.stringify(prefill));
+          window.location.href = "/dashboard/automations";
+        }
         return;
       }
       if (decision === "swap_ready" && json.swap) {

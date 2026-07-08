@@ -90,7 +90,7 @@ export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatorOpen, setCreatorOpen] = useState(false);
-  const [duplicateSeed, setDuplicateSeed] = useState<Automation | null>(null);
+  const [duplicateSeed, setDuplicateSeed] = useState<AutomationSeed | null>(null);
   const [viewing, setViewing] = useState<Automation | null>(null);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -104,6 +104,22 @@ export default function AutomationsPage() {
   }, [wallet.address]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Ask PayAI can parse and resolve a Payment Automation draft, but it can
+  // never create one itself — it hands the resolved fields here as a prefill
+  // (lib/hooks/useAgentConsole.ts) and the user still has to review and sign
+  // through this same wizard, exactly like a manual creation.
+  useEffect(() => {
+    const raw = sessionStorage.getItem("payai_automation_prefill");
+    if (!raw) return;
+    sessionStorage.removeItem("payai_automation_prefill");
+    try {
+      setDuplicateSeed(JSON.parse(raw) as AutomationSeed);
+      setCreatorOpen(true);
+    } catch {
+      /* malformed draft — ignore, user can still create manually */
+    }
+  }, []);
 
   async function action(id: string, actionName: "pause" | "resume" | "cancel" | "delete") {
     setBusy(id);
@@ -426,7 +442,12 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
   );
 }
 
-function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: Automation | null; onClose: () => void; onCreated: () => void }) {
+/** Everything the creator wizard actually pre-fills from — a real Duplicate
+ *  passes the full Automation; an AI-parsed draft passes only the subset it
+ *  resolved (recipient/amount/asset/cadence/time), never a purpose or id. */
+type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">>;
+
+function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: AutomationSeed | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
   const { toast } = useToast();
@@ -457,18 +478,25 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     if (!open) return;
     setStep(1); setRecipientError(null);
     if (seed) {
-      // Duplicate: pre-fill everything from the source automation, but the
-      // recipient still goes through the same live re-verification as a fresh
-      // entry — never trust a stale resolution silently.
-      setRecipientInput(seed.domain ?? seed.recipient);
+      // Pre-fill from either a duplicated automation or an AI-parsed draft —
+      // either way, the recipient still goes through the same live
+      // re-verification as a fresh entry; nothing here is trusted blindly,
+      // and nothing is created until the user reviews and signs below.
+      if (seed.domain || seed.recipient) setRecipientInput(seed.domain ?? seed.recipient ?? "");
       setResolved(null);
-      setAsset(seed.token === "USDC" ? "USDC" : "MON");
-      setAmount(String(seed.amount));
-      setCadence(seed.cadence);
-      setIntervalCount(String(seed.intervalCount ?? 1));
-      setIntervalUnit(seed.intervalUnit ?? "weeks");
-      setPurpose(PURPOSES.includes(seed.purpose ?? "") ? (seed.purpose as string) : "Other");
-      setCustomPurpose(PURPOSES.includes(seed.purpose ?? "") ? "" : (seed.purpose ?? seed.memo ?? ""));
+      if (seed.token) setAsset(seed.token === "USDC" ? "USDC" : "MON");
+      if (seed.amount != null) setAmount(String(seed.amount));
+      if (seed.cadence) setCadence(seed.cadence);
+      if (seed.intervalCount != null) setIntervalCount(String(seed.intervalCount));
+      if (seed.intervalUnit) setIntervalUnit(seed.intervalUnit);
+      if (seed.nextRun) {
+        const d = new Date(seed.nextRun);
+        setDate(d.toISOString().slice(0, 10));
+        setTime(d.toTimeString().slice(0, 5));
+      }
+      const seedPurpose = seed.purpose ?? seed.memo;
+      setPurpose(seedPurpose && PURPOSES.includes(seedPurpose) ? seedPurpose : "Other");
+      setCustomPurpose(seedPurpose && PURPOSES.includes(seedPurpose) ? "" : (seedPurpose ?? ""));
     } else {
       setRecipientInput(""); setResolved(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
     }
