@@ -116,6 +116,57 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     ).to.be.revertedWith("not agent");
   });
 
+  describe("executePaymentFrom (Wallet Automation — pull from user)", () => {
+    // `outsider` plays the authorizing user here: they hold USDC and approve
+    // the executor, then the agent pulls from them to the merchant.
+    beforeEach(async () => {
+      await usdc.mint(outsider.address, 500_000000n);
+      await usdc.connect(outsider).approve(await executor.getAddress(), 500_000000n);
+    });
+
+    it("pulls funds from the approving user, not the agent", async () => {
+      const tokenAddr = await usdc.getAddress();
+      const agentBefore = await usdc.balanceOf(agent.address);
+      await expect(
+        executor.connect(agent).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 7, aiHash, ref, reqId("wf-1")),
+      ).to.emit(executor, "PaymentExecuted");
+      expect(await usdc.balanceOf(merchant.address)).to.equal(AMT);
+      // agent's own balance untouched — the user funded it.
+      expect(await usdc.balanceOf(agent.address)).to.equal(agentBefore);
+    });
+
+    it("only an agent can trigger it", async () => {
+      const tokenAddr = await usdc.getAddress();
+      await expect(
+        executor.connect(outsider).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("wf-x")),
+      ).to.be.revertedWith("not agent");
+    });
+
+    it("is idempotent on requestId", async () => {
+      const tokenAddr = await usdc.getAddress();
+      await executor.connect(agent).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("wf-dup"));
+      await expect(
+        executor.connect(agent).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("wf-dup")),
+      ).to.be.revertedWith("duplicate requestId");
+    });
+
+    it("reverts if the user has not approved enough", async () => {
+      const tokenAddr = await usdc.getAddress();
+      await usdc.connect(outsider).approve(await executor.getAddress(), 0n);
+      await expect(
+        executor.connect(agent).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("wf-noallow")),
+      ).to.be.reverted;
+    });
+
+    it("still enforces the per-tx cap", async () => {
+      const tokenAddr = await usdc.getAddress();
+      await executor.connect(owner).setMaxTxAmount(40_000000n);
+      await expect(
+        executor.connect(agent).executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("wf-cap")),
+      ).to.be.revertedWith("exceeds max tx amount");
+    });
+  });
+
   describe("idempotency", () => {
     it("rejects a duplicate requestId (API retry / double-click)", async () => {
       const tokenAddr = await usdc.getAddress();

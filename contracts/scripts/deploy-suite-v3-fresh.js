@@ -74,14 +74,21 @@ async function main() {
   const executorAddr = await executor.getAddress();
   console.log("    PaymentExecutor: ", executorAddr);
 
+  console.log("\n3/5 Deploying AutomationVault (Reserved Funds mode)…");
+  const Vault = await hre.ethers.getContractFactory("AutomationVault");
+  const vault = await Vault.deploy(ownerAddr, agentAddr, { gasLimit: 1_800_000 });
+  await vault.waitForDeployment();
+  const vaultAddr = await vault.getAddress();
+  console.log("    AutomationVault: ", vaultAddr);
+
   // Authorize the executor as recorder NOW, while the deployer still owns the
   // registry — this is what removes any need for a post-deploy owner call.
-  console.log("\n3/4 Authorizing executor as registry recorder (deployer-signed)…");
+  console.log("\n4/5 Authorizing executor as registry recorder (deployer-signed)…");
   let tx = await registry.setRecorder(executorAddr, true, { gasLimit: 200_000 });
   await tx.wait();
   console.log("    done.");
 
-  console.log("\n4/4 Handing registry ownership to the new cold wallet…");
+  console.log("\n5/5 Handing registry ownership to the new cold wallet…");
   tx = await registry.setManager(ownerAddr, true, { gasLimit: 100_000 });
   await tx.wait();
   tx = await registry.transferOwnership(ownerAddr, { gasLimit: 100_000 });
@@ -89,11 +96,10 @@ async function main() {
   console.log("    done.");
 
   console.log("\n✅ Fresh suite deployed and fully wired — no cold-wallet action required.");
-  console.log("\nSend me these two addresses and I'll update Vercel + redeploy the app:");
+  console.log("\nSend me these three addresses and I'll update Vercel + redeploy the app:");
   console.log(`MONAD_MAINNET_MERCHANT_REGISTRY=${registryAddr}`);
   console.log(`MONAD_MAINNET_PAYMENT_EXECUTOR=${executorAddr}`);
-  console.log("\n(Optional, later, from the new cold wallet only — sets the USDC per-tx cap;");
-  console.log(` native MON caps are already live. PaymentExecutor.setMaxTxAmount(${MAX_TX_AMOUNT}).)`);
+  console.log(`MONAD_MAINNET_AUTOMATION_VAULT=${vaultAddr}`);
 
   const fs = require("fs");
   const path = require("path");
@@ -105,6 +111,7 @@ async function main() {
         chainId: Number(hre.network.config.chainId),
         merchantRegistry: registryAddr,
         paymentExecutor: executorAddr,
+        automationVault: vaultAddr,
         owner: ownerAddr,
         agent: agentAddr,
         dailyCap: DAILY_CAP.toString(),
