@@ -255,6 +255,44 @@ contract PaymentExecutor is IPaymentExecutor {
         id = _recordPayment(merchant, token, amount, riskScore, aiDecisionHash, ref, requestId);
     }
 
+    /**
+     * Wallet Automation (non-custodial) path: pull the ERC-20 from the
+     * AUTHORIZING USER (`from`) — who has approved this contract for at least
+     * `amount` — straight to the merchant. The agent only triggers and pays
+     * gas; it never holds or routes the user's funds, and can never redirect
+     * them (recipient is fixed by the call, and `from` must have approved).
+     * Native MON in this mode is handled off-chain by wrapping to WMON first,
+     * so it arrives here as a standard ERC-20 transferFrom.
+     *
+     * Same caps, same requestId idempotency, same risk gate as executePayment.
+     * The on-chain ERC-20 Transfer event (from → merchant) is itself the
+     * audit record of who actually paid.
+     */
+    function executePaymentFrom(
+        address from,
+        address merchant,
+        address token,
+        uint256 amount,
+        uint16 riskScore,
+        bytes32 aiDecisionHash,
+        bytes32 ref,
+        bytes32 requestId
+    ) external onlyAgent nonReentrant returns (uint256 id) {
+        require(from != address(0), "zero from");
+        require(merchant != address(0), "zero merchant");
+        require(amount > 0, "zero amount");
+        require(riskScore <= 100, "risk>100");
+
+        _claimRequestId(requestId);
+        _enforceLimits(msg.sender, merchant, amount, false);
+
+        // Pull from the user (who approved this contract) directly to the merchant.
+        bool ok = IERC20(token).transferFrom(from, merchant, amount);
+        require(ok, "transfer failed");
+
+        id = _recordPayment(merchant, token, amount, riskScore, aiDecisionHash, ref, requestId);
+    }
+
     /* ── Execution: native MON ──────────────────────────────────────────── */
 
     /// @inheritdoc IPaymentExecutor
