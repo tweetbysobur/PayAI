@@ -21,8 +21,9 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     registry = await Registry.deploy();
 
     const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
-    // 0 = unlimited daily cap, owner/agent are distinct addresses (the whole point).
-    executor = await Executor.deploy(await registry.getAddress(), 0n, owner.address, agent.address, 0n, 0n);
+    // 0 = unlimited caps, owner/agent distinct (the whole point).
+    // Args: (registry, dailyCapUsdc, owner, agent, maxTxUsdc, dailyCapNative, maxTxNative)
+    executor = await Executor.deploy(await registry.getAddress(), 0n, owner.address, agent.address, 0n, 0n, 0n);
 
     // Wire roles: executor may record volume on the registry.
     await registry.setRecorder(await executor.getAddress(), true);
@@ -50,7 +51,7 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     it("rejects deploying with owner === agent", async () => {
       const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
       await expect(
-        Executor.deploy(await registry.getAddress(), 0n, owner.address, owner.address, 0n, 0n),
+        Executor.deploy(await registry.getAddress(), 0n, owner.address, owner.address, 0n, 0n, 0n),
       ).to.be.revertedWith("owner and agent must differ");
     });
 
@@ -168,6 +169,22 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     it("only the owner can change limits", async () => {
       await expect(executor.connect(agent).setMaxTxAmount(1n)).to.be.revertedWith("not owner");
       await expect(executor.connect(agent).setMerchantMaxTx(merchant.address, 1n)).to.be.revertedWith("not owner");
+    });
+
+    it("enforces a USDC per-tx cap set at DEPLOY time (no owner call needed)", async () => {
+      // Fresh executor with a 40 USDC per-tx cap baked into the constructor.
+      const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
+      const ex2 = await Executor.deploy(await registry.getAddress(), 0n, owner.address, agent.address, 40_000000n, 0n, 0n);
+      await registry.setRecorder(await ex2.getAddress(), true);
+      await usdc.connect(agent).approve(await ex2.getAddress(), 1000_000000n);
+      const tokenAddr = await usdc.getAddress();
+      expect(await ex2.maxTxAmount()).to.equal(40_000000n);
+      await expect(
+        ex2.connect(agent).executePayment(merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("deploy-cap-over")),
+      ).to.be.revertedWith("exceeds max tx amount");
+      // Under the deploy-time cap still works.
+      await ex2.connect(agent).executePayment(merchant.address, tokenAddr, 30_000000n, 0, aiHash, ref, reqId("deploy-cap-under"));
+      expect(await usdc.balanceOf(merchant.address)).to.equal(30_000000n);
     });
   });
 
