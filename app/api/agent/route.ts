@@ -142,20 +142,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 0a-bis. Payment Automation draft ("automate 10 USDC to alex.nads
+  // 0a-bis. Payment Automation draft ("automate 10 USDC to a .nad domain
   // every friday"). Creates a real automation that the cron runner fires through
   // the custodial agent path when due — it is NOT settled now. Validated up
   // front (amount cap, resolvable recipient) so a bad schedule never persists.
   const sched = parseScheduleIntent(text);
   if (sched) {
     if (sched.amount == null || sched.amount <= 0) {
-      return NextResponse.json({ decision: "schedule_error", error: "Tell me the amount for this automation, e.g. \"automate 10 USDC to alex.nads every Friday\".", success: false }, { status: 400 });
+      return NextResponse.json({ decision: "schedule_error", error: "Tell me the amount for this automation, e.g. \"automate 10 USDC to a .nad domain every Friday\".", success: false }, { status: 400 });
     }
     if (sched.amount > agentConfig.maxAmount) {
       return NextResponse.json({ decision: "schedule_error", error: `Amount ${sched.amount} exceeds the agent cap of ${agentConfig.maxAmount}.`, success: false }, { status: 422 });
     }
     if (!sched.recipient) {
-      return NextResponse.json({ decision: "schedule_error", error: "Who should this automation pay? Add a recipient, e.g. \"...to alex.nads\".", success: false }, { status: 400 });
+      return NextResponse.json({ decision: "schedule_error", error: "Who should this automation pay? Add a recipient — a wallet address or a .nad domain.", success: false }, { status: 400 });
     }
     if (sched.needsTime || sched.nextRun == null) {
       return NextResponse.json({ decision: "schedule_error", error: "When should it run? Add a time, e.g. \"every Friday\", \"tomorrow\", \"on 2026-07-01\", or \"in 3 days\".", success: false }, { status: 400 });
