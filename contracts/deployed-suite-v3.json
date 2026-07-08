@@ -1,0 +1,14 @@
+{
+  "network": "monad",
+  "chainId": 143,
+  "merchantRegistry": "0x89A42a8dCcB6219b068E636ad9953d5488cDa439",
+  "paymentExecutor": "0x990DdEc588Cb85B88A8d42d16B6a31FA66d7a8F7",
+  "owner": "0x1ff933c2Ba1425d40E5885727B17a79061785A47",
+  "agent": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "dailyCap": "1000000000",
+  "maxTxAmount": "100000000",
+  "dailyCapNative": "2000000000000000000000000",
+  "maxTxAmountNative": "1000000000000000000000000",
+  "deployer": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "deployedAt": "2026-07-08T17:27:56.873Z"
+}

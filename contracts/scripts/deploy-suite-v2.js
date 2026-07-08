@@ -13,8 +13,10 @@ const hre = require("hardhat");
  *   AGENT_ADDRESS             — dedicated hot wallet the app signs payments
  *                               with. Execution only, zero admin power.
  * Optional:
- *   DAILY_CAP        (base units, 6dp for USDC)  default 1,000 USDC
- *   MAX_TX_AMOUNT     (base units)                default 100 USDC
+ *   DAILY_CAP           (base units, 6dp for USDC)   default 1,000 USDC
+ *   MAX_TX_AMOUNT        (base units)                 default 100 USDC
+ *   DAILY_CAP_NATIVE    (wei, 18dp for MON)          default 1,000 MON
+ *   MAX_TX_AMOUNT_NATIVE (wei)                        default 100 MON
  */
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
@@ -46,17 +48,29 @@ async function main() {
   console.log("\n2/3 Deploying PaymentExecutor (owner/agent separated)…");
   const DAILY_CAP = BigInt(process.env.DAILY_CAP ?? "1000000000"); // 1,000 USDC
   const MAX_TX_AMOUNT = BigInt(process.env.MAX_TX_AMOUNT ?? "100000000"); // 100 USDC
-  console.log("    dailyCap:    ", DAILY_CAP.toString(), "base units");
-  console.log("    maxTxAmount: ", MAX_TX_AMOUNT.toString(), "base units");
+  // Native MON caps are a SEPARATE pair of fields (18 decimals vs USDC's 6) —
+  // reusing the USDC-denominated cap for native payments was the root cause
+  // of every real MON automation reverting with "exceeds max tx amount".
+  const DAILY_CAP_NATIVE = hre.ethers.parseEther(process.env.DAILY_CAP_NATIVE_MON ?? "1000"); // 1,000 MON
+  const MAX_TX_AMOUNT_NATIVE = hre.ethers.parseEther(process.env.MAX_TX_AMOUNT_NATIVE_MON ?? "100"); // 100 MON
+  console.log("    dailyCap:          ", DAILY_CAP.toString(), "base units (USDC)");
+  console.log("    maxTxAmount:       ", MAX_TX_AMOUNT.toString(), "base units (USDC)");
+  console.log("    dailyCapNative:    ", DAILY_CAP_NATIVE.toString(), "wei (MON)");
+  console.log("    maxTxAmountNative: ", MAX_TX_AMOUNT_NATIVE.toString(), "wei (MON)");
   const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
-  const executor = await Executor.deploy(registryAddr, DAILY_CAP, ownerAddr, agentAddr, { gasLimit: 3_200_000 });
+  const executor = await Executor.deploy(
+    registryAddr, DAILY_CAP, ownerAddr, agentAddr, DAILY_CAP_NATIVE, MAX_TX_AMOUNT_NATIVE,
+    { gasLimit: 3_200_000 },
+  );
   await executor.waitForDeployment();
   const executorAddr = await executor.getAddress();
   console.log("    PaymentExecutor: ", executorAddr);
 
-  // maxTxAmount isn't a constructor param (owner-only setter) — but the
-  // deployer isn't the owner anymore, so it can't be set here. The cold
-  // wallet must call setMaxTxAmount itself after deploy (see printed steps).
+  // maxTxAmount (the USDC-denominated one) isn't a constructor param
+  // (owner-only setter) — but the deployer isn't the owner anymore, so it
+  // can't be set here. The cold wallet must call setMaxTxAmount itself after
+  // deploy (see printed steps). The native caps ARE constructor params (set
+  // above) specifically so this class of bug can't recur for MON.
 
   // Authorize the executor as a recorder, and hand registry admin to the cold
   // wallet, BOTH while the deployer still holds owner rights — order matters,
@@ -97,6 +111,8 @@ async function main() {
         agent: agentAddr,
         dailyCap: DAILY_CAP.toString(),
         maxTxAmount: MAX_TX_AMOUNT.toString(),
+        dailyCapNative: DAILY_CAP_NATIVE.toString(),
+        maxTxAmountNative: MAX_TX_AMOUNT_NATIVE.toString(),
         deployer: deployer.address,
         deployedAt: new Date().toISOString(),
       },

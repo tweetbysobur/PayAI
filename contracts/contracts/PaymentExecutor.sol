@@ -55,6 +55,11 @@ contract PaymentExecutor is IPaymentExecutor {
     uint256 public rejectedCount;
 
     /* ── On-chain spend limits (defense-in-depth beyond app guardrails) ──── */
+    /// These apply to executePayment (ERC-20, e.g. USDC's 6 decimals). Kept
+    /// separate from the *Native fields below because a single shared cap
+    /// across token types with different decimals is meaningless — a limit
+    /// sized for 6-decimal USDC base units is either near-zero or effectively
+    /// unlimited when reused verbatim against 18-decimal native MON wei.
     /// Per-agent cap on total amount executed per UTC day (0 = unlimited).
     uint256 public dailyCap;
     /// Hard ceiling on any single payment, regardless of merchant (0 = unlimited).
@@ -64,6 +69,13 @@ contract PaymentExecutor is IPaymentExecutor {
     /// agent => day index (block.timestamp / 1 days) => amount spent that day.
     mapping(address => mapping(uint256 => uint256)) public spentPerDay;
 
+    /// Same shape as above, denominated in native MON wei (18 decimals) —
+    /// used by executePaymentNative instead of the ERC-20 fields.
+    uint256 public dailyCapNative;
+    uint256 public maxTxAmountNative;
+    mapping(address => uint256) public merchantMaxTxNative;
+    mapping(address => mapping(uint256 => uint256)) public spentPerDayNative;
+
     bool private _locked; // reentrancy mutex
 
     event AgentSet(address indexed agent, bool allowed);
@@ -71,6 +83,9 @@ contract PaymentExecutor is IPaymentExecutor {
     event DailyCapSet(uint256 cap);
     event MaxTxAmountSet(uint256 amount);
     event MerchantMaxTxSet(address indexed merchant, uint256 amount);
+    event DailyCapNativeSet(uint256 cap);
+    event MaxTxAmountNativeSet(uint256 amount);
+    event MerchantMaxTxNativeSet(address indexed merchant, uint256 amount);
     event OwnershipTransferred(address indexed from, address indexed to);
 
     modifier onlyOwner() {
@@ -90,10 +105,19 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /// @param registry MerchantRegistry address.
-    /// @param cap Initial per-agent daily spend cap (base units, 0 = unlimited).
+    /// @param cap Initial per-agent daily spend cap, ERC-20 base units (0 = unlimited).
     /// @param initialOwner Cold wallet / multisig — admin only, never a signer for payments.
     /// @param initialAgent Dedicated hot wallet — execution only, no admin power.
-    constructor(address registry, uint256 cap, address initialOwner, address initialAgent) {
+    /// @param capNative Initial per-agent daily spend cap, native MON wei (0 = unlimited).
+    /// @param maxTxNative Initial per-payment ceiling, native MON wei (0 = unlimited).
+    constructor(
+        address registry,
+        uint256 cap,
+        address initialOwner,
+        address initialAgent,
+        uint256 capNative,
+        uint256 maxTxNative
+    ) {
         require(initialOwner != address(0), "zero owner");
         require(initialAgent != address(0), "zero agent");
         require(initialOwner != initialAgent, "owner and agent must differ");
@@ -102,9 +126,13 @@ contract PaymentExecutor is IPaymentExecutor {
         isAgent[initialAgent] = true;
         merchantRegistry = IMerchantRegistry(registry);
         dailyCap = cap;
+        dailyCapNative = capNative;
+        maxTxAmountNative = maxTxNative;
         emit OwnershipTransferred(address(0), initialOwner);
         emit AgentSet(initialAgent, true);
         emit DailyCapSet(cap);
+        emit DailyCapNativeSet(capNative);
+        emit MaxTxAmountNativeSet(maxTxNative);
     }
 
     /* ── Admin (owner only — cold wallet / multisig) ───────────────────────── */
@@ -147,6 +175,21 @@ contract PaymentExecutor is IPaymentExecutor {
         emit MerchantMaxTxSet(merchant, amount);
     }
 
+    function setDailyCapNative(uint256 cap) external onlyOwner {
+        dailyCapNative = cap;
+        emit DailyCapNativeSet(cap);
+    }
+
+    function setMaxTxAmountNative(uint256 amount) external onlyOwner {
+        maxTxAmountNative = amount;
+        emit MaxTxAmountNativeSet(amount);
+    }
+
+    function setMerchantMaxTxNative(address merchant, uint256 amount) external onlyOwner {
+        merchantMaxTxNative[merchant] = amount;
+        emit MerchantMaxTxNativeSet(merchant, amount);
+    }
+
     function transferOwnership(address to) external onlyOwner {
         require(to != address(0), "zero addr");
         require(!isAgent[to], "owner cannot be agent");
@@ -155,15 +198,24 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /* ── Limit checks ───────────────────────────────────────────────────── */
-    function _enforceLimits(address agent, address merchant, uint256 amount) private {
-        uint256 perTxCap = merchantMaxTx[merchant] > 0 ? merchantMaxTx[merchant] : maxTxAmount;
+    function _enforceLimits(address agent, address merchant, uint256 amount, bool isNative) private {
+        uint256 perTxCap = isNative
+            ? (merchantMaxTxNative[merchant] > 0 ? merchantMaxTxNative[merchant] : maxTxAmountNative)
+            : (merchantMaxTx[merchant] > 0 ? merchantMaxTx[merchant] : maxTxAmount);
         if (perTxCap > 0) require(amount <= perTxCap, "exceeds max tx amount");
 
-        if (dailyCap > 0) {
+        uint256 cap = isNative ? dailyCapNative : dailyCap;
+        if (cap > 0) {
             uint256 day = block.timestamp / 1 days;
-            uint256 spent = spentPerDay[agent][day] + amount;
-            require(spent <= dailyCap, "daily cap exceeded");
-            spentPerDay[agent][day] = spent;
+            if (isNative) {
+                uint256 spent = spentPerDayNative[agent][day] + amount;
+                require(spent <= cap, "daily cap exceeded");
+                spentPerDayNative[agent][day] = spent;
+            } else {
+                uint256 spent = spentPerDay[agent][day] + amount;
+                require(spent <= cap, "daily cap exceeded");
+                spentPerDay[agent][day] = spent;
+            }
         }
     }
 
@@ -190,7 +242,7 @@ contract PaymentExecutor is IPaymentExecutor {
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, amount);
+        _enforceLimits(msg.sender, merchant, amount, false);
 
         // Pull stablecoin from the agent and forward to the merchant.
         bool ok = IERC20(token).transferFrom(msg.sender, merchant, amount);
@@ -214,7 +266,7 @@ contract PaymentExecutor is IPaymentExecutor {
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, msg.value);
+        _enforceLimits(msg.sender, merchant, msg.value, true);
 
         (bool sent, ) = merchant.call{value: msg.value}("");
         require(sent, "native transfer failed");

@@ -22,7 +22,7 @@ describe("PaymentExecutor + MerchantRegistry", function () {
 
     const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
     // 0 = unlimited daily cap, owner/agent are distinct addresses (the whole point).
-    executor = await Executor.deploy(await registry.getAddress(), 0n, owner.address, agent.address);
+    executor = await Executor.deploy(await registry.getAddress(), 0n, owner.address, agent.address, 0n, 0n);
 
     // Wire roles: executor may record volume on the registry.
     await registry.setRecorder(await executor.getAddress(), true);
@@ -50,7 +50,7 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     it("rejects deploying with owner === agent", async () => {
       const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
       await expect(
-        Executor.deploy(await registry.getAddress(), 0n, owner.address, owner.address),
+        Executor.deploy(await registry.getAddress(), 0n, owner.address, owner.address, 0n, 0n),
       ).to.be.revertedWith("owner and agent must differ");
     });
 
@@ -205,6 +205,53 @@ describe("PaymentExecutor + MerchantRegistry", function () {
           value: hre.ethers.parseEther("1"),
         }),
       ).to.be.revertedWith("not agent");
+    });
+
+    it("enforces maxTxAmountNative independently of the ERC-20 maxTxAmount", async () => {
+      // Regression test for the production bug: a maxTxAmount sized for 6dp
+      // USDC (e.g. 100e6) must never reject a native MON payment, and a
+      // maxTxAmountNative sized for 18dp MON must never affect USDC.
+      await executor.connect(owner).setMaxTxAmount(100_000000n); // 100 USDC — tiny in wei terms
+      await executor.connect(owner).setMaxTxAmountNative(hre.ethers.parseEther("5")); // 5 MON cap
+
+      // 3 MON native — well under the 5 MON native cap, must succeed even
+      // though 3e18 vastly exceeds the unrelated 100e6 USDC-denominated cap.
+      await expect(
+        executor.connect(agent).executePaymentNative(merchant.address, 0, aiHash, ref, reqId("native-under-cap"), {
+          value: hre.ethers.parseEther("3"),
+        }),
+      ).to.not.be.reverted;
+
+      // 10 MON native — over the 5 MON native cap — must revert.
+      await expect(
+        executor.connect(agent).executePaymentNative(merchant.address, 0, aiHash, ref, reqId("native-over-cap"), {
+          value: hre.ethers.parseEther("10"),
+        }),
+      ).to.be.revertedWith("exceeds max tx amount");
+
+      // The unrelated ERC-20 cap is untouched by the native-specific setter.
+      const tokenAddr = await usdc.getAddress();
+      await expect(
+        executor.connect(agent).executePayment(merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("usdc-under-cap")),
+      ).to.not.be.reverted;
+    });
+
+    it("enforces dailyCapNative independently of the ERC-20 dailyCap", async () => {
+      await executor.connect(owner).setDailyCapNative(hre.ethers.parseEther("4"));
+      await executor.connect(agent).executePaymentNative(merchant.address, 0, aiHash, ref, reqId("native-day-1"), {
+        value: hre.ethers.parseEther("3"),
+      });
+      await expect(
+        executor.connect(agent).executePaymentNative(merchant.address, 0, aiHash, ref, reqId("native-day-2"), {
+          value: hre.ethers.parseEther("2"),
+        }),
+      ).to.be.revertedWith("daily cap exceeded");
+    });
+
+    it("only the owner can change native limits", async () => {
+      await expect(executor.connect(agent).setMaxTxAmountNative(1n)).to.be.revertedWith("not owner");
+      await expect(executor.connect(agent).setDailyCapNative(1n)).to.be.revertedWith("not owner");
+      await expect(executor.connect(agent).setMerchantMaxTxNative(merchant.address, 1n)).to.be.revertedWith("not owner");
     });
   });
 
