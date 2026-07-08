@@ -127,8 +127,19 @@ export interface PaymentAutomation {
   failureCount: number;
   /** The reason the automation stopped or is at risk of stopping, for display. */
   lastError?: string | null;
+  /** The wallet signature captured at CREATION — an immutable record of the
+   *  terms the owner originally authorized. Deliberately never overwritten by
+   *  edits: it stays verifiable against `signatureMessage` forever. If a
+   *  material term (amount/cadence/timing) is later changed, `modifiedAt` is
+   *  stamped so the audit trail reflects that current terms may differ from
+   *  this original authorization rather than silently contradicting it. */
   signature?: string | null;
   signatureMessage?: string | null;
+  /** Unix ms of the last material edit (amount/cadence/timing/end-condition),
+   *  null if never edited since creation. Every edit is itself gated by a
+   *  fresh action-scoped wallet signature (see verifyMutation), so this marks
+   *  a re-authorized change, not an unauthorized one. */
+  modifiedAt?: number | null;
 }
 
 export type ScheduledPayment = PaymentAutomation;
