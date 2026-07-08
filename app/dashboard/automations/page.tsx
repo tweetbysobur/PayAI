@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
-  MoreHorizontal, Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X,
+  MoreHorizontal, Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -16,10 +16,12 @@ type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
 type Status = "active" | "paused" | "completed" | "cancelled" | "failed" | "scheduled" | "executing";
 type IntervalUnit = "days" | "weeks" | "months";
 type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number };
+type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number } | { type: "until_date"; untilMs: number };
 type Automation = {
   id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
+  endCondition?: EndCondition;
 };
 
 const PURPOSES = ["Savings", "Salary", "Subscription", "Investment", "Rent", "Family", "Utilities", "Gift", "Business", "Other"];
@@ -49,6 +51,25 @@ function annualVolume(a: Automation) {
   return amount * (365 / count);
 }
 
+/** Per-automation analytics, computed only from its own real recorded runs
+ *  (on-chain txHash/gasFee when settled) — never a fabricated number. */
+function automationMetrics(a: Automation) {
+  const executed = a.runs.filter((r) => r.decision === "executed");
+  const attempted = a.runs.filter((r) => r.decision === "executed" || r.decision === "error" || r.decision === "blocked" || r.decision === "needs_review");
+  const totalGas = executed.reduce((sum, r) => sum + (r.gasFee ?? 0), 0);
+  const lastExecution = executed[0]?.at ?? null;
+  const target = a.endCondition?.type === "after_count" ? a.endCondition.totalRuns : null;
+  return {
+    totalExecutions: executed.length,
+    successRate: attempted.length ? Math.round((executed.length / attempted.length) * 100) : 100,
+    totalVolume: executed.length * a.amount,
+    totalGas,
+    avgGas: executed.length ? totalGas / executed.length : 0,
+    lastExecution,
+    completionPct: target ? Math.min(100, Math.round((a.runsCompleted / target) * 100)) : null,
+  };
+}
+
 function signatureMessage(input: { walletAddress: string; recipient: string; amount: number; token: string; cadence: string; startAt: number; timezone: string; purpose: string }) {
   return [
     "PayAI Payment Automation",
@@ -69,6 +90,9 @@ export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [creatorOpen, setCreatorOpen] = useState(false);
+  const [duplicateSeed, setDuplicateSeed] = useState<Automation | null>(null);
+  const [viewing, setViewing] = useState<Automation | null>(null);
+  const [editing, setEditing] = useState<Automation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -118,7 +142,7 @@ export default function AutomationsPage() {
           </p>
         </div>
         {wallet.address && (
-          <Button onClick={() => setCreatorOpen(true)} className="inline-flex items-center gap-2">
+          <Button onClick={() => { setDuplicateSeed(null); setCreatorOpen(true); }} className="inline-flex items-center gap-2">
             <Plus size={16} /> Create Automation
           </Button>
         )}
@@ -145,7 +169,14 @@ export default function AutomationsPage() {
             <Card title="Active Automations" right={<span className="text-xs text-muted-foreground">{active.length} live</span>}>
               {active.length === 0 ? <EmptyState title="No active automations" detail="Create an automation when you want PayAI to execute a payment on a future cadence." /> : (
                 <div className="grid gap-3 lg:grid-cols-2">
-                  {active.map((a) => <AutomationCard key={a.id} automation={a} busy={busy === a.id} onAction={action} onDuplicate={() => setCreatorOpen(true)} />)}
+                  {active.map((a) => (
+                    <AutomationCard
+                      key={a.id} automation={a} busy={busy === a.id} onAction={action}
+                      onView={() => setViewing(a)}
+                      onEdit={() => setEditing(a)}
+                      onDuplicate={() => { setDuplicateSeed(a); setCreatorOpen(true); }}
+                    />
+                  ))}
                 </div>
               )}
             </Card>
@@ -176,7 +207,18 @@ export default function AutomationsPage() {
         </>
       )}
 
-      <AutomationCreator open={creatorOpen} onClose={() => setCreatorOpen(false)} onCreated={() => { setCreatorOpen(false); load(); }} />
+      <AutomationCreator
+        open={creatorOpen}
+        seed={duplicateSeed}
+        onClose={() => { setCreatorOpen(false); setDuplicateSeed(null); }}
+        onCreated={() => { setCreatorOpen(false); setDuplicateSeed(null); load(); }}
+      />
+      <AutomationDetail automation={viewing} onClose={() => setViewing(null)} />
+      <AutomationEdit
+        automation={editing}
+        onClose={() => setEditing(null)}
+        onSaved={() => { setEditing(null); load(); }}
+      />
     </div>
   );
 }
@@ -194,7 +236,12 @@ function Timeline({ items, empty }: { items: { id: string; title: string; detail
   return <div className="space-y-3">{items.map((item) => <div key={item.id} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" /><div className="min-w-0 flex-1 border-b border-border pb-3 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium text-foreground">{item.title}</p>{item.href && <a href={item.href} target="_blank" rel="noreferrer" className="text-primary"><ExternalLink size={13} /></a>}</div><p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p></div></div>)}</div>;
 }
 
-function AutomationCard({ automation, busy, onAction, onDuplicate }: { automation: Automation; busy: boolean; onAction: (id: string, action: "pause" | "resume" | "cancel" | "delete") => void; onDuplicate: () => void }) {
+function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicate }: {
+  automation: Automation; busy: boolean;
+  onAction: (id: string, action: "pause" | "resume" | "cancel" | "delete") => void;
+  onView: () => void; onEdit: () => void; onDuplicate: () => void;
+}) {
+  const m = automationMetrics(automation);
   return (
     <motion.div className="rounded-lg border border-border bg-background/35 p-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-start justify-between gap-3">
@@ -211,12 +258,12 @@ function AutomationCard({ automation, busy, onAction, onDuplicate }: { automatio
         <Info label="Recipient" value={automation.domain ?? short(automation.recipient)} mono />
         <Info label="Next Execution" value={new Date(automation.nextRun).toLocaleDateString()} />
         <Info label="Time" value={new Date(automation.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
-        <Info label="Network" value="Monad Mainnet" />
+        <Info label="Success Rate" value={`${m.successRate}%`} />
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" disabled={busy}>View</Button>
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" disabled={busy}>Edit</Button>
-        {automation.status === "paused" ? (
+        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={onView} disabled={busy}><Eye size={13} /> View</Button>
+        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>
+        {automation.status === "paused" || automation.status === "failed" ? (
           <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={13} /> Resume</Button>
         ) : (
           <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => onAction(automation.id, "pause")} disabled={busy}><Pause size={13} /> Pause</Button>
@@ -251,7 +298,135 @@ function ExecutionHistory({ automation }: { automation: Automation }) {
   );
 }
 
-function AutomationCreator({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+/** Full detail view for a single automation — real per-automation analytics
+ *  (created date, last/next execution, success rate, volume, gas, completion)
+ *  plus its own execution timeline, none of it fabricated. */
+function AutomationDetail({ automation, onClose }: { automation: Automation | null; onClose: () => void }) {
+  if (!automation) return null;
+  const a = automation;
+  const m = automationMetrics(a);
+  return (
+    <AnimatePresence>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
+        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div><p className="text-sm font-semibold text-foreground">{a.purpose ?? a.memo ?? "Automation"}</p><p className="text-xs text-muted-foreground">{money(a.amount, a.token)} · {cadenceLabel(a)}</p></div>
+            <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-input"><X size={17} /></button>
+          </div>
+          <div className="space-y-5 p-5">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Info label="Status" value={a.status} />
+              <Info label="Recipient" value={a.domain ?? short(a.recipient)} mono />
+              <Info label="Created" value={new Date(a.createdAt).toLocaleString()} />
+              <Info label="Last Execution" value={m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never"} />
+              <Info label="Next Execution" value={a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—"} />
+              <Info label="Network" value="Monad Mainnet" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
+              <AnalyticsTile label="Total Executions" value={m.totalExecutions.toString()} />
+              <AnalyticsTile label="Total Volume" value={money(m.totalVolume, a.token)} />
+              <AnalyticsTile label="Total Gas Spent" value={`${m.totalGas.toFixed(4)} MON`} />
+              <AnalyticsTile label="Average Gas" value={`${m.avgGas.toFixed(4)} MON`} />
+              <AnalyticsTile label="Completion" value={m.completionPct != null ? `${m.completionPct}%` : "Open-ended"} />
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution history</p>
+              <ExecutionHistory automation={a} />
+            </div>
+            {a.lastError && (a.status === "paused" || a.status === "failed") && (
+              <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">{a.lastError}</div>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/** Edit an automation's terms — amount, cadence timing, and purpose. Doesn't
+ *  require a fresh wallet signature (the server-side PATCH only mutates
+ *  editable, non-security-relevant fields; the recipient/asset/signature that
+ *  actually move funds can't be changed here — that requires a new automation). */
+function AutomationEdit({ automation, onClose, onSaved }: { automation: Automation | null; onClose: () => void; onSaved: () => void }) {
+  const wallet = useWallet();
+  const { toast } = useToast();
+  const [amount, setAmount] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!automation) return;
+    setAmount(String(automation.amount));
+    setPurpose(automation.purpose ?? automation.memo ?? "");
+    const d = new Date(automation.nextRun);
+    setDate(d.toISOString().slice(0, 10));
+    setTime(d.toTimeString().slice(0, 5));
+  }, [automation]);
+
+  if (!automation) return null;
+  const amountNum = Number(amount);
+  const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0;
+  const nextRun = new Date(`${date}T${time}:00`).getTime();
+  const invalidTime = !Number.isFinite(nextRun) || nextRun < Date.now() - 60_000;
+
+  async function save() {
+    if (invalidAmount || invalidTime || !purpose.trim()) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/automations?id=${automation!.id}`, {
+        method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress: wallet.address, amount: amountNum, nextRun, purpose: purpose.trim() }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error || "Could not save changes.");
+      toast("Automation updated");
+      onSaved();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <AnimatePresence>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
+        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="w-full max-w-md rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <p className="text-sm font-semibold text-foreground">Edit automation</p>
+            <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-input"><X size={17} /></button>
+          </div>
+          <div className="space-y-4 p-5">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Amount ({automation.token})</label>
+              <Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" className="w-full" />
+              {invalidAmount && amount && <p className="mt-1 text-xs text-danger">Enter an amount greater than 0.</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Next execution date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+              <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Time</label><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
+            </div>
+            {invalidTime && <p className="text-xs text-danger">Choose a future time.</p>}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Purpose</label>
+              <Input value={purpose} onChange={(e) => setPurpose(e.target.value)} className="w-full" />
+            </div>
+            <p className="text-xs text-muted-foreground">Recipient, asset, and cadence can&apos;t be changed here — create a new automation for those.</p>
+          </div>
+          <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
+            <Button variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button onClick={save} disabled={saving || invalidAmount || invalidTime || !purpose.trim()}>{saving ? "Saving…" : "Save changes"}</Button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: Automation | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
   const { toast } = useToast();
@@ -280,8 +455,24 @@ function AutomationCreator({ open, onClose, onCreated }: { open: boolean; onClos
 
   useEffect(() => {
     if (!open) return;
-    setStep(1); setRecipientInput(""); setResolved(null); setRecipientError(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
-  }, [open]);
+    setStep(1); setRecipientError(null);
+    if (seed) {
+      // Duplicate: pre-fill everything from the source automation, but the
+      // recipient still goes through the same live re-verification as a fresh
+      // entry — never trust a stale resolution silently.
+      setRecipientInput(seed.domain ?? seed.recipient);
+      setResolved(null);
+      setAsset(seed.token === "USDC" ? "USDC" : "MON");
+      setAmount(String(seed.amount));
+      setCadence(seed.cadence);
+      setIntervalCount(String(seed.intervalCount ?? 1));
+      setIntervalUnit(seed.intervalUnit ?? "weeks");
+      setPurpose(PURPOSES.includes(seed.purpose ?? "") ? (seed.purpose as string) : "Other");
+      setCustomPurpose(PURPOSES.includes(seed.purpose ?? "") ? "" : (seed.purpose ?? seed.memo ?? ""));
+    } else {
+      setRecipientInput(""); setResolved(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
+    }
+  }, [open, seed]);
 
   useEffect(() => {
     if (!recipientInput.trim()) { setResolved(null); setRecipientError(null); return; }
