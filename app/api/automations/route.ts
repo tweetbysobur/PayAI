@@ -284,6 +284,14 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  // Material terms are the ones that change what/when money moves. If any of
+  // them changed, stamp modifiedAt so the record no longer silently contradicts
+  // its original creation signature (which still describes the ORIGINAL terms).
+  // The edit was already gated by a fresh action-scoped signature above, so
+  // this marks a re-authorized change, not an unauthorized one.
+  const MATERIAL_FIELDS = ["amount", "cadence", "nextRun", "intervalCount", "intervalUnit", "endCondition"] as const;
+  if (MATERIAL_FIELDS.some((f) => f in patch)) patch.modifiedAt = Date.now();
+
   const { updateSchedule } = await import("@/lib/platform/schedules");
   const row = await updateSchedule(merchantId, id, patch, { sender });
   if (!row) return NextResponse.json({ error: "Automation not found, not editable, or not yours." }, { status: 404 });

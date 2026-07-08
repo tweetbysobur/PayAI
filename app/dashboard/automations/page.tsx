@@ -20,7 +20,7 @@ type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number
 type Automation = {
   id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
-  createdAt: number; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
+  createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition;
 };
 

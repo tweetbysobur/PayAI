@@ -122,7 +122,7 @@ export async function createSchedule(
 export async function updateSchedule(
   merchantId: string,
   id: string,
-  patch: Partial<Pick<ScheduledPayment, "amount" | "cadence" | "nextRun" | "memo" | "endCondition" | "purpose" | "timezone" | "intervalCount" | "intervalUnit">>,
+  patch: Partial<Pick<ScheduledPayment, "amount" | "cadence" | "nextRun" | "memo" | "endCondition" | "purpose" | "timezone" | "intervalCount" | "intervalUnit" | "modifiedAt">>,
   opts?: { sender?: string | null },
 ): Promise<ScheduledPayment | null> {
   const row = await getSchedule(id);
