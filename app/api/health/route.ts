@@ -34,7 +34,11 @@ export async function GET() {
   // unreachable RPC / payment engine is "degraded" (HTTP stays 200 so the UI's
   // polling doesn't false-alarm on transient RPC blips; monitors alert on the
   // status field).
-  const degraded = getMode() === "monad" && !paymentEngine.connected;
+  const { getHeartbeat, isHeartbeatStale } = await import("@/lib/platform/cronHealth");
+  const heartbeat = await getHeartbeat();
+  const cronStale = isHeartbeatStale(heartbeat);
+
+  const degraded = (getMode() === "monad" && !paymentEngine.connected) || cronStale;
 
   const res = NextResponse.json({
     service: "payai",
@@ -46,6 +50,12 @@ export async function GET() {
       engine: paymentEngine.engine,
       connected: paymentEngine.connected,
       detail: paymentEngine.detail,
+    },
+    automationScheduler: {
+      status: cronStale ? "stale" : "ok",
+      lastRunAt: heartbeat?.finishedAt ?? null,
+      lastRunDueCount: heartbeat?.dueCount ?? null,
+      lastRunProcessed: heartbeat?.processed ?? null,
     },
     wallet,
     domains: {

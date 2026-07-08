@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { recordTx } = await import("@/lib/platform/store");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
+  const { recordHeartbeat } = await import("@/lib/platform/cronHealth");
+  const startedAt = Date.now();
 
   // "Upcoming execution" reminders — anything due within the next 24h that
   // hasn't already been reminded for this specific occurrence. Runs before the
@@ -168,5 +170,6 @@ export async function GET(req: NextRequest) {
   }
 
   trace("batch_end", { processed: results.length });
+  await recordHeartbeat({ startedAt, finishedAt: Date.now(), dueCount: due.length, processed: results.length });
   return NextResponse.json({ ran: results.length, results });
 }
