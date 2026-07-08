@@ -25,7 +25,7 @@ describe("isSanctionedAddress", () => {
 
   it("ignores non-addresses (names, empty)", async () => {
     const { isSanctionedAddress } = await import("@/lib/payment/sanctions");
-    expect(isSanctionedAddress("alex.nads")).toBe(false);
+    expect(isSanctionedAddress("test.nads")).toBe(false);
     expect(isSanctionedAddress("")).toBe(false);
   });
 });

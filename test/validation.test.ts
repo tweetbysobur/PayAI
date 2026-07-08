@@ -33,7 +33,7 @@ describe("recipientError", () => {
     expect(recipientError(ADDR)).toBeNull();
   });
   it("accepts a .nad / .nads domain", () => {
-    expect(recipientError("alex.nads")).toBeNull();
+    expect(recipientError("test.nads")).toBeNull();
     expect(recipientError("bob.nad")).toBeNull();
   });
   it("rejects gibberish", () => {
@@ -46,7 +46,7 @@ describe("addressError (strict)", () => {
     expect(addressError(ADDR)).toBeNull();
   });
   it("rejects a domain (strict address only)", () => {
-    expect(addressError("alex.nads")).toMatch(/valid wallet address/i);
+    expect(addressError("test.nads")).toMatch(/valid wallet address/i);
   });
   it("rejects a truncated address", () => {
     expect(addressError("0x1234")).toMatch(/valid wallet address/i);
@@ -61,11 +61,11 @@ describe("boolean helpers", () => {
   });
   it("isValidRecipient", () => {
     expect(isValidRecipient(ADDR)).toBe(true);
-    expect(isValidRecipient("alex.nads")).toBe(true);
+    expect(isValidRecipient("test.nads")).toBe(true);
     expect(isValidRecipient("nope")).toBe(false);
   });
   it("isValidAddress", () => {
     expect(isValidAddress(ADDR)).toBe(true);
-    expect(isValidAddress("alex.nads")).toBe(false);
+    expect(isValidAddress("test.nads")).toBe(false);
   });
 });

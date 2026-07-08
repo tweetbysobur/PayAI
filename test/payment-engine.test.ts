@@ -56,7 +56,7 @@ describe("assessRisk", () => {
   });
 
   it("scores a small named transfer as low risk", () => {
-    const r = assessRisk(req({ amount: 20, recipient: "alex.nads" }));
+    const r = assessRisk(req({ amount: 20, recipient: "test.nads" }));
     expect(r.level).toBe("low");
     expect(r.score).toBeLessThan(30);
   });

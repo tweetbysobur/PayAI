@@ -12,7 +12,7 @@
 
 ---
 
-Pay someone on Monad by typing what you want. "Send 10 USDC to alex.nads" gets parsed,
+Pay someone on Monad by typing what you want. "Send 10 USDC to a .nad domain" gets parsed,
 checked, and settled on-chain — you sign it in your own wallet, and there's a real
 transaction hash at the end you can look up on the explorer.
 
@@ -24,7 +24,7 @@ custody. You talk, PayAI figures out the transaction, your wallet approves it.
 A message goes through a short pipeline before anything touches the chain:
 
 ```
-"send 10 USDC to alex.nads"
+"send 10 USDC to a .nad domain"
         │
         ▼
   Intent parsing        what action, how much, which token, who to

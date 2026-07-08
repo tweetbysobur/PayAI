@@ -6,7 +6,7 @@ Context for AI assistants and contributors working in this repo.
 
 **PayAI** — a standalone, non-custodial AI payment platform, live on **Monad
 Mainnet** at **https://usepayai.xyz**. Users describe a payment in plain English
-("send 10 USDC to alex.nads"); PayAI parses it, validates and risk-scores it,
+("send 10 USDC to a .nad domain"); PayAI parses it, validates and risk-scores it,
 and the user's own wallet signs it. Fully self-contained — no external services.
 
 ## Commands
