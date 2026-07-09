@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
 import { ToastProvider } from "@/components/Toast";
+import GoogleAnalytics from "@/components/GoogleAnalytics";
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
 const DESCRIPTION =
@@ -37,6 +38,7 @@ export default function RootLayout({
         <WalletProvider>
           <ToastProvider>{children}</ToastProvider>
         </WalletProvider>
+        <GoogleAnalytics />
       </body>
     </html>
   );
