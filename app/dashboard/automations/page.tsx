@@ -57,6 +57,7 @@ type Status = "active" | "paused" | "completed" | "cancelled" | "failed" | "sche
 type IntervalUnit = "days" | "weeks" | "months";
 type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number };
 type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number } | { type: "until_date"; untilMs: number };
+type EndMode = "never" | "after_count" | "until_date";
 type Automation = {
   id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
@@ -89,6 +90,38 @@ function annualVolume(a: Automation) {
   if (a.intervalUnit === "weeks") return amount * (52 / count);
   if (a.intervalUnit === "months") return amount * (12 / count);
   return amount * (365 / count);
+}
+
+/** Advance a timestamp by one cadence step — mirrors the server's advanceRun. */
+function stepOnce(from: number, cadence: Cadence, intervalCount: number, intervalUnit: IntervalUnit): number {
+  const d = new Date(from);
+  const n = Math.max(1, intervalCount);
+  if (cadence === "daily") d.setUTCDate(d.getUTCDate() + 1);
+  else if (cadence === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+  else if (cadence === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
+  else if (cadence === "custom") {
+    if (intervalUnit === "weeks") d.setUTCDate(d.getUTCDate() + n * 7);
+    else if (intervalUnit === "months") d.setUTCMonth(d.getUTCMonth() + n);
+    else d.setUTCDate(d.getUTCDate() + n);
+  }
+  return d.getTime();
+}
+
+/** How many payments this schedule will make. Returns null for open-ended
+ *  ("no end date") automations, where the total is genuinely unbounded. */
+function countOccurrences(opts: {
+  startAt: number; cadence: Cadence; intervalCount: number; intervalUnit: IntervalUnit;
+  endMode: EndMode; endCount: number; endUntilMs: number;
+}): number | null {
+  if (opts.cadence === "once") return 1;
+  if (opts.endMode === "after_count") return Math.max(1, Math.floor(opts.endCount) || 1);
+  if (opts.endMode === "until_date") {
+    if (!Number.isFinite(opts.endUntilMs) || opts.endUntilMs < opts.startAt) return 0;
+    let n = 0; let t = opts.startAt; const CAP = 1000;
+    while (t <= opts.endUntilMs && n < CAP) { n++; t = stepOnce(t, opts.cadence, opts.intervalCount, opts.intervalUnit); }
+    return n;
+  }
+  return null; // never — open-ended
 }
 
 /** Per-automation analytics, computed only from its own real recorded runs
@@ -545,6 +578,9 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const [intervalUnit, setIntervalUnit] = useState<IntervalUnit>("weeks");
   const [date, setDate] = useState(() => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
   const [time, setTime] = useState("10:00");
+  const [endMode, setEndMode] = useState<EndMode>("never");
+  const [endCount, setEndCount] = useState("12");
+  const [endDate, setEndDate] = useState(() => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10));
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Lagos");
   const [purpose, setPurpose] = useState("Savings");
   const [customPurpose, setCustomPurpose] = useState("");
@@ -619,18 +655,35 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     if (fundingMode === "wallet" && !walletAvailableForToken && reservedAvailable) setFundingMode("reserved");
   }, [fundingMode, walletAvailableForToken, reservedAvailable]);
 
-  // Wallet Automation only ever grants an ALLOWANCE (no funds move until each
-  // run), so approving ~a year up front is safe and saves repeat signatures.
-  const walletBudgetAmount = cadence === "once"
-    ? (amountNum || 0)
-    : annualVolume({ amount: amountNum || 0, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
-  // Reserved Funds MOVES real money into the vault up front, so it must NOT
-  // lock a year's worth — reserve only the next payment. (Choosing how many
-  // cycles to pre-fund is a Track-2 UX addition; until then a recurring
-  // reserved automation funds its next run and can be topped up.)
-  const reservedBudgetAmount = amountNum || 0;
+  // End condition — the user controls how long this runs, so the total that
+  // gets authorized/reserved is always a number they chose, never a surprise.
+  const endUntilMs = useMemo(() => new Date(`${endDate}T23:59:59`).getTime(), [endDate]);
+  const occurrences = useMemo(() => countOccurrences({
+    startAt, cadence, intervalCount: Number(intervalCount) || 1, intervalUnit,
+    endMode, endCount: Number(endCount) || 1, endUntilMs,
+  }), [startAt, cadence, intervalCount, intervalUnit, endMode, endCount, endUntilMs]);
+
+  const perPayment = amountNum || 0;
+  // Total the schedule will move over its whole (bounded) life. null = open-ended.
+  const totalScheduled = occurrences != null ? perPayment * occurrences : null;
+
+  // Wallet Automation only grants an ALLOWANCE (no funds move until each run):
+  // a bounded schedule approves its exact total; an open-ended one approves ~a
+  // year and re-approves later. Reserved Funds MOVES real money up front, so a
+  // bounded schedule reserves its exact total (true guaranteed execution) while
+  // an open-ended one reserves only the next payment (can't lock infinity).
+  const walletBudgetAmount = totalScheduled != null
+    ? totalScheduled
+    : annualVolume({ amount: perPayment, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
+  const reservedBudgetAmount = totalScheduled != null ? totalScheduled : perPayment;
   // What the Review screen shows depends on the chosen mode.
   const budgetAmount = fundingMode === "wallet" ? walletBudgetAmount : reservedBudgetAmount;
+
+  const endCondition: EndCondition = cadence === "once" || endMode === "never"
+    ? { type: "never" }
+    : endMode === "after_count"
+      ? { type: "after_count", totalRuns: Math.max(1, Math.floor(Number(endCount) || 1)) }
+      : { type: "until_date", untilMs: endUntilMs };
 
   async function create() {
     if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config) return;
@@ -650,7 +703,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       const body: Record<string, unknown> = {
         walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: asset, cadence,
         intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose: finalPurpose,
-        signature, signatureMessage: message, fundingMode,
+        signature, signatureMessage: message, fundingMode, endCondition,
       };
 
       if (fundingMode === "wallet") {
@@ -713,7 +766,28 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
               {step === 1 && <Step title="Recipient" detail="Enter a wallet address or .nads domain. PayAI verifies it before you continue."><Input value={recipientInput} onChange={(e) => setRecipientInput(e.target.value)} placeholder=".nad domain or 0x wallet address" className="w-full" />{resolved && <Verified label={resolved.domain ?? "Wallet address"} value={resolved.recipient} />}{recipientError && <p className="mt-2 text-sm text-danger">{recipientError}</p>}</Step>}
               {step === 2 && <Step title="Payment" detail="Choose asset and amount. Balance and gas are shown before review."><div className="flex gap-2">{(["MON", "USDC"] as const).map((t) => <button key={t} onClick={() => setAsset(t)} className={`flex items-center gap-2 rounded-md border px-4 py-2 text-sm ${asset === t ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}><TokenLogo token={t} size={16} /> {t}</button>)}</div><Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="mt-4 w-full" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balances.loading ? "Loading..." : balance ? money(Number(balance), asset) : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
               {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={`rounded-md border px-3 py-3 text-left text-sm capitalize ${cadence === c ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
-              {step === 4 && <Step title="Execution Time" detail="Set the first execution date, time, and timezone."><div className="grid gap-3 sm:grid-cols-3"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /><Input value={timezone} onChange={(e) => setTimezone(e.target.value)} /></div><div className="mt-4 rounded-lg border border-border bg-background/35 p-4"><p className="text-sm font-medium text-foreground">{new Date(startAt).toLocaleDateString(undefined, { weekday: "long" })}</p><p className="mt-1 text-sm text-muted-foreground">{time} - {timezone} - Monad Mainnet</p></div></Step>}
+              {step === 4 && <Step title="Execution Time" detail="Set the first execution date and time, then choose when it ends.">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">First execution date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+                  <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Time</label><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
+                  <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Timezone</label><Input value={timezone} onChange={(e) => setTimezone(e.target.value)} /></div>
+                </div>
+                <div className="mt-3 rounded-lg border border-border bg-background/35 p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="text-foreground">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+                {cadence !== "once" && <div className="mt-4">
+                  <label className="mb-1.5 block text-xs font-medium text-muted-foreground">When should it end?</label>
+                  <div className="flex flex-wrap gap-2">
+                    {([["never", "No end date"], ["after_count", "After N payments"], ["until_date", "On a date"]] as [EndMode, string][]).map(([m, label]) =>
+                      <button key={m} onClick={() => setEndMode(m)} className={`rounded-md border px-3 py-2 text-sm ${endMode === m ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}>{label}</button>)}
+                  </div>
+                  {endMode === "after_count" && <div className="mt-3 flex items-center gap-2"><span className="text-sm text-muted-foreground">Stop after</span><Input value={endCount} onChange={(e) => setEndCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-24" /><span className="text-sm text-muted-foreground">payments</span></div>}
+                  {endMode === "until_date" && <div className="mt-3"><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Runs until (inclusive)</label><Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>}
+                </div>}
+                <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm">
+                  {occurrences != null
+                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, asset)} = <strong className="text-primary">{money(totalScheduled ?? 0, asset)}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
+                    : <p className="text-muted-foreground">Ongoing — no fixed total. {fundingMode === "reserved" ? "Reserved Funds sets aside only the next payment; add an end date or count to reserve the full run up front." : "You authorize about a year at a time and re-approve later — funds only move at each run."}</p>}
+                </div>
+              </Step>}
               {step === 5 && <Step title="Purpose" detail="Purpose powers history, analytics, receipts, and future AI insights."><div className="grid gap-2 sm:grid-cols-3">{PURPOSES.map((p) => <button key={p} onClick={() => setPurpose(p)} className={`rounded-md border px-3 py-2 text-sm ${purpose === p ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}>{p}</button>)}</div>{purpose === "Other" && <Input value={customPurpose} onChange={(e) => setCustomPurpose(e.target.value)} placeholder="Custom purpose" className="mt-4 w-full" />}</Step>}
               {step === 6 && <Step title="Review" detail="Choose how this automation is funded, verify the details, then sign once to activate.">
                 <div className="mb-5">
@@ -738,7 +812,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                     <p className="mt-2"><strong className="text-foreground">Wallet Automation</strong> keeps your money in your own wallet and only moves it at the moment each payment is due — you stay fully in control. <strong className="text-foreground">Reserved Funds</strong> moves the money into a dedicated reserve up front, so the payment can never miss for lack of balance. You can get reserved money back anytime you cancel.</p>
                   </details>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2"><Info label="Funding Method" value={fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds"} /><Info label={fundingMode === "wallet" ? "You authorize up to" : "You reserve"} value={money(budgetAmount, asset)} /><Info label="Recipient" value={recipientInput} /><Info label="Resolved Address" value={resolved?.recipient ?? "-"} mono /><Info label="Asset" value={asset} /><Info label="Amount per payment" value={money(amountNum || 0, asset)} /><Info label="Automation Type" value={cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence })} /><Info label="Execution Time" value={new Date(startAt).toLocaleString()} /><Info label="Purpose" value={finalPurpose || "-"} /><Info label="Estimated Gas" value={estimateGas} /><Info label="Network" value="Monad Mainnet" /><Info label="Wallet" value={short(wallet.address)} mono /></div>
+                <div className="grid gap-3 sm:grid-cols-2"><Info label="Funding Method" value={fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds"} /><Info label={fundingMode === "wallet" ? "You authorize up to" : "You reserve"} value={money(budgetAmount, asset)} /><Info label="Recipient" value={recipientInput} /><Info label="Resolved Address" value={resolved?.recipient ?? "-"} mono /><Info label="Asset" value={asset} /><Info label="Amount per payment" value={money(amountNum || 0, asset)} /><Info label="Total payments" value={occurrences != null ? `${occurrences}` : "Ongoing"} /><Info label={fundingMode === "reserved" ? "Total reserved now" : "Total authorized"} value={occurrences != null ? money(totalScheduled ?? 0, asset) : "Up to ~1 year"} /><Info label="Automation Type" value={cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence })} /><Info label="Ends" value={cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`} /><Info label="Execution Time" value={new Date(startAt).toLocaleString()} /><Info label="Purpose" value={finalPurpose || "-"} /><Info label="Estimated Gas" value={estimateGas} /><Info label="Network" value="Monad Mainnet" /><Info label="Wallet" value={short(wallet.address)} mono /></div>
                 {savingStep && <p className="mt-4 flex items-center gap-2 text-sm text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {savingStep}…</p>}
               </Step>}
             </div>
