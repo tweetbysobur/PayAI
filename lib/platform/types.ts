@@ -140,6 +140,17 @@ export interface PaymentAutomation {
    *  fresh action-scoped wallet signature (see verifyMutation), so this marks
    *  a re-authorized change, not an unauthorized one. */
   modifiedAt?: number | null;
+  /**
+   * How this automation is funded at execution:
+   *   - "wallet"   → Wallet Automation (non-custodial): pull the user's
+   *                  pre-approved ERC-20 at execution. Default for USDC.
+   *   - "reserved" → Reserved Funds: pay out from the user's AutomationVault
+   *                  reservation.
+   * Absent on legacy records = the old agent-funded path.
+   */
+  fundingMode?: "wallet" | "reserved";
+  /** Reserved Funds: the tx hash that funded the vault reservation (audit trail). */
+  reserveTxHash?: string | null;
 }
 
 export type ScheduledPayment = PaymentAutomation;

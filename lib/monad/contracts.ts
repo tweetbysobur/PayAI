@@ -8,11 +8,15 @@
  */
 import "server-only";
 import { decodeEventLog, keccak256, stringToHex, toHex, type Hash } from "viem";
-import { explorerTx, getMerchantRegistry, getPaymentExecutor, getStablecoin } from "./config";
+import { explorerTx, getAutomationVault, getMerchantRegistry, getPaymentExecutor, getStablecoin } from "./config";
 import { getAgentAccount, getPublicClient, getWalletClient } from "./wallet";
-import { MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI } from "./abi";
+import { AUTOMATION_VAULT_ABI, MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI } from "./abi";
 
 export { MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI };
+
+export function vaultEnabled(): boolean {
+  return getAutomationVault() !== null;
+}
 
 const ERC20_APPROVE_ABI = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] },
@@ -196,6 +200,112 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
     sender: trail.sender,
     paymentId: trail.event?.paymentId,
     event: trail.event,
+  };
+}
+
+/* ── Wallet Automation: pull a pre-approved ERC-20 from the user ─────────── */
+
+/**
+ * Non-custodial execution. The user has already `approve`d the executor to
+ * spend `token` up to some limit (done in their browser at creation). The
+ * AGENT signs this tx (pays gas) but funds are pulled from `from` (the user)
+ * straight to the merchant — the agent never holds the money. Native MON is
+ * NOT supported here (no ERC-20 allowance for a native coin); the caller must
+ * pass a wrapped-native (WMON) token address for MON automations.
+ */
+export async function executePaymentFromViaExecutor(
+  input: ExecuteInput & { from: `0x${string}`; token: `0x${string}` },
+): Promise<ExecuteResult> {
+  const executor = getPaymentExecutor();
+  const account = getAgentAccount();
+  if (!executor) throw new Error("PaymentExecutor not configured (MONAD_MAINNET_PAYMENT_EXECUTOR).");
+  if (!account) throw new Error("No Monad signer configured.");
+  if (!input.requestId) throw new Error("requestId is required for idempotent execution.");
+
+  const pub = getPublicClient();
+  const wallet = getWalletClient();
+  const reqIdBytes = requestId32(input.requestId);
+  const value = BigInt(Math.round(input.amount * 10 ** getStablecoin().decimals));
+
+  const already = (await pub.readContract({
+    address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "isRequestProcessed", args: [reqIdBytes],
+  })) as boolean;
+  if (already) throw new Error("DUPLICATE_REQUEST: this payment was already executed.");
+
+  // Pre-flight: the user must still have enough allowance to the executor.
+  const allowance = (await pub.readContract({
+    address: input.token, abi: ERC20_APPROVE_ABI, functionName: "allowance", args: [input.from, executor],
+  })) as bigint;
+  if (allowance < value) {
+    throw new Error("WALLET_AUTHORIZATION_UNAVAILABLE: approval was revoked or is insufficient. Re-authorize this automation.");
+  }
+
+  const { request } = await pub.simulateContract({
+    account, address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "executePaymentFrom",
+    args: [input.from, input.merchant, input.token, value, Math.max(0, Math.min(100, Math.round(input.riskScore))), hash32(input.decisionMeta), ref32(input.ref), reqIdBytes],
+  });
+  const txHash = await wallet.writeContract(request);
+  const receipt = await pub.waitForTransactionReceipt({ hash: txHash, timeout: 90_000 });
+  if (receipt.status !== "success") throw new Error("executePaymentFrom reverted on-chain.");
+
+  const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
+  const { formatEther } = await import("viem");
+  const trail = await buildAuditTrail(receipt);
+  return {
+    txHash, explorerUrl: explorerTx(txHash), gasFee: `${formatEther(feeWei)} MON`,
+    blockNumber: Number(receipt.blockNumber), blockTimestamp: trail.blockTimestamp,
+    sender: trail.sender, paymentId: trail.event?.paymentId, event: trail.event,
+  };
+}
+
+/* ── Reserved Funds: release from the AutomationVault ────────────────────── */
+
+/**
+ * Release `amount` of the funds the user pre-reserved under `automationId` to
+ * the recipient they locked in at reserve time. Agent-triggered (pays gas),
+ * idempotent by requestId, and bounded on-chain by the reserved balance — the
+ * agent can neither exceed the reservation nor redirect it.
+ */
+export async function releaseFromVault(
+  input: { automationId: string; amount: number; tokenDecimals: number; requestId: string },
+): Promise<ExecuteResult> {
+  const vault = getAutomationVault();
+  const account = getAgentAccount();
+  if (!vault) throw new Error("AutomationVault not configured (MONAD_MAINNET_AUTOMATION_VAULT).");
+  if (!account) throw new Error("No Monad signer configured.");
+  if (!input.requestId) throw new Error("requestId is required for idempotent execution.");
+
+  const pub = getPublicClient();
+  const wallet = getWalletClient();
+  const autoIdBytes = requestId32(input.automationId);
+  const reqIdBytes = requestId32(input.requestId);
+  const value = BigInt(Math.round(input.amount * 10 ** input.tokenDecimals));
+
+  const already = (await pub.readContract({
+    address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "isReleaseProcessed", args: [reqIdBytes],
+  })) as boolean;
+  if (already) throw new Error("DUPLICATE_REQUEST: this release was already processed.");
+
+  const reserved = (await pub.readContract({
+    address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [autoIdBytes],
+  })) as bigint;
+  if (reserved < value) throw new Error("INSUFFICIENT_RESERVED_FUNDS: reserved balance is below this payment.");
+
+  const { request } = await pub.simulateContract({
+    account, address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "release",
+    args: [autoIdBytes, value, reqIdBytes],
+  });
+  const txHash = await wallet.writeContract(request);
+  const receipt = await pub.waitForTransactionReceipt({ hash: txHash, timeout: 90_000 });
+  if (receipt.status !== "success") throw new Error("vault.release reverted on-chain.");
+
+  const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
+  const { formatEther } = await import("viem");
+  const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
+  return {
+    txHash, explorerUrl: explorerTx(txHash), gasFee: `${formatEther(feeWei)} MON`,
+    blockNumber: Number(receipt.blockNumber), blockTimestamp: Number(block.timestamp) * 1000,
+    sender: account.address,
   };
 }
 

@@ -118,8 +118,13 @@ export async function GET(req: NextRequest) {
         purpose: s.purpose ?? s.memo ?? "Payment Automation",
         network: "monad",
         requestId,
+        // Route to the funding path the user chose at creation. Legacy records
+        // (no fundingMode) fall through to the agent-funded path unchanged.
+        fundingMode: s.fundingMode,
+        fromWallet: s.sender,
+        automationId: s.id,
       };
-      trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token });
+      trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token, fundingMode: s.fundingMode ?? "agent" });
 
       const compliance = runValidation(request);
       const risk = assessRisk(request);
