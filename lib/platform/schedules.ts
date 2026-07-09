@@ -78,10 +78,13 @@ export async function createSchedule(
     signature?: string | null; signatureMessage?: string | null;
     endCondition?: ScheduleEndCondition;
     fundingMode?: "wallet" | "reserved"; reserveTxHash?: string | null;
+    /** Reserved Funds only: a client-generated id the vault reservation was
+     *  keyed to, so the on-chain reservation and the stored record share one id. */
+    id?: string;
   },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
-    id: `sch_${crypto.randomUUID()}`,
+    id: input.id && /^sch_[a-zA-Z0-9-]{8,}$/.test(input.id) ? input.id : `sch_${crypto.randomUUID()}`,
     merchantId,
     sender: input.sender ?? null,
     amount: input.amount,

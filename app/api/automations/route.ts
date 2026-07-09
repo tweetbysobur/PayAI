@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
     cadence?: string; startAt?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
-    fundingMode?: string; reserveTxHash?: string;
+    fundingMode?: string; reserveTxHash?: string; id?: string;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -211,6 +211,33 @@ export async function POST(req: NextRequest) {
   // Funding mode — Wallet Automation (non-custodial pull) is the default.
   const fundingMode: "wallet" | "reserved" = body.fundingMode === "reserved" ? "reserved" : "wallet";
 
+  if (fundingMode === "reserved") {
+    // Reserved Funds: the browser already deposited into the AutomationVault
+    // keyed by this client-generated id. Verify the reservation actually
+    // exists and covers this payment before creating the record, so we never
+    // save a "guaranteed" automation whose funds aren't really there.
+    const clientId = typeof body.id === "string" && /^sch_[a-zA-Z0-9-]{8,}$/.test(body.id) ? body.id : null;
+    if (!clientId) return NextResponse.json({ error: "Reserved Funds requires a valid reservation id.", code: "RESERVE_ID_REQUIRED" }, { status: 400 });
+    try {
+      const { getAutomationVault } = await import("@/lib/monad/config");
+      const { getPublicClient } = await import("@/lib/monad/wallet");
+      const { requestId32 } = await import("@/lib/monad/contracts");
+      const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
+      const vault = getAutomationVault();
+      if (!vault) return NextResponse.json({ error: "Reserved Funds is not available right now.", code: "VAULT_UNAVAILABLE" }, { status: 503 });
+      const decimals = token === "MON" ? 18 : (await import("@/lib/monad/config")).getStablecoin().decimals;
+      const need = BigInt(Math.round(amount * 10 ** decimals));
+      const reserved = (await getPublicClient().readContract({
+        address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [requestId32(clientId)],
+      })) as bigint;
+      if (reserved < need) {
+        return NextResponse.json({ error: "We couldn't confirm your reserved funds on-chain yet. If you just reserved, wait a moment and try again.", code: "RESERVATION_NOT_CONFIRMED" }, { status: 402 });
+      }
+    } catch {
+      return NextResponse.json({ error: "Could not verify your reservation on-chain. Please try again.", code: "RESERVATION_CHECK_FAILED" }, { status: 502 });
+    }
+  }
+
   if (fundingMode === "wallet") {
     // Wallet mode pulls a pre-approved ERC-20. Native MON has no allowance,
     // so it needs WMON; if WMON isn't configured, steer the user to Reserved
@@ -253,6 +280,7 @@ export async function POST(req: NextRequest) {
     signatureMessage: expectedMessage,
     fundingMode,
     reserveTxHash: body.reserveTxHash ?? null,
+    id: fundingMode === "reserved" ? body.id : undefined,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
