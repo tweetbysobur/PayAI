@@ -282,9 +282,34 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="relative min-h-screen overflow-hidden bg-background">
+      {/* Ambient depth — restrained purple glow with a single warm-gold hint,
+          plus a faint grid. Craft, not decoration: keeps the canvas from
+          reading flat/templated without competing with content. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[720px] overflow-hidden">
+        {/* GPU-cheap radial glow (no filter:blur) — purple wash with one warm gold hint. */}
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(680px 460px at 50% -8%, hsl(var(--primary) / 0.20), transparent 70%), radial-gradient(320px 260px at 88% 22%, hsl(var(--gold) / 0.10), transparent 72%)",
+          }}
+        />
+        {/* Faint grid, masked to fade downward — adds craft without noise. */}
+        <div
+          className="absolute inset-0 opacity-[0.04]"
+          style={{
+            backgroundImage:
+              "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
+            backgroundSize: "56px 56px",
+            maskImage: "radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%)",
+            WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%)",
+          }}
+        />
+      </div>
+
       {/* Navigation — product-specific, no SaaS marketing items */}
-      <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
+      <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2">
           <Logo size={32} />
           <span className="text-sm font-semibold text-foreground">PayAI</span>
@@ -295,7 +320,7 @@ export default function LandingPage() {
       </header>
 
       {/* Hero */}
-      <section className="mx-auto max-w-6xl px-6 pb-10 pt-10 sm:pt-16">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pb-10 pt-10 sm:pt-16">
         <div className="grid items-center gap-10 lg:grid-cols-[1.05fr_1fr]">
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
@@ -324,9 +349,9 @@ export default function LandingPage() {
               </a>
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Lock size={12} className="text-success" /> You stay in control</span>
-              <span className="flex items-center gap-1.5"><Zap size={12} className="text-success" /> Arrives in seconds</span>
-              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-success" /> Every payment checked</span>
+              <span className="flex items-center gap-1.5"><Lock size={12} className="text-muted-foreground" /> You stay in control</span>
+              <span className="flex items-center gap-1.5"><Zap size={12} className="text-muted-foreground" /> Arrives in seconds</span>
+              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-muted-foreground" /> Every payment checked</span>
             </div>
           </motion.div>
 
