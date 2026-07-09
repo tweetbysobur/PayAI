@@ -283,16 +283,16 @@ export default function LandingPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-background">
-      {/* Ambient depth — restrained purple glow with a single warm-gold hint,
+      {/* Ambient depth — a restrained purple glow with a lighter violet hint,
           plus a faint grid. Craft, not decoration: keeps the canvas from
           reading flat/templated without competing with content. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[720px] overflow-hidden">
-        {/* GPU-cheap radial glow (no filter:blur) — purple wash with one warm gold hint. */}
+        {/* GPU-cheap radial glow (no filter:blur) — purple wash with a lighter violet hint. */}
         <div
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(680px 460px at 50% -8%, hsl(var(--primary) / 0.20), transparent 70%), radial-gradient(320px 260px at 88% 22%, hsl(var(--gold) / 0.10), transparent 72%)",
+              "radial-gradient(680px 460px at 50% -8%, hsl(var(--primary) / 0.22), transparent 70%), radial-gradient(340px 280px at 85% 18%, hsl(var(--secondary) / 0.10), transparent 72%)",
           }}
         />
         {/* Faint grid, masked to fade downward — adds craft without noise. */}
