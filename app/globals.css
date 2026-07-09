@@ -29,6 +29,8 @@
 }
 
 @theme inline {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
   --color-background: hsl(var(--background));
   --color-panel: hsl(var(--panel));
   --color-card: hsl(var(--panel));
@@ -51,8 +53,13 @@
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  font-family: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+
+/* Headings get tighter tracking for a sharper, more premium set. */
+h1, h2, h3 { letter-spacing: -0.02em; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
