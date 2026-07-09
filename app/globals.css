@@ -16,8 +16,12 @@
   --primary-foreground: 0 0% 100%; /* white text on purple */
   --secondary: 258 90% 66%;        /* #8b5cf6 — secondary purple / hover state */
 
-  --success: 142 71% 45%;          /* #22c55e */
-  --warning: 38 92% 50%;           /* #f59e0b */
+  /* Positive / verified / live / settled — REFINED GOLD, the brand's warm
+     accent. Deliberately NOT green: this is a purple + gold identity, so
+     success reads as premium confirmation, not a stock "green tick". */
+  --success: 43 82% 58%;           /* #ecc04e — refined gold */
+  --gold: 43 82% 58%;              /* semantic alias of success */
+  --warning: 27 96% 55%;           /* #fb8b1e — orange, kept distinct from gold */
   --danger: 0 84% 60%;             /* #ef4444 */
 
   --border: 240 4% 16%;            /* #27272a */
@@ -37,6 +41,7 @@
   --color-secondary: hsl(var(--secondary));
 
   --color-success: hsl(var(--success));
+  --color-gold: hsl(var(--gold));
   --color-warning: hsl(var(--warning));
   --color-danger: hsl(var(--danger));
 
