@@ -277,6 +277,61 @@ const monadProvider: PaymentProvider = {
       compliance: "approved",
     });
 
+    // ── Reserved Funds mode: release from the AutomationVault ──────────────
+    // Funds were pre-reserved by the user at creation; the agent only triggers
+    // the payout to the locked-in recipient. Works for both MON and USDC.
+    if (req.fundingMode === "reserved") {
+      const { releaseFromVault } = await import("../monad/contracts");
+      const { getStablecoin } = await import("../monad/config");
+      try {
+        const r = await releaseFromVault({
+          automationId: req.automationId ?? "", amount, tokenDecimals: isNative ? 18 : getStablecoin().decimals,
+          requestId: req.requestId,
+        });
+        return {
+          status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
+          amount, token: req.token, recipient: to, gasFee: r.gasFee, blockNumber: r.blockNumber,
+          blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId,
+          detail: `Released ${amount} ${req.token} from your reserved balance to ${to}.`,
+        };
+      } catch (e) {
+        return {
+          status: "failed", mode: "monad", network: req.network, amount, token: req.token, recipient: to,
+          requestId: req.requestId, detail: e instanceof Error ? e.message : "Vault release failed.",
+        };
+      }
+    }
+
+    // ── Wallet Automation mode: pull the user's pre-approved ERC-20 ─────────
+    // Non-custodial. Native MON can't be pulled via allowance, so it must be a
+    // wrapped-native (WMON) token; the creation flow guarantees `token` here is
+    // ERC-20 and `fromWallet` is set.
+    if (req.fundingMode === "wallet") {
+      const { executePaymentFromViaExecutor } = await import("../monad/contracts");
+      const { getWrappedNative, getStablecoin } = await import("../monad/config");
+      try {
+        const erc20 = isNative ? getWrappedNative() : getStablecoin().address;
+        if (!erc20) throw new Error("WALLET_MODE_TOKEN_UNAVAILABLE: this token can't be used for non-custodial pulls yet.");
+        if (!req.fromWallet) throw new Error("WALLET_MODE_NO_SOURCE: missing the authorizing wallet.");
+        const r = await executePaymentFromViaExecutor({
+          from: req.fromWallet as `0x${string}`, token: erc20 as `0x${string}`, merchant: to,
+          amount, riskScore: req.riskScore ?? 0, decisionMeta,
+          ref: req.invoiceRef ?? req.purpose ?? null, requestId: req.requestId,
+        });
+        return {
+          status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
+          amount, token: req.token, recipient: to, gasFee: r.gasFee, blockNumber: r.blockNumber,
+          blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId, event: r.event,
+          detail: `Sent ${amount} ${req.token} directly from your wallet to ${to}.`,
+        };
+      } catch (e) {
+        return {
+          status: "failed", mode: "monad", network: req.network, amount, token: req.token, recipient: to,
+          requestId: req.requestId, detail: e instanceof Error ? e.message : "Wallet-funded execution failed.",
+        };
+      }
+    }
+
     // Preferred path: the PaymentExecutor contract settles AND records the
     // payment (agent, merchant, amount, risk score, AI decision hash,
     // compliance, requestId) on-chain in a single transaction — the canonical

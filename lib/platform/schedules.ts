@@ -77,6 +77,7 @@ export async function createSchedule(
     intervalCount?: number; intervalUnit?: AutomationIntervalUnit; timezone?: string; purpose?: string;
     signature?: string | null; signatureMessage?: string | null;
     endCondition?: ScheduleEndCondition;
+    fundingMode?: "wallet" | "reserved"; reserveTxHash?: string | null;
   },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
@@ -103,6 +104,9 @@ export async function createSchedule(
     lastError: null,
     signature: input.signature ?? null,
     signatureMessage: input.signatureMessage ?? null,
+    modifiedAt: null,
+    fundingMode: input.fundingMode ?? "wallet",
+    reserveTxHash: input.reserveTxHash ?? null,
     remindedForRun: null,
   };
   await persist(row);

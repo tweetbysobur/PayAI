@@ -169,6 +169,19 @@ export function getAutomationVault(): `0x${string}` | null {
     : pickAddr(process.env.MONAD_TESTNET_AUTOMATION_VAULT, process.env.MONAD_AUTOMATION_VAULT);
 }
 
+/**
+ * Wrapped-native (WMON) token for the active network. Needed for Wallet
+ * Automation on MON: native coins have no ERC-20 allowance, so a MON automation
+ * in wallet mode pulls WMON instead. Null until MONAD_MAINNET_WMON is set —
+ * callers must fall back (steer MON to Reserved Funds) when absent.
+ */
+export function getWrappedNative(): `0x${string}` | null {
+  const net = getNetwork();
+  return net === "mainnet"
+    ? pickAddr(process.env.MONAD_MAINNET_WMON)
+    : pickAddr(process.env.MONAD_TESTNET_WMON, process.env.MONAD_WMON);
+}
+
 export const monadConfig = {
   getNetwork,
   getChain,

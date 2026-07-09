@@ -140,6 +140,7 @@ export async function POST(req: NextRequest) {
     cadence?: string; startAt?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
+    fundingMode?: string; reserveTxHash?: string;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -207,6 +208,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "This automation is already being created. Please wait." }, { status: 409 });
   }
 
+  // Funding mode — Wallet Automation (non-custodial pull) is the default.
+  const fundingMode: "wallet" | "reserved" = body.fundingMode === "reserved" ? "reserved" : "wallet";
+
+  if (fundingMode === "wallet") {
+    // Wallet mode pulls a pre-approved ERC-20. Native MON has no allowance,
+    // so it needs WMON; if WMON isn't configured, steer the user to Reserved
+    // Funds rather than create an automation that can never execute.
+    const { getWrappedNative, getPaymentExecutor } = await import("@/lib/monad/config");
+    const isNative = token === "MON";
+    const executor = getPaymentExecutor();
+    if (isNative && !getWrappedNative()) {
+      return NextResponse.json({ error: "MON automations use Reserved Funds. Choose Reserved Funds mode for MON, or use USDC for Wallet Automation.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
+    }
+    // Verify the user actually approved the executor to pull this token.
+    if (!isNative && executor) {
+      try {
+        const { getPublicClient } = await import("@/lib/monad/wallet");
+        const { getStablecoin } = await import("@/lib/monad/config");
+        const stable = getStablecoin();
+        const need = BigInt(Math.round(amount * 10 ** stable.decimals));
+        const allowance = (await getPublicClient().readContract({
+          address: stable.address, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
+          functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
+        })) as bigint;
+        if (allowance < need) {
+          return NextResponse.json({ error: "Approve PayAI to send this token from your wallet before creating the automation.", code: "APPROVAL_REQUIRED" }, { status: 402 });
+        }
+      } catch {
+        /* RPC hiccup — don't hard-block creation; execution re-checks allowance anyway. */
+      }
+    }
+  }
+
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const { createSchedule } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
@@ -217,6 +251,8 @@ export async function POST(req: NextRequest) {
     intervalUnit: cadence === "custom" ? intervalUnit : undefined,
     signature: body.signature,
     signatureMessage: expectedMessage,
+    fundingMode,
+    reserveTxHash: body.reserveTxHash ?? null,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });

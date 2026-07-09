@@ -44,6 +44,19 @@ export interface PaymentRequest {
   riskScore?: number;
   /** Idempotency key — required for any execution that moves funds. */
   requestId?: string;
+  /**
+   * Funding source for automation execution:
+   *   - undefined / "agent"  → legacy agent-funded path (instant payments).
+   *   - "wallet"             → pull the pre-approved ERC-20 from `fromWallet`
+   *                            (Wallet Automation, non-custodial).
+   *   - "reserved"           → release from the AutomationVault under `automationId`
+   *                            (Reserved Funds).
+   */
+  fundingMode?: "agent" | "wallet" | "reserved";
+  /** Wallet Automation: the user wallet whose approved balance funds the pull. */
+  fromWallet?: string | null;
+  /** Reserved Funds: the automation id whose vault reservation funds the release. */
+  automationId?: string | null;
 }
 
 /* ── Compliance ─────────────────────────────────────────────────────────── */
