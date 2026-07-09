@@ -50,8 +50,18 @@ function safeCompare(a: string, b: string): boolean {
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
+  // Two accepted auth forms, both constant-time compared:
+  //   1. `Authorization: Bearer <secret>` — used by Vercel Cron and any caller
+  //      that can set headers.
+  //   2. `?token=<secret>` query param — for external schedulers (cron-job.org)
+  //      where a custom header is fiddly to configure. Same secret; slightly
+  //      more log exposure, acceptable for a trigger that only fires already-due,
+  //      already-authorized payments to pre-approved recipients (idempotent).
   const auth = req.headers.get("authorization");
-  if (!secret || !auth || !safeCompare(auth, `Bearer ${secret}`)) {
+  const token = new URL(req.url).searchParams.get("token");
+  const headerOk = !!auth && !!secret && safeCompare(auth, `Bearer ${secret}`);
+  const tokenOk = !!token && !!secret && safeCompare(token, secret);
+  if (!secret || (!headerOk && !tokenOk)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
