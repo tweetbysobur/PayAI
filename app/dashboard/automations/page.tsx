@@ -619,19 +619,26 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     if (fundingMode === "wallet" && !walletAvailableForToken && reservedAvailable) setFundingMode("reserved");
   }, [fundingMode, walletAvailableForToken, reservedAvailable]);
 
-  // Authorization budget: recurring automations approve/reserve ~a year's worth
-  // up front (one wallet action, then unattended runs draw it down); one-time
-  // automations use the exact amount.
-  const budgetAmount = cadence === "once"
+  // Wallet Automation only ever grants an ALLOWANCE (no funds move until each
+  // run), so approving ~a year up front is safe and saves repeat signatures.
+  const walletBudgetAmount = cadence === "once"
     ? (amountNum || 0)
     : annualVolume({ amount: amountNum || 0, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
+  // Reserved Funds MOVES real money into the vault up front, so it must NOT
+  // lock a year's worth — reserve only the next payment. (Choosing how many
+  // cycles to pre-fund is a Track-2 UX addition; until then a recurring
+  // reserved automation funds its next run and can be topped up.)
+  const reservedBudgetAmount = amountNum || 0;
+  // What the Review screen shows depends on the chosen mode.
+  const budgetAmount = fundingMode === "wallet" ? walletBudgetAmount : reservedBudgetAmount;
 
   async function create() {
     if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config) return;
     const isNative = asset === "MON";
     const decimals = isNative ? 18 : config.usdc.decimals;
     const perRun = parseUnits(String(amountNum), decimals);
-    const budget = parseUnits(String(budgetAmount), decimals);
+    const budget = parseUnits(String(walletBudgetAmount), decimals);
+    const reservedBudget = parseUnits(String(reservedBudgetAmount), decimals);
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
@@ -664,16 +671,16 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
         if (!isNative) {
           // ERC-20 must approve the vault before it can pull the reserve.
           setSavingStep("Approve the reserved amount");
-          const approveData = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.vault as Hex, budget] });
+          const approveData = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.vault as Hex, reservedBudget] });
           const aHash = await sendWalletTx(wallet.address, config.usdc.address, approveData);
           await waitForReceipt(aHash);
         }
         setSavingStep("Reserve funds for this automation");
         const reserveData = encodeFunctionData({
           abi: AUTOMATION_VAULT_ABI, functionName: "reserve",
-          args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : config.usdc.address) as Hex, resolved.recipient as Hex, budget],
+          args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : config.usdc.address) as Hex, resolved.recipient as Hex, reservedBudget],
         });
-        const rHash = await sendWalletTx(wallet.address, config.vault, reserveData, isNative ? budget : undefined);
+        const rHash = await sendWalletTx(wallet.address, config.vault, reserveData, isNative ? reservedBudget : undefined);
         setSavingStep("Waiting for the reservation to confirm on Monad");
         await waitForReceipt(rHash);
         body.reserveTxHash = rHash;
