@@ -14,8 +14,8 @@ export interface PipelineStep {
 const DOT_CLASS: Record<StepState, string> = {
   pending: "bg-border text-muted-foreground",
   active: "bg-primary text-primary-foreground",
-  ok: "bg-success text-primary-foreground",
-  warn: "bg-warning text-primary-foreground",
+  ok: "bg-success text-background",
+  warn: "bg-warning text-background",
   blocked: "bg-danger text-primary-foreground",
 };
 
