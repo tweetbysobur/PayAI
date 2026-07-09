@@ -551,14 +551,16 @@ function ModeCard({ selected, disabled, onSelect, badge, title, description, pro
 }) {
   return (
     <button type="button" onClick={onSelect} disabled={disabled}
-      className={`flex flex-col rounded-lg border p-4 text-left transition ${disabled ? "cursor-not-allowed border-border opacity-45" : selected ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}>
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-foreground">{title}</span>
-        <Badge tone={badge === "Recommended" ? "primary" : "success"}>{badge}</Badge>
-      </div>
-      <p className="text-xs text-muted-foreground">{description}</p>
-      <ul className="mt-3 space-y-1">{pros.map((p) => <li key={p} className="flex items-center gap-1.5 text-xs text-foreground"><CheckCircle2 size={12} className="text-success" /> {p}</li>)}</ul>
-      <p className="mt-3 text-[11px] leading-snug text-muted-foreground">{note}</p>
+      className={`group relative flex flex-col rounded-xl border p-5 text-left transition-all duration-200 ${
+        disabled ? "cursor-not-allowed border-border opacity-45"
+        : selected ? "border-primary/60 bg-primary/[0.06] shadow-lg shadow-primary/10"
+        : "border-border hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40"}`}>
+      <span aria-hidden className={`absolute right-4 top-4 h-3.5 w-3.5 rounded-full border-2 transition-colors ${selected ? "border-primary bg-primary" : "border-muted-foreground/40 group-hover:border-primary/50"}`} />
+      <span className="pr-6 text-base font-semibold tracking-tight text-foreground">{title}</span>
+      <span className="mt-2"><Badge tone={badge === "Recommended" ? "primary" : "success"}>{badge}</Badge></span>
+      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{description}</p>
+      <ul className="mt-4 space-y-1.5">{pros.map((p) => <li key={p} className="flex items-center gap-2 text-xs text-foreground"><CheckCircle2 size={13} className="shrink-0 text-primary" /> {p}</li>)}</ul>
+      <p className="mt-4 text-[11px] leading-snug text-muted-foreground">{note}</p>
     </button>
   );
 }
