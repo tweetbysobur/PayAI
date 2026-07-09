@@ -6,11 +6,51 @@ import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   MoreHorizontal, Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
 } from "lucide-react";
+import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
+
+type FundingMode = "wallet" | "reserved";
+type OnchainConfig = {
+  chainId: number; executor: string | null; vault: string | null; wmon: string | null;
+  usdc: { address: string; decimals: number }; walletModeAvailable: boolean; reservedModeAvailable: boolean;
+};
+
+const ERC20_APPROVE_ABI = [
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "s", type: "address" }, { name: "a", type: "uint256" }], outputs: [{ type: "bool" }] },
+] as const;
+
+/** bytes32 automation id — must match the server's requestId32 (keccak of the id string). */
+function autoId32(id: string): Hex {
+  return keccak256(stringToHex(id));
+}
+
+/** Fire a wallet tx and resolve with its hash (no wait). Throws on user reject. */
+async function sendWalletTx(from: string, to: string, data: string, value?: bigint): Promise<string> {
+  const tx: Record<string, string> = { from, to, data };
+  if (value != null) tx.value = `0x${value.toString(16)}`;
+  const hash = (await window.ethereum?.request({ method: "eth_sendTransaction", params: [tx] })) as string | undefined;
+  if (!hash) throw new Error("Transaction was cancelled in your wallet.");
+  return hash;
+}
+
+/** Poll the wallet's RPC for a receipt so we only proceed once the tx is mined. */
+async function waitForReceipt(hash: string, timeoutMs = 90_000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const r = (await window.ethereum?.request({ method: "eth_getTransactionReceipt", params: [hash] })) as { status?: string } | null;
+    if (r) {
+      if (r.status === "0x0") throw new Error("The on-chain transaction failed. Nothing was created.");
+      return;
+    }
+    await new Promise((res) => setTimeout(res, 2500));
+  }
+  throw new Error("Timed out waiting for the transaction to confirm. Check your wallet and try again.");
+}
 
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
 type Status = "active" | "paused" | "completed" | "cancelled" | "failed" | "scheduled" | "executing";
@@ -473,6 +513,23 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
  *  resolved (recipient/amount/asset/cadence/time), never a purpose or id. */
 type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">>;
 
+function ModeCard({ selected, disabled, onSelect, badge, title, description, pros, note }: {
+  selected: boolean; disabled?: boolean; onSelect: () => void; badge: string; title: string; description: string; pros: string[]; note: string;
+}) {
+  return (
+    <button type="button" onClick={onSelect} disabled={disabled}
+      className={`flex flex-col rounded-lg border p-4 text-left transition ${disabled ? "cursor-not-allowed border-border opacity-45" : selected ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-foreground">{title}</span>
+        <Badge tone={badge === "Recommended" ? "primary" : "success"}>{badge}</Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">{description}</p>
+      <ul className="mt-3 space-y-1">{pros.map((p) => <li key={p} className="flex items-center gap-1.5 text-xs text-foreground"><CheckCircle2 size={12} className="text-success" /> {p}</li>)}</ul>
+      <p className="mt-3 text-[11px] leading-snug text-muted-foreground">{note}</p>
+    </button>
+  );
+}
+
 function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: AutomationSeed | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
@@ -492,6 +549,9 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const [purpose, setPurpose] = useState("Savings");
   const [customPurpose, setCustomPurpose] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingStep, setSavingStep] = useState<string | null>(null);
+  const [fundingMode, setFundingMode] = useState<FundingMode>("wallet");
+  const [config, setConfig] = useState<OnchainConfig | null>(null);
   const startAt = useMemo(() => new Date(`${date}T${time}:00`).getTime(), [date, time]);
   const amountNum = Number(amount);
   const balance = asset === "MON" ? balances.mon : balances.usdc;
@@ -542,18 +602,85 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     return () => clearTimeout(handle);
   }, [recipientInput]);
 
+  // Load the public on-chain addresses the browser needs to build approve/reserve txs.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch("/api/automation-config").then((r) => r.json()).then((c: OnchainConfig) => { if (!cancelled) setConfig(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Wallet Automation needs an ERC-20 allowance: USDC works directly; MON only
+  // works if WMON is configured. When unavailable for the chosen token, the
+  // choice collapses to Reserved Funds so we never offer an impossible path.
+  const walletAvailableForToken = asset === "USDC" ? !!config?.walletModeAvailable : !!config?.wmon;
+  const reservedAvailable = !!config?.reservedModeAvailable;
+  useEffect(() => {
+    if (fundingMode === "wallet" && !walletAvailableForToken && reservedAvailable) setFundingMode("reserved");
+  }, [fundingMode, walletAvailableForToken, reservedAvailable]);
+
+  // Authorization budget: recurring automations approve/reserve ~a year's worth
+  // up front (one wallet action, then unattended runs draw it down); one-time
+  // automations use the exact amount.
+  const budgetAmount = cadence === "once"
+    ? (amountNum || 0)
+    : annualVolume({ amount: amountNum || 0, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
+
   async function create() {
-    if (!wallet.address || !resolved || invalidAmount || !finalPurpose) return;
+    if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config) return;
+    const isNative = asset === "MON";
+    const decimals = isNative ? 18 : config.usdc.decimals;
+    const perRun = parseUnits(String(amountNum), decimals);
+    const budget = parseUnits(String(budgetAmount), decimals);
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
       const message = signatureMessage({ walletAddress: wallet.address, recipient: resolved.recipient, amount: amountNum, token: asset, cadence, startAt, timezone, purpose: finalPurpose });
+      setSavingStep("Confirm the automation in your wallet");
       const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, wallet.address] }) as string | undefined;
       if (!signature) throw new Error("Wallet confirmation was cancelled.");
-      const r = await fetch("/api/automations", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose: finalPurpose, signature, signatureMessage: message }),
-      });
+
+      const body: Record<string, unknown> = {
+        walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: asset, cadence,
+        intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose: finalPurpose,
+        signature, signatureMessage: message, fundingMode,
+      };
+
+      if (fundingMode === "wallet") {
+        // Non-custodial: approve the executor to pull up to the budget. (MON→WMON path lands with a WMON address.)
+        if (!config.executor) throw new Error("Wallet Automation isn't available right now.");
+        const token = isNative ? config.wmon : config.usdc.address;
+        if (!token) throw new Error("This token can't use Wallet Automation yet. Choose Reserved Funds.");
+        setSavingStep("Approve PayAI to send from your wallet");
+        const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, budget] });
+        const hash = await sendWalletTx(wallet.address, token, data);
+        setSavingStep("Waiting for approval to confirm on Monad");
+        await waitForReceipt(hash);
+      } else {
+        // Reserved Funds: deposit the budget into the vault, keyed to a client id.
+        if (!config.vault) throw new Error("Reserved Funds isn't available right now.");
+        const id = `sch_${crypto.randomUUID()}`;
+        body.id = id;
+        if (!isNative) {
+          // ERC-20 must approve the vault before it can pull the reserve.
+          setSavingStep("Approve the reserved amount");
+          const approveData = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.vault as Hex, budget] });
+          const aHash = await sendWalletTx(wallet.address, config.usdc.address, approveData);
+          await waitForReceipt(aHash);
+        }
+        setSavingStep("Reserve funds for this automation");
+        const reserveData = encodeFunctionData({
+          abi: AUTOMATION_VAULT_ABI, functionName: "reserve",
+          args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : config.usdc.address) as Hex, resolved.recipient as Hex, budget],
+        });
+        const rHash = await sendWalletTx(wallet.address, config.vault, reserveData, isNative ? budget : undefined);
+        setSavingStep("Waiting for the reservation to confirm on Monad");
+        await waitForReceipt(rHash);
+        body.reserveTxHash = rHash;
+      }
+
+      setSavingStep("Activating your automation");
+      const r = await fetch("/api/automations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Could not create automation.");
       toast("Automation created");
@@ -562,6 +689,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       toast(e instanceof Error ? e.message : "Automation creation failed");
     } finally {
       setSaving(false);
+      setSavingStep(null);
     }
   }
 
@@ -580,7 +708,32 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
               {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={`rounded-md border px-3 py-3 text-left text-sm capitalize ${cadence === c ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
               {step === 4 && <Step title="Execution Time" detail="Set the first execution date, time, and timezone."><div className="grid gap-3 sm:grid-cols-3"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /><Input value={timezone} onChange={(e) => setTimezone(e.target.value)} /></div><div className="mt-4 rounded-lg border border-border bg-background/35 p-4"><p className="text-sm font-medium text-foreground">{new Date(startAt).toLocaleDateString(undefined, { weekday: "long" })}</p><p className="mt-1 text-sm text-muted-foreground">{time} - {timezone} - Monad Mainnet</p></div></Step>}
               {step === 5 && <Step title="Purpose" detail="Purpose powers history, analytics, receipts, and future AI insights."><div className="grid gap-2 sm:grid-cols-3">{PURPOSES.map((p) => <button key={p} onClick={() => setPurpose(p)} className={`rounded-md border px-3 py-2 text-sm ${purpose === p ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}>{p}</button>)}</div>{purpose === "Other" && <Input value={customPurpose} onChange={(e) => setCustomPurpose(e.target.value)} placeholder="Custom purpose" className="mt-4 w-full" />}</Step>}
-              {step === 6 && <Step title="Review" detail="Verify every field. Your wallet signs once before the automation becomes active."><div className="grid gap-3 sm:grid-cols-2"><Info label="Recipient" value={recipientInput} /><Info label="Resolved Address" value={resolved?.recipient ?? "-"} mono /><Info label="Asset" value={asset} /><Info label="Amount" value={money(amountNum || 0, asset)} /><Info label="Automation Type" value={cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence })} /><Info label="Execution Time" value={new Date(startAt).toLocaleString()} /><Info label="Timezone" value={timezone} /><Info label="Purpose" value={finalPurpose || "-"} /><Info label="Estimated Annual Volume" value={money(annualVolume({ amount: amountNum || 0, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation), asset)} /><Info label="Estimated Gas" value={estimateGas} /><Info label="Network" value="Monad Mainnet" /><Info label="Wallet" value={short(wallet.address)} mono /><Info label="Status" value="Active after signature" /></div></Step>}
+              {step === 6 && <Step title="Review" detail="Choose how this automation is funded, verify the details, then sign once to activate.">
+                <div className="mb-5">
+                  <p className="mb-2 text-sm font-medium text-foreground">How should this automation be funded?</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <ModeCard
+                      selected={fundingMode === "wallet"} disabled={!walletAvailableForToken}
+                      onSelect={() => setFundingMode("wallet")} badge="Recommended" title="Wallet Automation"
+                      description="Funds stay in your wallet until each payment runs. PayAI never holds your money."
+                      pros={["Funds stay in your wallet", "Non-custodial", "More flexible"]}
+                      note={asset === "MON" && !walletAvailableForToken ? "Not available for MON yet — use Reserved Funds for MON." : "Payment depends on your available balance at run time."}
+                    />
+                    <ModeCard
+                      selected={fundingMode === "reserved"} disabled={!reservedAvailable}
+                      onSelect={() => setFundingMode("reserved")} badge="Guaranteed Execution" title="Reserved Funds"
+                      description="Set aside funds now, dedicated to this automation, so scheduled payments always go through."
+                      pros={["Higher reliability", "Funds already reserved", "Best for important payments"]}
+                      note="Reserved funds stay dedicated until spent or released back to you."
+                    />
+                  </div>
+                  <details className="mt-3 text-sm text-muted-foreground"><summary className="cursor-pointer text-primary">Learn more about the two options</summary>
+                    <p className="mt-2"><strong className="text-foreground">Wallet Automation</strong> keeps your money in your own wallet and only moves it at the moment each payment is due — you stay fully in control. <strong className="text-foreground">Reserved Funds</strong> moves the money into a dedicated reserve up front, so the payment can never miss for lack of balance. You can get reserved money back anytime you cancel.</p>
+                  </details>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2"><Info label="Funding Method" value={fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds"} /><Info label={fundingMode === "wallet" ? "You authorize up to" : "You reserve"} value={money(budgetAmount, asset)} /><Info label="Recipient" value={recipientInput} /><Info label="Resolved Address" value={resolved?.recipient ?? "-"} mono /><Info label="Asset" value={asset} /><Info label="Amount per payment" value={money(amountNum || 0, asset)} /><Info label="Automation Type" value={cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence })} /><Info label="Execution Time" value={new Date(startAt).toLocaleString()} /><Info label="Purpose" value={finalPurpose || "-"} /><Info label="Estimated Gas" value={estimateGas} /><Info label="Network" value="Monad Mainnet" /><Info label="Wallet" value={short(wallet.address)} mono /></div>
+                {savingStep && <p className="mt-4 flex items-center gap-2 text-sm text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {savingStep}…</p>}
+              </Step>}
             </div>
           </div>
           <div className="flex items-center justify-between border-t border-border px-5 py-4"><Button variant="secondary" onClick={() => setStep((s) => Math.max(1, s - 1))} disabled={step === 1}>Back</Button>{step < 6 ? <Button onClick={() => setStep((s) => Math.min(6, s + 1))} disabled={!canNext}>Continue <ArrowRight size={14} /></Button> : <Button onClick={create} disabled={!canNext || saving}>{saving ? "Confirming..." : "Sign & Create Automation"}</Button>}</div>
