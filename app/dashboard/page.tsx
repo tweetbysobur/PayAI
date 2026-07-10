@@ -174,7 +174,7 @@ export default function Overview() {
         {[
           { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, token: "MON" as const, tone: "primary" as const },
           { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, token: "USDC" as const, tone: "success" as const },
-          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "USDC", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const },
+          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "MON", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const },
           { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const },
         ].map((k, i) => {
           const iconTone = { primary: "bg-primary/12 text-primary", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];

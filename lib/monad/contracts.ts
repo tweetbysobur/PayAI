@@ -323,7 +323,12 @@ export async function getOnchainStats(): Promise<OnchainStats | null> {
   const s = (await pub.readContract({ address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "stats" })) as readonly [bigint, bigint, bigint, bigint, bigint];
   return {
     payments: Number(s[0]),
-    volume: Number(s[1]) / 10 ** token.decimals,
+    // totalVolume accrues the raw `amount` of every payment. Native-MON
+    // payments (executePaymentNative) dominate and are denominated in 18-dp
+    // wei, so this figure is MON-denominated — dividing by the stablecoin's
+    // 6 decimals produced a nonsensical quadrillion. (A USDC direct payment's
+    // 6-dp base units are negligible against MON wei, so this stays accurate.)
+    volume: Number(s[1]) / 1e18,
     approved: Number(s[2]),
     rejected: Number(s[3]),
     requests: Number(s[4]),
@@ -350,9 +355,13 @@ export async function getOnchainPayments(limit = 20): Promise<OnchainPayment[]> 
       const p = (await pub.readContract({ address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "getPayment", args: [BigInt(id)] })) as {
         agent: string; merchant: string; token: string; amount: bigint; riskScore: number; compliance: number; timestamp: bigint;
       };
+      // Native MON (token = zero address) is 18-dp wei; the stablecoin is its
+      // own decimals. Using the stablecoin's decimals for a MON payment
+      // under-scaled it by 1e12 — decimals must follow the token.
+      const isNative = /^0x0+$/.test(p.token);
       return {
         id, agent: p.agent, merchant: p.merchant, token: p.token,
-        amount: Number(p.amount) / 10 ** token.decimals,
+        amount: Number(p.amount) / 10 ** (isNative ? 18 : token.decimals),
         riskScore: Number(p.riskScore), compliance: Number(p.compliance),
         timestamp: Number(p.timestamp),
       };
