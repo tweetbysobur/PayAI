@@ -149,6 +149,7 @@ export async function GET(req: NextRequest) {
         await recordTx(s.merchantId, {
           decision: decision as "blocked" | "needs_review", action: "send_payment", amount: s.amount, token: s.token,
           recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
+          sender: s.sender, // tag the automation owner so it shows in THEIR history
           summary: `Automation: ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
         });
         await completeRequest(requestId, { outcome: decision });
@@ -165,6 +166,7 @@ export async function GET(req: NextRequest) {
         decision: outcome, action: "send_payment", amount: s.amount, token: s.token,
         recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
         txHash: tx.txHash, explorerUrl: tx.explorerUrl,
+        sender: s.sender, // tag the automation owner so it shows in THEIR history
         summary: `Automation: sent ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
       });
       await completeRequest(requestId, { outcome, txHash: tx.txHash });

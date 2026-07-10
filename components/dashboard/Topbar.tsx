@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -44,12 +45,15 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */
 export function Topbar({ health, notifications = [], onOpenNotifications, onMenuClick }: { health: Health | null; notifications?: NotifItem[]; onOpenNotifications?: () => void; onMenuClick?: () => void }) {
   const wallet = useWallet();
+  const router = useRouter();
   const balances = useWalletBalances(wallet.address);
   const identity = useIdentity(wallet.address);
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const unread = notifications.filter((n) => !n.read).length;
+  const openNotif = (href: string) => { setShowNotifs(false); onOpenNotifications?.(); router.push(href); };
 
   return (
     <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
@@ -144,11 +148,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
         <div className="relative">
           <button
             onClick={() => { const next = !showNotifs; setShowNotifs(next); if (!next) onOpenNotifications?.(); }}
-            aria-label={notifications.length > 0 ? `Notifications (${notifications.length} unread)` : "Notifications"}
+            aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
             className="relative rounded-full border border-border bg-panel p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell size={16} />
-            {notifications.length > 0 && <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-danger" />}
+            {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold text-white">{unread > 9 ? "9+" : unread}</span>}
           </button>
           <AnimatePresence>
             {showNotifs && (
@@ -160,13 +164,13 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                 <div className="flex items-center justify-between border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-foreground">Notifications</p>
-                    {notifications.length > 0 && (
-                      <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary">{notifications.length} new</span>
+                    {unread > 0 && (
+                      <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary">{unread} new</span>
                     )}
                   </div>
-                  {notifications.length > 0 && (
+                  {unread > 0 && (
                     <button
-                      onClick={() => { onOpenNotifications?.(); setShowNotifs(false); }}
+                      onClick={() => onOpenNotifications?.()}
                       className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                     >
                       <CheckCheck size={12} /> Mark all read
@@ -190,23 +194,32 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                         <motion.li
                           key={n.id}
                           initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.04, duration: 0.2 }}
-                          className="relative flex items-start gap-3 px-4 py-3 transition hover:bg-input/50"
+                          onClick={() => openNotif(n.href)}
+                          className={`group relative flex cursor-pointer items-start gap-3 px-4 py-3 transition hover:bg-input/50 ${n.read ? "opacity-55" : ""}`}
                         >
-                          <span className={`absolute left-0 top-0 h-full w-0.5 ${meta.accent}`} />
+                          <span className={`absolute left-0 top-0 h-full w-0.5 ${n.read ? "bg-transparent" : meta.accent}`} />
                           <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${meta.chip}`}>
                             <Icon size={14} />
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-foreground">{n.title}</p>
+                              <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                                {!n.read && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+                                {n.title}
+                              </p>
                               <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo(n.at)}</span>
                             </div>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground" title={n.detail}>{n.detail}</p>
-                            {n.explorerUrl && (
-                              <a href={n.explorerUrl} target="_blank" rel="noreferrer" className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline">
-                                View on explorer <ExternalLink size={9} />
-                              </a>
-                            )}
+                            <div className="mt-1.5 flex items-center gap-3">
+                              <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary group-hover:underline">
+                                View <ChevronRight size={11} />
+                              </span>
+                              {n.explorerUrl && (
+                                <a href={n.explorerUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary">
+                                  Explorer <ExternalLink size={9} />
+                                </a>
+                              )}
+                            </div>
                           </div>
                         </motion.li>
                       );
