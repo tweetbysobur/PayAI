@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   MoreHorizontal, Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
+  Lock, Wallet,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input } from "@/components/ui";
@@ -62,7 +63,7 @@ type Automation = {
   id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
-  endCondition?: EndCondition;
+  endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
 };
 
 const PURPOSES = ["Savings", "Salary", "Subscription", "Investment", "Rent", "Family", "Utilities", "Gift", "Business", "Other"];
@@ -356,16 +357,24 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
 }) {
   const m = automationMetrics(automation);
   return (
-    <motion.div className="rounded-lg border border-border bg-background/35 p-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="group rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:border-primary/30 hover:bg-panel" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}</span>
+          <p className="truncate text-base font-semibold tracking-tight text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}</span>
+            <span className="text-muted-foreground/50">·</span>
             <span>{cadenceLabel(automation)}</span>
           </div>
         </div>
-        <Badge tone={STATUS_TONE[automation.status]}>{automation.status}</Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Badge tone={STATUS_TONE[automation.status]}>{automation.status}</Badge>
+          {automation.fundingMode && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              {automation.fundingMode === "reserved" ? <><Lock size={9} /> Reserved</> : <><Wallet size={9} /> Non-custodial</>}
+            </span>
+          )}
+        </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
         <Info label="Recipient" value={automation.domain ?? short(automation.recipient)} mono />
