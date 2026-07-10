@@ -427,18 +427,9 @@ function AnalyticsTile({ label, value }: { label: string; value: string }) {
   return <div className="rounded-lg border border-border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold text-foreground">{value}</p></div>;
 }
 
-/** Relative timestamp — "2h ago" style, for the unified activity feed. */
-function timeAgo(ts: number): string {
-  const s = Math.floor((Date.now() - ts) / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24); if (d < 7) return `${d}d ago`;
-  return new Date(ts).toLocaleDateString();
-}
-
 /** One unified, chronological activity feed — every run across every
- *  automation (sent / blocked / failed) in one clean, arranged place. */
+ *  automation (sent / blocked / failed) with its date-time and, when it
+ *  settled on-chain, a linked transaction hash. */
 function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; decision: string; explorerUrl?: string; txHash?: string }[] }) {
   const meta = (d: string) =>
     d === "executed" ? { Icon: CheckCircle2, tone: "bg-primary/12 text-primary", label: "Sent" }
@@ -446,20 +437,33 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
     : d === "needs_review" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Needs review" }
     : d === "error" || d === "failed" ? { Icon: AlertTriangle, tone: "bg-danger/12 text-danger", label: "Failed" }
     : { Icon: CalendarClock, tone: "bg-input text-muted-foreground", label: "Scheduled" };
+  const fmt = (ts: number) => new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
   return (
     <div className="divide-y divide-border">
       {runs.slice(0, 12).map((r) => {
         const { Icon, tone, label } = meta(r.decision);
         return (
-          <div key={`${r.automation.id}-${r.at}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}><Icon size={16} /></span>
+          <div key={`${r.automation.id}-${r.at}`} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+            <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}><Icon size={16} /></span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-foreground">
-                {r.automation.purpose ?? r.automation.memo ?? "Automation"} <span className="font-normal text-muted-foreground">· {money(r.automation.amount, r.automation.token)}</span>
-              </p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{label} · {timeAgo(r.at)}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {r.automation.purpose ?? r.automation.memo ?? "Automation"} <span className="font-normal text-muted-foreground">· {money(r.automation.amount, r.automation.token)}</span>
+                </p>
+                <span className={`shrink-0 text-xs font-medium ${r.decision === "executed" ? "text-primary" : r.decision === "error" || r.decision === "failed" ? "text-danger" : "text-muted-foreground"}`}>{label}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1"><CalendarClock size={11} /> {fmt(r.at)}</span>
+                {r.txHash && (
+                  <>
+                    <span className="text-muted-foreground/40">·</span>
+                    {r.explorerUrl
+                      ? <a href={r.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-primary transition-colors hover:text-secondary hover:underline">{r.txHash.slice(0, 8)}…{r.txHash.slice(-6)} <ExternalLink size={10} /></a>
+                      : <span className="font-mono">{r.txHash.slice(0, 8)}…{r.txHash.slice(-6)}</span>}
+                  </>
+                )}
+              </div>
             </div>
-            {r.explorerUrl && <a href={r.explorerUrl} target="_blank" rel="noreferrer" title="View on explorer" className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-input hover:text-primary"><ExternalLink size={14} /></a>}
           </div>
         );
       })}
