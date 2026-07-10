@@ -408,6 +408,21 @@ function Info({ label, value, mono }: { label: string; value: string; mono?: boo
   return <div><p className="text-muted-foreground">{label}</p><p className={`mt-0.5 truncate text-foreground ${mono ? "font-mono" : ""}`}>{value}</p></div>;
 }
 
+/** Sleek review summary — each field a subtle panel card; key money values
+ *  accented in purple so the numbers pop against white text. */
+function ReviewGrid({ rows }: { rows: { label: string; value: string; mono?: boolean; accent?: boolean }[] }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {rows.map((r) => (
+        <div key={r.label} className="rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3.5 py-2.5 transition-colors hover:border-primary/25">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{r.label}</p>
+          <p className={`mt-0.5 truncate ${r.mono ? "font-mono text-xs" : "text-sm"} ${r.accent ? "font-semibold text-primary" : "font-medium text-foreground"}`}>{r.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function AnalyticsTile({ label, value }: { label: string; value: string }) {
   return <div className="rounded-lg border border-border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold text-foreground">{value}</p></div>;
 }
@@ -811,7 +826,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   return (
     <AnimatePresence>
       {open && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-6 py-4"><div><p className="text-sm font-semibold tracking-tight text-foreground">Create Payment Automation</p><p className="mt-0.5 text-xs text-muted-foreground">Step {step} of 6</p></div><button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={17} /></button></div>
           <div className="grid gap-6 p-6 lg:grid-cols-[190px_1fr]">
             <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
@@ -865,7 +880,23 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                     <p className="mt-2"><strong className="text-foreground">Wallet Automation</strong> keeps your money in your own wallet and only moves it at the moment each payment is due — you stay fully in control. <strong className="text-foreground">Reserved Funds</strong> moves the money into a dedicated reserve up front, so the payment can never miss for lack of balance. You can get reserved money back anytime you cancel.</p>
                   </details>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2"><Info label="Funding Method" value={fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds"} /><Info label={fundingMode === "wallet" ? "You authorize up to" : "You reserve"} value={money(budgetAmount, asset)} /><Info label="Recipient" value={recipientInput} /><Info label="Resolved Address" value={resolved?.recipient ?? "-"} mono /><Info label="Asset" value={asset} /><Info label="Amount per payment" value={money(amountNum || 0, asset)} /><Info label="Total payments" value={occurrences != null ? `${occurrences}` : "Ongoing"} /><Info label={fundingMode === "reserved" ? "Total reserved now" : "Total authorized"} value={occurrences != null ? money(totalScheduled ?? 0, asset) : "Up to ~1 year"} /><Info label="Automation Type" value={cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence })} /><Info label="Ends" value={cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`} /><Info label="Execution Time" value={new Date(startAt).toLocaleString()} /><Info label="Purpose" value={finalPurpose || "-"} /><Info label="Estimated Gas" value={estimateGas} /><Info label="Network" value="Monad Mainnet" /><Info label="Wallet" value={short(wallet.address)} mono /></div>
+                <ReviewGrid rows={[
+                  { label: "Funding Method", value: fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds" },
+                  { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: money(budgetAmount, asset), accent: true },
+                  { label: "Recipient", value: recipientInput },
+                  { label: "Resolved Address", value: resolved?.recipient ?? "-", mono: true },
+                  { label: "Asset", value: asset },
+                  { label: "Amount per payment", value: money(amountNum || 0, asset), accent: true },
+                  { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing" },
+                  { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, asset) : "Up to ~1 year", accent: true },
+                  { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }) },
+                  { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}` },
+                  { label: "Execution Time", value: new Date(startAt).toLocaleString() },
+                  { label: "Purpose", value: finalPurpose || "-" },
+                  { label: "Estimated Gas", value: estimateGas },
+                  { label: "Network", value: "Monad Mainnet" },
+                  { label: "Wallet", value: short(wallet.address), mono: true },
+                ]} />
                 {savingStep && <p className="mt-4 flex items-center gap-2 text-sm text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {savingStep}…</p>}
               </Step>}
             </div>
