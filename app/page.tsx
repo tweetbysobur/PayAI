@@ -222,7 +222,8 @@ function MiniScreen({ screen, health, activity }: { screen: ScreenKey; health: H
 }
 
 const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
-const X_URL = "https://x.com/tweetbysobur";
+const X_URL = "https://x.com/usepayAI";
+const FOUNDER_X_URL = "https://x.com/tweetbysobur";
 
 const FOOTER_COLUMNS = [
   {
@@ -534,6 +535,15 @@ export default function LandingPage() {
               target="_blank"
               rel="noreferrer"
               aria-label="PayAI on X"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <XMark size={15} />
+            </a>
+            <a
+              href={FOUNDER_X_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Founder on X"
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <XMark size={15} />
