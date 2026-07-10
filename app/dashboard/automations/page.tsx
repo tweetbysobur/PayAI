@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
-  MoreHorizontal, Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
+  Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
   Lock, Wallet,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
@@ -299,16 +299,11 @@ export default function AutomationsPage() {
             </Card>
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-3">
-            <Card title="Recent Activity">
-              <Timeline items={runs.slice(0, 5).map((r) => ({ id: `${r.automation.id}-${r.at}`, title: `${r.automation.purpose ?? "Automation"} ${r.decision === "executed" ? "executed" : r.decision}`, detail: new Date(r.at).toLocaleString(), status: r.decision === "executed" ? "completed" : "failed", href: r.explorerUrl ?? null }))} empty="No automation activity yet." />
-            </Card>
-            <Card title="Execution History" className="xl:col-span-2">
-              <div className="space-y-3">
-                {automations.length === 0 ? <EmptyState title="No automations yet" detail="Your execution timelines will appear here after you create one." /> : automations.map((a) => <ExecutionHistory key={a.id} automation={a} />)}
-              </div>
-            </Card>
-          </section>
+          <Card title="Activity" right={runs.length > 0 ? <span className="text-xs text-muted-foreground">{runs.length} event{runs.length === 1 ? "" : "s"}</span> : undefined}>
+            {runs.length === 0
+              ? <EmptyState title="No activity yet" detail="Every execution — sent, blocked, or failed — appears here with its on-chain receipt once your automations start running." />
+              : <ActivityFeed runs={runs} />}
+          </Card>
 
           <Card title="Analytics">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -382,19 +377,30 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
         <Info label="Time" value={new Date(automation.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
         <Info label="Success Rate" value={`${m.successRate}%`} />
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={onView} disabled={busy}><Eye size={13} /> View</Button>
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>
-        {automation.status === "paused" || automation.status === "failed" ? (
-          <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={13} /> Resume</Button>
-        ) : (
-          <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => onAction(automation.id, "pause")} disabled={busy}><Pause size={13} /> Pause</Button>
-        )}
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={onDuplicate} disabled={busy}><Copy size={13} /> Duplicate</Button>
-        <Button variant="secondary" className="!px-2.5 !py-1.5 text-xs" onClick={() => onAction(automation.id, "cancel")} disabled={busy}><X size={13} /> Cancel</Button>
-        <Button variant="ghost" className="!px-2.5 !py-1.5 text-xs text-danger" onClick={() => onAction(automation.id, "delete")} disabled={busy}><Trash2 size={13} /> Delete</Button>
+      <div className="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
+        <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onView} disabled={busy}><Eye size={13} /> View</Button>
+        <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>
+        <div className="ml-auto flex items-center gap-0.5">
+          {automation.status === "paused" || automation.status === "failed" ? (
+            <IconAction label="Resume" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={14} /></IconAction>
+          ) : (
+            <IconAction label="Pause" onClick={() => onAction(automation.id, "pause")} disabled={busy}><Pause size={14} /></IconAction>
+          )}
+          <IconAction label="Duplicate" onClick={onDuplicate} disabled={busy}><Copy size={14} /></IconAction>
+          <IconAction label="Cancel" onClick={() => onAction(automation.id, "cancel")} disabled={busy}><X size={14} /></IconAction>
+          <IconAction label="Delete" danger onClick={() => onAction(automation.id, "delete")} disabled={busy}><Trash2 size={14} /></IconAction>
+        </div>
       </div>
     </motion.div>
+  );
+}
+
+function IconAction({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: ReactNode }) {
+  return (
+    <button type="button" title={label} aria-label={label} onClick={onClick} disabled={disabled}
+      className={`rounded-lg p-2 transition-colors disabled:opacity-40 ${danger ? "text-muted-foreground hover:bg-danger/10 hover:text-danger" : "text-muted-foreground hover:bg-input hover:text-foreground"}`}>
+      {children}
+    </button>
   );
 }
 
@@ -406,16 +412,42 @@ function AnalyticsTile({ label, value }: { label: string; value: string }) {
   return <div className="rounded-lg border border-border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold text-foreground">{value}</p></div>;
 }
 
-function ExecutionHistory({ automation }: { automation: Automation }) {
-  const [open, setOpen] = useState(false);
-  const synthetic = automation.runs.length ? automation.runs : [{ at: automation.nextRun, decision: "scheduled" }];
+/** Relative timestamp — "2h ago" style, for the unified activity feed. */
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24); if (d < 7) return `${d}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+/** One unified, chronological activity feed — every run across every
+ *  automation (sent / blocked / failed) in one clean, arranged place. */
+function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; decision: string; explorerUrl?: string; txHash?: string }[] }) {
+  const meta = (d: string) =>
+    d === "executed" ? { Icon: CheckCircle2, tone: "bg-primary/12 text-primary", label: "Sent" }
+    : d === "blocked" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Blocked" }
+    : d === "needs_review" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Needs review" }
+    : d === "error" || d === "failed" ? { Icon: AlertTriangle, tone: "bg-danger/12 text-danger", label: "Failed" }
+    : { Icon: CalendarClock, tone: "bg-input text-muted-foreground", label: "Scheduled" };
   return (
-    <div className="rounded-lg border border-border p-4">
-      <button className="flex w-full items-center justify-between gap-3 text-left" onClick={() => setOpen((v) => !v)}>
-        <div><p className="text-sm font-medium text-foreground">{automation.purpose ?? "Automation"}</p><p className="mt-0.5 text-xs text-muted-foreground">{money(automation.amount, automation.token)} - {cadenceLabel(automation)}</p></div>
-        <MoreHorizontal size={16} className="text-muted-foreground" />
-      </button>
-      {open && <div className="mt-4 space-y-3">{synthetic.slice(0, 6).map((run, idx) => <div key={`${run.at}-${idx}`} className="flex gap-3 text-sm"><span className={`mt-1 h-2.5 w-2.5 rounded-full ${run.decision === "executed" ? "bg-success" : run.decision === "scheduled" ? "bg-primary" : "bg-danger"}`} /><div><p className="font-medium text-foreground">{new Date(run.at).toLocaleDateString()} - {run.decision === "executed" ? "Executed Successfully" : run.decision === "scheduled" ? "Scheduled" : "Execution Failed"}</p><p className="text-xs text-muted-foreground">{new Date(run.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{run.gasFee ? ` - Gas ${run.gasFee} MON` : ""}</p>{run.explorerUrl && <a href={run.explorerUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary">Explorer Link <ExternalLink size={11} /></a>}</div></div>)}</div>}
+    <div className="divide-y divide-border">
+      {runs.slice(0, 12).map((r) => {
+        const { Icon, tone, label } = meta(r.decision);
+        return (
+          <div key={`${r.automation.id}-${r.at}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${tone}`}><Icon size={16} /></span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-foreground">
+                {r.automation.purpose ?? r.automation.memo ?? "Automation"} <span className="font-normal text-muted-foreground">· {money(r.automation.amount, r.automation.token)}</span>
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{label} · {timeAgo(r.at)}</p>
+            </div>
+            {r.explorerUrl && <a href={r.explorerUrl} target="_blank" rel="noreferrer" title="View on explorer" className="shrink-0 rounded-lg p-2 text-muted-foreground transition-colors hover:bg-input hover:text-primary"><ExternalLink size={14} /></a>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -454,7 +486,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
             </div>
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution history</p>
-              <ExecutionHistory automation={a} />
+              {a.runs.length ? <ActivityFeed runs={a.runs.map((run) => ({ ...run, automation: a }))} /> : <p className="text-sm text-muted-foreground">No executions yet.</p>}
             </div>
             {a.lastError && (a.status === "paused" || a.status === "failed") && (
               <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">{a.lastError}</div>
