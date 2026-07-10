@@ -333,7 +333,7 @@ export default function AutomationsPage() {
 }
 
 function Metric({ title, value, icon: Icon }: { title: string; value: string; icon: typeof Repeat }) {
-  return <Card className="!p-4"><div className="flex items-center justify-between"><p className="text-xs text-muted-foreground">{title}</p><Icon size={16} className="text-primary" /></div><p className="mt-2 text-2xl font-semibold text-foreground">{value}</p></Card>;
+  return <Card className="!p-4 bg-gradient-to-b from-primary/[0.06] to-transparent"><div className="flex items-center justify-between"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p><Icon size={16} className="text-primary" /></div><p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p></Card>;
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
@@ -352,7 +352,7 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
 }) {
   const m = automationMetrics(automation);
   return (
-    <motion.div className="group rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:border-primary/30 hover:bg-panel" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+    <motion.div className="group rounded-xl border border-border bg-gradient-to-br from-primary/[0.07] via-panel/40 to-transparent p-5 transition-all duration-200 hover:border-primary/35 hover:from-primary/[0.11]" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-base font-semibold tracking-tight text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>
@@ -424,7 +424,7 @@ function ReviewGrid({ rows }: { rows: { label: string; value: string; mono?: boo
 }
 
 function AnalyticsTile({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg border border-border bg-background/35 p-4"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold text-foreground">{value}</p></div>;
+  return <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-4 transition-colors hover:border-primary/25"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
 /** One unified, chronological activity feed — every run across every
@@ -487,14 +487,14 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
             <button onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-input"><X size={17} /></button>
           </div>
           <div className="space-y-5 p-5">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Info label="Status" value={a.status} />
-              <Info label="Recipient" value={a.domain ?? short(a.recipient)} mono />
-              <Info label="Created" value={new Date(a.createdAt).toLocaleString()} />
-              <Info label="Last Execution" value={m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never"} />
-              <Info label="Next Execution" value={a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—"} />
-              <Info label="Network" value="Monad Mainnet" />
-            </div>
+            <ReviewGrid rows={[
+              { label: "Status", value: a.status },
+              { label: "Recipient", value: a.domain ?? short(a.recipient), accent: true },
+              { label: "Created", value: new Date(a.createdAt).toLocaleString() },
+              { label: "Last Execution", value: m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never" },
+              { label: "Next Execution", value: a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—" },
+              { label: "Network", value: "Monad Mainnet" },
+            ]} />
             <div className="grid gap-3 sm:grid-cols-3">
               <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
               <AnalyticsTile label="Total Executions" value={m.totalExecutions.toString()} />
