@@ -488,7 +488,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
           </div>
           <div className="space-y-5 p-5">
             <ReviewGrid rows={[
-              { label: "Status", value: a.status },
+              { label: "Status", value: a.status, accent: true },
               { label: "Recipient", value: a.domain ?? short(a.recipient), accent: true },
               { label: "Created", value: new Date(a.createdAt).toLocaleString() },
               { label: "Last Execution", value: m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never" },
@@ -885,18 +885,18 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                   </details>
                 </div>
                 <ReviewGrid rows={[
-                  { label: "Funding Method", value: fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds" },
+                  { label: "Funding Method", value: fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds", accent: true },
                   { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: money(budgetAmount, asset), accent: true },
-                  { label: "Recipient", value: recipientInput },
+                  { label: "Recipient", value: recipientInput, accent: true },
                   { label: "Resolved Address", value: resolved?.recipient ?? "-", mono: true },
-                  { label: "Asset", value: asset },
+                  { label: "Asset", value: asset, accent: true },
                   { label: "Amount per payment", value: money(amountNum || 0, asset), accent: true },
-                  { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing" },
+                  { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing", accent: true },
                   { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, asset) : "Up to ~1 year", accent: true },
-                  { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }) },
-                  { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}` },
+                  { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }), accent: true },
+                  { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`, accent: true },
                   { label: "Execution Time", value: new Date(startAt).toLocaleString() },
-                  { label: "Purpose", value: finalPurpose || "-" },
+                  { label: "Purpose", value: finalPurpose || "-", accent: true },
                   { label: "Estimated Gas", value: estimateGas },
                   { label: "Network", value: "Monad Mainnet" },
                   { label: "Wallet", value: short(wallet.address), mono: true },
