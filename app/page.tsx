@@ -48,9 +48,10 @@ const FLOW = [
   { icon: Zap, title: "It arrives in seconds" },
 ];
 
-type ScreenKey = "dashboard" | "transactions" | "compliance" | "wallets";
+type ScreenKey = "dashboard" | "automations" | "transactions" | "compliance" | "wallets";
 const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; href: string }[] = [
   { key: "dashboard", label: "Payment Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+  { key: "automations", label: "Payment Automations", icon: Repeat, href: "/dashboard/automations" },
   { key: "transactions", label: "Transaction History", icon: ScrollText, href: "/dashboard/transactions" },
   { key: "compliance", label: "Payment checks", icon: ShieldCheck, href: "/dashboard/compliance" },
   { key: "wallets", label: "Wallet Management", icon: WalletIcon, href: "/dashboard/wallets" },
@@ -125,6 +126,36 @@ function MiniScreen({ screen, health, activity }: { screen: ScreenKey; health: H
                 <span className="text-[8px] text-muted-foreground/60">{t.date ? t.date.slice(5) : ""}</span>
               </div>
             ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === "automations") {
+    // Feature preview, not per-user data — no automation is scoped to the
+    // landing page's anonymous visitor, so this illustrates the real choice
+    // (Wallet Automation vs Reserved Funds) rather than fabricating a schedule.
+    return (
+      <div className="space-y-3 p-5">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3.5">
+            <div className="mb-2 flex items-center gap-1.5"><Repeat size={13} className="text-primary" /><span className="text-[11px] font-semibold text-foreground">Wallet Automation</span></div>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">Funds stay in your wallet until each payment runs.</p>
+          </div>
+          <div className="rounded-xl border border-border bg-panel p-3.5">
+            <div className="mb-2 flex items-center gap-1.5"><Vault size={13} className="text-primary" /><span className="text-[11px] font-semibold text-foreground">Reserved Funds</span></div>
+            <p className="text-[10px] leading-relaxed text-muted-foreground">Set money aside up front for guaranteed execution.</p>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-panel p-3.5">
+          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground/70">Next execution</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/12 text-primary"><Repeat size={13} /></span>
+              <div><p className="text-xs font-medium text-foreground">Weekly payment</p><p className="text-[10px] text-muted-foreground">Every Monday, 9:00 AM</p></div>
+            </div>
+            <Badge tone="success">Active</Badge>
           </div>
         </div>
       </div>
@@ -276,7 +307,7 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
-    const order: ScreenKey[] = ["dashboard", "transactions", "compliance", "wallets"];
+    const order: ScreenKey[] = SCREENS.map((s) => s.key);
     const t = setInterval(() => { if (!document.hidden) setActiveScreen((s) => order[(order.indexOf(s) + 1) % order.length]); }, 3200);
     return () => clearInterval(t);
   }, []);
