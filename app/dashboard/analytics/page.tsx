@@ -38,7 +38,7 @@ export default function AnalyticsPage() {
         ].map((k) => (
           <Card key={k.label} className="p-4">
             <p className="flex items-center gap-1.5 text-xl font-semibold text-foreground">
-              {k.coin && a && <TokenLogo token={a.revenue.currency} size={17} />}{k.value}
+              {k.coin && a && <TokenLogo token={a.revenue.currency} size={16} />}{k.value}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">{k.label}</p>
           </Card>
