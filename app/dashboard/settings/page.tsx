@@ -98,7 +98,7 @@ export default function Settings() {
             </div>
           </div>
         )}
-        {msg && <p className="mt-3 break-all rounded-md bg-input p-2 text-xs text-warning">{msg}</p>}
+        {msg && <p className="mt-3 break-all rounded-lg bg-input p-2 text-xs text-warning">{msg}</p>}
       </Card>
     </div>
   );
