@@ -36,3 +36,6 @@ yarn-error.log*
 .mainnet-pk.tmp
 MAINNET_WALLET_KEY.txt
 COLD_OWNER_WALLET_KEY.txt
+
+.vercel
+.env*
