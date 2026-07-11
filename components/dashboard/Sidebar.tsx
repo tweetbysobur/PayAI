@@ -5,8 +5,20 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
   ShieldCheck, BarChart3, Wallet, Settings, Repeat,
+  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
+
+const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
+
+const LEARN_LINKS = [
+  { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
+  { label: "Automation Guide", icon: BookOpen, href: "/dashboard/automations" },
+  { label: "Wallet Security", icon: Lock, href: "/security" },
+  { label: "FAQs", icon: HelpCircle, href: "/#faq" },
+  { label: "Support", icon: LifeBuoy, href: `${GITHUB_URL}/issues`, external: true },
+];
 
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
@@ -68,6 +80,28 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      <div className="border-t border-border px-3 py-3">
+        <p className="mb-1 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+          <GraduationCap size={12} /> Learn PayAI
+        </p>
+        {LEARN_LINKS.map((item) => {
+          const Icon = item.icon;
+          const content = (
+            <span className="flex items-center gap-2.5">
+              <Icon size={15} />
+              {item.label}
+            </span>
+          );
+          const cls = "flex items-center rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+          if (item.action === "onboarding") {
+            return <button key={item.label} onClick={() => reopenOnboarding()} className={`w-full text-left ${cls}`}>{content}</button>;
+          }
+          return item.external
+            ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" className={cls}>{content}</a>
+            : <Link key={item.label} href={item.href} className={cls}>{content}</Link>;
+        })}
+      </div>
     </aside>
   );
 }
