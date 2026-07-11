@@ -4,7 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { Menu, X } from "lucide-react";
-import { NAV } from "@/components/dashboard/Sidebar";
+import { NAV, LEARN_LINKS } from "@/components/dashboard/Sidebar";
+import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
+import { GraduationCap } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
 /** Hamburger trigger — rendered inside Topbar, visible only below the lg breakpoint where Sidebar is hidden. */
@@ -67,6 +69,21 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
                     {item.soon && <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">Soon</span>}
                   </Link>
                 );
+              })}
+
+              <p className="mb-1 mt-4 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
+                <GraduationCap size={12} /> Learn PayAI
+              </p>
+              {LEARN_LINKS.map((item) => {
+                const Icon = item.icon;
+                const content = <span className="flex items-center gap-2.5"><Icon size={15} /> {item.label}</span>;
+                const cls = "flex items-center rounded-md px-3 py-2 text-[13px] text-muted-foreground transition hover:bg-input hover:text-foreground";
+                if (item.action === "onboarding") {
+                  return <button key={item.label} onClick={() => { onClose(); reopenOnboarding(); }} className={`w-full text-left ${cls}`}>{content}</button>;
+                }
+                return item.external
+                  ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" onClick={onClose} className={cls}>{content}</a>
+                  : <Link key={item.label} href={item.href} onClick={onClose} className={cls}>{content}</Link>;
               })}
             </nav>
           </motion.aside>

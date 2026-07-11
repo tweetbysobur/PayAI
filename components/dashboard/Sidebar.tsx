@@ -12,7 +12,7 @@ import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 
 const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
 
-const LEARN_LINKS = [
+export const LEARN_LINKS = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
   { label: "Automation Guide", icon: BookOpen, href: "/dashboard/automations" },
   { label: "Wallet Security", icon: Lock, href: "/security" },
