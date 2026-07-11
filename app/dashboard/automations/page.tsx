@@ -844,7 +844,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                   <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Time</label><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
                   <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Timezone</label><Input value={timezone} onChange={(e) => setTimezone(e.target.value)} /></div>
                 </div>
-                <div className="mt-3 rounded-lg border border-border bg-background/35 p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="text-foreground">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+                <div className="mt-3 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="font-medium text-primary">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
                 {cadence !== "once" && <div className="mt-4">
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">When should it end?</label>
                   <div className="flex flex-wrap gap-2">
