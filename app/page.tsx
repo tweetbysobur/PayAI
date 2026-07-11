@@ -8,7 +8,7 @@ import {
   MessageSquare, ShieldHalf, Zap, ExternalLink,
   FileCheck2, Coins, AtSign, LayoutDashboard,
   ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
-  Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles,
+  Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles, Repeat, Vault,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { Logo } from "@/components/Logo";
@@ -68,10 +68,10 @@ const FEATURES = [
   { icon: Coins, title: "Send MON & USDC", body: "The coins people actually use." },
   { icon: ArrowDownLeft, title: "Swap instantly", body: "Move between MON and USDC in a tap." },
   { icon: AtSign, title: "Pay a name", body: "Use easy names, not long addresses." },
-  { icon: MessageSquare, title: "Payment Automations", body: "Create verified one-time or recurring payments from a dedicated dashboard." },
-  { icon: ScrollText, title: "Full history", body: "Every payment, in one place." },
+  { icon: Repeat, title: "Wallet Automations", body: "Recurring or future payments that stay in your wallet until each one runs." },
+  { icon: Vault, title: "Reserved Funds", body: "Set money aside up front for guaranteed, on-time execution." },
+  { icon: ScrollText, title: "Full history", body: "Every payment and insight, in one place." },
   { icon: LayoutDashboard, title: "Your dashboard", body: "Balances and activity at a glance." },
-  { icon: Receipt, title: "Clear insights", body: "See where your money goes." },
   { icon: ShieldHalf, title: "Built-in safety", body: "Every payment checked before it sends." },
   { icon: ExternalLink, title: "Always verifiable", body: "Prove any payment, anytime." },
 ];
@@ -80,7 +80,7 @@ const FAQS = [
   { q: "Who controls my money?", a: "You do. PayAI never holds your funds. You approve every payment yourself, and we never ask for your seed phrase or private keys." },
   { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
   { q: "What can I send?", a: "You can send MON and USDC, swap between them in a tap, and pay easy-to-remember names instead of long wallet addresses." },
-  { q: "Can I set up payments in advance?", a: "Yes. Payment Automations let you create recurring or future payments with limits you set, and PayAI executes them on time, never beyond the limits you choose." },
+  { q: "Can I set up payments in advance?", a: "Yes. Choose how it runs: Wallet Automation keeps funds in your own wallet until each payment fires, or Reserved Funds sets money aside up front for guaranteed, on-time execution. Either way, PayAI never moves more than the limits you set." },
   { q: "Is it safe?", a: "Every payment is checked before it sends: the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
   { q: "Can I verify my payments?", a: "Always. Every payment is recorded permanently and publicly, so you can prove exactly what happened, anytime." },
 ];
