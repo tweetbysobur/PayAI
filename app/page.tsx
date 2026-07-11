@@ -445,6 +445,9 @@ export default function LandingPage() {
 
       {/* How It Works */}
       <section id="how" className="mx-auto max-w-6xl px-6 py-16">
+        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center text-3xl font-semibold tracking-tight text-foreground">
+          How it works
+        </motion.h2>
         <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-2">
           <div className="absolute left-0 right-0 top-7 hidden h-px bg-border sm:block" />
           {FLOW.map((step, i) => (
