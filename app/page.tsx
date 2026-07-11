@@ -314,7 +314,7 @@ export default function LandingPage() {
           <Logo size={32} />
           <span className="text-sm font-semibold text-foreground">PayAI</span>
         </div>
-        <Link href="/connect" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90">
+        <Link href="/connect" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
           Launch App
         </Link>
       </header>
@@ -341,10 +341,10 @@ export default function LandingPage() {
               from your own wallet, and it arrives in seconds.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link href="/connect" className="flex items-center gap-2 rounded-md bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+              <Link href="/connect" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
               </Link>
-              <a href="#how" className="rounded-md border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:bg-input">
+              <a href="#how" className="rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:border-muted-foreground/30 hover:bg-input">
                 See how it works
               </a>
             </div>
@@ -469,7 +469,7 @@ export default function LandingPage() {
             Start moving money in seconds.
           </h2>
           <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/connect" className="rounded-md bg-primary px-6 py-3 text-sm font-medium text-primary-foreground hover:opacity-90">
+            <Link href="/connect" className="rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
               Launch App
             </Link>
           </div>
