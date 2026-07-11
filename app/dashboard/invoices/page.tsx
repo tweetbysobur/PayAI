@@ -19,7 +19,6 @@ export default function Invoices() {
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [busy, setBusy] = useState(false);
-  const [merchant, setMerchant] = useState<{ apiKey: string } | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [invMerchant, setInvMerchant] = useState("");
   const [invAmount, setInvAmount] = useState("");
@@ -39,7 +38,6 @@ export default function Invoices() {
   }
 
   useEffect(() => {
-    try { const saved = localStorage.getItem("veripay_merchant"); if (saved) setMerchant(JSON.parse(saved)); } catch {}
     loadOnchain();
   }, []);
 
@@ -67,20 +65,15 @@ export default function Invoices() {
     }
   }
 
-  const headers = useCallback((): Record<string, string> => {
-    const h: Record<string, string> = { "content-type": "application/json" };
-    if (merchant?.apiKey) h["x-merchant-key"] = merchant.apiKey;
-    return h;
-  }, [merchant]);
+  const JSON_HEADERS = { "content-type": "application/json" };
 
   // Scoped to the connected wallet on the shared demo tenant — otherwise every
   // wallet-only user's links (memo, amount, URL) would be visible to every
-  // other wallet-only user. A merchant account (x-merchant-key) already has
-  // its own isolated tenant, so this only matters pre-signup.
+  // other wallet-only user.
   const refresh = useCallback(() => {
     const qs = wallet.address ? `?wallet=${wallet.address}` : "";
-    fetch(`/api/links${qs}`, { headers: headers() }).then((r) => r.json()).then((j) => setLinks(j.links ?? [])).catch(() => {});
-  }, [headers, wallet.address]);
+    fetch(`/api/links${qs}`).then((r) => r.json()).then((j) => setLinks(j.links ?? [])).catch(() => {});
+  }, [wallet.address]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -90,7 +83,7 @@ export default function Invoices() {
     if (!isValidAmount(amount)) return;
     setBusy(true);
     try {
-      const r = await fetch("/api/links", { method: "POST", headers: headers(), body: JSON.stringify({ amount: Number(amount), token: "USDC", description: desc, walletAddress: wallet.address }) });
+      const r = await fetch("/api/links", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ amount: Number(amount), token: "USDC", description: desc, walletAddress: wallet.address }) });
       const j = await r.json();
       if (j.ok) { setAmount(""); setDesc(""); setLinkTouched(false); refresh(); }
       else setLinkMsg(j.error || "Could not create the payment link.");
@@ -112,7 +105,6 @@ export default function Invoices() {
         </div>
         {linkTouched && linkAmountErr && <p className="mt-2 text-xs text-danger">{linkAmountErr}</p>}
         {linkMsg && <p className="mt-2 text-xs text-danger">{linkMsg}</p>}
-        {!merchant && <p className="mt-2 text-xs text-muted-foreground">Create a workspace in Settings to keep these links tied to your business.</p>}
       </Card>
 
       <Card title="Your links" className="mb-4">
