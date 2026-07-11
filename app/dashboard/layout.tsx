@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
+import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import { useWallet } from "@/lib/wallet/useWallet";
 
@@ -32,6 +33,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
       <CommandBar />
+      <OnboardingFlow />
     </div>
   );
 }

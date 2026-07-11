@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus,
-  ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles,
+  ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles, ArrowRight,
 } from "lucide-react";
 import { Badge, Card, CountUp } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
@@ -197,7 +197,7 @@ export default function Overview() {
         {/* Recent transactions */}
         <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
           {history.length === 0 ? (
-            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K). It settles on Monad in seconds." />
+            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K), or use the form directly. It settles on Monad in seconds." cta={{ label: "Send Payment", href: "/dashboard/payments" }} />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -271,7 +271,7 @@ export default function Overview() {
 
         <Card title="Payment Automations" right={<Link href="/dashboard/automations" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
           {upcoming.length === 0 ? (
-            <EmptyHint icon={Repeat} title="No automations yet" hint="Create recurring or future-dated payments from the Automations dashboard." />
+            <EmptyHint icon={Repeat} title="No automations yet" hint="Create recurring or future-dated payments, or swap between MON and USDC on a schedule." cta={{ label: "Create Automation", href: "/dashboard/automations" }} />
           ) : (
             <div className="space-y-2.5">
               {upcoming.slice(0, 3).map((s) => (
@@ -316,12 +316,17 @@ export default function Overview() {
   );
 }
 
-function EmptyHint({ icon: Icon, title, hint }: { icon: typeof Receipt; title: string; hint: string }) {
+function EmptyHint({ icon: Icon, title, hint, cta }: { icon: typeof Receipt; title: string; hint: string; cta?: { label: string; href: string } }) {
   return (
     <div className="flex flex-col items-center py-6 text-center">
       <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-input text-muted-foreground"><Icon size={18} /></span>
       <p className="text-sm font-medium text-foreground">{title}</p>
       <p className="mt-1 max-w-xs text-xs text-muted-foreground">{hint}</p>
+      {cta && (
+        <Link href={cta.href} className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-medium text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {cta.label} <ArrowRight size={12} />
+        </Link>
+      )}
     </div>
   );
 }
