@@ -47,7 +47,7 @@ export function Card({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: "easeOut" }}
-      className={`rounded-lg border border-border bg-panel p-6 ${className}`}
+      className={`rounded-xl border border-border bg-panel p-6 ${className}`}
     >
       {(title || right) && (
         <div className="mb-4 flex items-center justify-between">
