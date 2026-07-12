@@ -9,8 +9,10 @@ import {
   FileCheck2, Coins, AtSign, LayoutDashboard,
   ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles, Repeat, Vault,
+  PlayCircle, Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
+import { AutomationWorkflow } from "@/components/landing/AutomationWorkflow";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { VolumeInline, TokenLogo } from "@/components/TokenLogo";
@@ -75,6 +77,22 @@ const FEATURES = [
   { icon: LayoutDashboard, title: "Your dashboard", body: "Balances and activity at a glance." },
   { icon: ShieldHalf, title: "Built-in safety", body: "Every payment checked before it sends." },
   { icon: ExternalLink, title: "Always verifiable", body: "Prove any payment, anytime." },
+];
+
+const USE_CASES = [
+  { icon: Users, title: "Payroll", body: "Pay a team or contributors on a fixed cycle, automatically." },
+  { icon: Repeat, title: "Subscriptions", body: "Recurring dues and memberships that never miss a date." },
+  { icon: Landmark, title: "Treasury", body: "Scheduled transfers and payouts from a reserved balance." },
+  { icon: Rocket, title: "Launchpads", body: "Time-based distributions to the right wallets, on schedule." },
+  { icon: HandCoins, title: "Personal Payments", body: "Rent, allowances, or gifts that send themselves on time." },
+  { icon: Building2, title: "Business Payments", body: "Vendor and supplier payouts, automated and verifiable." },
+];
+
+const SHOWCASE = [
+  { icon: PlusCircle, title: "Create & approve", body: "Set amount, recipient, and schedule. Sign once to authorize." },
+  { icon: Eye, title: "PayAI monitors", body: "The engine watches the clock so you don't have to." },
+  { icon: Zap, title: "Executes on time", body: "At the scheduled moment, the payment fires on Monad." },
+  { icon: BadgeCheck, title: "Confirmed on-chain", body: "Settled, recorded, and receipted, every single run." },
 ];
 
 const FAQS = [
@@ -286,30 +304,12 @@ const FOOTER_COLUMNS = [
 ];
 
 export default function LandingPage() {
-  const [health, setHealth] = useState<Health | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
-  const [activity, setActivity] = useState<PlatformActivity | null>(null);
-  const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
 
   useEffect(() => {
-    // Platform-wide totals — covers wallet-signed sends/swaps too, not just
-    // payments settled through the on-chain agent contract (onchain.stats).
-    // Polled so the live volume/payment index keeps climbing as the product is
-    // used, without a manual refresh.
-    const load = () => {
-      fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
-      fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
-      fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
-    };
-    load();
-    const t = setInterval(() => { if (!document.hidden) load(); }, 20000);
-    return () => clearInterval(t);
-  }, []);
-
-  useEffect(() => {
-    const order: ScreenKey[] = SCREENS.map((s) => s.key);
-    const t = setInterval(() => { if (!document.hidden) setActiveScreen((s) => order[(order.indexOf(s) + 1) % order.length]); }, 3200);
-    return () => clearInterval(t);
+    // Only real dependency the landing still needs: the live on-chain config
+    // for the footer's verified smart-contract link. One fetch, no polling.
+    fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
   }, []);
 
   return (
@@ -356,69 +356,110 @@ export default function LandingPage() {
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
               <MonadMark size={13} />
-              <span className="font-medium text-foreground">{health?.wallet?.network ?? "Monad"}</span>
-              <span className="relative ml-0.5 flex h-1.5 w-1.5">
-                {health?.payment.connected && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
-                )}
-                <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.payment.connected ? "bg-success" : "bg-muted-foreground"}`} />
-              </span>
+              <span className="font-medium text-foreground">The payment automation platform for Monad</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Move money by simply describing it.
+              Automate Payments on Monad.
             </h1>
-            <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground">
-              Send, swap, and automate payments on Monad. You approve every payment
-              from your own wallet, and it arrives in seconds.
+            <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
+              Send, schedule, swap, and automate on-chain payments through one intelligent
+              platform while keeping full control of your wallet.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/connect" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
               </Link>
-              <a href="#how" className="rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:border-muted-foreground/30 hover:bg-input">
-                See how it works
+              <a href="#showcase" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:border-muted-foreground/30 hover:bg-input">
+                <PlayCircle size={15} /> Watch Demo
               </a>
             </div>
-            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1.5"><Lock size={12} className="text-muted-foreground" /> You stay in control</span>
-              <span className="flex items-center gap-1.5"><Zap size={12} className="text-muted-foreground" /> Arrives in seconds</span>
-              <span className="flex items-center gap-1.5"><ShieldHalf size={12} className="text-muted-foreground" /> Every payment checked</span>
-            </div>
-          </motion.div>
-
-          {/* Live device mockup */}
-          <motion.div
-            initial={{ opacity: 0, y: 20, rotateX: 4 }} animate={{ opacity: 1, y: 0, rotateX: 0 }}
-            transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
-            className="relative"
-          >
-            <div className="overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl">
-              <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2.5">
-                <span className="h-2 w-2 rounded-full bg-border" />
-                <span className="h-2 w-2 rounded-full bg-border" />
-                <span className="h-2 w-2 rounded-full bg-border" />
-                <div className="ml-2 flex items-center gap-1.5 rounded-full border border-border bg-panel px-2 py-0.5 text-[10px] text-muted-foreground">
-                  usepayai.xyz/dashboard
-                </div>
-              </div>
-              <AnimatePresence mode="wait">
-                <motion.div key={activeScreen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-                  <MiniScreen screen={activeScreen} health={health} onchain={onchain} activity={activity} />
-                </motion.div>
-              </AnimatePresence>
-            </div>
-            <div className="mt-3 flex justify-center gap-1.5">
-              {SCREENS.map((s) => (
-                <button
-                  key={s.key}
-                  onClick={() => setActiveScreen(s.key)}
-                  aria-label={`Show ${s.label} preview`}
-                  aria-current={activeScreen === s.key ? "true" : undefined}
-                  className={`h-1.5 w-6 rounded-full transition ${activeScreen === s.key ? "bg-primary" : "bg-border"}`}
-                />
+            <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
+              {[
+                { icon: MonadMark, label: "Built on Monad Mainnet", brand: true },
+                { icon: Lock, label: "Non-custodial" },
+                { icon: ShieldHalf, label: "Secure Automation" },
+                { icon: BadgeCheck, label: "Real On-chain Settlement" },
+              ].map((b) => (
+                <span key={b.label} className="flex items-center gap-1.5">
+                  {b.brand ? <MonadMark size={13} /> : <b.icon size={13} className="text-primary" />} {b.label}
+                </span>
               ))}
             </div>
           </motion.div>
+
+          {/* Live automation workflow — real product flow, not a mock illustration */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
+          >
+            <AutomationWorkflow />
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Why PayAI — manual vs automated */}
+      <section id="why" className="mx-auto max-w-6xl px-6 py-20">
+        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-foreground">Why PayAI</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Stop signing the same payments by hand. Set them once and let PayAI handle the rest.</p>
+        </motion.div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.35 }} className="rounded-xl border border-border bg-panel p-6">
+            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><Clock size={15} /> Doing it manually</p>
+            <ul className="space-y-3">
+              {["Remember every due date yourself", "Sign each payment, one at a time", "Miss a payment if you're offline or busy", "No single record of what went out", "Repeat it all again next cycle"].map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm text-muted-foreground"><X size={15} className="mt-0.5 shrink-0 text-danger/70" /> {t}</li>
+              ))}
+            </ul>
+          </motion.div>
+          <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: 0.06, duration: 0.35 }} className="rounded-xl border border-primary/30 bg-gradient-to-b from-primary/[0.06] to-transparent p-6">
+            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary"><Sparkles size={15} /> With PayAI automation</p>
+            <ul className="space-y-3">
+              {["Set the schedule once, approve once", "Payments fire on time, on their own", "Runs whether you're online or not", "Every payment recorded and verifiable", "Full control: pause, edit, or cancel anytime"].map((t) => (
+                <li key={t} className="flex items-start gap-2.5 text-sm text-foreground"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-primary" /> {t}</li>
+              ))}
+            </ul>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Real Use Cases */}
+      <section id="use-cases" className="border-t border-border bg-panel/30 py-20">
+        <div className="mx-auto max-w-6xl px-6">
+          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Built for real on-chain payments</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">One automation engine, many ways to use it.</p>
+          </motion.div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+            {USE_CASES.map((u, i) => (
+              <motion.div key={u.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }} whileHover={{ y: -3 }}>
+                <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><u.icon size={18} /></div>
+                  <h3 className="text-sm font-semibold text-foreground">{u.title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{u.body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Automation Showcase — animated timeline */}
+      <section id="showcase" className="mx-auto max-w-5xl px-6 py-20">
+        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-foreground">How a scheduled payment runs</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You approve once. PayAI does the rest, on time, every time, and proves it on-chain.</p>
+        </motion.div>
+        <div className="relative grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="absolute left-0 right-0 top-6 hidden h-px bg-border lg:block" />
+          {SHOWCASE.map((s, i) => (
+            <motion.div key={s.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ delay: i * 0.1, duration: 0.35 }} className="relative z-10 flex flex-col items-center text-center">
+              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary"><s.icon size={20} /></span>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-primary">Step {i + 1}</span>
+              <p className="mt-1 text-sm font-semibold text-foreground">{s.title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
+            </motion.div>
+          ))}
         </div>
       </section>
 
