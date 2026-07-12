@@ -122,10 +122,15 @@ const FOOTER_COLUMNS = [
   },
 ];
 
+// Each screen's dwell time must cover its own full stage narrative before the
+// hero advances, or a workflow gets cut off mid-way (e.g. Automation has 6
+// stages at 2.6s each = 15.6s — a flat 7s cycle was switching away before it
+// ever reached "Transaction Confirmed"). Dashboard has no stage sequence, so
+// it just gets a comfortable dwell to read the live numbers.
 const HERO_SCREENS = [
-  { key: "dashboard", label: "Dashboard" },
-  { key: "payment", label: "Send Payment" },
-  { key: "automation", label: "Automation" },
+  { key: "dashboard", label: "Dashboard", durationMs: 6500 },
+  { key: "payment", label: "Send Payment", durationMs: 4 * 2600 + 1200 },
+  { key: "automation", label: "Automation", durationMs: 6 * 2600 + 1200 },
 ] as const;
 type HeroScreenKey = (typeof HERO_SCREENS)[number]["key"];
 
@@ -149,15 +154,18 @@ function HeroShowcase() {
     return () => obs.disconnect();
   }, []);
 
+  // Each screen gets its OWN dwell time (see HERO_SCREENS) instead of one
+  // flat interval, so a workflow always finishes its stage sequence before
+  // the hero moves on — re-armed on every screen change.
   useEffect(() => {
     if (!inView) return;
     const order = HERO_SCREENS.map((s) => s.key);
-    const t = setInterval(() => {
-      if (document.hidden) return;
-      setScreen((s) => order[(order.indexOf(s) + 1) % order.length]);
-    }, 7000);
-    return () => clearInterval(t);
-  }, [inView]);
+    const current = HERO_SCREENS.find((s) => s.key === screen)!;
+    const t = setTimeout(() => {
+      setScreen(order[(order.indexOf(screen) + 1) % order.length]);
+    }, current.durationMs);
+    return () => clearTimeout(t);
+  }, [inView, screen]);
 
   return (
     <div ref={rootRef}>
