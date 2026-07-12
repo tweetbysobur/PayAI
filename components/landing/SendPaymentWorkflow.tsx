@@ -15,15 +15,15 @@ const STAGES = [
   { key: "confirmed", icon: CheckCircle2, label: "Confirmed" },
 ] as const;
 
-export function SendPaymentWorkflow() {
+export function SendPaymentWorkflow({ active = true }: { active?: boolean }) {
   const reduce = useReducedMotion();
   const [i, setI] = useState(0);
 
   useEffect(() => {
-    if (reduce) { setI(STAGES.length - 1); return; }
-    const t = setInterval(() => setI((n) => (n + 1) % STAGES.length), 2100);
+    if (reduce || !active) { setI(STAGES.length - 1); return; }
+    const t = setInterval(() => setI((n) => (n + 1) % STAGES.length), 2600);
     return () => clearInterval(t);
-  }, [reduce]);
+  }, [reduce, active]);
 
   const stage = STAGES[i];
 

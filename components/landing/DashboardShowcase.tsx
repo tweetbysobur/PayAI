@@ -14,15 +14,16 @@ interface PlatformActivity {
 /** Real, live platform totals — not mock illustration. One public,
  *  aggregate-only fetch (/api/platform-stats), polled so the numbers keep
  *  climbing as the product is actually used. */
-export function DashboardShowcase() {
+export function DashboardShowcase({ active = true }: { active?: boolean }) {
   const [activity, setActivity] = useState<PlatformActivity | null>(null);
 
   useEffect(() => {
+    if (!active) return;
     const load = () => fetch("/api/platform-stats").then((r) => r.json()).then(setActivity).catch(() => {});
     load();
     const t = setInterval(() => { if (!document.hidden) load(); }, 20000);
     return () => clearInterval(t);
-  }, []);
+  }, [active]);
 
   const hasVolume = activity && Object.values(activity.volumeByToken).some((v) => v > 0);
   const approvalPct = activity ? Math.round(activity.compliance.approvalRate * 100) : null;
