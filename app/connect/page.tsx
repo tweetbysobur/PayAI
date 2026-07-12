@@ -153,6 +153,7 @@ export default function ConnectPage() {
       </header>
 
       <div className="flex flex-1 items-center justify-center px-6 py-12">
+        <h1 className="sr-only">Connect your wallet to PayAI</h1>
         <motion.div
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}
           className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
@@ -166,7 +167,7 @@ export default function ConnectPage() {
                     <ShieldCheck size={26} />
                   </div>
                 </div>
-                <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Before you connect</h1>
+                <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Before you connect</h2>
                 <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
                   Quick security note, then choose your wallet.
                 </p>
@@ -215,7 +216,7 @@ export default function ConnectPage() {
                     <WalletIcon size={26} />
                   </div>
                 </div>
-                <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Choose a wallet</h1>
+                <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Choose a wallet</h2>
                 <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
                   Connect on {MONAD_CHAIN_NAME}. You approve every payment yourself.
                 </p>
@@ -331,7 +332,7 @@ export default function ConnectPage() {
                         <AlertTriangle size={26} />
                       </div>
                     </div>
-                    <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Wrong network</h1>
+                    <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Wrong network</h2>
                     <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
                       Your wallet is connected, but not on {MONAD_CHAIN_NAME}. Switch to continue.
                     </p>
@@ -439,7 +440,7 @@ function ConnectedConfirmation({ display, onDisconnect }: { display: string; onD
           <CheckCircle2 size={28} />
         </div>
       </motion.div>
-      <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Wallet connected</h1>
+      <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Wallet connected</h2>
       <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">You&apos;re all set on {MONAD_CHAIN_NAME}.</p>
 
       <div className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-4 py-3">
