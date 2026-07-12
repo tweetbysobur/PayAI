@@ -15,17 +15,10 @@ import { Badge } from "@/components/ui";
 import { AutomationWorkflow } from "@/components/landing/AutomationWorkflow";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
-import { VolumeInline, TokenLogo } from "@/components/TokenLogo";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../package.json";
 
-interface Health {
-  payment: { connected: boolean; engine: string };
-  // /api/health intentionally exposes only network/config status here, never
-  // an internal wallet's address or balance (see /api/health/route.ts).
-  wallet: { configured: boolean; network: string; chainId: number } | null;
-}
 interface OnchainPayment { id: number; merchant: string; amount: number; riskScore: number; compliance: number; timestamp: number }
 interface Onchain {
   configured: boolean;
@@ -34,15 +27,6 @@ interface Onchain {
   payments: OnchainPayment[];
   explorerTxBase?: string;
 }
-/** Platform-wide totals across every tenant — aggregate + anonymized only. */
-interface PlatformActivity {
-  totalPayments: number;
-  volumeByToken: Record<string, number>;
-  compliance: { approved: number; rejected: number; review: number; blocked: number; approvalRate: number };
-  trend: { date: string; revenue: number; count: number }[];
-  recent: { token: string; amount: number }[];
-}
-
 
 const FLOW = [
   { icon: MessageSquare, title: "Say what you want to pay" },
@@ -50,14 +34,6 @@ const FLOW = [
   { icon: Zap, title: "It arrives in seconds" },
 ];
 
-type ScreenKey = "dashboard" | "automations" | "transactions" | "compliance" | "wallets";
-const SCREENS: { key: ScreenKey; label: string; icon: typeof LayoutDashboard; href: string }[] = [
-  { key: "dashboard", label: "Payment Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { key: "automations", label: "Payment Automations", icon: Repeat, href: "/dashboard/automations" },
-  { key: "transactions", label: "Transaction History", icon: ScrollText, href: "/dashboard/transactions" },
-  { key: "compliance", label: "Payment checks", icon: ShieldCheck, href: "/dashboard/compliance" },
-  { key: "wallets", label: "Wallet Management", icon: WalletIcon, href: "/dashboard/wallets" },
-];
 
 const TECHNOLOGY = [
   { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
@@ -110,165 +86,6 @@ const FAQS = [
  *  Strictly aggregate + anonymized (counts, volume, an approval rate, recent
  *  amounts with no recipient) — never a wallet address or a specific user's
  *  history. Never fabricated. */
-function MiniScreen({ screen, health, activity }: { screen: ScreenKey; health: Health | null; onchain: Onchain | null; activity: PlatformActivity | null }) {
-  const hasVolume = activity && Object.values(activity.volumeByToken).some((v) => v > 0);
-  const approvalPct = activity ? Math.round(activity.compliance.approvalRate * 100) : null;
-
-  if (screen === "dashboard") {
-    const trend = activity?.trend ?? [];
-    const maxRev = Math.max(1, ...trend.map((t) => t.revenue));
-    return (
-      <div className="space-y-3 p-5">
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { icon: ArrowUpRight, label: "Volume", value: hasVolume ? <VolumeInline byToken={activity!.volumeByToken} size={11} /> : "—" },
-            { icon: Receipt, label: "Payments", value: activity ? activity.totalPayments.toLocaleString() : "—" },
-            { icon: ShieldCheck, label: "Approval", value: approvalPct != null ? `${approvalPct}%` : "—" },
-          ].map((k) => (
-            <div key={k.label} className="rounded-xl border border-border bg-panel p-3">
-              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary"><k.icon size={13} /></div>
-              <div className="text-xs font-semibold leading-tight text-foreground">{k.value}</div>
-              <div className="mt-1 text-[10px] text-muted-foreground">{k.label}</div>
-            </div>
-          ))}
-        </div>
-        <div className="rounded-xl border border-border bg-panel p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Payment volume · 7d</span>
-            <span className="flex items-center gap-1 text-[10px] text-success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> live</span>
-          </div>
-          <div className="flex h-20 items-end gap-1.5">
-            {(trend.length ? trend : Array.from({ length: 7 }, () => ({ date: "", revenue: 0 }))).map((t, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1">
-                <div className="w-full rounded-t bg-gradient-to-t from-primary/40 to-primary" style={{ height: `${Math.max(4, (t.revenue / maxRev) * 64)}px` }} />
-                <span className="text-[8px] text-muted-foreground/60">{t.date ? t.date.slice(5) : ""}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "automations") {
-    // Feature preview, not per-user data — no automation is scoped to the
-    // landing page's anonymous visitor, so this illustrates the real choice
-    // (Wallet Automation vs Reserved Funds) rather than fabricating a schedule.
-    return (
-      <div className="space-y-3 p-5">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl border border-primary/30 bg-primary/[0.06] p-3.5">
-            <div className="mb-2 flex items-center gap-1.5"><Repeat size={13} className="text-primary" /><span className="text-[11px] font-semibold text-foreground">Wallet Automation</span></div>
-            <p className="text-[10px] leading-relaxed text-muted-foreground">Funds stay in your wallet until each payment runs.</p>
-          </div>
-          <div className="rounded-xl border border-border bg-panel p-3.5">
-            <div className="mb-2 flex items-center gap-1.5"><Vault size={13} className="text-primary" /><span className="text-[11px] font-semibold text-foreground">Reserved Funds</span></div>
-            <p className="text-[10px] leading-relaxed text-muted-foreground">Set money aside up front for guaranteed execution.</p>
-          </div>
-        </div>
-        <div className="rounded-xl border border-border bg-panel p-3.5">
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground/70">Next execution</p>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/12 text-primary"><Repeat size={13} /></span>
-              <div><p className="text-xs font-medium text-foreground">Weekly payment</p><p className="text-[10px] text-muted-foreground">Every Monday, 9:00 AM</p></div>
-            </div>
-            <Badge tone="success">Active</Badge>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (screen === "transactions") {
-    // Recent settled payments — real token + amount, anonymized (no recipient,
-    // sender, or hash). The full, per-user detail lives in the signed-in app.
-    const recent = activity?.recent ?? [];
-    return (
-      <div className="space-y-2 p-5">
-        <div className="grid grid-cols-[1.2fr_1fr_0.8fr] gap-2 px-1 text-[9px] uppercase tracking-wide text-muted-foreground/70">
-          <span>Asset</span><span>Amount</span><span className="text-right">Status</span>
-        </div>
-        {recent.length === 0 ? (
-          <p className="px-1 text-[11px] text-muted-foreground">Live payments appear here as they settle.</p>
-        ) : (
-          recent.slice(0, 5).map((p, i) => (
-            <div key={i} className="grid grid-cols-[1.2fr_1fr_0.8fr] items-center gap-2 rounded-xl border border-border bg-panel px-3 py-2.5">
-              <span className="flex items-center gap-1.5 text-[11px] text-foreground"><TokenLogo token={p.token} size={14} /> {p.token}</span>
-              <span className="font-mono text-[11px] text-foreground">{p.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-              <span className="flex justify-end"><Badge tone="success">Settled</Badge></span>
-            </div>
-          ))
-        )}
-      </div>
-    );
-  }
-
-  if (screen === "compliance") {
-    const c = activity?.compliance;
-    const rate = c ? c.approvalRate : 0;
-    const rows = [
-      { label: "Approved", value: c?.approved ?? 0, tone: "text-success" },
-      { label: "Needs review", value: c?.review ?? 0, tone: "text-warning" },
-      { label: "Rejected", value: (c?.rejected ?? 0) + (c?.blocked ?? 0), tone: "text-danger" },
-    ];
-    return (
-      <div className="grid grid-cols-2 gap-3 p-5">
-        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-panel p-4">
-          <div className="relative h-24 w-24">
-            <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
-              <circle cx="48" cy="48" r="38" fill="none" stroke="var(--color-border)" strokeWidth="8" />
-              <circle cx="48" cy="48" r="38" fill="none" stroke="var(--color-success)" strokeWidth="8" strokeLinecap="round" strokeDasharray={2 * Math.PI * 38} strokeDashoffset={2 * Math.PI * 38 * (1 - rate)} />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <ShieldCheck size={16} className="mb-0.5 text-success" />
-              <span className="text-sm font-semibold text-foreground">{approvalPct ?? 0}%</span>
-            </div>
-          </div>
-          <span className="mt-2 text-[10px] text-muted-foreground">Approval rate</span>
-        </div>
-        <div className="flex flex-col justify-center gap-2.5 rounded-xl border border-border bg-panel p-4">
-          {rows.map((r) => (
-            <div key={r.label} className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">{r.label}</span>
-              <span className={`text-sm font-semibold ${r.tone}`}>{r.value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Wallets — a feature highlight (a user's real wallet is private and never
-  // shown here), dressed with the live network + real platform reach.
-  return (
-    <div className="space-y-3 p-5">
-      <div className="rounded-xl border border-border bg-gradient-to-br from-primary/[0.08] to-transparent p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-primary"><WalletIcon size={15} /></div>
-          <div>
-            <p className="text-[11px] font-medium text-foreground">Your wallet, your keys</p>
-            <p className="text-[10px] text-muted-foreground">Non-custodial. You sign every payment.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1 rounded-full border border-border bg-panel px-2 py-1 text-[10px] text-foreground"><Lock size={10} className="text-success" /> Keys never leave</span>
-          <span className="flex items-center gap-1 rounded-full border border-border bg-panel px-2 py-1 text-[10px] text-foreground"><MonadMark size={10} /> {health?.wallet?.network ?? "Monad"}</span>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-border bg-panel p-3">
-          <div className="text-sm font-semibold text-foreground">{activity ? activity.totalPayments.toLocaleString() : "—"}</div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">Payments settled</div>
-        </div>
-        <div className="rounded-xl border border-border bg-panel p-3">
-          <Badge tone={health?.payment.connected ? "success" : "neutral"}>{health?.payment.connected ? "Live on Mainnet" : "Connecting…"}</Badge>
-          <div className="mt-1.5 text-[10px] text-muted-foreground">Settlement network</div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
 const X_URL = "https://x.com/usepayAI";
