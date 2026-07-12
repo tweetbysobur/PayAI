@@ -176,15 +176,17 @@ function HeroShowcase() {
           {screen === "automation" && <AutomationWorkflow active={inView} />}
         </motion.div>
       </AnimatePresence>
-      <div className="mt-3 flex justify-center gap-1.5">
+      <div className="mt-1 flex justify-center">
         {HERO_SCREENS.map((s) => (
           <button
             key={s.key}
             onClick={() => setScreen(s.key)}
             aria-label={`Show ${s.label} preview`}
             aria-current={screen === s.key ? "true" : undefined}
-            className={`h-1.5 w-6 rounded-full transition ${screen === s.key ? "bg-primary" : "bg-border"}`}
-          />
+            className="group p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
+          >
+            <span className={`block h-1.5 w-6 rounded-full transition ${screen === s.key ? "bg-primary" : "bg-border group-hover:bg-muted-foreground/40"}`} />
+          </button>
         ))}
       </div>
     </div>
