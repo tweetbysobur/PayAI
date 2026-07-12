@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { AutomationWorkflow } from "@/components/landing/AutomationWorkflow";
+import { DashboardShowcase } from "@/components/landing/DashboardShowcase";
+import { SendPaymentWorkflow } from "@/components/landing/SendPaymentWorkflow";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
@@ -120,6 +122,52 @@ const FOOTER_COLUMNS = [
   },
 ];
 
+const HERO_SCREENS = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "payment", label: "Send Payment" },
+  { key: "automation", label: "Automation" },
+] as const;
+type HeroScreenKey = (typeof HERO_SCREENS)[number]["key"];
+
+/** Cycles the three real product showcases, dashboard first (live numbers),
+ *  then Send Payment, then the Automation lifecycle. Swap will join once its
+ *  own showcase is ready. */
+function HeroShowcase() {
+  const [screen, setScreen] = useState<HeroScreenKey>("dashboard");
+
+  useEffect(() => {
+    const order = HERO_SCREENS.map((s) => s.key);
+    const t = setInterval(() => {
+      if (document.hidden) return;
+      setScreen((s) => order[(order.indexOf(s) + 1) % order.length]);
+    }, 6500);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <div>
+      <AnimatePresence mode="wait">
+        <motion.div key={screen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+          {screen === "dashboard" && <DashboardShowcase />}
+          {screen === "payment" && <SendPaymentWorkflow />}
+          {screen === "automation" && <AutomationWorkflow />}
+        </motion.div>
+      </AnimatePresence>
+      <div className="mt-3 flex justify-center gap-1.5">
+        {HERO_SCREENS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setScreen(s.key)}
+            aria-label={`Show ${s.label} preview`}
+            aria-current={screen === s.key ? "true" : undefined}
+            className={`h-1.5 w-6 rounded-full transition ${screen === s.key ? "bg-primary" : "bg-border"}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [onchain, setOnchain] = useState<Onchain | null>(null);
 
@@ -204,12 +252,14 @@ export default function LandingPage() {
             </div>
           </motion.div>
 
-          {/* Live automation workflow — real product flow, not a mock illustration */}
+          {/* Live product showcase — real flows, not mock illustrations. Starts
+              on the live dashboard (real numbers), then cycles through the
+              actual Send Payment and Automation lifecycles. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
           >
-            <AutomationWorkflow />
+            <HeroShowcase />
           </motion.div>
         </div>
       </section>
