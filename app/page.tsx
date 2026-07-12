@@ -173,7 +173,7 @@ export default function LandingPage() {
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
             <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
               <MonadMark size={13} />
-              <span className="font-medium text-foreground">The payment automation platform for Monad</span>
+              <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
               Automate Payments on Monad.
