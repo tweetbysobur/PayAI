@@ -14,6 +14,7 @@ import { useToast } from "@/components/Toast";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
+import { calculateFee } from "@/lib/payment/feeEngine";
 
 type FundingMode = "wallet" | "reserved";
 type OnchainConfig = {
@@ -667,6 +668,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0 || (balanceNum != null && amountNum > balanceNum);
   const finalPurpose = purpose === "Other" ? customPurpose.trim() : purpose;
   const estimateGas = asset === "MON" ? "0.002 MON" : "0.004 MON";
+  const platformFee = calculateFee(fundingMode === "reserved" ? "reserved_funds" : "wallet_automation", amountNum || 0);
 
   useEffect(() => {
     if (!open) return;
@@ -897,6 +899,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                   { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`, accent: true },
                   { label: "Execution Time", value: new Date(startAt).toLocaleString() },
                   { label: "Purpose", value: finalPurpose || "-", accent: true },
+                  { label: "Platform Fee", value: platformFee.label },
                   { label: "Estimated Gas", value: estimateGas },
                   { label: "Network", value: "Monad Mainnet" },
                   { label: "Wallet", value: short(wallet.address), mono: true },

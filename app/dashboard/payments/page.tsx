@@ -15,6 +15,7 @@ import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
+import { buildReceipt } from "@/lib/payment/feeEngine";
 
 const NEXT_STEP: Record<string, string> = {
   needs_review: "This payment is being reviewed. You'll be notified once it clears.",
@@ -285,6 +286,32 @@ export default function Payments() {
                   </div>
                 </div>
               )}
+
+              {/* Receipt — amount, platform fee, gas, total, status. Fee is
+                  free during beta; the line stays visible so pricing is
+                  never a surprise once it isn't. */}
+              {c.res.decision === "executed" && c.res.intent.amount != null && (() => {
+                const receipt = buildReceipt({
+                  feature: "send_payment",
+                  amount: c.res.intent.amount,
+                  token: c.res.intent.token,
+                  gasFee: c.res.transaction?.gasFee,
+                  status: c.res.decision,
+                  txHash: c.res.transaction?.txHash,
+                  explorerUrl: c.res.transaction?.explorerUrl,
+                });
+                return (
+                  <div className="mt-4 border-t border-border pt-4 text-left">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>
+                    <div className="space-y-1.5 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-xs">
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Payment amount</span><span className="font-medium text-foreground">{receipt.paymentAmount} {receipt.token}</span></div>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
+                      {receipt.gasFee && <div className="flex items-center justify-between"><span className="text-muted-foreground">Gas fee</span><span className="font-medium text-foreground">{receipt.gasFee} MON</span></div>}
+                      <div className="flex items-center justify-between border-t border-border pt-1.5"><span className="text-muted-foreground">Total cost</span><span className="font-semibold text-foreground">{receipt.totalCost}</span></div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Compliance visibility — expandable */}
               {c.res.compliance && (
