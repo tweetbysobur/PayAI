@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
@@ -134,23 +134,38 @@ type HeroScreenKey = (typeof HERO_SCREENS)[number]["key"];
  *  own showcase is ready. */
 function HeroShowcase() {
   const [screen, setScreen] = useState<HeroScreenKey>("dashboard");
+  const [inView, setInView] = useState(true);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Stop all showcase timers the moment the hero scrolls off-screen — this
+  // page grew several sections longer this pass, so without this every
+  // animated preview kept ticking (and repainting) the whole time a visitor
+  // was reading further down, which is exactly what read as "lag" on mobile.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), { threshold: 0.15 });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
+    if (!inView) return;
     const order = HERO_SCREENS.map((s) => s.key);
     const t = setInterval(() => {
       if (document.hidden) return;
       setScreen((s) => order[(order.indexOf(s) + 1) % order.length]);
-    }, 6500);
+    }, 7000);
     return () => clearInterval(t);
-  }, []);
+  }, [inView]);
 
   return (
-    <div>
+    <div ref={rootRef}>
       <AnimatePresence mode="wait">
         <motion.div key={screen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-          {screen === "dashboard" && <DashboardShowcase />}
-          {screen === "payment" && <SendPaymentWorkflow />}
-          {screen === "automation" && <AutomationWorkflow />}
+          {screen === "dashboard" && <DashboardShowcase active={inView} />}
+          {screen === "payment" && <SendPaymentWorkflow active={inView} />}
+          {screen === "automation" && <AutomationWorkflow active={inView} />}
         </motion.div>
       </AnimatePresence>
       <div className="mt-3 flex justify-center gap-1.5">
