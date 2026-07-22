@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import type { PaymentRequest } from "@/lib/payment/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -66,9 +65,8 @@ export async function GET(req: NextRequest) {
   }
 
   const { dueSchedules, dueForReminder, markReminded, recordRun } = await import("@/lib/platform/schedules");
-  const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
+  const { executeScheduleNow } = await import("@/lib/automation/execute");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
-  const { recordTx } = await import("@/lib/platform/store");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
   const { recordHeartbeat } = await import("@/lib/platform/cronHealth");
   const startedAt = Date.now();
@@ -120,58 +118,15 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      const request: PaymentRequest = {
-        action: "send_payment",
-        amount: s.amount,
-        token: s.token as PaymentRequest["token"],
-        recipient: s.recipient,
-        purpose: s.purpose ?? s.memo ?? "Payment Automation",
-        network: "monad",
-        requestId,
-        // Route to the funding path the user chose at creation. Legacy records
-        // (no fundingMode) fall through to the agent-funded path unchanged.
-        fundingMode: s.fundingMode,
-        fromWallet: s.sender,
-        automationId: s.id,
-      };
       trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token, fundingMode: s.fundingMode ?? "agent" });
 
-      const compliance = runValidation(request);
-      const risk = assessRisk(request);
-      request.riskScore = risk.score;
-
-      // Same execution gate as instant payments: reject on hard compliance
-      // failure or high risk; record the outcome and advance so the schedule
-      // doesn't get stuck retrying a permanently-blocked payment.
-      if (compliance.status === "rejected" || risk.level === "high") {
-        const decision = compliance.status === "rejected" ? "blocked" : "needs_review";
-        await recordRun(s.id, { at: Date.now(), decision, detail: compliance.summary });
-        await recordTx(s.merchantId, {
-          decision: decision as "blocked" | "needs_review", action: "send_payment", amount: s.amount, token: s.token,
-          recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
-          sender: s.sender, // tag the automation owner so it shows in THEIR history
-          summary: `Automation: ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
-        });
-        await completeRequest(requestId, { outcome: decision });
-        trace("attempt_end", { automationId: s.id, requestId, outcome: decision });
-        results.push({ id: s.id, outcome: decision });
-        continue;
-      }
-
-      const tx = await execute(request);
-      const ok = tx.status === "settled";
-      const outcome = ok ? "executed" : "error";
-      await recordRun(s.id, { at: Date.now(), decision: outcome, txHash: tx.txHash, explorerUrl: tx.explorerUrl, detail: tx.detail });
-      await recordTx(s.merchantId, {
-        decision: outcome, action: "send_payment", amount: s.amount, token: s.token,
-        recipient: s.recipient, domain: s.domain ?? null, riskScore: risk.score, compliance: compliance.status,
-        txHash: tx.txHash, explorerUrl: tx.explorerUrl,
-        sender: s.sender, // tag the automation owner so it shows in THEIR history
-        summary: `Automation: sent ${s.amount} ${s.token} → ${s.domain ?? s.recipient}`,
-      });
-      await completeRequest(requestId, { outcome, txHash: tx.txHash });
-      trace("attempt_end", { automationId: s.id, requestId, outcome, txHash: tx.txHash });
-      results.push({ id: s.id, outcome, txHash: tx.txHash });
+      // Same execution the manual "Execute Now" action calls — see
+      // lib/automation/execute.ts. One pipeline, two callers.
+      const result = await executeScheduleNow(s, requestId);
+      await recordRun(s.id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail });
+      await completeRequest(requestId, { outcome: result.outcome, txHash: result.txHash });
+      trace("attempt_end", { automationId: s.id, requestId, outcome: result.outcome, txHash: result.txHash });
+      results.push({ id: s.id, outcome: result.outcome, txHash: result.txHash });
     } catch (e) {
       // Never let one bad schedule abort the batch; record and advance.
       const detail = e instanceof Error ? e.message : "Execution error";

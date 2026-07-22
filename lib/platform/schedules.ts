@@ -423,6 +423,18 @@ export async function recordRun(
       title: "Payment sent", detail: `${label(row)} settled successfully.`,
       amount: row.amount, token: row.token, txHash: run.txHash, explorerUrl: run.explorerUrl,
     });
+    // The run above may have been the LAST one (end condition reached, or a
+    // "once" cadence with no next occurrence) — status was already flipped
+    // to "completed" earlier in this function. A separate, distinct
+    // notification from "payment sent" so the user knows the whole
+    // automation is done, not just that one more payment went through.
+    if (row.status === "completed") {
+      await recordAutomationEvent({
+        merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "completed",
+        title: "Automation completed", detail: `${label(row)} has finished its full schedule.`,
+        amount: row.amount, token: row.token,
+      });
+    }
   } else {
     await recordAutomationEvent({
       merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "execution_failed",
@@ -438,5 +450,40 @@ export async function recordRun(
     }
   }
 
+  return row;
+}
+
+/**
+ * Advance past the current due occurrence WITHOUT executing it — no payment
+ * attempt, no compliance/risk check, no on-chain call. Uses the exact same
+ * advanceRun()/end-condition logic recordRun()'s "executed" branch uses, so
+ * "skip" and "actually ran" always agree on what the next occurrence even
+ * means; this only differs in that nothing was actually paid.
+ */
+export async function skipNextRun(merchantId: string, id: string, opts?: { sender?: string | null }): Promise<ScheduledPayment | null> {
+  const row = await getSchedule(id);
+  if (!row || row.merchantId !== merchantId) return null;
+  if (opts?.sender && (row.sender ?? "").toLowerCase() !== opts.sender.toLowerCase()) return null;
+  if (row.status !== "active" && row.status !== "scheduled") return null;
+
+  const endCondition = row.endCondition ?? { type: "never" };
+  const nextByCadence = advanceRun(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
+  const endedByCount = endCondition.type === "after_count" && row.runsCompleted >= endCondition.totalRuns;
+  const endedByDate = endCondition.type === "until_date" && nextByCadence != null && nextByCadence > endCondition.untilMs;
+  const skippedRun = { at: Date.now(), decision: "skipped", detail: "Skipped by the owner — no payment was sent for this occurrence." };
+  row.runs = [skippedRun, ...row.runs].slice(0, 50);
+
+  if (nextByCadence == null || endedByCount || endedByDate) {
+    row.status = "completed" as ScheduleStatus;
+  } else {
+    row.nextRun = nextByCadence;
+    row.remindedForRun = null;
+  }
+  await persist(row);
+  await recordAutomationEvent({
+    merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "skipped",
+    title: "Execution skipped", detail: `${label(row)}'s next scheduled run was skipped — no payment was sent.`,
+    amount: row.amount, token: row.token,
+  });
   return row;
 }

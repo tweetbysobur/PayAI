@@ -21,14 +21,14 @@ import {
 
 export type TemplateCategory = "personal" | "business" | "launchpad" | "nft" | "dao" | "creator" | "custom";
 
-export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string }[] = [
-  { id: "personal", label: "Personal" },
-  { id: "business", label: "Business" },
-  { id: "launchpad", label: "Launchpad" },
-  { id: "nft", label: "NFT" },
-  { id: "dao", label: "DAO" },
-  { id: "creator", label: "Creator" },
-  { id: "custom", label: "Custom" },
+export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; emoji: string }[] = [
+  { id: "personal", label: "Personal", emoji: "👤" },
+  { id: "business", label: "Business", emoji: "🏢" },
+  { id: "launchpad", label: "Launchpad", emoji: "🚀" },
+  { id: "nft", label: "NFT", emoji: "🖼" },
+  { id: "dao", label: "DAO", emoji: "🏛" },
+  { id: "creator", label: "Creator", emoji: "💰" },
+  { id: "custom", label: "Custom", emoji: "✨" },
 ];
 
 export interface AutomationTemplate {

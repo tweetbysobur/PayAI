@@ -55,7 +55,7 @@ export function TemplatePicker({ open, onClose, onSelect }: {
           >
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <div>
-                <p className="text-sm font-semibold tracking-tight text-foreground">Choose a template</p>
+                <p className="text-base font-semibold tracking-tight text-foreground">What would you like to automate?</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">Start from a real workflow, or build your own from scratch.</p>
               </div>
               <button onClick={close} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={16} /></button>
@@ -84,7 +84,7 @@ export function TemplatePicker({ open, onClose, onSelect }: {
                     onClick={() => setCategory(c.id)}
                     className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${category === c.id ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
                   >
-                    {c.label}
+                    {c.emoji} {c.label}
                   </button>
                 ))}
               </div>
@@ -110,7 +110,7 @@ export function TemplatePicker({ open, onClose, onSelect }: {
                 <div className="space-y-6">
                   {TEMPLATE_CATEGORIES.filter((c) => grouped.has(c.id)).map((c) => (
                     <div key={c.id}>
-                      <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">{c.label}</p>
+                      <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">{c.emoji} {c.label}</p>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                         {grouped.get(c.id)!.map((t) => (
                           <motion.button
