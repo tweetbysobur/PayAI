@@ -202,7 +202,28 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /* ── Limit checks ───────────────────────────────────────────────────── */
+    /**
+     * Security note (added after a Slither static-analysis pass flagged
+     * `executePaymentFrom`'s arbitrary `from` as a real risk): the agent hot
+     * wallet is the ONLY thing standing between a compromised key and every
+     * user who has ever approved this contract for the Wallet Automation
+     * path — `executePaymentFrom` pulls from an attacker-chosen `from`
+     * address straight through to a `merchant` address the caller also
+     * chooses, with no on-chain check that `merchant` is a real, onboarded
+     * business. Requiring the merchant be registered AND active here closes
+     * that gap: even with a compromised agent key, funds can only be routed
+     * to an address a MerchantRegistry manager has explicitly onboarded —
+     * which the agent itself cannot do (`registerMerchant` is `onlyManager`,
+     * a separate role the agent is never granted). This does not eliminate
+     * the hot-wallet-compromise risk, but it bounds the blast radius to
+     * known merchant addresses instead of any attacker-controlled address.
+     */
     function _enforceLimits(address agent, address merchant, uint256 amount, bool isNative) private {
+        if (address(merchantRegistry) != address(0)) {
+            require(merchantRegistry.isRegistered(merchant), "merchant not registered");
+            require(merchantRegistry.isActive(merchant), "merchant not active");
+        }
+
         uint256 perTxCap = isNative
             ? (merchantMaxTxNative[merchant] > 0 ? merchantMaxTxNative[merchant] : maxTxAmountNative)
             : (merchantMaxTx[merchant] > 0 ? merchantMaxTx[merchant] : maxTxAmount);
@@ -345,7 +366,11 @@ contract PaymentExecutor is IPaymentExecutor {
         totalVolume += amount;
         approvedCount += 1;
 
-        // Accrue merchant volume (no-op if the payee isn't a registered merchant).
+        // Accrue merchant volume. _enforceLimits already required `merchant`
+        // to be registered+active whenever a registry is configured, so this
+        // is no longer reachable with an unregistered payee in that case —
+        // the address(0) branch below only matters if merchantRegistry was
+        // deployed as the zero address (registry checks fully disabled).
         if (address(merchantRegistry) != address(0)) {
             merchantRegistry.recordVolume(merchant, amount);
         }
