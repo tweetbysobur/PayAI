@@ -15,6 +15,8 @@ import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { calculateFee } from "@/lib/payment/feeEngine";
+import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
+import { TEMPLATE_CATEGORIES, findTemplate, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
 
 type FundingMode = "wallet" | "reserved";
 type OnchainConfig = {
@@ -65,6 +67,7 @@ type Automation = {
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
+  templateId?: string | null; templateCategory?: string | null;
 };
 
 const PURPOSES = ["Savings", "Salary", "Subscription", "Investment", "Rent", "Family", "Utilities", "Gift", "Business", "Other"];
@@ -186,11 +189,42 @@ export default function AutomationsPage() {
   const { toast } = useToast();
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [duplicateSeed, setDuplicateSeed] = useState<AutomationSeed | null>(null);
   const [viewing, setViewing] = useState<Automation | null>(null);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<TemplateCategory | "all">("all");
+
+  /** Template → wizard seed. Only sets fields the template actually
+   *  specifies; recipient/amount/exact time are always left for the user to
+   *  fill in, even from a template — templates set smart defaults, not
+   *  locked-in values. */
+  function handleTemplateSelect(template: AutomationTemplate | null) {
+    setPickerOpen(false);
+    if (!template) {
+      setDuplicateSeed(null);
+    } else {
+      setDuplicateSeed({
+        token: template.defaults.token,
+        cadence: template.defaults.cadence,
+        intervalCount: template.defaults.intervalCount,
+        intervalUnit: template.defaults.intervalUnit,
+        purpose: template.defaults.purpose,
+        fundingMode: template.defaults.fundingMode,
+        endMode: template.defaults.endMode,
+        templateId: template.id,
+        templateCategory: template.category,
+      });
+    }
+    setCreatorOpen(true);
+  }
+
+  const visibleAutomations = useMemo(
+    () => (categoryFilter === "all" ? automations : automations.filter((a) => a.templateCategory === categoryFilter)),
+    [automations, categoryFilter],
+  );
 
   const load = useCallback(() => {
     const qs = wallet.address ? `?wallet=${wallet.address}` : "";
@@ -238,16 +272,16 @@ export default function AutomationsPage() {
     }
   }
 
-  const active = automations.filter((a) => a.status === "active" || a.status === "scheduled" || a.status === "executing");
+  const active = visibleAutomations.filter((a) => a.status === "active" || a.status === "scheduled" || a.status === "executing");
   const upcoming = active.slice().sort((a, b) => a.nextRun - b.nextRun).slice(0, 5);
-  const runs = automations.flatMap((a) => a.runs.map((run) => ({ ...run, automation: a }))).sort((a, b) => b.at - a.at);
+  const runs = visibleAutomations.flatMap((a) => a.runs.map((run) => ({ ...run, automation: a }))).sort((a, b) => b.at - a.at);
   // Never blend MON and USDC into one number — same convention as
   // components/TokenLogo.tsx's VolumeInline (which this now reuses). A
   // single summed "totalVolume" across tokens was previously meaningless
   // (1 MON + 1 USDC read as "2") and, on mobile, the resulting long/odd
   // number was the actual cause of the perceived "lag" — the tile reflowed
   // once the real (much longer) formatted string rendered post-hydration.
-  const volumeByToken = automations.reduce<Record<string, number>>((acc, a) => {
+  const volumeByToken = visibleAutomations.reduce<Record<string, number>>((acc, a) => {
     const executed = a.runs.filter((r) => r.decision === "executed").length;
     if (executed > 0) acc[a.token] = (acc[a.token] ?? 0) + executed * a.amount;
     return acc;
@@ -267,11 +301,32 @@ export default function AutomationsPage() {
           </p>
         </div>
         {wallet.address && (
-          <Button onClick={() => { setDuplicateSeed(null); setCreatorOpen(true); }} className="inline-flex items-center gap-2">
+          <Button onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-2">
             <Plus size={16} /> Create Automation
           </Button>
         )}
       </div>
+
+      {automations.some((a) => a.templateCategory) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-muted-foreground">Filter by template:</span>
+          <button
+            onClick={() => setCategoryFilter("all")}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === "all" ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+          >
+            All
+          </button>
+          {TEMPLATE_CATEGORIES.filter((c) => c.id !== "custom" && automations.some((a) => a.templateCategory === c.id)).map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setCategoryFilter(c.id)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === c.id ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="Active Automations" value={active.length.toString()} icon={Repeat} />
@@ -299,7 +354,18 @@ export default function AutomationsPage() {
                       key={a.id} automation={a} busy={busy === a.id} onAction={action}
                       onView={() => setViewing(a)}
                       onEdit={() => setEditing(a)}
-                      onDuplicate={() => { setDuplicateSeed(a); setCreatorOpen(true); }}
+                      onDuplicate={() => {
+                        // Preserve which template this came from (if any) —
+                        // spreading `a` directly doesn't typecheck since its
+                        // templateId/templateCategory can be `null` (as
+                        // stored) where the seed type wants `undefined`.
+                        setDuplicateSeed({
+                          ...a,
+                          templateId: a.templateId ?? undefined,
+                          templateCategory: (a.templateCategory as TemplateCategory | null) ?? undefined,
+                        });
+                        setCreatorOpen(true);
+                      }}
                     />
                   ))}
                 </div>
@@ -321,12 +387,13 @@ export default function AutomationsPage() {
               <AnalyticsTile label="Total Executions" value={totalRuns.toString()} />
               <AnalyticsTile label="Total Gas Spent" value={`${totalGas.toFixed(4)} MON`} />
               <AnalyticsTile label="Average Gas" value={`${(totalRuns ? totalGas / totalRuns : 0).toFixed(4)} MON`} />
-              <AnalyticsTile label="Completion" value={`${automations.length ? Math.round((automations.filter((a) => a.status === "completed").length / automations.length) * 100) : 0}%`} />
+              <AnalyticsTile label="Completion" value={`${visibleAutomations.length ? Math.round((visibleAutomations.filter((a) => a.status === "completed").length / visibleAutomations.length) * 100) : 0}%`} />
             </div>
           </Card>
         </>
       )}
 
+      <TemplatePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={handleTemplateSelect} />
       <AutomationCreator
         open={creatorOpen}
         seed={duplicateSeed}
@@ -396,11 +463,17 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
   onView: () => void; onEdit: () => void; onDuplicate: () => void;
 }) {
   const m = automationMetrics(automation);
+  const template = automation.templateId ? findTemplate(automation.templateId) : undefined;
   return (
     <motion.div className="group rounded-xl border border-border bg-gradient-to-br from-primary/[0.07] via-panel/40 to-transparent p-5 transition-all duration-200 hover:border-primary/35 hover:from-primary/[0.11]" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-base font-semibold tracking-tight text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>
+          {template && (
+            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              <template.icon size={11} /> Created from {template.name}
+            </p>
+          )}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}</span>
             <span className="text-muted-foreground/50">·</span>
@@ -523,6 +596,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   if (!automation) return null;
   const a = automation;
   const m = automationMetrics(a);
+  const template = a.templateId ? findTemplate(a.templateId) : undefined;
   return (
     <AnimatePresence>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -539,6 +613,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               { label: "Last Execution", value: m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never" },
               { label: "Next Execution", value: a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—" },
               { label: "Network", value: "Monad Mainnet" },
+              { label: "Template", value: template ? template.name : "Custom (built from scratch)" },
             ]} />
             <div className="grid gap-3 sm:grid-cols-3">
               <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
@@ -649,7 +724,15 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
 /** Everything the creator wizard actually pre-fills from — a real Duplicate
  *  passes the full Automation; an AI-parsed draft passes only the subset it
  *  resolved (recipient/amount/asset/cadence/time), never a purpose or id. */
-type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">>;
+type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">> & {
+  /** Only set when seeded from an Automation Template — carried through to
+   *  creation so the created automation records which template it came from.
+   *  A real Duplicate or an AI-parsed draft never sets these. */
+  fundingMode?: FundingMode;
+  endMode?: EndMode;
+  templateId?: string;
+  templateCategory?: TemplateCategory;
+};
 
 /** Shared premium style for selectable chips (asset, cadence, end-mode,
  *  purpose) — consistent selected/hover states across the whole flow. */
@@ -705,6 +788,10 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const [savingStep, setSavingStep] = useState<string | null>(null);
   const [fundingMode, setFundingMode] = useState<FundingMode>("wallet");
   const [config, setConfig] = useState<OnchainConfig | null>(null);
+  /** Set only when this creation started from an Automation Template — carried
+   *  through to the create() call so the record stores what it came from.
+   *  Never set for a duplicate or an AI-parsed draft. */
+  const [templateMeta, setTemplateMeta] = useState<{ id: string; category: TemplateCategory } | null>(null);
   const startAt = useMemo(() => new Date(`${date}T${time}:00`).getTime(), [date, time]);
   const amountNum = Number(amount);
   const balance = asset === "MON" ? balances.mon : balances.usdc;
@@ -737,8 +824,12 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       const seedPurpose = seed.purpose ?? seed.memo;
       setPurpose(seedPurpose && PURPOSES.includes(seedPurpose) ? seedPurpose : "Other");
       setCustomPurpose(seedPurpose && PURPOSES.includes(seedPurpose) ? "" : (seedPurpose ?? ""));
+      if (seed.fundingMode) setFundingMode(seed.fundingMode);
+      if (seed.endMode) setEndMode(seed.endMode);
+      setTemplateMeta(seed.templateId && seed.templateCategory ? { id: seed.templateId, category: seed.templateCategory } : null);
     } else {
       setRecipientInput(""); setResolved(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
+      setFundingMode("wallet"); setEndMode("never"); setTemplateMeta(null);
     }
   }, [open, seed]);
 
@@ -822,6 +913,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
         walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: asset, cadence,
         intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose: finalPurpose,
         signature, signatureMessage: message, fundingMode, endCondition,
+        ...(templateMeta ? { templateId: templateMeta.id, templateCategory: templateMeta.category } : {}),
       };
 
       if (fundingMode === "wallet") {

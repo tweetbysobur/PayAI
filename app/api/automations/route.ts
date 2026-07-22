@@ -4,6 +4,7 @@ import { agentConfig } from "@/lib/agent/brain";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import type { AutomationIntervalUnit, ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
+import { VALID_TEMPLATE_CATEGORIES } from "@/lib/automation/templates";
 
 const CADENCES: ScheduleCadence[] = ["once", "daily", "weekly", "monthly", "custom"];
 const INTERVAL_UNITS: AutomationIntervalUnit[] = ["days", "weeks", "months"];
@@ -141,6 +142,7 @@ export async function POST(req: NextRequest) {
     intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
     fundingMode?: string; reserveTxHash?: string; id?: string;
+    templateId?: string; templateCategory?: string;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -268,6 +270,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Template attribution is a label only — validated against the known
+  // category list so a bad/typo'd value never gets stored, but never
+  // required and never consulted by execution.
+  const templateCategory = body.templateCategory && VALID_TEMPLATE_CATEGORIES.includes(body.templateCategory)
+    ? body.templateCategory
+    : null;
+  const templateId = templateCategory && body.templateId ? body.templateId : null;
+
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const { createSchedule } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
@@ -281,6 +291,7 @@ export async function POST(req: NextRequest) {
     fundingMode,
     reserveTxHash: body.reserveTxHash ?? null,
     id: fundingMode === "reserved" ? body.id : undefined,
+    templateId, templateCategory,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
