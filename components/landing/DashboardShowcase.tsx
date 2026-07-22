@@ -60,16 +60,30 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Payment volume · 7d</span>
             <span className="flex items-center gap-1 text-[10px] text-primary"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> live</span>
           </div>
+          {/*
+            Bars must be DIRECT children of this h-24 row for their percentage
+            `height` to resolve against a real 96px, not 0. The previous
+            structure nested each bar one level deeper, inside a flex column
+            that also held its date label — but that column has no definite
+            height of its own (items-end positions flex children, it does not
+            stretch them), so every bar's percentage height resolved against
+            nothing and rendered at 0px regardless of the real trend data.
+            Labels now live in their own row underneath instead.
+          */}
           <div className="flex h-24 items-end gap-1.5">
             {trend.length === 0
               ? Array.from({ length: 7 }).map((_, i) => <div key={i} className="flex-1 rounded-t bg-input" style={{ height: "6%" }} />)
               : trend.map((t) => (
-                  <div key={t.date} className="flex flex-1 flex-col items-center gap-1.5">
-                    <div className="w-full rounded-t bg-gradient-to-t from-primary/40 to-primary transition-all duration-500" style={{ height: `${Math.max(6, (t.revenue / maxRev) * 100)}%` }} />
-                    <span className="text-[9px] text-muted-foreground/70">{t.date.slice(5)}</span>
-                  </div>
+                  <div key={t.date} className="flex-1 rounded-t bg-gradient-to-t from-primary/40 to-primary transition-all duration-500" style={{ height: `${Math.max(6, (t.revenue / maxRev) * 100)}%` }} />
                 ))}
           </div>
+          {trend.length > 0 && (
+            <div className="mt-1.5 flex gap-1.5">
+              {trend.map((t) => (
+                <span key={t.date} className="flex-1 text-center text-[9px] text-muted-foreground/70">{t.date.slice(5)}</span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
