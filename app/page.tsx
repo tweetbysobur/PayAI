@@ -73,6 +73,12 @@ const SHOWCASE = [
   { icon: BadgeCheck, title: "Confirmed on-chain", body: "Settled, recorded, and receipted, every single run." },
 ];
 
+const WHY_MONAD = [
+  { title: "Fast settlement", body: "Payments and automations confirm in seconds, so a scheduled payout or an AI-triggered send never leaves you waiting." },
+  { title: "Low fees", body: "High throughput keeps gas costs low, so frequent and recurring payments stay practical instead of a tax on convenience." },
+  { title: "Built for real usage", body: "Wallet Automation and Reserved Funds depend on the same high-volume, repeatable transactions Monad is built to handle." },
+];
+
 const FAQS = [
   { q: "Who controls my money?", a: "You do. PayAI never holds your funds. You approve every payment yourself, and we never ask for your seed phrase or private keys." },
   { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
@@ -418,6 +424,37 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Why PayAI is built on Monad */}
+      <section id="why-monad" className="border-t border-border bg-panel/30 py-20">
+        <div className="mx-auto grid max-w-6xl gap-10 px-6 lg:grid-cols-2 lg:items-center">
+          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted-foreground">
+              <MonadMark size={14} /> Built on Monad
+            </div>
+            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+              Why PayAI is built on Monad
+            </h2>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
+              Automations and AI-triggered payments only feel instant if the chain underneath actually is. Monad&apos;s speed and low fees are what make that real, not a future promise.
+            </p>
+          </motion.div>
+          <div className="space-y-6">
+            {WHY_MONAD.map((item, i) => (
+              <motion.div
+                key={item.title}
+                initial={{ opacity: 0, x: 12 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true, margin: "-40px" }}
+                transition={{ delay: i * 0.08, duration: 0.35 }}
+                className="border-l-2 border-primary/40 pl-5"
+              >
+                <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-3xl px-6 py-20">
