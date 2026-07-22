@@ -48,25 +48,40 @@ describe("PaymentExecutor + MerchantRegistry", function () {
     expect(await registry.merchantCount()).to.equal(2n);
   });
 
-  describe("merchant-registration gate (executor-side, defense-in-depth)", () => {
+  describe("merchant-registration gate — scoped to executePaymentFrom ONLY", () => {
     // Regression coverage for the fix added after a Slither pass flagged
     // executePaymentFrom's arbitrary `from` as a real risk: even a
-    // compromised agent key should only be able to route funds to a
-    // registered, active merchant — never an arbitrary address.
+    // compromised agent key should only be able to PULL FROM A THIRD
+    // PARTY'S APPROVAL into a registered, active merchant.
+    //
+    // Deliberately NOT applied to executePayment / executePaymentNative:
+    // those move the agent's own already-funded balance (not a pull from
+    // someone else's approval), and merchant registration in the real app
+    // is a manual admin action, not automatic before every payment — gating
+    // those two would have broken every existing live payment to any
+    // recipient that was never manually registered.
     let unregistered;
     beforeEach(async () => {
       // A 6th signer that was never registered with the MerchantRegistry.
       unregistered = (await hre.ethers.getSigners())[5];
     });
 
-    it("blocks executePayment to an unregistered merchant", async () => {
+    it("does NOT block executePayment to an unregistered merchant (unaffected — agent's own funds)", async () => {
       const tokenAddr = await usdc.getAddress();
       await expect(
-        executor.connect(agent).executePayment(unregistered.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-unreg")),
-      ).to.be.revertedWith("merchant not registered");
+        executor.connect(agent).executePayment(unregistered.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-unreg-push")),
+      ).to.not.be.reverted;
     });
 
-    it("blocks executePaymentFrom to an unregistered merchant", async () => {
+    it("does NOT block executePaymentNative to an unregistered merchant (unaffected — agent's own funds)", async () => {
+      await expect(
+        executor.connect(agent).executePaymentNative(unregistered.address, 0, aiHash, ref, reqId("gate-unreg-native"), {
+          value: hre.ethers.parseEther("1"),
+        }),
+      ).to.not.be.reverted;
+    });
+
+    it("blocks executePaymentFrom (the pull-from-a-third-party path) to an unregistered merchant", async () => {
       await usdc.mint(outsider.address, AMT);
       await usdc.connect(outsider).approve(await executor.getAddress(), AMT);
       const tokenAddr = await usdc.getAddress();
@@ -77,41 +92,41 @@ describe("PaymentExecutor + MerchantRegistry", function () {
       ).to.be.revertedWith("merchant not registered");
     });
 
-    it("blocks executePaymentNative to an unregistered merchant", async () => {
-      await expect(
-        executor.connect(agent).executePaymentNative(unregistered.address, 0, aiHash, ref, reqId("gate-unreg-native"), {
-          value: hre.ethers.parseEther("1"),
-        }),
-      ).to.be.revertedWith("merchant not registered");
-    });
-
-    it("blocks payments to a merchant that was deactivated after registering", async () => {
+    it("blocks executePaymentFrom to a merchant that was deactivated after registering", async () => {
+      await usdc.mint(outsider.address, AMT);
+      await usdc.connect(outsider).approve(await executor.getAddress(), AMT);
       const tokenAddr = await usdc.getAddress();
       await registry.setActive(merchant.address, false);
       await expect(
-        executor.connect(agent).executePayment(merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-inactive")),
+        executor
+          .connect(agent)
+          .executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-from-inactive")),
       ).to.be.revertedWith("merchant not active");
     });
 
-    it("allows payments again once a deactivated merchant is reactivated", async () => {
+    it("allows executePaymentFrom again once a deactivated merchant is reactivated", async () => {
+      await usdc.mint(outsider.address, AMT);
+      await usdc.connect(outsider).approve(await executor.getAddress(), AMT);
       const tokenAddr = await usdc.getAddress();
       await registry.setActive(merchant.address, false);
       await registry.setActive(merchant.address, true);
       await expect(
-        executor.connect(agent).executePayment(merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-reactivated")),
+        executor
+          .connect(agent)
+          .executePaymentFrom(outsider.address, merchant.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-from-reactivated")),
       ).to.not.be.reverted;
     });
 
-    it("skips the registry gate entirely when no registry is configured (address(0))", async () => {
+    it("skips the executePaymentFrom registry gate entirely when no registry is configured (address(0))", async () => {
       const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
       const noRegistryExecutor = await Executor.deploy(hre.ethers.ZeroAddress, 0n, owner.address, agent.address, 0n, 0n, 0n);
-      await usdc.mint(agent.address, AMT);
-      await usdc.connect(agent).approve(await noRegistryExecutor.getAddress(), AMT);
+      await usdc.mint(outsider.address, AMT);
+      await usdc.connect(outsider).approve(await noRegistryExecutor.getAddress(), AMT);
       const tokenAddr = await usdc.getAddress();
       await expect(
         noRegistryExecutor
           .connect(agent)
-          .executePayment(unregistered.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-no-registry")),
+          .executePaymentFrom(outsider.address, unregistered.address, tokenAddr, AMT, 0, aiHash, ref, reqId("gate-from-no-registry")),
       ).to.not.be.reverted;
     });
   });

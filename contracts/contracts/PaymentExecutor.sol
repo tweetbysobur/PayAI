@@ -210,16 +210,33 @@ contract PaymentExecutor is IPaymentExecutor {
      * path — `executePaymentFrom` pulls from an attacker-chosen `from`
      * address straight through to a `merchant` address the caller also
      * chooses, with no on-chain check that `merchant` is a real, onboarded
-     * business. Requiring the merchant be registered AND active here closes
-     * that gap: even with a compromised agent key, funds can only be routed
-     * to an address a MerchantRegistry manager has explicitly onboarded —
-     * which the agent itself cannot do (`registerMerchant` is `onlyManager`,
-     * a separate role the agent is never granted). This does not eliminate
-     * the hot-wallet-compromise risk, but it bounds the blast radius to
-     * known merchant addresses instead of any attacker-controlled address.
+     * business.
+     *
+     * The `requireRegisteredMerchant` gate below is deliberately scoped to
+     * ONLY `executePaymentFrom` (see its call site), not `executePayment` /
+     * `executePaymentNative`. Those two move the AGENT's own already-funded
+     * balance, not a third party's approved funds pulled on their behalf —
+     * an unregistered destination there is not the same class of risk, and
+     * gating them too would have broken every existing live payment to any
+     * recipient that was never manually registered via the Recipients
+     * dashboard page (registration there is a manual admin action, not an
+     * automatic step before sending a payment — most real recipients today
+     * are almost certainly unregistered). `executePaymentFrom` itself has
+     * not yet been used live on mainnet, so gating only it regresses
+     * nothing currently working while closing the actual pull-from-a-third-
+     * party exploit: even with a compromised agent key, funds can only be
+     * pulled from a user's approval into an address a MerchantRegistry
+     * manager has explicitly onboarded — a role the agent is never granted
+     * (`registerMerchant` is `onlyManager`).
      */
-    function _enforceLimits(address agent, address merchant, uint256 amount, bool isNative) private {
-        if (address(merchantRegistry) != address(0)) {
+    function _enforceLimits(
+        address agent,
+        address merchant,
+        uint256 amount,
+        bool isNative,
+        bool requireRegisteredMerchant
+    ) private {
+        if (requireRegisteredMerchant && address(merchantRegistry) != address(0)) {
             require(merchantRegistry.isRegistered(merchant), "merchant not registered");
             require(merchantRegistry.isActive(merchant), "merchant not active");
         }
@@ -267,7 +284,7 @@ contract PaymentExecutor is IPaymentExecutor {
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, amount, false);
+        _enforceLimits(msg.sender, merchant, amount, false, false);
 
         // Pull stablecoin from the agent and forward to the merchant.
         bool ok = IERC20(token).transferFrom(msg.sender, merchant, amount);
@@ -305,7 +322,7 @@ contract PaymentExecutor is IPaymentExecutor {
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, amount, false);
+        _enforceLimits(msg.sender, merchant, amount, false, true);
 
         // Pull from the user (who approved this contract) directly to the merchant.
         bool ok = IERC20(token).transferFrom(from, merchant, amount);
@@ -329,7 +346,7 @@ contract PaymentExecutor is IPaymentExecutor {
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, msg.value, true);
+        _enforceLimits(msg.sender, merchant, msg.value, true, false);
 
         (bool sent, ) = merchant.call{value: msg.value}("");
         require(sent, "native transfer failed");
