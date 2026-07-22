@@ -82,6 +82,8 @@ export async function createSchedule(
      *  keyed to, so the on-chain reservation and the stored record share one id. */
     id?: string;
     templateId?: string | null; templateCategory?: string | null;
+    recipients?: import("./types").BulkRecipient[];
+    distributionMethod?: import("./types").DistributionMethod;
   },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
@@ -114,6 +116,8 @@ export async function createSchedule(
     remindedForRun: null,
     templateId: input.templateId ?? null,
     templateCategory: input.templateCategory ?? null,
+    recipients: input.recipients,
+    distributionMethod: input.distributionMethod,
   };
   await persist(row);
   await recordAutomationEvent({
@@ -375,16 +379,22 @@ export async function markReminded(id: string): Promise<void> {
  */
 export async function recordRun(
   id: string,
-  run: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string },
+  run: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; recipientResults?: import("./types").BulkRecipientResult[] },
 ): Promise<ScheduledPayment | null> {
   const row = await getSchedule(id);
   if (!row) return null;
   row.runs = [run, ...row.runs].slice(0, 50);
   let justPaused = false;
+  const isBulk = !!row.recipients?.length;
 
-  if (run.decision === "executed") {
+  // Bulk: "partial" (some recipients paid, some didn't) still advances the
+  // schedule to its next occurrence — the occurrence genuinely happened,
+  // just not perfectly. Failed recipients are visible in recipientResults
+  // and can be retried individually via "Execute Now" on this automation;
+  // there is no automatic per-recipient retry.
+  if (run.decision === "executed" || run.decision === "partial") {
     row.failureCount = 0;
-    row.lastError = null;
+    row.lastError = run.decision === "partial" ? (run.detail ?? "Some recipients could not be paid.") : null;
     row.runsCompleted += 1;
     const endCondition = row.endCondition ?? { type: "never" };
     const nextByCadence = advanceRun(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
@@ -418,9 +428,11 @@ export async function recordRun(
   await persist(row);
 
   if (run.decision === "executed") {
+    const succeeded = run.recipientResults?.filter((r) => r.decision === "executed").length ?? null;
     await recordAutomationEvent({
       merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "executed",
-      title: "Payment sent", detail: `${label(row)} settled successfully.`,
+      title: isBulk ? "Distribution completed" : "Payment sent",
+      detail: isBulk ? `All ${succeeded ?? row.recipients!.length} recipients were paid successfully.` : `${label(row)} settled successfully.`,
       amount: row.amount, token: row.token, txHash: run.txHash, explorerUrl: run.explorerUrl,
     });
     // The run above may have been the LAST one (end condition reached, or a
@@ -431,14 +443,30 @@ export async function recordRun(
     if (row.status === "completed") {
       await recordAutomationEvent({
         merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "completed",
-        title: "Automation completed", detail: `${label(row)} has finished its full schedule.`,
+        title: "Automation completed",
+        detail: isBulk ? `This distribution has finished its full schedule.` : `${label(row)} has finished its full schedule.`,
         amount: row.amount, token: row.token,
       });
     }
+  } else if (run.decision === "partial") {
+    const total = run.recipientResults?.length ?? 0;
+    const failed = run.recipientResults?.filter((r) => r.decision !== "executed") ?? [];
+    // Covers "Individual Payment Failed" as one aggregated notification per
+    // batch rather than one per failed recipient — a large distribution
+    // with several failures would otherwise flood the notification feed.
+    // Every individual failure is still visible in the run's recipientResults
+    // (Execution Logs), just not as its own separate push notification.
+    await recordAutomationEvent({
+      merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "execution_failed",
+      title: "Some payments failed",
+      detail: `${total - failed.length} of ${total} payments sent. ${failed.length} failed: ${failed.slice(0, 3).map((f) => f.domain ?? f.address).join(", ")}${failed.length > 3 ? "…" : ""}`,
+      amount: row.amount, token: row.token,
+    });
   } else {
     await recordAutomationEvent({
       merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "execution_failed",
-      title: "Execution failed", detail: run.detail ?? `${label(row)} could not be sent this time.`,
+      title: isBulk ? "Distribution failed" : "Execution failed",
+      detail: run.detail ?? (isBulk ? "None of the recipients could be paid this time." : `${label(row)} could not be sent this time.`),
       amount: row.amount, token: row.token,
     });
     if (justPaused) {
