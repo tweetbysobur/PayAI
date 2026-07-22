@@ -39,7 +39,7 @@ export interface TxLogEntry {
  */
 export type AutomationEventType =
   | "created" | "upcoming_execution" | "executed" | "execution_failed"
-  | "paused" | "resumed" | "cancelled";
+  | "paused" | "resumed" | "cancelled" | "completed" | "skipped";
 
 export interface AutomationEvent {
   id: string;

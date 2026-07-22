@@ -302,7 +302,7 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   let body: {
-    walletAddress?: string; action?: "pause" | "resume" | "cancel";
+    walletAddress?: string; action?: "pause" | "resume" | "cancel" | "skip_next" | "execute_now";
     signature?: string; timestamp?: number;
     amount?: number; cadence?: string; nextRun?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
@@ -322,6 +322,43 @@ export async function PATCH(req: NextRequest) {
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
   const sender = await senderScopeFor(req, merchantId, body.walletAddress);
+
+  if (body.action === "skip_next") {
+    const { skipNextRun } = await import("@/lib/platform/schedules");
+    const row = await skipNextRun(merchantId, id, { sender });
+    if (!row) return NextResponse.json({ error: "Automation not found, not active, or not yours." }, { status: 404 });
+    return NextResponse.json({ automation: row, success: true });
+  }
+
+  if (body.action === "execute_now") {
+    const { getSchedule, recordRun } = await import("@/lib/platform/schedules");
+    const { executeScheduleNow } = await import("@/lib/automation/execute");
+    const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
+    const row = await getSchedule(id);
+    if (!row || row.merchantId !== merchantId) return NextResponse.json({ error: "Automation not found." }, { status: 404 });
+    if (sender && (row.sender ?? "").toLowerCase() !== sender.toLowerCase()) {
+      return NextResponse.json({ error: "This automation isn't yours." }, { status: 404 });
+    }
+    if (row.status !== "active" && row.status !== "scheduled") {
+      return NextResponse.json({ error: "Only an active automation can be run now." }, { status: 409 });
+    }
+    // Distinct from the cron's due-slot key (`sch:{id}:{nextRun}`) so a manual
+    // trigger never collides with — or gets silently absorbed by — whatever
+    // the scheduler is doing with this same automation's regular occurrence.
+    const requestId = `sch:${id}:manual:${Date.now()}`;
+    const claim = await claimRequest<{ outcome: string; txHash?: string }>(requestId);
+    if (!claim.claimed) return NextResponse.json({ error: "This automation is already running. Please wait." }, { status: 409 });
+    try {
+      const result = await executeScheduleNow(row, requestId);
+      await recordRun(id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail });
+      await completeRequest(requestId, { outcome: result.outcome, txHash: result.txHash });
+      const updated = await getSchedule(id);
+      return NextResponse.json({ automation: updated, success: true, outcome: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl });
+    } catch (e) {
+      await releaseRequest(requestId);
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Execution failed." }, { status: 502 });
+    }
+  }
 
   if (body.action) {
     const { setScheduleStatus } = await import("@/lib/platform/schedules");

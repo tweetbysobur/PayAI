@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
-  Lock, Wallet,
+  Lock, Wallet, Zap, SkipForward, Search,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input } from "@/components/ui";
@@ -196,6 +196,10 @@ export default function AutomationsPage() {
   const [editing, setEditing] = useState<Automation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<TemplateCategory | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
+  const [tokenFilter, setTokenFilter] = useState<string | "all">("all");
+  const [modeFilter, setModeFilter] = useState<FundingMode | "all">("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   /** Template → wizard seed. Only sets fields the template actually
    *  specifies; recipient/amount/exact time are always left for the user to
@@ -221,10 +225,21 @@ export default function AutomationsPage() {
     setCreatorOpen(true);
   }
 
-  const visibleAutomations = useMemo(
-    () => (categoryFilter === "all" ? automations : automations.filter((a) => a.templateCategory === categoryFilter)),
-    [automations, categoryFilter],
-  );
+  const visibleAutomations = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return automations.filter((a) => {
+      if (categoryFilter !== "all" && a.templateCategory !== categoryFilter) return false;
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      if (tokenFilter !== "all" && a.token !== tokenFilter) return false;
+      if (modeFilter !== "all" && (a.fundingMode ?? "wallet") !== modeFilter) return false;
+      if (q) {
+        const haystack = [a.purpose, a.memo, a.domain, a.recipient, findTemplate(a.templateId ?? "")?.name]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [automations, categoryFilter, statusFilter, tokenFilter, modeFilter, searchQuery]);
 
   const load = useCallback(() => {
     const qs = wallet.address ? `?wallet=${wallet.address}` : "";
@@ -252,7 +267,12 @@ export default function AutomationsPage() {
     }
   }, []);
 
-  async function action(id: string, actionName: "pause" | "resume" | "cancel" | "delete") {
+  const ACTION_LABEL: Record<string, string> = {
+    pause: "Automation paused", resume: "Automation resumed", cancel: "Automation cancelled",
+    delete: "Automation deleted", skip_next: "Next execution skipped", execute_now: "Execution triggered",
+  };
+
+  async function action(id: string, actionName: "pause" | "resume" | "cancel" | "delete" | "skip_next" | "execute_now") {
     if (!wallet.address) return;
     setBusy(id);
     try {
@@ -263,7 +283,11 @@ export default function AutomationsPage() {
         : await fetch(`/api/automations?id=${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ walletAddress: wallet.address, action: actionName, ...proof }) });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Action failed.");
-      toast(actionName === "resume" ? "Automation resumed" : `Automation ${actionName}d`);
+      if (actionName === "execute_now") {
+        toast(j.outcome === "executed" ? "Payment sent" : j.outcome === "error" ? "Execution failed — check activity for details" : "Payment could not be sent — needs review");
+      } else {
+        toast(ACTION_LABEL[actionName] ?? "Done");
+      }
       load();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Automation action failed");
@@ -307,6 +331,34 @@ export default function AutomationsPage() {
         )}
       </div>
 
+      {automations.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1 sm:flex-none">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search automations…"
+              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-3 text-xs text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:w-56"
+            />
+          </div>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+            <option value="all">All statuses</option>
+            {(["active", "scheduled", "executing", "paused", "completed", "cancelled", "failed"] as Status[]).map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={tokenFilter} onChange={(e) => setTokenFilter(e.target.value)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+            <option value="all">All tokens</option>
+            <option value="MON">MON</option>
+            <option value="USDC">USDC</option>
+          </select>
+          <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as FundingMode | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+            <option value="all">All execution modes</option>
+            <option value="wallet">Wallet Automation</option>
+            <option value="reserved">Reserved Funds</option>
+          </select>
+        </div>
+      )}
+
       {automations.some((a) => a.templateCategory) && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">Filter by template:</span>
@@ -322,7 +374,7 @@ export default function AutomationsPage() {
               onClick={() => setCategoryFilter(c.id)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === c.id ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
             >
-              {c.label}
+              {c.emoji} {c.label}
             </button>
           ))}
         </div>
@@ -459,7 +511,7 @@ function Timeline({ items, empty }: { items: { id: string; title: string; detail
 
 function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicate }: {
   automation: Automation; busy: boolean;
-  onAction: (id: string, action: "pause" | "resume" | "cancel" | "delete") => void;
+  onAction: (id: string, action: "pause" | "resume" | "cancel" | "delete" | "skip_next" | "execute_now") => void;
   onView: () => void; onEdit: () => void; onDuplicate: () => void;
 }) {
   const m = automationMetrics(automation);
@@ -503,6 +555,12 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
             <IconAction label="Resume" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={14} /></IconAction>
           ) : (
             <IconAction label="Pause" onClick={() => onAction(automation.id, "pause")} disabled={busy}><Pause size={14} /></IconAction>
+          )}
+          {(automation.status === "active" || automation.status === "scheduled") && (
+            <>
+              <IconAction label="Execute Now" onClick={() => onAction(automation.id, "execute_now")} disabled={busy}><Zap size={14} /></IconAction>
+              <IconAction label="Skip Next" onClick={() => onAction(automation.id, "skip_next")} disabled={busy}><SkipForward size={14} /></IconAction>
+            </>
           )}
           <IconAction label="Duplicate" onClick={onDuplicate} disabled={busy}><Copy size={14} /></IconAction>
           <IconAction label="Cancel" onClick={() => onAction(automation.id, "cancel")} disabled={busy}><X size={14} /></IconAction>
