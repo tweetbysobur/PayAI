@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   }
 
   const { dueSchedules, dueForReminder, markReminded, recordRun } = await import("@/lib/platform/schedules");
-  const { executeScheduleNow } = await import("@/lib/automation/execute");
+  const { executeScheduleNow, executeBulkScheduleNow } = await import("@/lib/automation/execute");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
   const { recordHeartbeat } = await import("@/lib/platform/cronHealth");
@@ -118,7 +118,19 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-      trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token, fundingMode: s.fundingMode ?? "agent" });
+      const isBulk = !!s.recipients?.length;
+      trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token, fundingMode: s.fundingMode ?? "agent", bulk: isBulk, recipientCount: s.recipients?.length });
+
+      if (isBulk) {
+        // Same per-recipient pipeline a single automation uses, just called
+        // once per recipient — see lib/automation/execute.ts.
+        const bulkResult = await executeBulkScheduleNow(s, requestId);
+        await recordRun(s.id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
+        await completeRequest(requestId, { outcome: bulkResult.outcome });
+        trace("attempt_end", { automationId: s.id, requestId, outcome: bulkResult.outcome, recipientCount: bulkResult.recipientResults.length });
+        results.push({ id: s.id, outcome: bulkResult.outcome });
+        continue;
+      }
 
       // Same execution the manual "Execute Now" action calls — see
       // lib/automation/execute.ts. One pipeline, two callers.

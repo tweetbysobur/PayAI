@@ -84,6 +84,39 @@ export interface AutomationExecution {
   decision: string;
   detail?: string;
   gasFee?: number;
+  /** Bulk Payments only: the real per-recipient outcome of this occurrence —
+   *  one entry per recipient, each settled through the exact same execute()
+   *  pipeline as a single-recipient automation, just called once per
+   *  recipient instead of once total. `decision` on the parent run is the
+   *  AGGREGATE outcome ("executed" only if every recipient succeeded,
+   *  "partial" if some did and some didn't, "error" if none did) — the real
+   *  detail always lives here, never summarized away. */
+  recipientResults?: BulkRecipientResult[];
+}
+
+/** One recipient in a Bulk Payment — resolved and validated at creation time,
+ *  the same way a single-recipient automation's recipient is. `input` keeps
+ *  what the user actually typed/pasted/uploaded (an address, a .nad domain,
+ *  or a known payee name) so the UI can show what they entered, not just the
+ *  resolved 0x address. */
+export interface BulkRecipient {
+  input: string;
+  address: string;
+  domain?: string | null;
+  amount: number;
+  note?: string;
+}
+
+export type DistributionMethod = "equal" | "fixed" | "percentage" | "custom";
+
+export interface BulkRecipientResult {
+  address: string;
+  domain?: string | null;
+  amount: number;
+  txHash?: string;
+  explorerUrl?: string;
+  decision: "executed" | "error" | "blocked" | "needs_review";
+  detail?: string;
 }
 
 export interface PaymentAutomation {
@@ -160,6 +193,24 @@ export interface PaymentAutomation {
    *  alongside templateId so the dashboard can filter without re-deriving it
    *  from a template catalog that may change over time. */
   templateCategory?: string | null;
+  /**
+   * Bulk Payments. When present, this automation pays MULTIPLE recipients
+   * per occurrence instead of one — `recipient`/`amount` above still hold a
+   * representative value (the first recipient / the total budget) for any
+   * code that isn't bulk-aware, but the REAL per-recipient breakdown lives
+   * here. Every recipient still settles through the exact same execute()
+   * pipeline as a single-recipient automation; this only changes how many
+   * times that pipeline runs per occurrence, not what it does.
+   *
+   * Reserved Funds is NOT supported for bulk: AutomationVault.reserve()/
+   * release() lock a reservation to exactly one recipient on-chain, decided
+   * at reserve time — there is no contract-level way to pay out to N
+   * different recipients from one reservation without changing the
+   * contract itself, which is out of scope here. Bulk automations are
+   * Wallet Automation only.
+   */
+  recipients?: BulkRecipient[];
+  distributionMethod?: DistributionMethod;
 }
 
 export type ScheduledPayment = PaymentAutomation;

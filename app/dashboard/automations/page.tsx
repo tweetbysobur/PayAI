@@ -5,13 +5,14 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
-  Lock, Wallet, Zap, SkipForward, Search,
+  Lock, Wallet, Zap, SkipForward, Search, Users,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
 import { useWallet } from "@/lib/wallet/useWallet";
+import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { calculateFee } from "@/lib/payment/feeEngine";
@@ -59,16 +60,35 @@ async function waitForReceipt(hash: string, timeoutMs = 90_000): Promise<void> {
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
 type Status = "active" | "paused" | "completed" | "cancelled" | "failed" | "scheduled" | "executing";
 type IntervalUnit = "days" | "weeks" | "months";
-type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number };
+type BulkRecipientResult = { address: string; domain?: string | null; amount: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string };
+type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number; recipientResults?: BulkRecipientResult[] };
 type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number } | { type: "until_date"; untilMs: number };
 type EndMode = "never" | "after_count" | "until_date";
+type BulkRecipient = { input: string; address: string; domain?: string | null; amount: number; note?: string };
 type Automation = {
   id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
   templateId?: string | null; templateCategory?: string | null;
+  /** Bulk Payments only — presence marks this as a multi-recipient automation. */
+  recipients?: BulkRecipient[];
+  distributionMethod?: "equal" | "fixed" | "percentage" | "custom";
 };
+
+/** Real per-recipient totals across every run this automation has fired,
+ *  computed only from recorded recipientResults — never fabricated. */
+function bulkStats(a: Automation) {
+  const allResults = a.runs.flatMap((r) => r.recipientResults ?? []);
+  const successful = allResults.filter((r) => r.decision === "executed");
+  const failed = allResults.filter((r) => r.decision !== "executed");
+  const totalDistributed = successful.reduce((s, r) => s + r.amount, 0);
+  const recipientCount = a.recipients?.length ?? 0;
+  // "Remaining" only makes sense for a bounded (once / after_count / until_date)
+  // schedule — an ongoing bulk payment has no fixed total to count down from.
+  const remaining = a.cadence === "once" ? Math.max(0, recipientCount - successful.length) : null;
+  return { recipientCount, successful: successful.length, failed: failed.length, totalDistributed, remaining };
+}
 
 const PURPOSES = ["Savings", "Salary", "Subscription", "Investment", "Rent", "Family", "Utilities", "Gift", "Business", "Other"];
 const STATUS_TONE: Record<Status, "neutral" | "success" | "warning" | "danger" | "primary"> = {
@@ -190,6 +210,7 @@ export default function AutomationsPage() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [duplicateSeed, setDuplicateSeed] = useState<AutomationSeed | null>(null);
   const [viewing, setViewing] = useState<Automation | null>(null);
@@ -325,9 +346,14 @@ export default function AutomationsPage() {
           </p>
         </div>
         {wallet.address && (
-          <Button onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-2">
-            <Plus size={16} /> Create Automation
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setBulkOpen(true)} className="inline-flex items-center gap-2">
+              <Users size={16} /> Bulk Payment
+            </Button>
+            <Button onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-2">
+              <Plus size={16} /> Create Automation
+            </Button>
+          </div>
         )}
       </div>
 
@@ -446,6 +472,7 @@ export default function AutomationsPage() {
       )}
 
       <TemplatePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={handleTemplateSelect} />
+      <BulkPaymentCreator open={bulkOpen} onClose={() => setBulkOpen(false)} onCreated={() => { setBulkOpen(false); load(); }} />
       <AutomationCreator
         open={creatorOpen}
         seed={duplicateSeed}
@@ -516,18 +543,23 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
 }) {
   const m = automationMetrics(automation);
   const template = automation.templateId ? findTemplate(automation.templateId) : undefined;
+  const isBulk = !!automation.recipients?.length;
+  const bulk = isBulk ? bulkStats(automation) : null;
   return (
     <motion.div className="group rounded-xl border border-border bg-gradient-to-br from-primary/[0.07] via-panel/40 to-transparent p-5 transition-all duration-200 hover:border-primary/35 hover:from-primary/[0.11]" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-base font-semibold tracking-tight text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>
+          <p className="truncate text-base font-semibold tracking-tight text-foreground">
+            {isBulk && <Users size={13} className="mr-1 inline text-primary" />}
+            {automation.purpose ?? automation.memo ?? "Automation"}
+          </p>
           {template && (
             <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
               <template.icon size={11} /> Created from {template.name}
             </p>
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}</span>
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}{isBulk && ` total`}</span>
             <span className="text-muted-foreground/50">·</span>
             <span>{cadenceLabel(automation)}</span>
           </div>
@@ -542,14 +574,23 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
         </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        <Info label="Recipient" value={automation.domain ?? short(automation.recipient)} mono />
+        {isBulk && bulk ? (
+          <>
+            <Info label="Recipients" value={String(bulk.recipientCount)} />
+            <Info label="Successful / Failed" value={`${bulk.successful} / ${bulk.failed}`} />
+            <Info label="Total Distributed" value={money(bulk.totalDistributed, automation.token)} />
+            <Info label="Remaining" value={bulk.remaining != null ? String(bulk.remaining) : "Ongoing"} />
+          </>
+        ) : (
+          <Info label="Recipient" value={automation.domain ?? short(automation.recipient)} mono />
+        )}
         <Info label="Next Execution" value={new Date(automation.nextRun).toLocaleDateString()} />
         <Info label="Time" value={new Date(automation.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
         <Info label="Success Rate" value={`${m.successRate}%`} />
       </div>
       <div className="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
         <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onView} disabled={busy}><Eye size={13} /> View</Button>
-        <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>
+        {!isBulk && <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>}
         <div className="ml-auto flex items-center gap-0.5">
           {automation.status === "paused" || automation.status === "failed" ? (
             <IconAction label="Resume" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={14} /></IconAction>
@@ -562,7 +603,7 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
               <IconAction label="Skip Next" onClick={() => onAction(automation.id, "skip_next")} disabled={busy}><SkipForward size={14} /></IconAction>
             </>
           )}
-          <IconAction label="Duplicate" onClick={onDuplicate} disabled={busy}><Copy size={14} /></IconAction>
+          <IconAction label={isBulk ? "Duplicate (not supported for bulk payments yet)" : "Duplicate"} onClick={onDuplicate} disabled={busy || isBulk}><Copy size={14} /></IconAction>
           <IconAction label="Cancel" onClick={() => onAction(automation.id, "cancel")} disabled={busy}><X size={14} /></IconAction>
           <IconAction label="Delete" danger onClick={() => onAction(automation.id, "delete")} disabled={busy}><Trash2 size={14} /></IconAction>
         </div>
@@ -655,6 +696,9 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   const a = automation;
   const m = automationMetrics(a);
   const template = a.templateId ? findTemplate(a.templateId) : undefined;
+  const isBulk = !!a.recipients?.length;
+  const bulk = isBulk ? bulkStats(a) : null;
+  const allRecipientResults = isBulk ? a.runs.flatMap((r) => (r.recipientResults ?? []).map((rr) => ({ ...rr, runAt: r.at }))) : [];
   return (
     <AnimatePresence>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -666,12 +710,13 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
           <div className="space-y-5 p-5">
             <ReviewGrid rows={[
               { label: "Status", value: a.status, accent: true },
-              { label: "Recipient", value: a.domain ?? short(a.recipient), accent: true },
+              { label: "Recipient", value: isBulk ? `${bulk?.recipientCount ?? 0} recipients` : (a.domain ?? short(a.recipient)), accent: true },
               { label: "Created", value: new Date(a.createdAt).toLocaleString() },
               { label: "Last Execution", value: m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never" },
               { label: "Next Execution", value: a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—" },
               { label: "Network", value: "Monad Mainnet" },
               { label: "Template", value: template ? template.name : "Custom (built from scratch)" },
+              ...(isBulk ? [{ label: "Distribution Method", value: a.distributionMethod ?? "custom" }] : []),
             ]} />
             <div className="grid gap-3 sm:grid-cols-3">
               <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
@@ -681,10 +726,55 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               <AnalyticsTile label="Average Gas" value={`${m.avgGas.toFixed(4)} MON`} />
               <AnalyticsTile label="Completion" value={m.completionPct != null ? `${m.completionPct}%` : "Open-ended"} />
             </div>
+            {isBulk && bulk && (
+              <div className="grid gap-3 sm:grid-cols-4">
+                <AnalyticsTile label="Recipients" value={String(bulk.recipientCount)} />
+                <AnalyticsTile label="Successful" value={String(bulk.successful)} />
+                <AnalyticsTile label="Failed" value={String(bulk.failed)} />
+                <AnalyticsTile label="Total Distributed" value={money(bulk.totalDistributed, a.token)} />
+              </div>
+            )}
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution history</p>
               {a.runs.length ? <ActivityFeed runs={a.runs.map((run) => ({ ...run, automation: a }))} /> : <p className="text-sm text-muted-foreground">No executions yet.</p>}
             </div>
+            {isBulk && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution logs (per recipient)</p>
+                {allRecipientResults.length ? (
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-input/40 text-left text-muted-foreground">
+                          <th className="px-3 py-2 font-medium">Recipient</th>
+                          <th className="px-3 py-2 font-medium">Amount</th>
+                          <th className="px-3 py-2 font-medium">Tx Hash</th>
+                          <th className="px-3 py-2 font-medium">Status</th>
+                          <th className="px-3 py-2 font-medium">Failure Reason</th>
+                          <th className="px-3 py-2 font-medium">Timestamp</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allRecipientResults.map((rr, i) => (
+                          <tr key={i} className="border-b border-border/60 last:border-0">
+                            <td className="px-3 py-2 font-mono">{rr.domain ?? short(rr.address)}</td>
+                            <td className="px-3 py-2">{money(rr.amount, a.token)}</td>
+                            <td className="px-3 py-2">
+                              {rr.explorerUrl && rr.txHash ? (
+                                <a href={rr.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{short(rr.txHash)}</a>
+                              ) : rr.txHash ? <span className="font-mono">{short(rr.txHash)}</span> : "—"}
+                            </td>
+                            <td className="px-3 py-2"><Badge tone={rr.decision === "executed" ? "success" : rr.decision === "needs_review" ? "warning" : "danger"}>{rr.decision}</Badge></td>
+                            <td className="px-3 py-2 text-muted-foreground">{rr.decision !== "executed" ? (rr.detail ?? "—") : "—"}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{new Date(rr.runAt).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">No executions yet.</p>}
+              </div>
+            )}
             {a.lastError && (a.status === "paused" || a.status === "failed") && (
               <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">{a.lastError}</div>
             )}

@@ -5,6 +5,8 @@ import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import type { AutomationIntervalUnit, ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
 import { VALID_TEMPLATE_CATEGORIES } from "@/lib/automation/templates";
+import { computeDistribution, findDuplicateInputs, type DistributionMethod } from "@/lib/automation/bulk";
+import { createHash } from "node:crypto";
 
 const CADENCES: ScheduleCadence[] = ["once", "daily", "weekly", "monthly", "custom"];
 const INTERVAL_UNITS: AutomationIntervalUnit[] = ["days", "weeks", "months"];
@@ -111,6 +113,229 @@ function signatureMessage(input: {
   ].join("\n");
 }
 
+/**
+ * Bulk Payments' signed message. Deterministic and re-derivable server-side
+ * from the exact same resolved rows, same principle as signatureMessage()
+ * above — the wallet must sign the REAL terms (every resolved address and
+ * amount), not a summary of them, so a tampered recipient list after
+ * signing is caught here rather than trusted. A hash of the row list keeps
+ * the signed message a reasonable size regardless of recipient count.
+ */
+function bulkSignatureMessage(input: {
+  walletAddress: string; token: string; cadence: string; startAt: number;
+  timezone: string; purpose: string; distributionMethod: string;
+  rows: { address: string; amount: number }[];
+}) {
+  const rowsDigest = createHash("sha256")
+    .update(input.rows.map((r) => `${r.address.toLowerCase()}:${r.amount}`).join("|"))
+    .digest("hex");
+  const total = input.rows.reduce((s, r) => s + r.amount, 0);
+  return [
+    "PayAI Bulk Payment",
+    `Wallet: ${input.walletAddress}`,
+    `Recipients: ${input.rows.length}`,
+    `Recipients digest: ${rowsDigest}`,
+    `Total: ${total} ${input.token}`,
+    `Distribution: ${input.distributionMethod}`,
+    `Automation: ${input.cadence}`,
+    `First execution: ${new Date(input.startAt).toISOString()}`,
+    `Timezone: ${input.timezone}`,
+    `Purpose: ${input.purpose}`,
+    "Network: Monad Mainnet",
+  ].join("\n");
+}
+
+/**
+ * Bulk Payments creation. Deliberately a separate function, not a branch
+ * threaded through the single-recipient POST above — the validation shape
+ * (N addresses + a distribution method, not one address + one amount) is
+ * different enough that forcing it through the same code path would make
+ * both harder to read. It still ends at the exact same createSchedule() the
+ * single-recipient path uses; only the fan-out into `recipients` is new.
+ */
+async function handleBulkCreate(
+  req: NextRequest,
+  body: {
+    walletAddress?: string; token?: string; cadence?: string; startAt?: number;
+    memo?: string; purpose?: string; timezone?: string;
+    intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
+    endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
+    fundingMode?: string; templateId?: string; templateCategory?: string;
+    recipients?: { input: string; amount: number; note?: string }[];
+    distributionMethod?: string;
+  },
+): Promise<NextResponse> {
+  const walletAddress = body.walletAddress && isAddress(body.walletAddress) ? body.walletAddress : null;
+  const token = (body.token || "").toUpperCase();
+  const cadence = body.cadence as ScheduleCadence;
+  const startAt = Number(body.startAt);
+  const timezone = body.timezone?.trim() || "Africa/Lagos";
+  const purpose = body.purpose?.trim() || body.memo?.trim() || "";
+  const drafts = body.recipients ?? [];
+  const method = body.distributionMethod as DistributionMethod;
+
+  if (!walletAddress) return NextResponse.json({ error: "Connect your wallet before creating a bulk payment." }, { status: 400 });
+  if (token !== "MON" && token !== "USDC") return NextResponse.json({ error: "Choose MON or USDC." }, { status: 400 });
+  if (!CADENCES.includes(cadence)) return NextResponse.json({ error: "Choose a supported automation frequency." }, { status: 400 });
+  if (!Number.isFinite(startAt) || startAt < Date.now() - 60_000) return NextResponse.json({ error: "Choose a future execution time." }, { status: 400 });
+  if (!purpose) return NextResponse.json({ error: "Every automation needs a purpose." }, { status: 400 });
+  if (!["equal", "fixed", "percentage", "custom"].includes(method)) {
+    return NextResponse.json({ error: "Choose a distribution method." }, { status: 400 });
+  }
+  if (drafts.length === 0) return NextResponse.json({ error: "Add at least one recipient." }, { status: 400 });
+  if (drafts.length > 500) return NextResponse.json({ error: "A single bulk payment supports up to 500 recipients." }, { status: 400 });
+
+  // Reserved Funds is a hard rejection here, not a soft default, because the
+  // reason is a real on-chain constraint, not a policy choice: AutomationVault
+  // locks a reservation to exactly one recipient at reserve time. There is no
+  // way to honor "reserve funds for a bulk payment" without changing that
+  // contract, so we refuse rather than silently create something that could
+  // never actually execute.
+  const fundingMode: "wallet" | "reserved" = body.fundingMode === "reserved" ? "reserved" : "wallet";
+  if (fundingMode === "reserved") {
+    return NextResponse.json({
+      error: "Reserved Funds isn't available for Bulk Payments — the vault contract can only guarantee one recipient per reservation. Use Wallet Automation instead.",
+      code: "BULK_RESERVED_UNSUPPORTED",
+    }, { status: 422 });
+  }
+
+  const dupInputs = findDuplicateInputs(drafts.map((d) => ({ input: d.input })));
+  if (dupInputs.length > 0) {
+    return NextResponse.json({ error: `Duplicate recipient entered: ${dupInputs[0]}. Remove the duplicate and try again.` }, { status: 400 });
+  }
+
+  // Re-resolve every recipient server-side — never trust addresses the
+  // client already "resolved". Same resolveRecipient() a single-recipient
+  // automation uses, called once per row.
+  const resolvedRows: { input: string; address: string; domain: string | null; amount: number; note?: string }[] = [];
+  for (const d of drafts) {
+    try {
+      const r = await resolveRecipient(d.input);
+      resolvedRows.push({ input: d.input, address: r.recipient, domain: r.domain, amount: d.amount, note: d.note });
+    } catch (e) {
+      return NextResponse.json({ error: `"${d.input}": ${e instanceof Error ? e.message : "could not be resolved."}` }, { status: 422 });
+    }
+  }
+
+  // Duplicate ADDRESSES (two different inputs resolving to the same 0x
+  // address — e.g. an address pasted once and a .nad domain that resolves
+  // to it) can only be caught after resolution, unlike duplicate raw inputs
+  // above.
+  const seenAddresses = new Set<string>();
+  for (const r of resolvedRows) {
+    const key = r.address.toLowerCase();
+    if (seenAddresses.has(key)) {
+      return NextResponse.json({ error: `Two entries resolve to the same address (${r.domain ?? r.address}). Remove the duplicate.` }, { status: 400 });
+    }
+    seenAddresses.add(key);
+  }
+
+  const distribution = computeDistribution(method, resolvedRows.map((r) => ({ input: r.input, amount: r.amount, percentage: undefined })), undefined);
+  // computeDistribution above is for re-deriving amounts from a total for
+  // equal/fixed/percentage; here amounts were already assigned per-row by
+  // the client for custom/fixed, or by the client's own equal/percentage
+  // split before signing. What matters server-side is that every resolved
+  // row already has a real positive amount — re-validate that directly
+  // rather than re-deriving (the client doesn't send percentages/total back,
+  // only the final per-row amounts it already computed and the user reviewed).
+  void distribution;
+  for (const r of resolvedRows) {
+    if (!Number.isFinite(r.amount) || r.amount <= 0) {
+      return NextResponse.json({ error: `"${r.domain ?? r.input}" has an invalid amount.` }, { status: 400 });
+    }
+  }
+
+  const totalAmount = resolvedRows.reduce((s, r) => s + r.amount, 0);
+  const cap = token === "MON" ? agentConfig.maxMon : agentConfig.maxUsd;
+  for (const r of resolvedRows) {
+    if (r.amount > cap) {
+      return NextResponse.json({ error: `Amount to "${r.domain ?? r.input}" (${r.amount} ${token}) exceeds the agent cap of ${cap.toLocaleString()} ${token} per payment.` }, { status: 422 });
+    }
+  }
+
+  const intervalCount = Math.max(1, Math.floor(Number(body.intervalCount) || 1));
+  const intervalUnit = INTERVAL_UNITS.includes(body.intervalUnit as AutomationIntervalUnit) ? body.intervalUnit as AutomationIntervalUnit : "days";
+
+  let endCondition: ScheduleEndCondition;
+  try {
+    endCondition = normalizeEndCondition(body.endCondition, startAt);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Automation validation failed." }, { status: 422 });
+  }
+
+  const expectedMessage = bulkSignatureMessage({
+    walletAddress, token, cadence, startAt, timezone, purpose, distributionMethod: method,
+    rows: resolvedRows.map((r) => ({ address: r.address, amount: r.amount })),
+  });
+  if (!body.signature || body.signatureMessage !== expectedMessage) {
+    return NextResponse.json({ error: "Confirm this bulk payment in your wallet before creating it." }, { status: 401 });
+  }
+  const signed = await verifyMessage({ address: walletAddress as `0x${string}`, message: expectedMessage, signature: body.signature as `0x${string}` }).catch(() => false);
+  if (!signed) return NextResponse.json({ error: "Wallet confirmation could not be verified." }, { status: 401 });
+
+  const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+  const createKey = `automation-create:${createHash("sha256").update(body.signature).digest("hex")}`;
+  const claim = await claimRequest<{ automationId: string }>(createKey);
+  if (!claim.claimed) {
+    if (claim.status === "done" && claim.result) {
+      const { getSchedule } = await import("@/lib/platform/schedules");
+      const existing = await getSchedule(claim.result.automationId);
+      if (existing) return NextResponse.json({ automation: existing, schedule: existing, success: true, replayed: true });
+    }
+    return NextResponse.json({ error: "This bulk payment is already being created. Please wait." }, { status: 409 });
+  }
+
+  // Same allowance check a single-recipient Wallet Automation does — the
+  // agent still pulls from ONE approving wallet (the creator's), it just
+  // pulls it out to N different recipients across the run instead of one.
+  const { getWrappedNative, getPaymentExecutor } = await import("@/lib/monad/config");
+  const isNative = token === "MON";
+  const executor = getPaymentExecutor();
+  if (isNative && !getWrappedNative()) {
+    return NextResponse.json({ error: "MON isn't available for Bulk Payments yet. Use USDC.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
+  }
+  if (!isNative && executor) {
+    try {
+      const { getPublicClient } = await import("@/lib/monad/wallet");
+      const { getStablecoin } = await import("@/lib/monad/config");
+      const stable = getStablecoin();
+      const need = BigInt(Math.round(totalAmount * 10 ** stable.decimals));
+      const allowance = (await getPublicClient().readContract({
+        address: stable.address, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
+        functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
+      })) as bigint;
+      if (allowance < need) {
+        return NextResponse.json({ error: "Approve PayAI to send this token from your wallet before creating the bulk payment.", code: "APPROVAL_REQUIRED" }, { status: 402 });
+      }
+    } catch {
+      /* RPC hiccup — don't hard-block creation; execution re-checks allowance anyway. */
+    }
+  }
+
+  const templateCategory = body.templateCategory && VALID_TEMPLATE_CATEGORIES.includes(body.templateCategory) ? body.templateCategory : null;
+  const templateId = templateCategory && body.templateId ? body.templateId : null;
+
+  const { resolveTenantId } = await import("@/lib/platform/tenant");
+  const { createSchedule } = await import("@/lib/platform/schedules");
+  const merchantId = await resolveTenantId(req);
+  const first = resolvedRows[0];
+  const row = await createSchedule(merchantId, {
+    // Representative single-recipient fields, for any code that isn't
+    // bulk-aware — the real per-recipient breakdown is in `recipients`.
+    amount: totalAmount, token, recipient: first.address, domain: first.domain,
+    cadence, nextRun: startAt, memo: body.memo ?? purpose, purpose, timezone,
+    sender: walletAddress, endCondition,
+    intervalCount: cadence === "custom" ? intervalCount : undefined,
+    intervalUnit: cadence === "custom" ? intervalUnit : undefined,
+    signature: body.signature, signatureMessage: expectedMessage,
+    fundingMode, templateId, templateCategory,
+    recipients: resolvedRows.map((r) => ({ input: r.input, address: r.address, domain: r.domain, amount: r.amount, note: r.note })),
+    distributionMethod: method,
+  });
+  await completeRequest(createKey, { automationId: row.id });
+  return NextResponse.json({ automation: row, schedule: row, success: true });
+}
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const recipientInput = url.searchParams.get("resolve");
@@ -143,11 +368,18 @@ export async function POST(req: NextRequest) {
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
     fundingMode?: string; reserveTxHash?: string; id?: string;
     templateId?: string; templateCategory?: string;
+    // Bulk Payments only.
+    recipients?: { input: string; amount: number; note?: string }[];
+    distributionMethod?: string;
   };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (Array.isArray(body.recipients)) {
+    return handleBulkCreate(req, body);
   }
 
   const walletAddress = body.walletAddress && isAddress(body.walletAddress) ? body.walletAddress : null;
@@ -332,7 +564,7 @@ export async function PATCH(req: NextRequest) {
 
   if (body.action === "execute_now") {
     const { getSchedule, recordRun } = await import("@/lib/platform/schedules");
-    const { executeScheduleNow } = await import("@/lib/automation/execute");
+    const { executeScheduleNow, executeBulkScheduleNow } = await import("@/lib/automation/execute");
     const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
     const row = await getSchedule(id);
     if (!row || row.merchantId !== merchantId) return NextResponse.json({ error: "Automation not found." }, { status: 404 });
@@ -349,6 +581,13 @@ export async function PATCH(req: NextRequest) {
     const claim = await claimRequest<{ outcome: string; txHash?: string }>(requestId);
     if (!claim.claimed) return NextResponse.json({ error: "This automation is already running. Please wait." }, { status: 409 });
     try {
+      if (row.recipients?.length) {
+        const bulkResult = await executeBulkScheduleNow(row, requestId);
+        await recordRun(id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
+        await completeRequest(requestId, { outcome: bulkResult.outcome });
+        const updated = await getSchedule(id);
+        return NextResponse.json({ automation: updated, success: true, outcome: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
+      }
       const result = await executeScheduleNow(row, requestId);
       await recordRun(id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail });
       await completeRequest(requestId, { outcome: result.outcome, txHash: result.txHash });
