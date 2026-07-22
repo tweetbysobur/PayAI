@@ -241,7 +241,17 @@ export default function AutomationsPage() {
   const active = automations.filter((a) => a.status === "active" || a.status === "scheduled" || a.status === "executing");
   const upcoming = active.slice().sort((a, b) => a.nextRun - b.nextRun).slice(0, 5);
   const runs = automations.flatMap((a) => a.runs.map((run) => ({ ...run, automation: a }))).sort((a, b) => b.at - a.at);
-  const totalVolume = automations.reduce((sum, a) => sum + a.runs.filter((r) => r.decision === "executed").length * a.amount, 0);
+  // Never blend MON and USDC into one number — same convention as
+  // components/TokenLogo.tsx's VolumeInline (which this now reuses). A
+  // single summed "totalVolume" across tokens was previously meaningless
+  // (1 MON + 1 USDC read as "2") and, on mobile, the resulting long/odd
+  // number was the actual cause of the perceived "lag" — the tile reflowed
+  // once the real (much longer) formatted string rendered post-hydration.
+  const volumeByToken = automations.reduce<Record<string, number>>((acc, a) => {
+    const executed = a.runs.filter((r) => r.decision === "executed").length;
+    if (executed > 0) acc[a.token] = (acc[a.token] ?? 0) + executed * a.amount;
+    return acc;
+  }, {});
   const totalRuns = runs.length;
   const successRuns = runs.filter((r) => r.decision === "executed").length;
   const successRate = totalRuns ? Math.round((successRuns / totalRuns) * 100) : 0;
@@ -266,7 +276,7 @@ export default function AutomationsPage() {
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric title="Active Automations" value={active.length.toString()} icon={Repeat} />
         <Metric title="Success Rate" value={`${successRate}%`} icon={ShieldCheck} />
-        <Metric title="Total Volume" value={money(totalVolume)} icon={BarChart3} />
+        <Metric title="Total Volume" icon={BarChart3} value={<VolumeMetricValue byToken={volumeByToken} />} />
         <Metric title="Gas Spent" value={`${totalGas.toFixed(4)} MON`} icon={ReceiptText} />
       </section>
 
@@ -333,8 +343,42 @@ export default function AutomationsPage() {
   );
 }
 
-function Metric({ title, value, icon: Icon }: { title: string; value: string; icon: typeof Repeat }) {
-  return <Card className="!p-4 bg-gradient-to-b from-primary/[0.06] to-transparent"><div className="flex items-center justify-between"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p><Icon size={16} className="text-primary" /></div><p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p></Card>;
+function Metric({ title, value, icon: Icon }: { title: string; value: ReactNode; icon: typeof Repeat }) {
+  return (
+    <Card className="!p-4 bg-gradient-to-b from-primary/[0.06] to-transparent">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
+        <Icon size={16} className="text-primary" />
+      </div>
+      {/* A plain div, not <p> — some values (VolumeMetricValue) render block
+          children, and nesting a block element inside <p> is invalid HTML
+          that browsers silently "fix" by closing the tag early, which was
+          a real source of the mobile reflow/glitch this replaces. */}
+      <div className="mt-2 min-w-0 text-2xl font-semibold tracking-tight text-foreground">{value}</div>
+    </Card>
+  );
+}
+
+/** Real per-token totals only — never blended into one meaningless number
+ *  across MON and USDC (same convention as components/TokenLogo.tsx's
+ *  VolumeInline). Stacked one token per row so mobile never has to squeeze
+ *  two currencies onto one line. */
+function VolumeMetricValue({ byToken }: { byToken: Record<string, number> }) {
+  const parts = Object.entries(byToken).filter(([, v]) => v > 0);
+  if (!parts.length) return <span className="text-2xl font-semibold tracking-tight text-foreground">—</span>;
+  return (
+    <div className="space-y-1">
+      {parts.map(([token, v]) => (
+        <div key={token} className="flex items-center gap-1.5">
+          <TokenLogo token={token} size={15} className="shrink-0" />
+          <span className="truncate text-xl font-semibold tabular-nums tracking-tight text-foreground">
+            {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+          </span>
+          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{token}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function EmptyState({ title, detail }: { title: string; detail: string }) {
