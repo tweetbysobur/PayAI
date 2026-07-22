@@ -81,6 +81,7 @@ export async function createSchedule(
     /** Reserved Funds only: a client-generated id the vault reservation was
      *  keyed to, so the on-chain reservation and the stored record share one id. */
     id?: string;
+    templateId?: string | null; templateCategory?: string | null;
   },
 ): Promise<ScheduledPayment> {
   const row: ScheduledPayment = {
@@ -111,6 +112,8 @@ export async function createSchedule(
     fundingMode: input.fundingMode ?? "wallet",
     reserveTxHash: input.reserveTxHash ?? null,
     remindedForRun: null,
+    templateId: input.templateId ?? null,
+    templateCategory: input.templateCategory ?? null,
   };
   await persist(row);
   await recordAutomationEvent({

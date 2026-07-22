@@ -151,6 +151,15 @@ export interface PaymentAutomation {
   fundingMode?: "wallet" | "reserved";
   /** Reserved Funds: the tx hash that funded the vault reservation (audit trail). */
   reserveTxHash?: string | null;
+  /** The Automation Template this was created from (see lib/automation/templates.ts),
+   *  or null/absent for a from-scratch ("Custom") automation. Purely a label on
+   *  top of the same engine — a template never changes execution behavior,
+   *  only the defaults the creation wizard was pre-filled with. */
+  templateId?: string | null;
+  /** Template category (Personal/Business/Launchpad/NFT/DAO/Creator), stored
+   *  alongside templateId so the dashboard can filter without re-deriving it
+   *  from a template catalog that may change over time. */
+  templateCategory?: string | null;
 }
 
 export type ScheduledPayment = PaymentAutomation;
