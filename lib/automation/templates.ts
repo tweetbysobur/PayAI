@@ -40,7 +40,8 @@ export interface AutomationTemplate {
   /** Defaults applied to the creation wizard — every field stays fully
    *  editable afterward. Omitted fields keep the wizard's own defaults. */
   defaults: {
-    token?: "MON" | "USDC";
+    /** A starting-symbol hint only (any fungible Monad token, not limited to MON/USDC) — the creation wizard's token selector resolves it and the user can freely change it. */
+    token?: string;
     cadence?: "once" | "daily" | "weekly" | "monthly" | "custom";
     intervalCount?: number;
     intervalUnit?: "days" | "weeks" | "months";

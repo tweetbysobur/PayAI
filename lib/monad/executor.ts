@@ -39,6 +39,10 @@ export const ERC20_ABI = [
 export interface TransferInput {
   to: `0x${string}`;
   amount: number;
+  /** Override the token this transfer settles in; defaults to the configured stablecoin when absent (legacy behavior). */
+  tokenAddress?: `0x${string}`;
+  tokenDecimals?: number;
+  tokenSymbol?: string;
 }
 
 export interface GasEstimate {
@@ -114,7 +118,7 @@ export async function estimateGas(input: TransferInput): Promise<GasEstimate> {
   if (!account) throw new Error("No Monad signer configured.");
   if (!ADDR_RE.test(input.to)) throw new Error(`Invalid recipient address: ${input.to}`);
 
-  const token = getStablecoin();
+  const token = input.tokenAddress ? { address: input.tokenAddress, decimals: input.tokenDecimals ?? 18 } : getStablecoin();
   const chain = getChain();
   const client = getPublicClient();
   const value = parseUnits(input.amount.toString(), token.decimals);
@@ -150,7 +154,7 @@ export async function estimateGas(input: TransferInput): Promise<GasEstimate> {
 export async function executeTransfer(input: TransferInput): Promise<MonadTxResult> {
   if (!ADDR_RE.test(input.to)) throw new Error(`Invalid recipient address: ${input.to}`);
 
-  const token = getStablecoin();
+  const token = input.tokenAddress ? { address: input.tokenAddress, decimals: input.tokenDecimals ?? 18, symbol: input.tokenSymbol ?? "TOKEN" } : getStablecoin();
   const chain = getChain();
   const account = getAgentAccount();
   if (!account) throw new Error("No Monad signer configured.");

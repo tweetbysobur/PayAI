@@ -51,6 +51,9 @@ export interface ExecuteInput {
   ref?: string | null;
   /** App-level idempotency key — required, hashed to bytes32 on-chain. */
   requestId: string;
+  /** Settle in this ERC-20 instead of the configured stablecoin — any Monad token works, PaymentExecutor takes an arbitrary token address. */
+  tokenAddress?: `0x${string}`;
+  tokenDecimals?: number;
 }
 
 export interface ExecuteResult {
@@ -112,7 +115,7 @@ export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteRe
   if (!account) throw new Error("No Monad signer configured.");
   if (!input.requestId) throw new Error("requestId is required for idempotent execution.");
 
-  const token = getStablecoin();
+  const token = input.tokenAddress ? { address: input.tokenAddress, decimals: input.tokenDecimals ?? 18 } : getStablecoin();
   const pub = getPublicClient();
   const wallet = getWalletClient();
   const value = BigInt(Math.round(input.amount * 10 ** token.decimals));

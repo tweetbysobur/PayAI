@@ -4,12 +4,14 @@ import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertTriangle, Lock, Wallet } from "lucide-react";
 import { encodeFunctionData, type Hex } from "viem";
-import { Badge, Button, Card, Input } from "@/components/ui";
-import { TokenLogo } from "@/components/TokenLogo";
+import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { useWallet } from "@/lib/wallet/useWallet";
-import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
+import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { calculateFee } from "@/lib/payment/feeEngine";
+
+const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import {
   computeDistribution, findDuplicateInputs, parseRecipientsCsv, parseRecipientsPaste,
   type DistributionMethod, type RecipientDraft,
@@ -57,13 +59,12 @@ interface ResolvedRow {
   error?: string;
 }
 
-type OnchainConfig = { chainId: number; executor: string | null; usdc: { address: string; decimals: number }; walletModeAvailable: boolean };
+type OnchainConfig = { chainId: number; executor: string | null; usdc: { address: string; decimals: number }; wmon: string | null; walletModeAvailable: boolean };
 
 const STEPS = ["Recipients", "Distribution", "Schedule", "Execution Mode", "Review"];
 
 export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
-  const balances = useWalletBalances(wallet.address);
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [inputTab, setInputTab] = useState<"paste" | "csv" | "excel" | "manual">("paste");
@@ -73,7 +74,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   const [manualAmt, setManualAmt] = useState("");
   const [manualNote, setManualNote] = useState("");
   const [method, setMethod] = useState<DistributionMethod>("equal");
-  const [token, setToken] = useState<"MON" | "USDC">("USDC");
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const [totalAmount, setTotalAmount] = useState("");
   const [fixedAmount, setFixedAmount] = useState("");
   const [cadence, setCadence] = useState<Cadence>("once");
@@ -100,7 +101,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
 
   function reset() {
     setStep(1); setDrafts([]); setPasteText(""); setManualAddr(""); setManualAmt(""); setManualNote("");
-    setMethod("equal"); setTotalAmount(""); setFixedAmount(""); setResolvedRows(null); setPurpose("Business");
+    setMethod("equal"); setTokenInfo(null); setTotalAmount(""); setFixedAmount(""); setResolvedRows(null); setPurpose("Business");
   }
 
   function close() { reset(); onClose(); }
@@ -184,7 +185,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   }
 
   const totalToPay = resolvedRows?.reduce((s, r) => s + r.amount, 0) ?? distribution.total;
-  const balance = token === "MON" ? balances.mon : balances.usdc;
+  const { balance } = useTokenBalance(tokenInfo?.address ?? null, tokenInfo?.decimals ?? null, wallet.address);
   const insufficientBalance = balance != null && totalToPay > Number(balance);
   const platformFee = calculateFee("wallet_automation", totalToPay || 0);
   const estimateGas = `~${(0.002 * Math.max(1, resolvedRows?.length ?? drafts.length)).toFixed(4)} MON`;
@@ -203,12 +204,12 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   }
 
   async function activate() {
-    if (!wallet.address || !resolvedRows || !config) return;
+    if (!wallet.address || !resolvedRows || !config || !tokenInfo) return;
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
-      const isNative = token === "MON";
-      const decimals = isNative ? 18 : config.usdc.decimals;
+      const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
+      const decimals = tokenInfo.decimals;
       const totalWei = (() => {
         try {
           return BigInt(Math.round(totalToPay * 10 ** decimals));
@@ -229,7 +230,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
         `Wallet: ${wallet.address}`,
         `Recipients: ${resolvedRows.length}`,
         `Recipients digest: ${rowsDigest}`,
-        `Total: ${totalToPay} ${token}`,
+        `Total: ${totalToPay} ${tokenInfo.symbol}`,
         `Distribution: ${method}`,
         `Automation: ${cadence}`,
         `First execution: ${new Date(startAt).toISOString()}`,
@@ -243,17 +244,19 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
       if (!signature) throw new Error("Wallet confirmation was cancelled.");
 
       if (!config.executor) throw new Error("Wallet Automation isn't available right now.");
-      const tokenAddr = isNative ? null : config.usdc.address;
-      if (isNative) throw new Error("MON isn't available for Bulk Payments yet — use USDC.");
+      // Native MON has no ERC-20 allowance, so Wallet Automation pulls WMON
+      // instead; any other token uses its own real address directly.
+      const tokenAddr = isNative ? config.wmon : tokenInfo.address;
+      if (!tokenAddr) throw new Error("MON isn't available for Bulk Payments yet — choose an ERC-20 token.");
       setSavingStep("Approve PayAI to send from your wallet");
       const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, totalWei] });
-      const hash = await sendWalletTx(wallet.address, tokenAddr!, data);
+      const hash = await sendWalletTx(wallet.address, tokenAddr, data);
       setSavingStep("Waiting for approval to confirm on Monad");
       await waitForReceipt(hash);
 
       setSavingStep("Activating your bulk payment");
       const body = {
-        walletAddress: wallet.address, token, cadence,
+        walletAddress: wallet.address, token: tokenInfo.symbol, tokenAddress: tokenInfo.address, cadence,
         intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose,
         signature, signatureMessage: message, fundingMode: "wallet", endCondition,
         recipients: resolvedRows.map((r) => ({ input: r.input, amount: r.amount, note: r.note })),
@@ -381,12 +384,8 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
                   <div>
                     <p className="text-base font-semibold text-foreground">Distribution method</p>
                     <p className="mt-1 text-sm text-muted-foreground">How should {drafts.length} recipients be paid?</p>
-                    <div className="mt-4 flex gap-2">
-                      {(["MON", "USDC"] as const).map((t) => (
-                        <button key={t} onClick={() => setToken(t)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${token === t ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-foreground hover:border-primary/30"}`}>
-                          <TokenLogo token={t} size={15} /> {t}
-                        </button>
-                      ))}
+                    <div className="mt-4 max-w-xs">
+                      <TokenSelector value={tokenInfo} onChange={setTokenInfo} walletAddress={wallet.address} />
                     </div>
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       {([["equal", "Equal Split", "Every recipient gets the same share of a total."], ["fixed", "Fixed Amount", "Every recipient gets the same explicit amount."], ["percentage", "Percentage", "Each recipient gets a % share of a total."], ["custom", "Custom Amount", "Set an exact amount per recipient."]] as [DistributionMethod, string, string][]).map(([m, label, desc]) => (
@@ -399,7 +398,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
 
                     {(method === "equal" || method === "fixed" || method === "percentage") && (
                       <div className="mt-4">
-                        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{method === "fixed" ? `Amount per recipient (${token})` : `Total amount to allocate (${token})`}</label>
+                        <label className="mb-1.5 block text-xs font-medium text-muted-foreground">{method === "fixed" ? `Amount per recipient (${tokenInfo?.symbol ?? ""})` : `Total amount to allocate (${tokenInfo?.symbol ?? ""})`}</label>
                         <Input value={method === "fixed" ? fixedAmount : totalAmount} onChange={(e) => (method === "fixed" ? setFixedAmount : setTotalAmount)(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" className="w-48" />
                       </div>
                     )}
@@ -427,11 +426,11 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
                     )}
 
                     {!distribution.ok && distribution.error && <p className="mt-3 text-xs text-danger">{distribution.error}</p>}
-                    {distribution.ok && <p className="mt-3 text-xs text-muted-foreground">Total: <span className="font-medium text-foreground">{distribution.total.toLocaleString()} {token}</span></p>}
+                    {distribution.ok && <p className="mt-3 text-xs text-muted-foreground">Total: <span className="font-medium text-foreground">{distribution.total.toLocaleString()} {tokenInfo?.symbol}</span></p>}
 
                     <div className="mt-5 flex justify-between">
                       <Button variant="secondary" onClick={() => setStep(1)}>Back</Button>
-                      <Button disabled={!distribution.ok || resolving} onClick={resolveAll}>{resolving ? "Resolving…" : "Continue"}</Button>
+                      <Button disabled={!tokenInfo || !distribution.ok || resolving} onClick={resolveAll}>{resolving ? "Resolving…" : "Continue"}</Button>
                     </div>
                   </div>
                 )}
@@ -507,7 +506,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       {[
                         { label: "Total Recipients", value: String(resolvedRows.length) },
-                        { label: "Total Amount", value: `${totalToPay.toLocaleString()} ${token}` },
+                        { label: "Total Amount", value: `${totalToPay.toLocaleString()} ${tokenInfo?.symbol ?? ""}` },
                         { label: "Estimated Network Fees", value: estimateGas },
                         { label: "Platform Fee", value: platformFee.label },
                         { label: "Distribution Method", value: method },
@@ -521,18 +520,18 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
                         </div>
                       ))}
                     </div>
-                    {insufficientBalance && <p className="mt-3 flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={12} /> Total exceeds your {token} balance ({balance}).</p>}
+                    {insufficientBalance && <p className="mt-3 flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={12} /> Total exceeds your {tokenInfo?.symbol} balance ({balance}).</p>}
                     <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-border">
                       {resolvedRows.map((r, i) => (
                         <div key={i} className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs last:border-b-0">
                           <span className="min-w-0 flex-1 truncate font-mono text-foreground">{r.domain ?? r.address}</span>
-                          <span className="text-muted-foreground">{r.amount} {token}</span>
+                          <span className="text-muted-foreground">{r.amount} {tokenInfo?.symbol}</span>
                         </div>
                       ))}
                     </div>
                     <div className="mt-5 flex justify-between">
                       <Button variant="secondary" onClick={() => setStep(4)} disabled={saving}>Back</Button>
-                      <Button disabled={saving || insufficientBalance} onClick={activate}>{saving ? (savingStep ?? "Activating…") : "Activate Bulk Payment"}</Button>
+                      <Button disabled={saving || insufficientBalance || !tokenInfo} onClick={activate}>{saving ? (savingStep ?? "Activating…") : "Activate Bulk Payment"}</Button>
                     </div>
                   </div>
                 )}

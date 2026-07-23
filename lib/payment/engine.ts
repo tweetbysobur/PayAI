@@ -70,8 +70,11 @@ export function runValidation(req: PaymentRequest): ComplianceResult {
         : "Cleared against screening rules.",
   });
 
-  // 2. Asset support (hard).
-  const tokenOk = SUPPORTED_TOKENS.includes(req.token);
+  // 2. Asset support (hard). A request carrying a resolved tokenAddress was
+  // already confirmed as a real on-chain token at creation time (see
+  // lib/monad/tokenRegistry.ts), so it's supported regardless of symbol —
+  // only a bare legacy symbol (no address) falls back to the fixed list.
+  const tokenOk = !!req.tokenAddress || SUPPORTED_TOKENS.includes(req.token);
   checks.push({
     id: "asset",
     label: "Asset supported",
@@ -265,7 +268,12 @@ const monadProvider: PaymentProvider = {
 
     const to = req.recipient as `0x${string}`;
     const amount = req.amount ?? 0;
-    const isNative = NATIVE_TOKENS.includes(req.token);
+    // A resolved tokenAddress (set by the automation engine / Bulk Payments)
+    // is the source of truth; only a bare legacy symbol falls back to the
+    // fixed MON check, which is what today's un-migrated AI chat path uses.
+    const isNative = req.tokenAddress
+      ? req.tokenAddress.toLowerCase() === "0x0000000000000000000000000000000000000000"
+      : NATIVE_TOKENS.includes(req.token);
 
     const decisionMeta = JSON.stringify({
       action: req.action,
@@ -284,8 +292,9 @@ const monadProvider: PaymentProvider = {
       const { releaseFromVault } = await import("../monad/contracts");
       const { getStablecoin } = await import("../monad/config");
       try {
+        const tokenDecimals = isNative ? 18 : (req.tokenDecimals ?? getStablecoin().decimals);
         const r = await releaseFromVault({
-          automationId: req.automationId ?? "", amount, tokenDecimals: isNative ? 18 : getStablecoin().decimals,
+          automationId: req.automationId ?? "", amount, tokenDecimals,
           requestId: req.requestId,
         });
         return {
@@ -310,7 +319,10 @@ const monadProvider: PaymentProvider = {
       const { executePaymentFromViaExecutor } = await import("../monad/contracts");
       const { getWrappedNative, getStablecoin } = await import("../monad/config");
       try {
-        const erc20 = isNative ? getWrappedNative() : getStablecoin().address;
+        // Native MON has no ERC-20 allowance, so it pulls WMON instead; any
+        // other token pulls its own real address — no longer forced to the
+        // single hardcoded stablecoin.
+        const erc20 = isNative ? getWrappedNative() : (req.tokenAddress ?? getStablecoin().address);
         if (!erc20) throw new Error("WALLET_MODE_TOKEN_UNAVAILABLE: this token can't be used for non-custodial pulls yet.");
         if (!req.fromWallet) throw new Error("WALLET_MODE_NO_SOURCE: missing the authorizing wallet.");
         const r = await executePaymentFromViaExecutor({
@@ -363,6 +375,10 @@ const monadProvider: PaymentProvider = {
         const r = await executeViaExecutor({
           merchant: to, amount, riskScore: req.riskScore ?? 0, decisionMeta,
           ref: req.invoiceRef ?? req.purpose ?? null, requestId: req.requestId,
+          // Any resolved token address settles through this same call — no
+          // separate "generic ERC-20 executor," just a parameter.
+          tokenAddress: req.tokenAddress as `0x${string}` | undefined,
+          tokenDecimals: req.tokenDecimals ?? undefined,
         });
         return {
           status: "settled", mode: "monad", network: req.network,
@@ -404,17 +420,18 @@ const monadProvider: PaymentProvider = {
     }
 
     const { estimateGas, executeTransfer } = await import("../monad/executor");
+    const tokenOverride = req.tokenAddress ? { tokenAddress: req.tokenAddress as `0x${string}`, tokenDecimals: req.tokenDecimals ?? undefined, tokenSymbol: req.token } : undefined;
 
     // Estimate first so the gas cost is known even if the send later fails.
     let gasEstimate: string | undefined;
     try {
-      const est = await estimateGas({ to, amount });
+      const est = await estimateGas({ to, amount, ...tokenOverride });
       gasEstimate = `${est.feeMon} ${est.symbol}`;
     } catch {
       /* estimate is best-effort; proceed to execute */
     }
 
-    const result = await executeTransfer({ to, amount });
+    const result = await executeTransfer({ to, amount, ...tokenOverride });
 
     // Anchor the settled payment to the VeriPayRegistry contract (best-effort;
     // a failed anchor never undoes a settled transfer). No-op if no registry.
@@ -423,10 +440,12 @@ const monadProvider: PaymentProvider = {
     if (result.status === "settled") {
       const { anchorPayment } = await import("../monad/registry");
       const { getStablecoin } = await import("../monad/config");
+      const anchorToken = (req.tokenAddress ?? getStablecoin().address) as `0x${string}`;
+      const anchorDecimals = req.tokenDecimals ?? getStablecoin().decimals;
       const anchor = await anchorPayment({
         recipient: to,
-        token: getStablecoin().address,
-        amount: BigInt(Math.round(amount * 10 ** getStablecoin().decimals)),
+        token: anchorToken,
+        amount: BigInt(Math.round(amount * 10 ** anchorDecimals)),
         riskScore: req.riskScore ?? 0,
         purpose: req.purpose,
         ref: req.invoiceRef ?? undefined,

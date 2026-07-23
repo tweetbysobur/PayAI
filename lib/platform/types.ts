@@ -128,7 +128,14 @@ export interface PaymentAutomation {
    *  tenants, which are already isolated by merchantId. */
   sender?: string | null;
   amount: number;
+  /** Display symbol — kept for back-compat/display; tokenAddress below is the source of truth execution actually settles against. */
   token: string;
+  /** The token's real contract address (NATIVE_TOKEN_ADDRESS for MON), resolved once at creation via lib/monad/tokenRegistry.ts and never re-guessed at execution time. Absent on automations created before token selection existed — those fall back to the legacy MON/USDC symbol path. */
+  tokenAddress?: string;
+  /** The token's on-chain decimals, captured at creation alongside tokenAddress. */
+  tokenDecimals?: number;
+  /** Curated logo URI for display, if the token was verified at creation; null/absent falls back to the generic token badge. */
+  tokenLogo?: string | null;
   /** Resolved 0x address the payment settles to. */
   recipient: string;
   /** Original .nad/.nads domain, when the recipient was resolved from one. */
