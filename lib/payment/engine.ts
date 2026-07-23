@@ -325,8 +325,11 @@ const monadProvider: PaymentProvider = {
         const erc20 = isNative ? getWrappedNative() : (req.tokenAddress ?? getStablecoin().address);
         if (!erc20) throw new Error("WALLET_MODE_TOKEN_UNAVAILABLE: this token can't be used for non-custodial pulls yet.");
         if (!req.fromWallet) throw new Error("WALLET_MODE_NO_SOURCE: missing the authorizing wallet.");
+        // WMON mirrors native MON's 18 decimals; any other token uses its own
+        // resolved decimals — never the unrelated configured stablecoin's.
+        const tokenDecimals = isNative ? 18 : (req.tokenDecimals ?? getStablecoin().decimals);
         const r = await executePaymentFromViaExecutor({
-          from: req.fromWallet as `0x${string}`, token: erc20 as `0x${string}`, merchant: to,
+          from: req.fromWallet as `0x${string}`, token: erc20 as `0x${string}`, tokenDecimals, merchant: to,
           amount, riskScore: req.riskScore ?? 0, decisionMeta,
           ref: req.invoiceRef ?? req.purpose ?? null, requestId: req.requestId,
         });

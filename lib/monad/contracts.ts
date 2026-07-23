@@ -217,7 +217,7 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
  * pass a wrapped-native (WMON) token address for MON automations.
  */
 export async function executePaymentFromViaExecutor(
-  input: ExecuteInput & { from: `0x${string}`; token: `0x${string}` },
+  input: ExecuteInput & { from: `0x${string}`; token: `0x${string}`; tokenDecimals?: number },
 ): Promise<ExecuteResult> {
   const executor = getPaymentExecutor();
   const account = getAgentAccount();
@@ -228,7 +228,12 @@ export async function executePaymentFromViaExecutor(
   const pub = getPublicClient();
   const wallet = getWalletClient();
   const reqIdBytes = requestId32(input.requestId);
-  const value = BigInt(Math.round(input.amount * 10 ** getStablecoin().decimals));
+  // Must scale by the ACTUAL token's decimals, not the configured stablecoin's
+  // — Wallet Automation now pulls any ERC-20 the user approved, and a wrong
+  // decimals count here would pull a wildly wrong amount (too little for a
+  // higher-decimal token, too much for a lower-decimal one).
+  const decimals = input.tokenDecimals ?? getStablecoin().decimals;
+  const value = BigInt(Math.round(input.amount * 10 ** decimals));
 
   const already = (await pub.readContract({
     address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "isRequestProcessed", args: [reqIdBytes],

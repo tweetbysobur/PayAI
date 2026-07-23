@@ -6,7 +6,7 @@ import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertT
 import { encodeFunctionData, type Hex } from "viem";
 import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { calculateFee } from "@/lib/payment/feeEngine";
@@ -21,29 +21,18 @@ const ERC20_APPROVE_ABI = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "s", type: "address" }, { name: "a", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
-/** Fire a wallet tx and resolve with its hash — same tiny helper the
- *  single-recipient creator uses (components/dashboard/../automations page),
- *  duplicated here rather than imported since it's a 6-line utility, not
- *  business logic worth sharing a module boundary for. */
-async function sendWalletTx(from: string, to: string, data: string, value?: bigint): Promise<string> {
-  const tx: Record<string, string> = { from, to, data };
-  if (value != null) tx.value = `0x${value.toString(16)}`;
-  const hash = (await window.ethereum?.request({ method: "eth_sendTransaction", params: [tx] })) as string | undefined;
-  if (!hash) throw new Error("Transaction was cancelled in your wallet.");
+/**
+ * Send a tx and wait for it to confirm through the wallet the user actually
+ * connected with, not the raw `window.ethereum` global — with multiple
+ * wallet extensions installed, that global can silently be a DIFFERENT
+ * extension than the one the user picked, sending the tx to the wrong (or a
+ * disconnected) wallet.
+ */
+async function confirmTx(wallet: WalletState, to: string, data: string, value?: bigint): Promise<string> {
+  const hash = await wallet.sendTransaction({ to, data, value: value != null ? `0x${value.toString(16)}` : undefined });
+  const receipt = (await wallet.waitForReceipt(hash)) as { status?: string } | null;
+  if (receipt && receipt.status !== "success") throw new Error("The on-chain transaction failed. Nothing was created.");
   return hash;
-}
-
-async function waitForReceipt(hash: string, timeoutMs = 90_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const r = (await window.ethereum?.request({ method: "eth_getTransactionReceipt", params: [hash] })) as { status?: string } | null;
-    if (r) {
-      if (r.status === "0x0") throw new Error("The on-chain transaction failed. Nothing was created.");
-      return;
-    }
-    await new Promise((res) => setTimeout(res, 2500));
-  }
-  throw new Error("Timed out waiting for the transaction to confirm. Check your wallet and try again.");
 }
 
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
@@ -252,8 +241,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
       ].join("\n");
 
       setSavingStep("Confirm the bulk payment in your wallet");
-      const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, wallet.address] }) as string | undefined;
-      if (!signature) throw new Error("Wallet confirmation was cancelled.");
+      const signature = await wallet.signMessage(message);
 
       if (!config.executor) throw new Error("Wallet Automation isn't available right now.");
       // Native MON has no ERC-20 allowance, so Wallet Automation pulls WMON
@@ -262,9 +250,8 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
       if (!tokenAddr) throw new Error("MON isn't available for Bulk Payments yet — choose an ERC-20 token.");
       setSavingStep("Approve PayAI to send from your wallet");
       const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, totalWei] });
-      const hash = await sendWalletTx(wallet.address, tokenAddr, data);
       setSavingStep("Waiting for approval to confirm on Monad");
-      await waitForReceipt(hash);
+      await confirmTx(wallet, tokenAddr, data);
 
       setSavingStep("Activating your bulk payment");
       const body = {
