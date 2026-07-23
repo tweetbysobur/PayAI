@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
+import { MONAD_EXPLORER } from "@/lib/monad/public";
 import { timeAgo } from "@/lib/hooks/useAgentConsole";
 import type { NotifItem } from "@/lib/hooks/useNotifications";
 import { Button } from "@/components/ui";
@@ -51,6 +52,8 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
   const unread = notifications.filter((n) => !n.read).length;
   const openNotif = (href: string) => { setShowNotifs(false); onOpenNotifications?.(); router.push(href); };
@@ -123,15 +126,62 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
         )}
 
         {wallet.address && (
-          <button
-            onClick={() => { wallet.disconnect(); toast("Wallet disconnected", "info"); }}
-            className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            title="Disconnect"
-            aria-label="Disconnect wallet"
-          >
-            <Identicon address={wallet.address} size={20} />
-            {identity.display}
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowWalletMenu((v) => !v)}
+              className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Wallet menu"
+              aria-label="Open wallet menu"
+              aria-expanded={showWalletMenu}
+            >
+              <Identicon address={wallet.address} size={20} />
+              {identity.display}
+              <ChevronDown size={12} className={`text-muted-foreground transition-transform ${showWalletMenu ? "rotate-180" : ""}`} />
+            </button>
+            <AnimatePresence>
+              {showWalletMenu && (
+                <>
+                  {/* Full-screen click-catcher to close the menu on outside click, without a
+                      global document listener that would need its own cleanup wiring. */}
+                  <div className="fixed inset-0 z-10" onClick={() => setShowWalletMenu(false)} />
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}
+                    transition={{ duration: 0.16, ease: "easeOut" }}
+                    className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
+                  >
+                    <div className="border-b border-border px-4 py-3">
+                      <p className="font-mono text-sm text-foreground">{identity.display}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {balances.loading ? "Loading balances…" : [balances.mon && `${Number(balances.mon).toFixed(2)} MON`, balances.usdc && `$${Number(balances.usdc).toFixed(2)} USDC`].filter(Boolean).join(" · ") || "—"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(wallet.address!).then(() => setCopied(true)).catch(() => {});
+                        setTimeout(() => setCopied(false), 1500);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
+                    >
+                      <Copy size={13} className="text-muted-foreground" /> {copied ? "Copied!" : "Copy address"}
+                    </button>
+                    <a
+                      href={`${MONAD_EXPLORER}/address/${wallet.address}`}
+                      target="_blank" rel="noreferrer"
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
+                    >
+                      <ExternalLink size={13} className="text-muted-foreground" /> View on explorer
+                    </a>
+                    <button
+                      onClick={() => { setShowWalletMenu(false); wallet.disconnect(); toast("Wallet disconnected", "info"); }}
+                      className="flex w-full items-center gap-2.5 border-t border-border px-4 py-2.5 text-left text-xs text-danger transition hover:bg-danger/10"
+                    >
+                      <LogOut size={13} /> Disconnect
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
         )}
 
         {wallet.address && (
