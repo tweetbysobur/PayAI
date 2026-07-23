@@ -112,29 +112,41 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   }
 
   function handleCsvFile(file: File) {
-    file.text().then((text) => setDrafts(parseRecipientsCsv(text)));
+    file.text()
+      .then((text) => {
+        const parsed = parseRecipientsCsv(text);
+        if (!parsed.length) { toast("No recipients found in that CSV. Check the file has an address column."); return; }
+        setDrafts(parsed);
+      })
+      .catch((e) => toast(e instanceof Error ? e.message : "Could not read that CSV file."));
   }
 
   async function handleExcelFile(file: File) {
-    const XLSX = await import("xlsx");
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array" });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-    const out: RecipientDraft[] = rows.map((row) => {
-      const keys = Object.keys(row).reduce<Record<string, string>>((acc, k) => { acc[k.toLowerCase().trim()] = k; return acc; }, {});
-      const addrKey = keys["address"] ?? keys["wallet"] ?? keys["recipient"] ?? Object.keys(row)[0];
-      const amtKey = keys["amount"];
-      const pctKey = keys["percentage"] ?? keys["percent"];
-      const noteKey = keys["note"] ?? keys["notes"];
-      return {
-        input: String(row[addrKey] ?? "").trim(),
-        amount: amtKey ? Number(row[amtKey]) : undefined,
-        percentage: pctKey ? Number(row[pctKey]) : undefined,
-        note: noteKey ? String(row[noteKey] || "") || undefined : undefined,
-      };
-    }).filter((d) => d.input);
-    setDrafts(out);
+    try {
+      const XLSX = await import("xlsx");
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) { toast("That spreadsheet has no sheets to read."); return; }
+      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      const out: RecipientDraft[] = rows.map((row) => {
+        const keys = Object.keys(row).reduce<Record<string, string>>((acc, k) => { acc[k.toLowerCase().trim()] = k; return acc; }, {});
+        const addrKey = keys["address"] ?? keys["wallet"] ?? keys["recipient"] ?? Object.keys(row)[0];
+        const amtKey = keys["amount"];
+        const pctKey = keys["percentage"] ?? keys["percent"];
+        const noteKey = keys["note"] ?? keys["notes"];
+        return {
+          input: String(row[addrKey] ?? "").trim(),
+          amount: amtKey ? Number(row[amtKey]) : undefined,
+          percentage: pctKey ? Number(row[pctKey]) : undefined,
+          note: noteKey ? String(row[noteKey] || "") || undefined : undefined,
+        };
+      }).filter((d) => d.input);
+      if (!out.length) { toast("No recipients found in that spreadsheet. Check the file has an address column."); return; }
+      setDrafts(out);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not read that Excel file. Try CSV instead.");
+    }
   }
 
   function addManualRow() {
