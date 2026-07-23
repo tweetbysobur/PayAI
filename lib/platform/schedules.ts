@@ -72,7 +72,8 @@ export function advanceRun(from: number, cadence: ScheduleCadence, interval?: { 
 export async function createSchedule(
   merchantId: string,
   input: {
-    amount: number; token: string; recipient: string; domain?: string | null;
+    amount: number; token: string; tokenAddress?: string; tokenDecimals?: number; tokenLogo?: string | null;
+    recipient: string; domain?: string | null;
     cadence: ScheduleCadence; nextRun: number; memo?: string; sender?: string | null;
     intervalCount?: number; intervalUnit?: AutomationIntervalUnit; timezone?: string; purpose?: string;
     signature?: string | null; signatureMessage?: string | null;
@@ -92,6 +93,9 @@ export async function createSchedule(
     sender: input.sender ?? null,
     amount: input.amount,
     token: input.token,
+    tokenAddress: input.tokenAddress,
+    tokenDecimals: input.tokenDecimals,
+    tokenLogo: input.tokenLogo ?? null,
     recipient: input.recipient,
     domain: input.domain ?? null,
     cadence: input.cadence,

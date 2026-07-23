@@ -6,7 +6,25 @@ import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import type { AutomationIntervalUnit, ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
 import { VALID_TEMPLATE_CATEGORIES } from "@/lib/automation/templates";
 import { computeDistribution, findDuplicateInputs, type DistributionMethod } from "@/lib/automation/bulk";
+import { resolveToken, NATIVE_TOKEN_ADDRESS, type TokenInfo } from "@/lib/monad/tokenRegistry";
 import { createHash } from "node:crypto";
+
+/**
+ * Resolve the token for a creation request. `tokenAddress` (sent by the
+ * token-agnostic picker) is the real source of truth and works for ANY
+ * Monad token; `symbolHint` is only a fallback for a client that hasn't
+ * picked up the new selector yet (legacy MON/USDC-only behavior).
+ */
+async function resolveCreationToken(tokenAddress: string | undefined, symbolHint: string): Promise<TokenInfo> {
+  if (tokenAddress) return resolveToken(tokenAddress);
+  if (symbolHint === "MON") return resolveToken(NATIVE_TOKEN_ADDRESS);
+  if (symbolHint === "USDC") {
+    const { getStablecoin } = await import("@/lib/monad/config");
+    const s = getStablecoin();
+    return { address: s.address, symbol: s.symbol, name: s.symbol, decimals: s.decimals, logoURI: null, verified: true };
+  }
+  throw new Error("Choose a token.");
+}
 
 const CADENCES: ScheduleCadence[] = ["once", "daily", "weekly", "monthly", "custom"];
 const INTERVAL_UNITS: AutomationIntervalUnit[] = ["days", "weeks", "months"];
@@ -156,7 +174,7 @@ function bulkSignatureMessage(input: {
 async function handleBulkCreate(
   req: NextRequest,
   body: {
-    walletAddress?: string; token?: string; cadence?: string; startAt?: number;
+    walletAddress?: string; token?: string; tokenAddress?: string; cadence?: string; startAt?: number;
     memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
@@ -175,7 +193,12 @@ async function handleBulkCreate(
   const method = body.distributionMethod as DistributionMethod;
 
   if (!walletAddress) return NextResponse.json({ error: "Connect your wallet before creating a bulk payment." }, { status: 400 });
-  if (token !== "MON" && token !== "USDC") return NextResponse.json({ error: "Choose MON or USDC." }, { status: 400 });
+  let resolvedToken: TokenInfo;
+  try {
+    resolvedToken = await resolveCreationToken(body.tokenAddress, token);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Choose a token." }, { status: 400 });
+  }
   if (!CADENCES.includes(cadence)) return NextResponse.json({ error: "Choose a supported automation frequency." }, { status: 400 });
   if (!Number.isFinite(startAt) || startAt < Date.now() - 60_000) return NextResponse.json({ error: "Choose a future execution time." }, { status: 400 });
   if (!purpose) return NextResponse.json({ error: "Every automation needs a purpose." }, { status: 400 });
@@ -246,10 +269,14 @@ async function handleBulkCreate(
   }
 
   const totalAmount = resolvedRows.reduce((s, r) => s + r.amount, 0);
-  const cap = token === "MON" ? agentConfig.maxMon : agentConfig.maxUsd;
+  // No USD price oracle exists yet (see lib/monad/tokenRegistry.ts), so an
+  // arbitrary ERC-20's real-world value can't be capped precisely — it
+  // reuses the same generic non-native cap as USDC always did, same
+  // limitation the on-chain contract itself has (one bucket per native/ERC-20).
+  const cap = resolvedToken.address === NATIVE_TOKEN_ADDRESS ? agentConfig.maxMon : agentConfig.maxUsd;
   for (const r of resolvedRows) {
     if (r.amount > cap) {
-      return NextResponse.json({ error: `Amount to "${r.domain ?? r.input}" (${r.amount} ${token}) exceeds the agent cap of ${cap.toLocaleString()} ${token} per payment.` }, { status: 422 });
+      return NextResponse.json({ error: `Amount to "${r.domain ?? r.input}" (${r.amount} ${resolvedToken.symbol}) exceeds the agent cap of ${cap.toLocaleString()} per payment.` }, { status: 422 });
     }
   }
 
@@ -288,20 +315,20 @@ async function handleBulkCreate(
   // Same allowance check a single-recipient Wallet Automation does — the
   // agent still pulls from ONE approving wallet (the creator's), it just
   // pulls it out to N different recipients across the run instead of one.
+  // Any token's own address works here now — native MON is the only case
+  // needing a substitute (WMON), since a native coin has no ERC-20 allowance.
   const { getWrappedNative, getPaymentExecutor } = await import("@/lib/monad/config");
-  const isNative = token === "MON";
+  const isNative = resolvedToken.address === NATIVE_TOKEN_ADDRESS;
   const executor = getPaymentExecutor();
   if (isNative && !getWrappedNative()) {
-    return NextResponse.json({ error: "MON isn't available for Bulk Payments yet. Use USDC.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
+    return NextResponse.json({ error: "MON isn't available for Bulk Payments yet — choose an ERC-20 token.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
   }
   if (!isNative && executor) {
     try {
       const { getPublicClient } = await import("@/lib/monad/wallet");
-      const { getStablecoin } = await import("@/lib/monad/config");
-      const stable = getStablecoin();
-      const need = BigInt(Math.round(totalAmount * 10 ** stable.decimals));
+      const need = BigInt(Math.round(totalAmount * 10 ** resolvedToken.decimals));
       const allowance = (await getPublicClient().readContract({
-        address: stable.address, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
+        address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
         functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
       })) as bigint;
       if (allowance < need) {
@@ -322,7 +349,9 @@ async function handleBulkCreate(
   const row = await createSchedule(merchantId, {
     // Representative single-recipient fields, for any code that isn't
     // bulk-aware — the real per-recipient breakdown is in `recipients`.
-    amount: totalAmount, token, recipient: first.address, domain: first.domain,
+    amount: totalAmount, token: resolvedToken.symbol,
+    tokenAddress: resolvedToken.address, tokenDecimals: resolvedToken.decimals, tokenLogo: resolvedToken.logoURI,
+    recipient: first.address, domain: first.domain,
     cadence, nextRun: startAt, memo: body.memo ?? purpose, purpose, timezone,
     sender: walletAddress, endCondition,
     intervalCount: cadence === "custom" ? intervalCount : undefined,
@@ -362,7 +391,7 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   let body: {
-    walletAddress?: string; amount?: number; token?: string; recipient?: string;
+    walletAddress?: string; amount?: number; token?: string; tokenAddress?: string; recipient?: string;
     cadence?: string; startAt?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; signature?: string; signatureMessage?: string;
     endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
@@ -393,9 +422,18 @@ export async function POST(req: NextRequest) {
 
   if (!walletAddress) return NextResponse.json({ error: "Connect your wallet before creating an automation." }, { status: 400 });
   if (!Number.isFinite(amount) || amount <= 0) return NextResponse.json({ error: "Enter an amount greater than 0." }, { status: 400 });
-  if (token !== "MON" && token !== "USDC") return NextResponse.json({ error: "Choose MON or USDC." }, { status: 400 });
-  const cap = token === "MON" ? agentConfig.maxMon : agentConfig.maxUsd;
-  if (amount > cap) return NextResponse.json({ error: `Amount exceeds the agent cap of ${cap.toLocaleString()} ${token} per payment.` }, { status: 422 });
+  let resolvedToken: TokenInfo;
+  try {
+    resolvedToken = await resolveCreationToken(body.tokenAddress, token);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Choose a token." }, { status: 400 });
+  }
+  // No USD price oracle exists yet (see lib/monad/tokenRegistry.ts), so an
+  // arbitrary ERC-20's real-world value can't be capped precisely — it
+  // reuses the same generic non-native cap as USDC always did, same
+  // limitation the on-chain contract itself has (one bucket per native/ERC-20).
+  const cap = resolvedToken.address === NATIVE_TOKEN_ADDRESS ? agentConfig.maxMon : agentConfig.maxUsd;
+  if (amount > cap) return NextResponse.json({ error: `Amount exceeds the agent cap of ${cap.toLocaleString()} ${resolvedToken.symbol} per payment.` }, { status: 422 });
   if (!CADENCES.includes(cadence)) return NextResponse.json({ error: "Choose a supported automation frequency." }, { status: 400 });
   if (!Number.isFinite(startAt) || startAt < Date.now() - 60_000) return NextResponse.json({ error: "Choose a future execution time." }, { status: 400 });
   if (!purpose) return NextResponse.json({ error: "Every automation needs a purpose." }, { status: 400 });
@@ -459,8 +497,7 @@ export async function POST(req: NextRequest) {
       const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
       const vault = getAutomationVault();
       if (!vault) return NextResponse.json({ error: "Reserved Funds is not available right now.", code: "VAULT_UNAVAILABLE" }, { status: 503 });
-      const decimals = token === "MON" ? 18 : (await import("@/lib/monad/config")).getStablecoin().decimals;
-      const need = BigInt(Math.round(amount * 10 ** decimals));
+      const need = BigInt(Math.round(amount * 10 ** resolvedToken.decimals));
       const reserved = (await getPublicClient().readContract({
         address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [requestId32(clientId)],
       })) as bigint;
@@ -477,20 +514,18 @@ export async function POST(req: NextRequest) {
     // so it needs WMON; if WMON isn't configured, steer the user to Reserved
     // Funds rather than create an automation that can never execute.
     const { getWrappedNative, getPaymentExecutor } = await import("@/lib/monad/config");
-    const isNative = token === "MON";
+    const isNative = resolvedToken.address === NATIVE_TOKEN_ADDRESS;
     const executor = getPaymentExecutor();
     if (isNative && !getWrappedNative()) {
-      return NextResponse.json({ error: "MON automations use Reserved Funds. Choose Reserved Funds mode for MON, or use USDC for Wallet Automation.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
+      return NextResponse.json({ error: "MON automations use Reserved Funds. Choose Reserved Funds mode for MON, or use an ERC-20 token for Wallet Automation.", code: "WALLET_MODE_MON_UNSUPPORTED" }, { status: 422 });
     }
     // Verify the user actually approved the executor to pull this token.
     if (!isNative && executor) {
       try {
         const { getPublicClient } = await import("@/lib/monad/wallet");
-        const { getStablecoin } = await import("@/lib/monad/config");
-        const stable = getStablecoin();
-        const need = BigInt(Math.round(amount * 10 ** stable.decimals));
+        const need = BigInt(Math.round(amount * 10 ** resolvedToken.decimals));
         const allowance = (await getPublicClient().readContract({
-          address: stable.address, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
+          address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
           functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
         })) as bigint;
         if (allowance < need) {
@@ -514,7 +549,9 @@ export async function POST(req: NextRequest) {
   const { createSchedule } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
   const row = await createSchedule(merchantId, {
-    amount, token, recipient: resolved.recipient, domain: resolved.domain, cadence, nextRun: startAt,
+    amount, token: resolvedToken.symbol,
+    tokenAddress: resolvedToken.address, tokenDecimals: resolvedToken.decimals, tokenLogo: resolvedToken.logoURI,
+    recipient: resolved.recipient, domain: resolved.domain, cadence, nextRun: startAt,
     memo: body.memo ?? purpose, purpose, timezone, sender: walletAddress, endCondition,
     intervalCount: cadence === "custom" ? intervalCount : undefined,
     intervalUnit: cadence === "custom" ? intervalUnit : undefined,

@@ -15,11 +15,52 @@ export function UsdcMark({ size = 16, className = "" }: { size?: number; classNa
   );
 }
 
-/** The right coin logo for a token symbol. Falls back to nothing for unknowns. */
-export function TokenLogo({ token, size = 14, className = "" }: { token: string; size?: number; className?: string }) {
+/** Deterministic, tasteful fill color for an unknown token's fallback badge —
+ *  same symbol always gets the same color, so it's recognizable at a glance
+ *  without ever fabricating a logo that isn't real. */
+function fallbackColor(symbol: string): string {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) hash = (hash * 31 + symbol.charCodeAt(i)) >>> 0;
+  return `hsl(${hash % 360} 55% 45%)`;
+}
+
+/** Generic coin badge for a token with no known brand mark — the honest
+ *  fallback for "any fungible token on Monad" instead of a fake logo. */
+export function GenericTokenMark({ symbol, size = 14, className = "" }: { symbol: string; size?: number; className?: string }) {
+  const initial = symbol.trim().charAt(0).toUpperCase() || "?";
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white ${className}`}
+      style={{ width: size, height: size, fontSize: size * 0.52, background: fallbackColor(symbol) }}
+    >
+      {initial}
+    </span>
+  );
+}
+
+/**
+ * The right coin logo for a token. Known brand marks (MON, USDC family) get
+ * their real drawn logo; a curated `logoURI` renders as an image (falling
+ * back to the generic badge if it fails to load); anything else gets the
+ * deterministic generic badge — never nothing, and never a fabricated icon.
+ */
+export function TokenLogo({ token, size = 14, className = "", logoURI }: { token: string; size?: number; className?: string; logoURI?: string | null }) {
   if (token === "MON") return <MonadMark size={size} className={className} />;
   if (token === "USDC" || token === "USDT" || token === "USD") return <UsdcMark size={size} className={className} />;
-  return null;
+  if (logoURI) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={logoURI}
+        alt=""
+        width={size}
+        height={size}
+        className={`rounded-full ${className}`}
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
+    );
+  }
+  return <GenericTokenMark symbol={token} size={size} className={className} />;
 }
 
 /**

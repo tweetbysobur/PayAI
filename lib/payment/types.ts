@@ -9,10 +9,21 @@
 
 /* ── Primitives ─────────────────────────────────────────────────────────── */
 
-export type Token = "USDC" | "USDT" | "USD" | "MON";
+/**
+ * A token symbol — any fungible token deployed on Monad, not a fixed list.
+ * The engine no longer hardcodes which symbols are valid: a payment carrying
+ * a resolved `tokenAddress` (see PaymentRequest below) is accepted regardless
+ * of its symbol, since the address itself is what execution actually uses.
+ * SUPPORTED_TOKENS/NATIVE_TOKENS below remain only as the legacy fallback for
+ * requests with no tokenAddress (e.g. the AI chat's un-migrated symbol-only
+ * intents), never as an allowlist.
+ */
+export type Token = string;
 export const SUPPORTED_TOKENS: Token[] = ["USDC", "USDT", "USD", "MON"];
-/** Tokens settled as the chain's native asset rather than an ERC-20 transfer. */
+/** Tokens settled as the chain's native asset rather than an ERC-20 transfer, when no tokenAddress is present. */
 export const NATIVE_TOKENS: Token[] = ["MON"];
+/** Sentinel address meaning "the chain's native asset" — matches the on-chain convention (PaymentExecutor, AutomationVault). */
+export const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export type Network = "monad" | "base" | "polygon" | "ethereum";
 export const SUPPORTED_NETWORKS: Network[] = [
@@ -57,6 +68,15 @@ export interface PaymentRequest {
   fromWallet?: string | null;
   /** Reserved Funds: the automation id whose vault reservation funds the release. */
   automationId?: string | null;
+  /**
+   * The token's real contract address (NATIVE_TOKEN_ADDRESS for the chain's
+   * native asset) — the source of truth execution actually settles against.
+   * When present, it overrides any legacy symbol-based token lookup, which
+   * is what makes execution work for ANY Monad token, not just MON/USDC.
+   */
+  tokenAddress?: string | null;
+  /** The token's on-chain decimals, resolved once at creation time and stored with the automation — never re-guessed at execution time. */
+  tokenDecimals?: number | null;
 }
 
 /* ── Compliance ─────────────────────────────────────────────────────────── */

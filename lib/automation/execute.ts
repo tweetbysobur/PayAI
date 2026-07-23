@@ -29,7 +29,8 @@ export interface ScheduleExecutionResult {
  */
 async function executeOnePayment(input: {
   merchantId: string; sender?: string | null; automationId: string; requestId: string;
-  amount: number; token: string; recipient: string; domain?: string | null;
+  amount: number; token: string; tokenAddress?: string | null; tokenDecimals?: number | null;
+  recipient: string; domain?: string | null;
   purpose?: string | null; memo?: string | null; fundingMode?: "wallet" | "reserved";
 }): Promise<ScheduleExecutionResult> {
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
@@ -39,6 +40,8 @@ async function executeOnePayment(input: {
     action: "send_payment",
     amount: input.amount,
     token: input.token as PaymentRequest["token"],
+    tokenAddress: input.tokenAddress,
+    tokenDecimals: input.tokenDecimals,
     recipient: input.recipient,
     purpose: input.purpose ?? input.memo ?? "Payment Automation",
     network: "monad",
@@ -84,7 +87,8 @@ async function executeOnePayment(input: {
 export async function executeScheduleNow(s: ScheduledPayment, requestId: string): Promise<ScheduleExecutionResult> {
   return executeOnePayment({
     merchantId: s.merchantId, sender: s.sender, automationId: s.id, requestId,
-    amount: s.amount, token: s.token, recipient: s.recipient, domain: s.domain,
+    amount: s.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
+    recipient: s.recipient, domain: s.domain,
     purpose: s.purpose, memo: s.memo, fundingMode: s.fundingMode,
   });
 }
@@ -114,7 +118,8 @@ export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId:
     const requestId = `${baseRequestId}:r${i}`;
     const result = await executeOnePayment({
       merchantId: s.merchantId, sender: s.sender, automationId: s.id, requestId,
-      amount: r.amount, token: s.token, recipient: r.address, domain: r.domain,
+      amount: r.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
+      recipient: r.address, domain: r.domain,
       purpose: s.purpose, memo: r.note ?? s.memo, fundingMode: s.fundingMode,
     });
     results.push({

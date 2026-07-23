@@ -13,7 +13,10 @@ import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
-import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
+import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
+
+const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { calculateFee } from "@/lib/payment/feeEngine";
 import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
@@ -66,7 +69,8 @@ type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number
 type EndMode = "never" | "after_count" | "until_date";
 type BulkRecipient = { input: string; address: string; domain?: string | null; amount: number; note?: string };
 type Automation = {
-  id: string; amount: number; token: "MON" | "USDC" | string; recipient: string; domain?: string | null;
+  id: string; amount: number; token: string; tokenAddress?: string; tokenDecimals?: number; tokenLogo?: string | null;
+  recipient: string; domain?: string | null;
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
@@ -872,7 +876,7 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
 /** Everything the creator wizard actually pre-fills from — a real Duplicate
  *  passes the full Automation; an AI-parsed draft passes only the subset it
  *  resolved (recipient/amount/asset/cadence/time), never a purpose or id. */
-type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">> & {
+type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" | "tokenAddress" | "tokenDecimals" | "tokenLogo" | "amount" | "cadence" | "intervalCount" | "intervalUnit" | "nextRun" | "purpose" | "memo">> & {
   /** Only set when seeded from an Automation Template — carried through to
    *  creation so the created automation records which template it came from.
    *  A real Duplicate or an AI-parsed draft never sets these. */
@@ -913,13 +917,13 @@ function ModeCard({ selected, disabled, onSelect, badge, title, description, pro
 
 function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: AutomationSeed | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
-  const balances = useWalletBalances(wallet.address);
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [recipientInput, setRecipientInput] = useState("");
   const [resolved, setResolved] = useState<{ recipient: string; domain: string | null } | null>(null);
   const [recipientError, setRecipientError] = useState<string | null>(null);
-  const [asset, setAsset] = useState<"MON" | "USDC">("MON");
+  const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
+  const { balance, loading: balanceLoading } = useTokenBalance(tokenInfo?.address ?? null, tokenInfo?.decimals ?? null, wallet.address);
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Cadence>("weekly");
   const [intervalCount, setIntervalCount] = useState("1");
@@ -942,11 +946,10 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const [templateMeta, setTemplateMeta] = useState<{ id: string; category: TemplateCategory } | null>(null);
   const startAt = useMemo(() => new Date(`${date}T${time}:00`).getTime(), [date, time]);
   const amountNum = Number(amount);
-  const balance = asset === "MON" ? balances.mon : balances.usdc;
   const balanceNum = balance == null ? null : Number(balance);
   const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0 || (balanceNum != null && amountNum > balanceNum);
   const finalPurpose = purpose === "Other" ? customPurpose.trim() : purpose;
-  const estimateGas = asset === "MON" ? "0.002 MON" : "0.004 MON";
+  const estimateGas = tokenInfo?.address === NATIVE_TOKEN_ADDRESS ? "0.002 MON" : "0.004 MON";
   const platformFee = calculateFee(fundingMode === "reserved" ? "reserved_funds" : "wallet_automation", amountNum || 0);
 
   useEffect(() => {
@@ -959,7 +962,22 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       // and nothing is created until the user reviews and signs below.
       if (seed.domain || seed.recipient) setRecipientInput(seed.domain ?? seed.recipient ?? "");
       setResolved(null);
-      if (seed.token) setAsset(seed.token === "USDC" ? "USDC" : "MON");
+      if (seed.tokenAddress) {
+        // A real Duplicate carries the exact token forward, address and all.
+        setTokenInfo({
+          address: seed.tokenAddress, symbol: seed.token ?? "", name: seed.token ?? "",
+          decimals: seed.tokenDecimals ?? 18, logoURI: seed.tokenLogo ?? null, verified: false,
+        });
+      } else if (seed.token) {
+        // A Template only hints at a symbol — resolve it against the verified
+        // list so the wizard opens with a real, selectable token pre-filled.
+        fetch(`/api/tokens?q=${encodeURIComponent(seed.token)}`)
+          .then((r) => r.json())
+          .then((j) => { if (j.success && j.tokens[0]) setTokenInfo(j.tokens[0]); })
+          .catch(() => {});
+      } else {
+        setTokenInfo(null);
+      }
       if (seed.amount != null) setAmount(String(seed.amount));
       if (seed.cadence) setCadence(seed.cadence);
       if (seed.intervalCount != null) setIntervalCount(String(seed.intervalCount));
@@ -976,7 +994,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       if (seed.endMode) setEndMode(seed.endMode);
       setTemplateMeta(seed.templateId && seed.templateCategory ? { id: seed.templateId, category: seed.templateCategory } : null);
     } else {
-      setRecipientInput(""); setResolved(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
+      setRecipientInput(""); setResolved(null); setTokenInfo(null); setAmount(""); setPurpose("Savings"); setCustomPurpose("");
       setFundingMode("wallet"); setEndMode("never"); setTemplateMeta(null);
     }
   }, [open, seed]);
@@ -1003,10 +1021,12 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     return () => { cancelled = true; };
   }, [open]);
 
-  // Wallet Automation needs an ERC-20 allowance: USDC works directly; MON only
-  // works if WMON is configured. When unavailable for the chosen token, the
-  // choice collapses to Reserved Funds so we never offer an impossible path.
-  const walletAvailableForToken = asset === "USDC" ? !!config?.walletModeAvailable : !!config?.wmon;
+  // Wallet Automation needs an ERC-20 allowance: any non-native token works
+  // directly; native MON only works if WMON is configured. When unavailable
+  // for the chosen token, the choice collapses to Reserved Funds so we never
+  // offer an impossible path.
+  const isNativeToken = tokenInfo?.address === NATIVE_TOKEN_ADDRESS;
+  const walletAvailableForToken = tokenInfo ? (isNativeToken ? !!config?.wmon : !!config?.walletModeAvailable) : false;
   const reservedAvailable = !!config?.reservedModeAvailable;
   useEffect(() => {
     if (fundingMode === "wallet" && !walletAvailableForToken && reservedAvailable) setFundingMode("reserved");
@@ -1031,7 +1051,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   // an open-ended one reserves only the next payment (can't lock infinity).
   const walletBudgetAmount = totalScheduled != null
     ? totalScheduled
-    : annualVolume({ amount: perPayment, token: asset, cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
+    : annualVolume({ amount: perPayment, token: tokenInfo?.symbol ?? "", cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
   const reservedBudgetAmount = totalScheduled != null ? totalScheduled : perPayment;
   // What the Review screen shows depends on the chosen mode.
   const budgetAmount = fundingMode === "wallet" ? walletBudgetAmount : reservedBudgetAmount;
@@ -1043,31 +1063,32 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       : { type: "until_date", untilMs: endUntilMs };
 
   async function create() {
-    if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config) return;
-    const isNative = asset === "MON";
-    const decimals = isNative ? 18 : config.usdc.decimals;
+    if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config || !tokenInfo) return;
+    const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
+    const decimals = tokenInfo.decimals;
     const perRun = parseUnits(String(amountNum), decimals);
     const budget = parseUnits(String(walletBudgetAmount), decimals);
     const reservedBudget = parseUnits(String(reservedBudgetAmount), decimals);
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
-      const message = signatureMessage({ walletAddress: wallet.address, recipient: resolved.recipient, amount: amountNum, token: asset, cadence, startAt, timezone, purpose: finalPurpose });
+      const message = signatureMessage({ walletAddress: wallet.address, recipient: resolved.recipient, amount: amountNum, token: tokenInfo.symbol, cadence, startAt, timezone, purpose: finalPurpose });
       setSavingStep("Confirm the automation in your wallet");
       const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, wallet.address] }) as string | undefined;
       if (!signature) throw new Error("Wallet confirmation was cancelled.");
 
       const body: Record<string, unknown> = {
-        walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: asset, cadence,
+        walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: tokenInfo.symbol, tokenAddress: tokenInfo.address, cadence,
         intervalCount: Number(intervalCount), intervalUnit, startAt, timezone, purpose: finalPurpose,
         signature, signatureMessage: message, fundingMode, endCondition,
         ...(templateMeta ? { templateId: templateMeta.id, templateCategory: templateMeta.category } : {}),
       };
 
       if (fundingMode === "wallet") {
-        // Non-custodial: approve the executor to pull up to the budget. (MON→WMON path lands with a WMON address.)
+        // Non-custodial: approve the executor to pull up to the budget. Native
+        // MON has no ERC-20 allowance, so it lands with the WMON address instead.
         if (!config.executor) throw new Error("Wallet Automation isn't available right now.");
-        const token = isNative ? config.wmon : config.usdc.address;
+        const token = isNative ? config.wmon : tokenInfo.address;
         if (!token) throw new Error("This token can't use Wallet Automation yet. Choose Reserved Funds.");
         setSavingStep("Approve PayAI to send from your wallet");
         const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, budget] });
@@ -1083,13 +1104,13 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
           // ERC-20 must approve the vault before it can pull the reserve.
           setSavingStep("Approve the reserved amount");
           const approveData = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.vault as Hex, reservedBudget] });
-          const aHash = await sendWalletTx(wallet.address, config.usdc.address, approveData);
+          const aHash = await sendWalletTx(wallet.address, tokenInfo.address, approveData);
           await waitForReceipt(aHash);
         }
         setSavingStep("Reserve funds for this automation");
         const reserveData = encodeFunctionData({
           abi: AUTOMATION_VAULT_ABI, functionName: "reserve",
-          args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : config.usdc.address) as Hex, resolved.recipient as Hex, reservedBudget],
+          args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : tokenInfo.address) as Hex, resolved.recipient as Hex, reservedBudget],
         });
         const rHash = await sendWalletTx(wallet.address, config.vault, reserveData, isNative ? reservedBudget : undefined);
         setSavingStep("Waiting for the reservation to confirm on Monad");
@@ -1111,7 +1132,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     }
   }
 
-  const canNext = step === 1 ? !!resolved : step === 2 ? !invalidAmount : step === 3 ? cadence !== "custom" || Number(intervalCount) > 0 : step === 4 ? Number.isFinite(startAt) && startAt > Date.now() - 60_000 : step === 5 ? !!finalPurpose : true;
+  const canNext = step === 1 ? !!resolved : step === 2 ? !!tokenInfo && !invalidAmount : step === 3 ? cadence !== "custom" || Number(intervalCount) > 0 : step === 4 ? Number.isFinite(startAt) && startAt > Date.now() - 60_000 : step === 5 ? !!finalPurpose : true;
 
   return (
     <AnimatePresence>
@@ -1122,7 +1143,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
             <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
             <div className="min-h-[420px]">
               {step === 1 && <Step title="Recipient" detail="Enter a wallet address or .nads domain. PayAI verifies it before you continue."><Input value={recipientInput} onChange={(e) => setRecipientInput(e.target.value)} placeholder=".nad domain or 0x wallet address" className="w-full" />{resolved && <Verified label={resolved.domain ?? "Wallet address"} value={resolved.recipient} />}{recipientError && <p className="mt-2 text-sm text-danger">{recipientError}</p>}</Step>}
-              {step === 2 && <Step title="Payment" detail="Choose asset and amount. Balance and gas are shown before review."><div className="flex gap-2">{(["MON", "USDC"] as const).map((t) => <button key={t} onClick={() => setAsset(t)} className={choiceClass(asset === t, "flex items-center gap-2 px-4 py-2.5")}><TokenLogo token={t} size={16} /> {t}</button>)}</div><Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="mt-4 w-full" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balances.loading ? "Loading..." : balance ? money(Number(balance), asset) : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
+              {step === 2 && <Step title="Payment" detail="Choose a token and amount. Balance and gas are shown before review."><div className="max-w-xs"><TokenSelector value={tokenInfo} onChange={setTokenInfo} walletAddress={wallet.address} /></div><Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="mt-4 w-full" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? money(Number(balance), tokenInfo?.symbol ?? "") : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
               {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={choiceClass(cadence === c, "px-3 py-3 text-left capitalize")}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
               {step === 4 && <Step title="Execution Time" detail="Set the first execution date and time, then choose when it ends.">
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -1142,7 +1163,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                 </div>}
                 <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm">
                   {occurrences != null
-                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, asset)} = <strong className="text-primary">{money(totalScheduled ?? 0, asset)}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
+                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, tokenInfo?.symbol ?? "")} = <strong className="text-primary">{money(totalScheduled ?? 0, tokenInfo?.symbol ?? "")}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
                     : <p className="text-muted-foreground">Ongoing — no fixed total. {fundingMode === "reserved" ? "Reserved Funds sets aside only the next payment; add an end date or count to reserve the full run up front." : "You authorize about a year at a time and re-approve later — funds only move at each run."}</p>}
                 </div>
               </Step>}
@@ -1156,7 +1177,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                       onSelect={() => setFundingMode("wallet")} badge="Recommended" title="Wallet Automation"
                       description="Funds stay in your wallet until each payment runs. PayAI never holds your money."
                       pros={["Funds stay in your wallet", "Non-custodial", "More flexible"]}
-                      note={asset === "MON" && !walletAvailableForToken ? "Not available for MON yet — use Reserved Funds for MON." : "Payment depends on your available balance at run time."}
+                      note={isNativeToken && !walletAvailableForToken ? "Not available for MON yet — use Reserved Funds for MON." : "Payment depends on your available balance at run time."}
                     />
                     <ModeCard
                       selected={fundingMode === "reserved"} disabled={!reservedAvailable}
@@ -1172,13 +1193,13 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                 </div>
                 <ReviewGrid rows={[
                   { label: "Funding Method", value: fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds", accent: true },
-                  { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: money(budgetAmount, asset), accent: true },
+                  { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: money(budgetAmount, tokenInfo?.symbol ?? ""), accent: true },
                   { label: "Recipient", value: recipientInput, accent: true },
                   { label: "Resolved Address", value: resolved?.recipient ?? "-", mono: true },
-                  { label: "Asset", value: asset, accent: true },
-                  { label: "Amount per payment", value: money(amountNum || 0, asset), accent: true },
+                  { label: "Asset", value: tokenInfo?.symbol ?? "-", accent: true },
+                  { label: "Amount per payment", value: money(amountNum || 0, tokenInfo?.symbol ?? ""), accent: true },
                   { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing", accent: true },
-                  { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, asset) : "Up to ~1 year", accent: true },
+                  { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, tokenInfo?.symbol ?? "") : "Up to ~1 year", accent: true },
                   { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }), accent: true },
                   { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`, accent: true },
                   { label: "Execution Time", value: new Date(startAt).toLocaleString() },
