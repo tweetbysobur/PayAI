@@ -125,7 +125,7 @@ export async function GET(req: NextRequest) {
         // Same per-recipient pipeline a single automation uses, just called
         // once per recipient — see lib/automation/execute.ts.
         const bulkResult = await executeBulkScheduleNow(s, requestId);
-        await recordRun(s.id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
+        await recordRun(s.id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults, durationMs: bulkResult.durationMs });
         await completeRequest(requestId, { outcome: bulkResult.outcome });
         trace("attempt_end", { automationId: s.id, requestId, outcome: bulkResult.outcome, recipientCount: bulkResult.recipientResults.length });
         results.push({ id: s.id, outcome: bulkResult.outcome });
@@ -135,7 +135,7 @@ export async function GET(req: NextRequest) {
       // Same execution the manual "Execute Now" action calls — see
       // lib/automation/execute.ts. One pipeline, two callers.
       const result = await executeScheduleNow(s, requestId);
-      await recordRun(s.id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail });
+      await recordRun(s.id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail, durationMs: result.durationMs });
       await completeRequest(requestId, { outcome: result.outcome, txHash: result.txHash });
       trace("attempt_end", { automationId: s.id, requestId, outcome: result.outcome, txHash: result.txHash });
       results.push({ id: s.id, outcome: result.outcome, txHash: result.txHash });

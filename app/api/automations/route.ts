@@ -620,13 +620,13 @@ export async function PATCH(req: NextRequest) {
     try {
       if (row.recipients?.length) {
         const bulkResult = await executeBulkScheduleNow(row, requestId);
-        await recordRun(id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
+        await recordRun(id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults, durationMs: bulkResult.durationMs });
         await completeRequest(requestId, { outcome: bulkResult.outcome });
         const updated = await getSchedule(id);
         return NextResponse.json({ automation: updated, success: true, outcome: bulkResult.outcome, recipientResults: bulkResult.recipientResults });
       }
       const result = await executeScheduleNow(row, requestId);
-      await recordRun(id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail });
+      await recordRun(id, { at: Date.now(), decision: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl, detail: result.detail, durationMs: result.durationMs });
       await completeRequest(requestId, { outcome: result.outcome, txHash: result.txHash });
       const updated = await getSchedule(id);
       return NextResponse.json({ automation: updated, success: true, outcome: result.outcome, txHash: result.txHash, explorerUrl: result.explorerUrl });

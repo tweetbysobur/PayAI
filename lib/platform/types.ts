@@ -84,6 +84,8 @@ export interface AutomationExecution {
   decision: string;
   detail?: string;
   gasFee?: number;
+  /** Wall-clock time the compliance→risk→settlement pipeline actually took for this occurrence, in ms — measured around the real execute() call, never estimated. */
+  durationMs?: number;
   /** Bulk Payments only: the real per-recipient outcome of this occurrence —
    *  one entry per recipient, each settled through the exact same execute()
    *  pipeline as a single-recipient automation, just called once per
@@ -117,6 +119,8 @@ export interface BulkRecipientResult {
   explorerUrl?: string;
   decision: "executed" | "error" | "blocked" | "needs_review";
   detail?: string;
+  /** How long this recipient's own compliance→risk→settlement pass took, in ms. */
+  durationMs?: number;
 }
 
 export interface PaymentAutomation {
