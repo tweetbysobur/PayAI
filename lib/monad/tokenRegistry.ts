@@ -113,12 +113,25 @@ export async function resolveToken(addressInput: string): Promise<TokenInfo> {
     throw new Error(`Could not read "${address}" as an ERC-20 token on Monad. Check the address and try again.`);
   }
 
+  // decimals() is declared uint8 on-chain, so a malformed/malicious token can
+  // legally return anything 0-255. An absurd value (e.g. >30) makes every
+  // downstream `10 ** decimals` scaling computation overflow to Infinity,
+  // which throws deep inside allowance/amount math — that throw was
+  // previously getting mistaken for a transient RPC hiccup by a blanket
+  // catch further up the call chain, silently skipping the approval check
+  // instead of rejecting the token outright. Reject here so bad data never
+  // reaches any scaling math at all.
+  const decimalsNum = Number(decimals);
+  if (!Number.isInteger(decimalsNum) || decimalsNum < 0 || decimalsNum > 30) {
+    throw new Error(`"${address}" reports an implausible decimals value (${decimalsNum}) and can't be used.`);
+  }
+
   const curated = curatedList().find((c) => c.address.toLowerCase() === key);
   const info: TokenInfo = {
     address,
     symbol: curated?.symbol ?? symbol,
     name: curated?.name ?? name,
-    decimals: Number(decimals),
+    decimals: decimalsNum,
     logoURI: null,
     verified: !!curated,
   };

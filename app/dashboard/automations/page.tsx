@@ -11,7 +11,7 @@ import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
 import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
@@ -37,27 +37,20 @@ function autoId32(id: string): Hex {
   return keccak256(stringToHex(id));
 }
 
-/** Fire a wallet tx and resolve with its hash (no wait). Throws on user reject. */
-async function sendWalletTx(from: string, to: string, data: string, value?: bigint): Promise<string> {
-  const tx: Record<string, string> = { from, to, data };
-  if (value != null) tx.value = `0x${value.toString(16)}`;
-  const hash = (await window.ethereum?.request({ method: "eth_sendTransaction", params: [tx] })) as string | undefined;
-  if (!hash) throw new Error("Transaction was cancelled in your wallet.");
+/**
+ * Send a tx and wait for it to confirm through the wallet the user actually
+ * connected with (wallet.sendTransaction/waitForReceipt), not the raw
+ * `window.ethereum` global — with multiple wallet extensions installed,
+ * `window.ethereum` can silently be a DIFFERENT extension than the one the
+ * user picked, sending the tx to the wrong (or a disconnected) wallet. Wait
+ * uses PayAI's own RPC via viem rather than the wallet's, so it doesn't
+ * depend on that extension supporting eth_getTransactionReceipt correctly.
+ */
+async function confirmTx(wallet: WalletState, to: string, data: string, value?: bigint): Promise<string> {
+  const hash = await wallet.sendTransaction({ to, data, value: value != null ? `0x${value.toString(16)}` : undefined });
+  const receipt = (await wallet.waitForReceipt(hash)) as { status?: string } | null;
+  if (receipt && receipt.status !== "success") throw new Error("The on-chain transaction failed. Nothing was created.");
   return hash;
-}
-
-/** Poll the wallet's RPC for a receipt so we only proceed once the tx is mined. */
-async function waitForReceipt(hash: string, timeoutMs = 90_000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const r = (await window.ethereum?.request({ method: "eth_getTransactionReceipt", params: [hash] })) as { status?: string } | null;
-    if (r) {
-      if (r.status === "0x0") throw new Error("The on-chain transaction failed. Nothing was created.");
-      return;
-    }
-    await new Promise((res) => setTimeout(res, 2500));
-  }
-  throw new Error("Timed out waiting for the transaction to confirm. Check your wallet and try again.");
 }
 
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
@@ -201,11 +194,16 @@ function mutationMessage(input: { walletAddress: string; automationId: string; a
 /** Every mutation to an existing automation — edit, pause, resume, cancel,
  *  delete — needs proof of wallet ownership, the same as creation. Returns
  *  null if the user has no wallet connected or cancels the wallet prompt. */
-async function signMutation(walletAddress: string, automationId: string, actionName: string): Promise<{ signature: string; timestamp: number } | null> {
+async function signMutation(wallet: WalletState, automationId: string, actionName: string): Promise<{ signature: string; timestamp: number } | null> {
+  if (!wallet.address) return null;
   const timestamp = Date.now();
-  const message = mutationMessage({ walletAddress, automationId, action: actionName, timestamp });
-  const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, walletAddress] }) as string | undefined;
-  return signature ? { signature, timestamp } : null;
+  const message = mutationMessage({ walletAddress: wallet.address, automationId, action: actionName, timestamp });
+  try {
+    const signature = await wallet.signMessage(message);
+    return { signature, timestamp };
+  } catch {
+    return null;
+  }
 }
 
 export default function AutomationsPage() {
@@ -301,7 +299,7 @@ export default function AutomationsPage() {
     if (!wallet.address) return;
     setBusy(id);
     try {
-      const proof = await signMutation(wallet.address, id, actionName);
+      const proof = await signMutation(wallet, id, actionName);
       if (!proof) throw new Error("Confirmation was cancelled in your wallet.");
       const r = actionName === "delete"
         ? await fetch(`/api/automations?id=${id}`, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ walletAddress: wallet.address, ...proof }) })
@@ -821,7 +819,7 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
     if (invalidAmount || invalidTime || !purpose.trim() || !wallet.address) return;
     setSaving(true);
     try {
-      const proof = await signMutation(wallet.address, automation!.id, "edit");
+      const proof = await signMutation(wallet, automation!.id, "edit");
       if (!proof) throw new Error("Confirmation was cancelled in your wallet.");
       const r = await fetch(`/api/automations?id=${automation!.id}`, {
         method: "PATCH", headers: { "content-type": "application/json" },
@@ -1074,8 +1072,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
       const message = signatureMessage({ walletAddress: wallet.address, recipient: resolved.recipient, amount: amountNum, token: tokenInfo.symbol, cadence, startAt, timezone, purpose: finalPurpose });
       setSavingStep("Confirm the automation in your wallet");
-      const signature = await window.ethereum?.request({ method: "personal_sign", params: [message, wallet.address] }) as string | undefined;
-      if (!signature) throw new Error("Wallet confirmation was cancelled.");
+      const signature = await wallet.signMessage(message);
 
       const body: Record<string, unknown> = {
         walletAddress: wallet.address, recipient: recipientInput, amount: amountNum, token: tokenInfo.symbol, tokenAddress: tokenInfo.address, cadence,
@@ -1092,9 +1089,8 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
         if (!token) throw new Error("This token can't use Wallet Automation yet. Choose Reserved Funds.");
         setSavingStep("Approve PayAI to send from your wallet");
         const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, budget] });
-        const hash = await sendWalletTx(wallet.address, token, data);
         setSavingStep("Waiting for approval to confirm on Monad");
-        await waitForReceipt(hash);
+        await confirmTx(wallet, token, data);
       } else {
         // Reserved Funds: deposit the budget into the vault, keyed to a client id.
         if (!config.vault) throw new Error("Reserved Funds isn't available right now.");
@@ -1104,17 +1100,15 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
           // ERC-20 must approve the vault before it can pull the reserve.
           setSavingStep("Approve the reserved amount");
           const approveData = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.vault as Hex, reservedBudget] });
-          const aHash = await sendWalletTx(wallet.address, tokenInfo.address, approveData);
-          await waitForReceipt(aHash);
+          await confirmTx(wallet, tokenInfo.address, approveData);
         }
         setSavingStep("Reserve funds for this automation");
         const reserveData = encodeFunctionData({
           abi: AUTOMATION_VAULT_ABI, functionName: "reserve",
           args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : tokenInfo.address) as Hex, resolved.recipient as Hex, reservedBudget],
         });
-        const rHash = await sendWalletTx(wallet.address, config.vault, reserveData, isNative ? reservedBudget : undefined);
         setSavingStep("Waiting for the reservation to confirm on Monad");
-        await waitForReceipt(rHash);
+        const rHash = await confirmTx(wallet, config.vault, reserveData, isNative ? reservedBudget : undefined);
         body.reserveTxHash = rHash;
       }
 

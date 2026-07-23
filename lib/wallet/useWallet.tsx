@@ -15,6 +15,7 @@ export interface WalletState {
   switchNetwork: () => Promise<void>;
   sendTransaction: (tx: { to: string; data?: string; value?: string }) => Promise<string>;
   waitForReceipt: (hash: string) => Promise<unknown>;
+  signMessage: (message: string) => Promise<string>;
   isWrongNetwork: boolean;
 }
 
@@ -177,6 +178,19 @@ function useWalletState(): WalletState {
     })) as string;
   }, [address, activeProvider]);
 
+  /** personal_sign through the wallet the user actually connected with, not
+   *  a bare `window.ethereum` — with multiple wallet extensions installed,
+   *  that global can silently resolve to a DIFFERENT extension than the one
+   *  connected, sending the signature request to the wrong (or a
+   *  disconnected) wallet. */
+  const signMessage = useCallback(async (message: string): Promise<string> => {
+    const eth = activeProvider ?? window.ethereum;
+    if (!eth || !address) throw new Error("Wallet not connected.");
+    const signature = (await eth.request({ method: "personal_sign", params: [message, address] })) as string | undefined;
+    if (!signature) throw new Error("Wallet confirmation was cancelled.");
+    return signature;
+  }, [address, activeProvider]);
+
   // Awaiting the receipt is our own RPC read (not the wallet's), so it gets
   // the same fallback treatment as the server: try every configured URL.
   // Capped at 90s (matches the server's custodial-path timeout) so a dead RPC
@@ -207,6 +221,7 @@ function useWalletState(): WalletState {
     switchNetwork,
     sendTransaction,
     waitForReceipt,
+    signMessage,
     isWrongNetwork: address != null && chainId != null && chainId !== MONAD_CHAIN_ID,
   };
 }
