@@ -383,7 +383,7 @@ export async function markReminded(id: string): Promise<void> {
  */
 export async function recordRun(
   id: string,
-  run: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; recipientResults?: import("./types").BulkRecipientResult[] },
+  run: { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; durationMs?: number; recipientResults?: import("./types").BulkRecipientResult[] },
 ): Promise<ScheduledPayment | null> {
   const row = await getSchedule(id);
   if (!row) return null;

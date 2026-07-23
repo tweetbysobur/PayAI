@@ -56,8 +56,8 @@ async function confirmTx(wallet: WalletState, to: string, data: string, value?: 
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
 type Status = "active" | "paused" | "completed" | "cancelled" | "failed" | "scheduled" | "executing";
 type IntervalUnit = "days" | "weeks" | "months";
-type BulkRecipientResult = { address: string; domain?: string | null; amount: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string };
-type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number; recipientResults?: BulkRecipientResult[] };
+type BulkRecipientResult = { address: string; domain?: string | null; amount: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; durationMs?: number };
+type Run = { at: number; txHash?: string; explorerUrl?: string; decision: string; detail?: string; gasFee?: number; durationMs?: number; recipientResults?: BulkRecipientResult[] };
 type EndCondition = { type: "never" } | { type: "after_count"; totalRuns: number } | { type: "until_date"; untilMs: number };
 type EndMode = "never" | "after_count" | "until_date";
 type BulkRecipient = { input: string; address: string; domain?: string | null; amount: number; note?: string };
@@ -91,6 +91,20 @@ const PURPOSES = ["Savings", "Salary", "Subscription", "Investment", "Rent", "Fa
 const STATUS_TONE: Record<Status, "neutral" | "success" | "warning" | "danger" | "primary"> = {
   active: "success", scheduled: "primary", executing: "warning", paused: "neutral", completed: "success", cancelled: "neutral", failed: "danger",
 };
+
+/**
+ * A finer-grained status LABEL layered on top of the real persisted `status`
+ * field, purely for display — never changes any gating logic elsewhere
+ * (button visibility, execution eligibility, etc. all still key off the real
+ * `status`). "Retrying" and "Waiting" are both derived from fields that
+ * already exist and are real (failureCount, nextRun) — never a fabricated
+ * state with no backing.
+ */
+function displayStatus(a: Automation): { label: string; tone: "neutral" | "success" | "warning" | "danger" | "primary" } {
+  if (a.status === "active" && a.failureCount > 0) return { label: "retrying", tone: "warning" };
+  if ((a.status === "active" || a.status === "scheduled") && a.nextRun > Date.now()) return { label: "waiting", tone: "primary" };
+  return { label: a.status, tone: STATUS_TONE[a.status] };
+}
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}...${s.slice(-4)}` : "-");
 const money = (n: number, token = "") => `${n.toLocaleString(undefined, { maximumFractionDigits: 4 })}${token ? ` ${token}` : ""}`;
 
@@ -222,6 +236,7 @@ export default function AutomationsPage() {
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [tokenFilter, setTokenFilter] = useState<string | "all">("all");
   const [modeFilter, setModeFilter] = useState<FundingMode | "all">("all");
+  const [dateFilter, setDateFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
   /** Template → wizard seed. Only sets fields the template actually
@@ -248,21 +263,33 @@ export default function AutomationsPage() {
     setCreatorOpen(true);
   }
 
+  // Every distinct token actually seen across this wallet's automations —
+  // never a hardcoded MON/USDC pair, since any Monad token can be used now.
+  const availableTokens = useMemo(() => Array.from(new Set(automations.map((a) => a.token))).sort(), [automations]);
+
   const visibleAutomations = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const now = Date.now();
+    const dateFrom = dateFilter === "today" ? now - 24 * 60 * 60 * 1000
+      : dateFilter === "week" ? now - 7 * 24 * 60 * 60 * 1000
+      : dateFilter === "month" ? now - 30 * 24 * 60 * 60 * 1000
+      : null;
     return automations.filter((a) => {
       if (categoryFilter !== "all" && a.templateCategory !== categoryFilter) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (tokenFilter !== "all" && a.token !== tokenFilter) return false;
       if (modeFilter !== "all" && (a.fundingMode ?? "wallet") !== modeFilter) return false;
+      if (dateFrom != null && a.createdAt < dateFrom) return false;
       if (q) {
-        const haystack = [a.purpose, a.memo, a.domain, a.recipient, findTemplate(a.templateId ?? "")?.name]
-          .filter(Boolean).join(" ").toLowerCase();
+        const haystack = [
+          a.purpose, a.memo, a.domain, a.recipient, a.sender, findTemplate(a.templateId ?? "")?.name,
+          ...a.runs.map((r) => r.txHash),
+        ].filter(Boolean).join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [automations, categoryFilter, statusFilter, tokenFilter, modeFilter, searchQuery]);
+  }, [automations, categoryFilter, statusFilter, tokenFilter, modeFilter, dateFilter, searchQuery]);
 
   const load = useCallback(() => {
     const qs = wallet.address ? `?wallet=${wallet.address}` : "";
@@ -338,6 +365,15 @@ export default function AutomationsPage() {
   const successRate = totalRuns ? Math.round((successRuns / totalRuns) * 100) : 0;
   const totalGas = runs.reduce((sum, r) => sum + (r.gasFee ?? 0), 0);
 
+  // Automation Health — every figure derived from the same already-loaded
+  // automations/runs, nothing separately fetched or fabricated.
+  const executingNow = visibleAutomations.filter((a) => a.status === "executing").length;
+  const todayEnd = useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); }, []);
+  const upcomingToday = active.filter((a) => a.nextRun >= Date.now() && a.nextRun <= todayEnd).length;
+  const startOfToday = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
+  const failedToday = runs.filter((r) => r.at >= startOfToday && r.decision !== "executed" && r.decision !== "partial").length;
+  const soonest = active.slice().sort((a, b) => a.nextRun - b.nextRun)[0] ?? null;
+
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -366,8 +402,8 @@ export default function AutomationsPage() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search automations…"
-              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-3 text-xs text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:w-56"
+              placeholder="Search recipient, template, wallet, or tx hash…"
+              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-3 text-xs text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:w-64"
             />
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
@@ -376,13 +412,18 @@ export default function AutomationsPage() {
           </select>
           <select value={tokenFilter} onChange={(e) => setTokenFilter(e.target.value)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
             <option value="all">All tokens</option>
-            <option value="MON">MON</option>
-            <option value="USDC">USDC</option>
+            {availableTokens.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as FundingMode | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
             <option value="all">All execution modes</option>
             <option value="wallet">Wallet Automation</option>
             <option value="reserved">Reserved Funds</option>
+          </select>
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+            <option value="all">Any date created</option>
+            <option value="today">Last 24 hours</option>
+            <option value="week">Last 7 days</option>
+            <option value="month">Last 30 days</option>
           </select>
         </div>
       )}
@@ -414,6 +455,23 @@ export default function AutomationsPage() {
         <Metric title="Total Volume" icon={BarChart3} value={<VolumeMetricValue byToken={volumeByToken} />} />
         <Metric title="Gas Spent" value={`${totalGas.toFixed(4)} MON`} icon={ReceiptText} />
       </section>
+
+      {automations.length > 0 && (
+        <Card title="Automation Health">
+          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-7">
+            <AnalyticsTile label="Total Active" value={active.length.toString()} />
+            <AnalyticsTile label="Executing Right Now" value={executingNow.toString()} />
+            <AnalyticsTile label="Upcoming Today" value={upcomingToday.toString()} />
+            <AnalyticsTile label="Success Rate" value={`${successRate}%`} />
+            <AnalyticsTile label="Failed Today" value={failedToday.toString()} />
+            <AnalyticsTile label="Total Automated Volume" value={<VolumeMetricValue byToken={volumeByToken} />} />
+            <AnalyticsTile
+              label="Estimated Next Payment"
+              value={soonest ? `${money(soonest.amount, soonest.token)} · ${new Date(soonest.nextRun).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "None scheduled"}
+            />
+          </div>
+        </Card>
+      )}
 
       {!wallet.address ? (
         <Card className="text-center">
@@ -533,6 +591,49 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
   return <div className="rounded-lg border border-dashed border-border p-6 text-center"><p className="text-sm font-medium text-foreground">{title}</p><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{detail}</p></div>;
 }
 
+/**
+ * Created → Activated → Waiting → Executing → Confirmed → Next Scheduled Run.
+ * Every timestamp shown is a real field already on the automation (createdAt,
+ * the latest run's `at`, nextRun) — "Waiting"/"Executing" have no timestamp
+ * of their own since they're phases, not events, so they're marked as the
+ * CURRENT step (pulsing dot) rather than given a fabricated time.
+ */
+function AutomationTimeline({ a }: { a: Automation }) {
+  const lastRun = a.runs[0]; // newest first (schedules.ts prepends each new run)
+  const isLive = a.status === "active" || a.status === "scheduled";
+  const steps = [
+    { key: "created", label: "Created", at: a.createdAt as number | null, current: false },
+    { key: "activated", label: "Activated", at: a.createdAt as number | null, current: false },
+    { key: "waiting", label: "Waiting", at: null as number | null, current: isLive && a.nextRun > Date.now() },
+    { key: "executing", label: "Executing", at: lastRun?.at ?? null, current: a.status === "executing" },
+    { key: "confirmed", label: "Confirmed", at: lastRun?.decision === "executed" ? lastRun.at : null, current: false },
+    { key: "next", label: "Next Scheduled Run", at: isLive ? a.nextRun : null, current: false },
+  ];
+  return (
+    <div className="flex flex-col">
+      {steps.map((s, i) => {
+        const reached = s.at != null || s.current;
+        return (
+          <div key={s.key} className="flex gap-3">
+            <div className="flex flex-col items-center">
+              <span className={`relative mt-0.5 flex h-2.5 w-2.5 shrink-0 rounded-full ${reached ? "bg-primary" : "bg-border"}`}>
+                {s.current && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />}
+              </span>
+              {i < steps.length - 1 && <span className="w-px flex-1 bg-border" />}
+            </div>
+            <div className="min-w-0 pb-4">
+              <p className={`text-sm font-medium ${reached ? "text-foreground" : "text-muted-foreground"}`}>{s.label}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {s.at != null ? new Date(s.at).toLocaleString() : s.current ? "In progress" : "—"}
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Timeline({ items, empty }: { items: { id: string; title: string; detail: string; status: string; href: string | null }[]; empty: string }) {
   if (items.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
   return <div className="space-y-3">{items.map((item) => <div key={item.id} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" /><div className="min-w-0 flex-1 border-b border-border pb-3 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium text-foreground">{item.title}</p>{item.href && <a href={item.href} target="_blank" rel="noreferrer" className="text-primary"><ExternalLink size={13} /></a>}</div><p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p></div></div>)}</div>;
@@ -567,7 +668,7 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
           </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <Badge tone={STATUS_TONE[automation.status]}>{automation.status}</Badge>
+          <Badge tone={displayStatus(automation).tone}>{displayStatus(automation).label}</Badge>
           {automation.fundingMode && (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               {automation.fundingMode === "reserved" ? <><Lock size={9} /> Reserved</> : <><Wallet size={9} /> Non-custodial</>}
@@ -642,7 +743,7 @@ function ReviewGrid({ rows }: { rows: { label: string; value: string; mono?: boo
   );
 }
 
-function AnalyticsTile({ label, value }: { label: string; value: string }) {
+function AnalyticsTile({ label, value }: { label: string; value: ReactNode }) {
   return <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-4 transition-colors hover:border-primary/25"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
@@ -694,6 +795,11 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
  *  (created date, last/next execution, success rate, volume, gas, completion)
  *  plus its own execution timeline, none of it fabricated. */
 function AutomationDetail({ automation, onClose }: { automation: Automation | null; onClose: () => void }) {
+  // Hooks must run unconditionally (before the early return below), so the
+  // live-balance check is guarded by optional chaining on its arguments
+  // instead of skipping the hook call itself.
+  const wallet = useWallet();
+  const { balance: liveBalance } = useTokenBalance(automation?.tokenAddress ?? null, automation?.tokenDecimals ?? null, wallet.address);
   if (!automation) return null;
   const a = automation;
   const m = automationMetrics(a);
@@ -711,15 +817,21 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
           </div>
           <div className="space-y-5 p-5">
             <ReviewGrid rows={[
-              { label: "Status", value: a.status, accent: true },
+              { label: "Status", value: displayStatus(a).label, accent: true },
               { label: "Recipient", value: isBulk ? `${bulk?.recipientCount ?? 0} recipients` : (a.domain ?? short(a.recipient)), accent: true },
               { label: "Created", value: new Date(a.createdAt).toLocaleString() },
               { label: "Last Execution", value: m.lastExecution ? new Date(m.lastExecution).toLocaleString() : "Never" },
               { label: "Next Execution", value: a.status === "active" || a.status === "scheduled" ? new Date(a.nextRun).toLocaleString() : "—" },
               { label: "Network", value: "Monad Mainnet" },
               { label: "Template", value: template ? template.name : "Custom (built from scratch)" },
+              { label: "Execution Mode", value: a.fundingMode === "reserved" ? "Reserved Funds" : "Wallet Automation" },
+              { label: "Timezone", value: a.timezone ?? "—" },
               ...(isBulk ? [{ label: "Distribution Method", value: a.distributionMethod ?? "custom" }] : []),
             ]} />
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</p>
+              <AutomationTimeline a={a} />
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
               <AnalyticsTile label="Total Executions" value={m.totalExecutions.toString()} />
@@ -740,6 +852,44 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution history</p>
               {a.runs.length ? <ActivityFeed runs={a.runs.map((run) => ({ ...run, automation: a }))} /> : <p className="text-sm text-muted-foreground">No executions yet.</p>}
             </div>
+            {!isBulk && a.runs.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-input/40 text-left text-muted-foreground">
+                      <th className="px-3 py-2 font-medium">Date</th>
+                      <th className="px-3 py-2 font-medium">Time</th>
+                      <th className="px-3 py-2 font-medium">Recipient</th>
+                      <th className="px-3 py-2 font-medium">Amount</th>
+                      <th className="px-3 py-2 font-medium">Tx Hash</th>
+                      <th className="px-3 py-2 font-medium">Gas Used</th>
+                      <th className="px-3 py-2 font-medium">Duration</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Failure Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {a.runs.map((run, i) => (
+                      <tr key={i} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 text-muted-foreground">{new Date(run.at).toLocaleDateString()}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{new Date(run.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</td>
+                        <td className="px-3 py-2 font-mono">{a.domain ?? short(a.recipient)}</td>
+                        <td className="px-3 py-2">{money(a.amount, a.token)}</td>
+                        <td className="px-3 py-2">
+                          {run.explorerUrl && run.txHash ? (
+                            <a href={run.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{short(run.txHash)}</a>
+                          ) : run.txHash ? <span className="font-mono">{short(run.txHash)}</span> : "—"}
+                        </td>
+                        <td className="px-3 py-2">{run.gasFee != null ? `${run.gasFee.toFixed(4)} MON` : "—"}</td>
+                        <td className="px-3 py-2">{run.durationMs != null ? `${(run.durationMs / 1000).toFixed(1)}s` : "—"}</td>
+                        <td className="px-3 py-2"><Badge tone={run.decision === "executed" ? "success" : run.decision === "needs_review" ? "warning" : "danger"}>{run.decision}</Badge></td>
+                        <td className="px-3 py-2 text-muted-foreground">{run.decision !== "executed" ? (run.detail ?? "—") : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {isBulk && (
               <div>
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Execution logs (per recipient)</p>
@@ -751,6 +901,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
                           <th className="px-3 py-2 font-medium">Recipient</th>
                           <th className="px-3 py-2 font-medium">Amount</th>
                           <th className="px-3 py-2 font-medium">Tx Hash</th>
+                          <th className="px-3 py-2 font-medium">Duration</th>
                           <th className="px-3 py-2 font-medium">Status</th>
                           <th className="px-3 py-2 font-medium">Failure Reason</th>
                           <th className="px-3 py-2 font-medium">Timestamp</th>
@@ -766,6 +917,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
                                 <a href={rr.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{short(rr.txHash)}</a>
                               ) : rr.txHash ? <span className="font-mono">{short(rr.txHash)}</span> : "—"}
                             </td>
+                            <td className="px-3 py-2 text-muted-foreground">{rr.durationMs != null ? `${(rr.durationMs / 1000).toFixed(1)}s` : "—"}</td>
                             <td className="px-3 py-2"><Badge tone={rr.decision === "executed" ? "success" : rr.decision === "needs_review" ? "warning" : "danger"}>{rr.decision}</Badge></td>
                             <td className="px-3 py-2 text-muted-foreground">{rr.decision !== "executed" ? (rr.detail ?? "—") : "—"}</td>
                             <td className="px-3 py-2 text-muted-foreground">{new Date(rr.runAt).toLocaleString()}</td>
@@ -779,6 +931,18 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
             )}
             {a.lastError && (a.status === "paused" || a.status === "failed") && (
               <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs text-warning">{a.lastError}</div>
+            )}
+            {/* Low Balance: only checkable for Wallet Automation (a live ERC-20/native
+               balance read against the next payment amount) — Reserved Funds' vault
+               balance isn't loaded on this page yet, so that check is deferred rather
+               than faked. Only shown to the automation's own owner. */}
+            {(a.fundingMode ?? "wallet") === "wallet" && (a.status === "active" || a.status === "scheduled")
+              && wallet.address && a.sender && wallet.address.toLowerCase() === a.sender.toLowerCase()
+              && liveBalance != null && Number(liveBalance) < a.amount && (
+              <div className="flex items-center gap-2 rounded-lg border border-danger/25 bg-danger/10 p-3 text-xs text-danger">
+                <AlertTriangle size={14} className="shrink-0" />
+                Low balance: your wallet has {Number(liveBalance).toLocaleString(undefined, { maximumFractionDigits: 4 })} {a.token}, less than the {money(a.amount, a.token)} due next.
+              </div>
             )}
           </div>
         </motion.div>

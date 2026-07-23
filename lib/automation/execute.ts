@@ -20,6 +20,8 @@ export interface ScheduleExecutionResult {
   txHash?: string;
   explorerUrl?: string;
   detail?: string;
+  /** Wall-clock time this call spent in the pipeline, in ms — measured around the real work, never estimated. */
+  durationMs: number;
 }
 
 /**
@@ -35,6 +37,7 @@ async function executeOnePayment(input: {
 }): Promise<ScheduleExecutionResult> {
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
   const { recordTx } = await import("@/lib/platform/store");
+  const startedAt = Date.now();
 
   const request: PaymentRequest = {
     action: "send_payment",
@@ -63,7 +66,7 @@ async function executeOnePayment(input: {
       sender: input.sender,
       summary: `Automation: ${input.amount} ${input.token} → ${input.domain ?? input.recipient}`,
     });
-    return { outcome: decision, detail: compliance.summary };
+    return { outcome: decision, detail: compliance.summary, durationMs: Date.now() - startedAt };
   }
 
   const tx = await execute(request);
@@ -76,7 +79,7 @@ async function executeOnePayment(input: {
     sender: input.sender,
     summary: `Automation: sent ${input.amount} ${input.token} → ${input.domain ?? input.recipient}`,
   });
-  return { outcome, txHash: tx.txHash, explorerUrl: tx.explorerUrl, detail: tx.detail };
+  return { outcome, txHash: tx.txHash, explorerUrl: tx.explorerUrl, detail: tx.detail, durationMs: Date.now() - startedAt };
 }
 
 /**
@@ -100,6 +103,8 @@ export interface BulkExecutionResult {
    *  per-recipient truth regardless of which aggregate this is. */
   outcome: "executed" | "partial" | "error";
   recipientResults: BulkRecipientResult[];
+  /** Total wall-clock time across every recipient in this run, in ms. */
+  durationMs: number;
 }
 
 /**
@@ -113,6 +118,7 @@ export interface BulkExecutionResult {
 export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId: string): Promise<BulkExecutionResult> {
   const recipients = s.recipients ?? [];
   const results: BulkRecipientResult[] = [];
+  const batchStartedAt = Date.now();
   for (let i = 0; i < recipients.length; i++) {
     const r = recipients[i];
     const requestId = `${baseRequestId}:r${i}`;
@@ -125,11 +131,11 @@ export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId:
     results.push({
       address: r.address, domain: r.domain, amount: r.amount,
       txHash: result.txHash, explorerUrl: result.explorerUrl,
-      decision: result.outcome, detail: result.detail,
+      decision: result.outcome, detail: result.detail, durationMs: result.durationMs,
     });
   }
   const succeeded = results.filter((r) => r.decision === "executed").length;
   const outcome: BulkExecutionResult["outcome"] =
     succeeded === results.length ? "executed" : succeeded === 0 ? "error" : "partial";
-  return { outcome, recipientResults: results };
+  return { outcome, recipientResults: results, durationMs: Date.now() - batchStartedAt };
 }
