@@ -115,7 +115,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                 setBusy(true);
                 wallet.connect()
                   .then(() => toast("Wallet connected"))
-                  .catch(() => toast("Connection cancelled.", "error"))
+                  .catch((e) => toast(e instanceof Error ? e.message : "Connection cancelled.", "error"))
                   .finally(() => setBusy(false));
               }}
             >

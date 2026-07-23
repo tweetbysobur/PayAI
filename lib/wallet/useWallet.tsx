@@ -94,7 +94,20 @@ function useWalletState(): WalletState {
       setError("No wallet found. Install MetaMask, Rabby, or another Monad-compatible wallet.");
       throw new Error("No wallet found.");
     }
-    const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+    let accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+    if (!accounts?.length) {
+      // Some wallets return an empty array instead of re-prompting once
+      // permission was revoked (e.g. right after Disconnect) — this used to
+      // silently "succeed" with address = undefined, leaving the UI stuck on
+      // "Connect wallet" with no error. Force a fresh permission request and
+      // retry once before giving up for real.
+      await eth.request({ method: "wallet_requestPermissions", params: [{ eth_accounts: {} }] }).catch(() => {});
+      accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
+    }
+    if (!accounts?.length) {
+      setError("Your wallet didn't return an account. Open your wallet extension and approve the connection.");
+      throw new Error("No accounts returned by wallet.");
+    }
     setActiveProvider(eth);
     setAddress(accounts[0]);
     connectedRef.current = true;
