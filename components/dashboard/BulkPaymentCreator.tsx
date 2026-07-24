@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertTriangle, Lock, Wallet } from "lucide-react";
 import { encodeFunctionData, type Hex } from "viem";
@@ -52,7 +52,14 @@ type OnchainConfig = { chainId: number; executor: string | null; usdc: { address
 
 const STEPS = ["Recipients", "Distribution", "Schedule", "Execution Mode", "Review"];
 
-export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
+export interface BulkPaymentSeed {
+  purpose?: string;
+  distributionMethod?: DistributionMethod;
+  templateId?: string;
+  templateCategory?: string;
+}
+
+export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: BulkPaymentSeed | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
   const { toast } = useToast();
   const [step, setStep] = useState(1);
@@ -81,8 +88,25 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   const [resolving, setResolving] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingStep, setSavingStep] = useState<string | null>(null);
+  /** Set only when opened from a Bulk Payment Template — carried through to
+   *  creation so the record stores what it came from. */
+  const [templateMeta, setTemplateMeta] = useState<{ id: string; category: string } | null>(null);
 
   const startAt = useMemo(() => new Date(`${date}T${time}:00`).getTime(), [date, time]);
+
+  // Apply a template's hints (purpose, distribution method) once when the
+  // wizard opens — every field stays fully editable afterward, exactly like
+  // the single-recipient wizard's own template seeding.
+  useEffect(() => {
+    if (!open) return;
+    if (seed) {
+      if (seed.purpose) setPurpose(seed.purpose);
+      if (seed.distributionMethod) setMethod(seed.distributionMethod);
+      setTemplateMeta(seed.templateId && seed.templateCategory ? { id: seed.templateId, category: seed.templateCategory } : null);
+    } else {
+      setTemplateMeta(null);
+    }
+  }, [open, seed]);
 
   function loadConfig() {
     fetch("/api/automation-config").then((r) => r.json()).then(setConfig).catch(() => {});
@@ -91,6 +115,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
   function reset() {
     setStep(1); setDrafts([]); setPasteText(""); setManualAddr(""); setManualAmt(""); setManualNote("");
     setMethod("equal"); setTokenInfo(null); setTotalAmount(""); setFixedAmount(""); setResolvedRows(null); setPurpose("Business");
+    setTemplateMeta(null);
   }
 
   function close() { reset(); onClose(); }
@@ -260,6 +285,7 @@ export function BulkPaymentCreator({ open, onClose, onCreated }: { open: boolean
         signature, signatureMessage: message, fundingMode: "wallet", endCondition,
         recipients: resolvedRows.map((r) => ({ input: r.input, amount: r.amount, note: r.note })),
         distributionMethod: method,
+        ...(templateMeta ? { templateId: templateMeta.id, templateCategory: templateMeta.category } : {}),
       };
       const r = await fetch("/api/automations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();

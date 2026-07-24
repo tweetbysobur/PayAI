@@ -229,6 +229,7 @@ export default function AutomationsPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [duplicateSeed, setDuplicateSeed] = useState<AutomationSeed | null>(null);
+  const [bulkSeed, setBulkSeed] = useState<BulkAutomationSeed | null>(null);
   const [viewing, setViewing] = useState<Automation | null>(null);
   const [editing, setEditing] = useState<Automation | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -261,6 +262,20 @@ export default function AutomationsPage() {
       });
     }
     setCreatorOpen(true);
+  }
+
+  /** A Bulk Payment template hands off to the Bulk Payment wizard instead
+   *  of the single-recipient one — same pre-fill contract, different
+   *  existing wizard. */
+  function handleBulkTemplateSelect(template: AutomationTemplate) {
+    setPickerOpen(false);
+    setBulkSeed({
+      purpose: template.defaults.purpose,
+      distributionMethod: template.defaults.distributionMethod,
+      templateId: template.id,
+      templateCategory: template.category,
+    });
+    setBulkOpen(true);
   }
 
   // Every distinct token actually seen across this wallet's automations —
@@ -531,8 +546,8 @@ export default function AutomationsPage() {
         </>
       )}
 
-      <TemplatePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={handleTemplateSelect} />
-      <BulkPaymentCreator open={bulkOpen} onClose={() => setBulkOpen(false)} onCreated={() => { setBulkOpen(false); load(); }} />
+      <TemplatePicker open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={handleTemplateSelect} onSelectBulk={handleBulkTemplateSelect} />
+      <BulkPaymentCreator open={bulkOpen} seed={bulkSeed} onClose={() => { setBulkOpen(false); setBulkSeed(null); }} onCreated={() => { setBulkOpen(false); setBulkSeed(null); load(); }} />
       <AutomationCreator
         open={creatorOpen}
         seed={duplicateSeed}
@@ -1044,6 +1059,15 @@ type AutomationSeed = Partial<Pick<Automation, "domain" | "recipient" | "token" 
    *  A real Duplicate or an AI-parsed draft never sets these. */
   fundingMode?: FundingMode;
   endMode?: EndMode;
+  templateId?: string;
+  templateCategory?: TemplateCategory;
+};
+
+/** A Bulk Payment template's pre-fill — purpose and a distribution-method
+ *  hint only; recipients, token, and schedule are always left for the user. */
+type BulkAutomationSeed = {
+  purpose?: string;
+  distributionMethod?: "equal" | "fixed" | "percentage" | "custom";
   templateId?: string;
   templateCategory?: TemplateCategory;
 };

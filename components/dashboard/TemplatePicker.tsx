@@ -12,10 +12,14 @@ import { TEMPLATE_CATEGORIES, TEMPLATES, type AutomationTemplate, type TemplateC
  * template's defaults. This component has no execution logic of its own —
  * it only chooses which defaults to seed the same wizard with.
  */
-export function TemplatePicker({ open, onClose, onSelect }: {
+export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
   open: boolean;
   onClose: () => void;
   onSelect: (template: AutomationTemplate | null) => void;
+  /** Bulk Payment templates open the Bulk Payment wizard instead of the
+   *  single-recipient one — same "template only pre-fills defaults"
+   *  contract, just a different existing wizard to pre-fill. */
+  onSelectBulk: (template: AutomationTemplate) => void;
 }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<TemplateCategory | "all">("all");
@@ -115,7 +119,7 @@ export function TemplatePicker({ open, onClose, onSelect }: {
                         {grouped.get(c.id)!.map((t) => (
                           <motion.button
                             key={t.id}
-                            onClick={() => onSelect(t)}
+                            onClick={() => (t.category === "bulk" ? onSelectBulk(t) : onSelect(t))}
                             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
                             className="group flex flex-col rounded-xl border border-border bg-gradient-to-b from-primary/[0.04] to-transparent p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:from-primary/[0.08]"
                           >
