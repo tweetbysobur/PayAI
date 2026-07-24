@@ -39,7 +39,8 @@ export interface TxLogEntry {
  */
 export type AutomationEventType =
   | "created" | "upcoming_execution" | "executed" | "execution_failed"
-  | "paused" | "resumed" | "cancelled" | "completed" | "skipped";
+  | "paused" | "resumed" | "cancelled" | "completed" | "skipped"
+  | "low_balance" | "reserved_funds_low";
 
 export interface AutomationEvent {
   id: string;
@@ -157,6 +158,10 @@ export interface PaymentAutomation {
    *  for — prevents re-notifying on every cron tick within the lookahead
    *  window. Cleared implicitly whenever nextRun advances past it. */
   remindedForRun?: number | null;
+  /** The `nextRun` value a "low balance" (Wallet Automation) warning has already been sent for — same anti-spam pattern as remindedForRun. */
+  lowBalanceWarnedForRun?: number | null;
+  /** The `nextRun` value a "reserved funds running low" (Reserved Funds) warning has already been sent for. */
+  reservedLowWarnedForRun?: number | null;
   /** Every fired run, newest first — real on-chain receipts, never fabricated. */
   runs: AutomationExecution[];
   /** Optional human label/memo. */

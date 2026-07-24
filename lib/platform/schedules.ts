@@ -118,6 +118,8 @@ export async function createSchedule(
     fundingMode: input.fundingMode ?? "wallet",
     reserveTxHash: input.reserveTxHash ?? null,
     remindedForRun: null,
+    lowBalanceWarnedForRun: null,
+    reservedLowWarnedForRun: null,
     templateId: input.templateId ?? null,
     templateCategory: input.templateCategory ?? null,
     recipients: input.recipients,
@@ -363,6 +365,23 @@ export async function markReminded(id: string): Promise<void> {
   });
 }
 
+/** Same idempotent-per-occurrence pattern as markReminded, for the two
+ *  funding-health warnings (Wallet Automation balance / Reserved Funds
+ *  reservation) — fires at most once per nextRun, not once per cron tick. */
+export async function markLowBalanceWarned(id: string, kind: "wallet" | "reserved", detail: string): Promise<void> {
+  const row = await getSchedule(id);
+  if (!row) return;
+  if (kind === "wallet") row.lowBalanceWarnedForRun = row.nextRun;
+  else row.reservedLowWarnedForRun = row.nextRun;
+  await persist(row);
+  await recordAutomationEvent({
+    merchantId: row.merchantId, automationId: row.id, sender: row.sender,
+    type: kind === "wallet" ? "low_balance" : "reserved_funds_low",
+    title: kind === "wallet" ? "Low balance" : "Reserved funds running low",
+    detail, amount: row.amount, token: row.token,
+  });
+}
+
 /**
  * Record a fired run and decide what happens next — this is the single most
  * important reliability decision in the whole feature, because it used to
@@ -408,7 +427,10 @@ export async function recordRun(
       row.status = "completed" as ScheduleStatus;
     } else {
       row.nextRun = nextByCadence;
-      row.remindedForRun = null; // new occurrence — eligible for its own reminder
+      // New occurrence — eligible for its own reminder and funding-health warnings.
+      row.remindedForRun = null;
+      row.lowBalanceWarnedForRun = null;
+      row.reservedLowWarnedForRun = null;
     }
   } else if (run.decision === "blocked" || run.decision === "needs_review") {
     // A hard compliance outcome won't spontaneously clear on an unattended
@@ -510,6 +532,8 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
   } else {
     row.nextRun = nextByCadence;
     row.remindedForRun = null;
+    row.lowBalanceWarnedForRun = null;
+    row.reservedLowWarnedForRun = null;
   }
   await persist(row);
   await recordAutomationEvent({
