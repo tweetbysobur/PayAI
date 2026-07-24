@@ -16,20 +16,26 @@ import type { LucideIcon } from "lucide-react";
 import {
   Repeat, Home, Users, PiggyBank, Building2, FileText, Store, Repeat2,
   Rocket, Undo2, Award, Clock3, Landmark, HandCoins, Gift, Image,
-  Palette, Megaphone, Sparkles, Wallet,
+  Palette, Megaphone, Sparkles, Wallet, Coins, Wallet2, Banknote, Handshake,
 } from "lucide-react";
 
-export type TemplateCategory = "personal" | "business" | "launchpad" | "nft" | "dao" | "creator" | "custom";
+export type TemplateCategory = "personal" | "business" | "bulk" | "launchpad" | "nft" | "dao" | "creator" | "custom";
 
 export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; emoji: string }[] = [
   { id: "personal", label: "Personal", emoji: "👤" },
   { id: "business", label: "Business", emoji: "🏢" },
+  { id: "bulk", label: "Bulk Payments", emoji: "💸" },
   { id: "launchpad", label: "Launchpad", emoji: "🚀" },
   { id: "nft", label: "NFT", emoji: "🖼" },
   { id: "dao", label: "DAO", emoji: "🏛" },
   { id: "creator", label: "Creator", emoji: "💰" },
   { id: "custom", label: "Custom", emoji: "✨" },
 ];
+
+/** A distribution-method hint for Bulk Payment templates only — same "hint,
+ *  not a lock-in" contract as every other template default: the Bulk Payment
+ *  wizard pre-selects it, the user can still change it before signing. */
+export type BulkDistributionHint = "equal" | "fixed" | "percentage" | "custom";
 
 export interface AutomationTemplate {
   id: string;
@@ -48,6 +54,8 @@ export interface AutomationTemplate {
     purpose?: string;
     fundingMode?: "wallet" | "reserved";
     endMode?: "never" | "after_count" | "until_date";
+    /** Bulk Payment templates only — a starting distribution-method hint. */
+    distributionMethod?: BulkDistributionHint;
   };
 }
 
@@ -65,6 +73,13 @@ export const TEMPLATES: AutomationTemplate[] = [
   { id: "business-invoice", category: "business", name: "Invoice Payments", description: "A one-time payment against an invoice.", icon: FileText, defaults: { cadence: "once", token: "USDC", purpose: "Business" } },
   { id: "business-vendor", category: "business", name: "Vendor Payments", description: "Recurring payouts to a supplier or vendor.", icon: Store, defaults: { cadence: "monthly", token: "USDC", purpose: "Business", fundingMode: "wallet" } },
   { id: "business-subscription", category: "business", name: "Subscription Billing", description: "Recurring dues that never miss a date.", icon: Repeat2, defaults: { cadence: "monthly", token: "USDC", purpose: "Subscription", fundingMode: "wallet", endMode: "never" } },
+
+  // Bulk Payments
+  { id: "bulk-community-rewards", category: "bulk", name: "Community Rewards", description: "Distribute a reward amount across many community wallets at once.", icon: Gift, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "equal" } },
+  { id: "bulk-airdrops", category: "bulk", name: "Airdrops", description: "A one-time token airdrop to a list of recipient addresses.", icon: Coins, defaults: { cadence: "once", token: "MON", purpose: "Business", distributionMethod: "fixed" } },
+  { id: "bulk-salary-distribution", category: "bulk", name: "Salary Distribution", description: "Pay a whole team's salaries in one recurring run.", icon: Wallet2, defaults: { cadence: "monthly", token: "USDC", purpose: "Salary", fundingMode: "reserved", distributionMethod: "custom" } },
+  { id: "bulk-contributor-payments", category: "bulk", name: "Contributor Payments", description: "Recurring payouts to a group of contributors, split however you choose.", icon: Handshake, defaults: { cadence: "monthly", token: "USDC", purpose: "Business", fundingMode: "wallet", distributionMethod: "percentage" } },
+  { id: "bulk-multi-wallet-transfer", category: "bulk", name: "Multi-wallet Transfers", description: "Send different amounts to a set of your own or others' wallets in one go.", icon: Banknote, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "custom" } },
 
   // Launchpad
   { id: "launchpad-token-sale", category: "launchpad", name: "Token Sale Contribution", description: "A one-time contribution to a token sale.", icon: Rocket, defaults: { cadence: "once", token: "USDC", purpose: "Investment" } },
