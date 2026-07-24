@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle } from "lucide-react";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -41,6 +41,8 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   automation_paused: { icon: PauseCircle, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
   automation_resumed: { icon: PlayCircle, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   automation_cancelled: { icon: Ban, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
+  automation_low_balance: { icon: AlertTriangle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
+  automation_reserved_funds_low: { icon: AlertTriangle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */

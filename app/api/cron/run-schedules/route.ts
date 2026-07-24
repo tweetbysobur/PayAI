@@ -64,8 +64,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { dueSchedules, dueForReminder, markReminded, recordRun } = await import("@/lib/platform/schedules");
+  const { dueSchedules, dueForReminder, markReminded, markLowBalanceWarned, recordRun } = await import("@/lib/platform/schedules");
   const { executeScheduleNow, executeBulkScheduleNow } = await import("@/lib/automation/execute");
+  const { checkFundingHealth } = await import("@/lib/automation/fundingHealth");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
   const { recordHeartbeat } = await import("@/lib/platform/cronHealth");
@@ -78,6 +79,27 @@ export async function GET(req: NextRequest) {
   const upcoming = await dueForReminder(REMINDER_WINDOW_MS);
   for (const s of upcoming) {
     await markReminded(s.id);
+
+    // Funding-health check, same "once per occurrence" cadence as the
+    // reminder above — a real on-chain balance/reservation read, not an
+    // estimate. Best-effort: an RPC hiccup here must never block reminders
+    // or the due-execution pass below.
+    try {
+      const kind: "wallet" | "reserved" | null = s.fundingMode === "reserved" ? "reserved" : s.fundingMode === "wallet" ? "wallet" : null;
+      const alreadyWarned = kind === "wallet" ? s.lowBalanceWarnedForRun === s.nextRun : kind === "reserved" ? s.reservedLowWarnedForRun === s.nextRun : true;
+      if (kind && !alreadyWarned) {
+        const health = await checkFundingHealth(s);
+        if (health && !health.sufficient) {
+          const label = kind === "wallet" ? "wallet balance" : "reserved balance";
+          await markLowBalanceWarned(
+            s.id, kind,
+            `Your ${label} (${health.available.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${s.token}) is below the ${health.needed.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${s.token} due at the next execution.`,
+          );
+        }
+      }
+    } catch (e) {
+      trace("funding_health_check_error", { automationId: s.id, error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   // Warm the sanctions list once before screening this batch of due payments.
