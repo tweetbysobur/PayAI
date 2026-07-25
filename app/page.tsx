@@ -224,9 +224,9 @@ export default function LandingPage() {
       </section>
 
       {/* Why PayAI — manual vs automated */}
-      <section id="why" className="mx-auto max-w-6xl px-6 py-20">
+      <section id="why" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          <h2 className="text-3xl font-semibold tracking-tight text-foreground">Why PayAI</h2>
+          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Why PayAI</h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Stop signing the same payments by hand. Set them once and let PayAI handle the rest.</p>
         </motion.div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -250,10 +250,10 @@ export default function LandingPage() {
       </section>
 
       {/* Real Use Cases */}
-      <section id="use-cases" className="border-t border-border bg-panel/30 py-20">
+      <section id="use-cases" className="border-t border-border bg-panel/30 py-24 sm:py-28">
         <div className="mx-auto max-w-6xl px-6">
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Built for real on-chain payments</h2>
+            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Built for real on-chain payments</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">One automation engine, many ways to use it.</p>
           </motion.div>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
@@ -271,9 +271,9 @@ export default function LandingPage() {
       </section>
 
       {/* Automation Showcase — animated timeline */}
-      <section id="showcase" className="mx-auto max-w-5xl px-6 py-20">
+      <section id="showcase" className="mx-auto max-w-5xl px-6 py-24 sm:py-28">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
-          <h2 className="text-3xl font-semibold tracking-tight text-foreground">How a scheduled payment runs</h2>
+          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">How a scheduled payment runs</h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You approve once. PayAI does the rest, on time, every time, and proves it on-chain.</p>
         </motion.div>
         <div className="relative grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -305,10 +305,10 @@ export default function LandingPage() {
       </section>
 
       {/* Technology */}
-      <section className="border-t border-border bg-panel/30 py-20">
+      <section className="border-t border-border bg-panel/30 py-24 sm:py-28">
         <div className="mx-auto max-w-6xl px-6">
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground">Money you can trust PayAI with</h2>
+            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Money you can trust PayAI with</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You stay in control of your funds, every payment is checked before it sends, and everything arrives in seconds.</p>
           </motion.div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -326,8 +326,8 @@ export default function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section id="how" className="mx-auto max-w-6xl px-6 py-16">
-        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center text-3xl font-semibold tracking-tight text-foreground">
+      <section id="how" className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
+        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">
           How it works
         </motion.h2>
         <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-2">
@@ -349,9 +349,9 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section id="features" className="mx-auto max-w-6xl px-6 py-20">
+      <section id="features" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          <h2 className="text-3xl font-semibold tracking-tight text-foreground">Everything you need to move money</h2>
+          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Everything you need to move money</h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Real features that work today. Nothing coming soon.</p>
         </motion.div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -368,13 +368,13 @@ export default function LandingPage() {
       </section>
 
       {/* Why PayAI is built on Monad */}
-      <section id="why-monad" className="border-t border-border bg-panel/30 py-20">
+      <section id="why-monad" className="border-t border-border bg-panel/30 py-24 sm:py-28">
         <div className="mx-auto grid max-w-6xl gap-10 px-6 lg:grid-cols-2 lg:items-center">
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted-foreground">
               <MonadMark size={14} /> Built on Monad
             </div>
-            <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground sm:text-4xl">
               Why PayAI is built on Monad
             </h2>
             <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -400,8 +400,8 @@ export default function LandingPage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="mx-auto max-w-3xl px-6 py-20">
-        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-8 text-center text-3xl font-semibold tracking-tight text-foreground">
+      <section id="faq" className="mx-auto max-w-3xl px-6 py-24 sm:py-28">
+        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-8 text-center text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">
           Frequently asked questions
         </motion.h2>
         <div className="space-y-3">
@@ -424,7 +424,7 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t border-border bg-panel/40">
-        <div className="mx-auto max-w-6xl px-6 py-16">
+        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
           <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-5">
             {/* Brand */}
             <div className="col-span-2 sm:col-span-3 lg:col-span-2">
