@@ -12,9 +12,7 @@ import {
   PlayCircle, Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
-import { AutomationWorkflow } from "@/components/landing/AutomationWorkflow";
-import { DashboardShowcase } from "@/components/landing/DashboardShowcase";
-import { SendPaymentWorkflow } from "@/components/landing/SendPaymentWorkflow";
+import { AutomationCenterPreview } from "@/components/landing/AutomationCenterPreview";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
@@ -128,77 +126,6 @@ const FOOTER_COLUMNS = [
   },
 ];
 
-// Each screen's dwell time must cover its own full stage narrative before the
-// hero advances, or a workflow gets cut off mid-way (e.g. Automation has 6
-// stages at 2.6s each = 15.6s — a flat 7s cycle was switching away before it
-// ever reached "Transaction Confirmed"). Dashboard has no stage sequence, so
-// it just gets a comfortable dwell to read the live numbers.
-const HERO_SCREENS = [
-  { key: "dashboard", label: "Dashboard", durationMs: 6500 },
-  { key: "payment", label: "Send Payment", durationMs: 4 * 2600 + 1200 },
-  { key: "automation", label: "Automation", durationMs: 6 * 2600 + 1200 },
-] as const;
-type HeroScreenKey = (typeof HERO_SCREENS)[number]["key"];
-
-/** Cycles the three real product showcases, dashboard first (live numbers),
- *  then Send Payment, then the Automation lifecycle. Swap will join once its
- *  own showcase is ready. */
-function HeroShowcase() {
-  const [screen, setScreen] = useState<HeroScreenKey>("dashboard");
-  const [inView, setInView] = useState(true);
-  const rootRef = useRef<HTMLDivElement | null>(null);
-
-  // Stop all showcase timers the moment the hero scrolls off-screen — this
-  // page grew several sections longer this pass, so without this every
-  // animated preview kept ticking (and repainting) the whole time a visitor
-  // was reading further down, which is exactly what read as "lag" on mobile.
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-    const obs = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting), { threshold: 0.15 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  // Each screen gets its OWN dwell time (see HERO_SCREENS) instead of one
-  // flat interval, so a workflow always finishes its stage sequence before
-  // the hero moves on — re-armed on every screen change.
-  useEffect(() => {
-    if (!inView) return;
-    const order = HERO_SCREENS.map((s) => s.key);
-    const current = HERO_SCREENS.find((s) => s.key === screen)!;
-    const t = setTimeout(() => {
-      setScreen(order[(order.indexOf(screen) + 1) % order.length]);
-    }, current.durationMs);
-    return () => clearTimeout(t);
-  }, [inView, screen]);
-
-  return (
-    <div ref={rootRef}>
-      <AnimatePresence mode="wait">
-        <motion.div key={screen} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
-          {screen === "dashboard" && <DashboardShowcase active={inView} />}
-          {screen === "payment" && <SendPaymentWorkflow active={inView} />}
-          {screen === "automation" && <AutomationWorkflow active={inView} />}
-        </motion.div>
-      </AnimatePresence>
-      <div className="mt-1 flex justify-center">
-        {HERO_SCREENS.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => setScreen(s.key)}
-            aria-label={`Show ${s.label} preview`}
-            aria-current={screen === s.key ? "true" : undefined}
-            className="group p-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg"
-          >
-            <span className={`block h-1.5 w-6 rounded-full transition ${screen === s.key ? "bg-primary" : "bg-border group-hover:bg-muted-foreground/40"}`} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function LandingPage() {
   const [onchain, setOnchain] = useState<Onchain | null>(null);
 
@@ -255,11 +182,12 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Automate Payments on Monad.
+              Automate Every Payment on Monad.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
-              Send, schedule, swap, and automate on-chain payments through one intelligent
-              platform while keeping full control of your wallet.
+              Create intelligent payment workflows that execute automatically. Schedule transfers,
+              run payroll, distribute rewards, automate treasury operations, and manage recurring
+              payments while keeping full control of your wallet.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/connect" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -271,26 +199,25 @@ export default function LandingPage() {
             </div>
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
-                { icon: MonadMark, label: "Built on Monad Mainnet", brand: true },
-                { icon: Lock, label: "Non-custodial" },
-                { icon: ShieldHalf, label: "Secure Automation" },
-                { icon: BadgeCheck, label: "Real On-chain Settlement" },
+                { icon: WalletIcon, label: "Wallet Automation" },
+                { icon: Vault, label: "Reserved Funds" },
+                { icon: Users, label: "Bulk Payments" },
+                { icon: Zap, label: "Real-time Execution" },
               ].map((b) => (
                 <span key={b.label} className="flex items-center gap-1.5">
-                  {b.brand ? <MonadMark size={13} /> : <b.icon size={13} className="text-primary" />} {b.label}
+                  <b.icon size={13} className="text-primary" /> {b.label}
                 </span>
               ))}
             </div>
           </motion.div>
 
-          {/* Live product showcase — real flows, not mock illustrations. Starts
-              on the live dashboard (real numbers), then cycles through the
-              actual Send Payment and Automation lifecycles. */}
+          {/* Automation Center preview — a real product screenshot (same card
+              language as the actual dashboard), not a concept illustration. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
           >
-            <HeroShowcase />
+            <AutomationCenterPreview />
           </motion.div>
         </div>
       </section>
