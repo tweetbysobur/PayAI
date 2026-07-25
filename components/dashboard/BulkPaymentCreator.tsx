@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertTriangle, Lock, Wallet } from "lucide-react";
 import { encodeFunctionData, type Hex } from "viem";
 import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
+import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { calculateFee } from "@/lib/payment/feeEngine";
 
@@ -112,13 +113,16 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
     fetch("/api/automation-config").then((r) => r.json()).then(setConfig).catch(() => {});
   }
 
-  function reset() {
+  const reset = useCallback(() => {
     setStep(1); setDrafts([]); setPasteText(""); setManualAddr(""); setManualAmt(""); setManualNote("");
     setMethod("equal"); setTokenInfo(null); setTotalAmount(""); setFixedAmount(""); setResolvedRows(null); setPurpose("Business");
     setTemplateMeta(null);
-  }
+  }, []);
 
-  function close() { reset(); onClose(); }
+  // Stable identity so useModalA11y doesn't re-bind its listener each render.
+  const close = useCallback(() => { reset(); onClose(); }, [reset, onClose]);
+
+  useModalA11y(open, close);
 
   function handlePaste() {
     const parsed = parseRecipientsPaste(pasteText);
@@ -301,17 +305,24 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
     }
   }
 
+  // Rendered without AnimatePresence/exit on purpose — see the note in
+  // components/dashboard/TemplatePicker.tsx. AnimatePresence wasn't completing
+  // its exit, leaving this overlay mounted at opacity 0 while still eating
+  // clicks across the page and exposing a phantom dialog to screen readers.
   return (
-    <AnimatePresence>
+    <>
       {open && (
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm"
           onClick={close}
           onAnimationStart={() => { if (open) loadConfig(); }}
         >
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            role="dialog" aria-modal="true" aria-label="Create bulk payment"
+            initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -565,6 +576,6 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

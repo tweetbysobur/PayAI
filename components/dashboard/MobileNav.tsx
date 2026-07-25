@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { Menu, X } from "lucide-react";
 import { NAV, LEARN_LINKS } from "@/components/dashboard/Sidebar";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 import { GraduationCap } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
 /** Hamburger trigger — rendered inside Topbar, visible only below the lg breakpoint where Sidebar is hidden. */
 export function MobileNavTrigger({ onClick }: { onClick: () => void }) {
@@ -25,17 +26,23 @@ export function MobileNavTrigger({ onClick }: { onClick: () => void }) {
 /** Slide-in drawer with the same nav links as Sidebar — the mobile fallback that was previously missing entirely. */
 export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
+  useModalA11y(open, onClose);
 
+  // No AnimatePresence — see the note in components/dashboard/TemplatePicker.tsx.
+  // Especially important here: a stuck full-screen overlay would swallow every
+  // tap on mobile, where this drawer is the only navigation.
   return (
-    <AnimatePresence>
+    <>
       {open && (
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
           className="fixed inset-0 z-50 bg-black/60 lg:hidden"
           onClick={onClose}
         >
           <motion.aside
-            initial={{ x: -280 }} animate={{ x: 0 }} exit={{ x: -280 }} transition={{ duration: 0.25, ease: "easeOut" }}
+            role="dialog" aria-modal="true" aria-label="Navigation menu"
+            initial={{ x: -280 }} animate={{ x: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}
             className="flex h-full w-64 flex-col bg-panel"
             onClick={(e) => e.stopPropagation()}
           >
@@ -89,6 +96,6 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
           </motion.aside>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

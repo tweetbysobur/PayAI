@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useCallback, useMemo, useState } from "react";
+import { motion } from "motion/react";
 import { Search, X, ArrowRight, Sparkles } from "lucide-react";
 import { TEMPLATE_CATEGORIES, TEMPLATES, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
+import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
 /**
  * Template picker — the primary entry point for creating an automation.
@@ -42,18 +43,38 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
     return groups;
   }, [filtered]);
 
-  function close() {
+  // Stable identity: useModalA11y depends on this, so an inline function
+  // would re-register the Escape listener on every render.
+  const close = useCallback(() => {
     setQuery("");
     setCategory("all");
     onClose();
-  }
+  }, [onClose]);
 
+  useModalA11y(open, close);
+
+  // No AnimatePresence/exit on the overlay, deliberately. AnimatePresence was
+  // never completing its exit here, so the faded-out overlay stayed mounted at
+  // opacity 0 — invisible but still `pointer-events: auto` and still in the
+  // accessibility tree. That silently swallowed every click over the middle of
+  // the page after a modal had been opened once, and announced a phantom open
+  // dialog to screen readers. Confirmed in-browser, and reproduced on the Bulk
+  // Payment modal too. Rendering `{open && …}` directly lets React unmount the
+  // node for real; we keep the enter animation and lose only the fade-out.
   return (
-    <AnimatePresence>
+    <>
       {open && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={close}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm"
+          onClick={close}
+        >
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }}
+            role="dialog" aria-modal="true" aria-label="Choose an automation template"
+            initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -137,6 +158,6 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }

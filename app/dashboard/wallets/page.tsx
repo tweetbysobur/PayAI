@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2 } from "lucide-react";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -190,9 +190,9 @@ export default function Wallets() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <Card key={i} className="p-5">
-                <div className="mb-3 h-9 w-9 animate-pulse rounded-lg bg-input" />
-                <div className="h-6 w-20 animate-pulse rounded bg-input" />
-                <div className="mt-2 h-3 w-24 animate-pulse rounded bg-input" />
+                <Skeleton className="mb-3 h-9 w-9 rounded-lg" />
+                <Skeleton className="h-6 w-20" />
+                <Skeleton className="mt-2 h-3 w-24" />
               </Card>
             ))}
           </div>

@@ -1,20 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
   Lock, Wallet, Zap, SkipForward, Search, Users,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
-import { Badge, Button, Card, Input } from "@/components/ui";
+import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
 import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
 import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
+import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
@@ -485,6 +486,7 @@ export default function AutomationsPage() {
               value={soonest ? `${money(soonest.amount, soonest.token)} · ${new Date(soonest.nextRun).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "None scheduled"}
             />
           </div>
+          {runs.length > 0 && <ExecutionTrendChart runs={runs} />}
         </Card>
       )}
 
@@ -495,7 +497,30 @@ export default function AutomationsPage() {
           <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">Automations are scoped to your wallet. Connect to create and manage yours.</p>
         </Card>
       ) : loading ? (
-        <Card><p className="text-sm text-muted-foreground">Loading automations...</p></Card>
+        <section className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
+          <Card title="Active Automations">
+            <div className="grid gap-3 lg:grid-cols-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-2/3" />
+                      <Skeleton className="h-3 w-1/2" />
+                    </div>
+                    <Skeleton className="h-5 w-16 shrink-0 rounded-md" />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    {Array.from({ length: 4 }).map((__, j) => (
+                      <div key={j} className="space-y-1.5"><Skeleton className="h-2.5 w-16" /><Skeleton className="h-3 w-20" /></div>
+                    ))}
+                  </div>
+                  <div className="mt-5 border-t border-border/60 pt-4"><Skeleton className="h-7 w-full rounded-lg" /></div>
+                </div>
+              ))}
+            </div>
+          </Card>
+          <Card title="Upcoming Executions"><SkeletonRows rows={4} /></Card>
+        </section>
       ) : (
         <>
           <section className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
@@ -598,6 +623,78 @@ function VolumeMetricValue({ byToken }: { byToken: Record<string, number> }) {
           <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{token}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Daily executions (last 14 days), stacked executed/failed — real counts
+ *  from the same `runs` already loaded for the page, nothing separately
+ *  fetched. One axis (count); success rate is direct-labeled per bar via
+ *  hover rather than a second y-scale, so this never becomes a dual-axis
+ *  chart. Executed/failed reuse the same primary/danger tokens the rest of
+ *  the dashboard already uses for those two states (Badge/STATUS_TONE), so
+ *  color still follows a fixed, existing meaning rather than a new scale. */
+function ExecutionTrendChart({ runs }: { runs: { at: number; decision: string }[] }) {
+  const DAYS = 14;
+  const days = useMemo(() => {
+    const buckets: { key: string; label: string; executed: number; failed: number; other: number }[] = [];
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    for (let i = DAYS - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      buckets.push({ key: d.toDateString(), label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), executed: 0, failed: 0, other: 0 });
+    }
+    const byKey = new Map(buckets.map((b) => [b.key, b]));
+    for (const r of runs) {
+      const b = byKey.get(new Date(r.at).toDateString());
+      if (!b) continue; // outside the 14-day window
+      if (r.decision === "executed" || r.decision === "partial") b.executed += 1;
+      else if (r.decision === "error" || r.decision === "failed") b.failed += 1;
+      else b.other += 1;
+    }
+    return buckets;
+  }, [runs]);
+
+  const max = Math.max(1, ...days.map((d) => d.executed + d.failed + d.other));
+  const H = 96;
+
+  return (
+    <div className="mt-5 border-t border-border/60 pt-4">
+      <div className="mb-2.5 flex items-center justify-between">
+        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Executions — last {DAYS} days</p>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Executed</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-danger" /> Failed</span>
+        </div>
+      </div>
+      <div className="flex items-end gap-[3px]" style={{ height: H }}>
+        {days.map((d) => {
+          const total = d.executed + d.failed + d.other;
+          const executedH = (d.executed / max) * H;
+          const failedH = (d.failed / max) * H;
+          const otherH = (d.other / max) * H;
+          const rate = total ? Math.round((d.executed / total) * 100) : null;
+          return (
+            <div key={d.key} className="group relative flex-1" style={{ height: H }}>
+              <div className="absolute bottom-0 flex w-full flex-col-reverse overflow-hidden rounded-t-sm">
+                {failedH > 0 && <div className="w-full bg-danger" style={{ height: failedH }} />}
+                {otherH > 0 && <div className="w-full bg-muted-foreground/40" style={{ height: otherH }} />}
+                {executedH > 0 && <div className="w-full bg-primary" style={{ height: executedH }} />}
+                {total === 0 && <div className="w-full bg-border/50" style={{ height: 2 }} />}
+              </div>
+              <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[11px] shadow-lg group-hover:block">
+                <p className="font-medium text-foreground">{d.label}</p>
+                <p className="text-muted-foreground">{total} execution{total === 1 ? "" : "s"}{rate != null ? ` · ${rate}% success` : ""}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
+        <span>{days[0].label}</span>
+        <span>{days[days.length - 1].label}</span>
+      </div>
     </div>
   );
 }
@@ -815,6 +912,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   // instead of skipping the hook call itself.
   const wallet = useWallet();
   const { balance: liveBalance } = useTokenBalance(automation?.tokenAddress ?? null, automation?.tokenDecimals ?? null, wallet.address);
+  useModalA11y(!!automation, onClose);
   if (!automation) return null;
   const a = automation;
   const m = automationMetrics(a);
@@ -822,13 +920,16 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   const isBulk = !!a.recipients?.length;
   const bulk = isBulk ? bulkStats(a) : null;
   const allRecipientResults = isBulk ? a.runs.flatMap((r) => (r.recipientResults ?? []).map((rr) => ({ ...rr, runAt: r.at }))) : [];
+  // This component returns null when closed, so React unmounts the whole
+  // subtree — the previous AnimatePresence/`exit` pair could never run and was
+  // dead code. Enter-only animation, consistent with the other modals.
   return (
-    <AnimatePresence>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
+        <motion.div role="dialog" aria-modal="true" aria-label={`Automation details: ${a.purpose ?? a.memo ?? "Automation"}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div><p className="text-sm font-semibold text-foreground">{a.purpose ?? a.memo ?? "Automation"}</p><p className="text-xs text-muted-foreground">{money(a.amount, a.token)} · {cadenceLabel(a)}</p></div>
-            <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={16} /></button>
+            <button onClick={onClose} aria-label="Close automation details" className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X size={16} /></button>
           </div>
           <div className="space-y-5 p-5">
             <ReviewGrid rows={[
@@ -962,7 +1063,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </>
   );
 }
 
@@ -978,6 +1079,7 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [saving, setSaving] = useState(false);
+  useModalA11y(!!automation, onClose);
 
   useEffect(() => {
     if (!automation) return;
@@ -1015,10 +1117,11 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
     }
   }
 
+  // Same as AutomationDetail: returns null when closed, so exit could never run.
   return (
-    <AnimatePresence>
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="w-full max-w-md rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
+        <motion.div role="dialog" aria-modal="true" aria-label="Edit automation" initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="w-full max-w-md rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <p className="text-sm font-semibold text-foreground">Edit automation</p>
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={16} /></button>
@@ -1046,7 +1149,7 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    </>
   );
 }
 
@@ -1104,6 +1207,7 @@ function ModeCard({ selected, disabled, onSelect, badge, title, description, pro
 function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: AutomationSeed | null; onClose: () => void; onCreated: () => void }) {
   const wallet = useWallet();
   const { toast } = useToast();
+  useModalA11y(open, onClose);
   const [step, setStep] = useState(1);
   const [recipientInput, setRecipientInput] = useState("");
   const [resolved, setResolved] = useState<{ recipient: string; domain: string | null } | null>(null);
@@ -1316,11 +1420,12 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
 
   const canNext = step === 1 ? !!resolved : step === 2 ? !!tokenInfo && !invalidAmount : step === 3 ? cadence !== "custom" || Number(intervalCount) > 0 : step === 4 ? Number.isFinite(startAt) && startAt > Date.now() - 60_000 : step === 5 ? !!finalPurpose : true;
 
+  // No AnimatePresence — see the note in components/dashboard/TemplatePicker.tsx.
   return (
-    <AnimatePresence>
-      {open && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }} className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between border-b border-border px-6 py-4"><div><p className="text-sm font-semibold tracking-tight text-foreground">Create Payment Automation</p><p className="mt-0.5 text-xs text-muted-foreground">Step {step} of 6</p></div><button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={16} /></button></div>
+    <>
+      {open && <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
+        <motion.div role="dialog" aria-modal="true" aria-label="Create Payment Automation" initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between border-b border-border px-6 py-4"><div><p className="text-sm font-semibold tracking-tight text-foreground">Create Payment Automation</p><p className="mt-0.5 text-xs text-muted-foreground">Step {step} of 6</p></div><button onClick={onClose} aria-label="Close automation creator" className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X size={16} /></button></div>
           <div className="grid gap-6 p-6 lg:grid-cols-[190px_1fr]">
             <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
             <div className="min-h-[420px]">
@@ -1398,7 +1503,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
           <div className="flex items-center justify-between border-t border-border px-5 py-4"><Button variant="secondary" onClick={() => setStep((s) => Math.max(1, s - 1))} disabled={step === 1}>Back</Button>{step < 6 ? <Button onClick={() => setStep((s) => Math.min(6, s + 1))} disabled={!canNext}>Continue <ArrowRight size={14} /></Button> : <Button onClick={create} disabled={!canNext || saving}>{saving ? "Confirming..." : "Sign & Create Automation"}</Button>}</div>
         </motion.div>
       </motion.div>}
-    </AnimatePresence>
+    </>
   );
 }
 
