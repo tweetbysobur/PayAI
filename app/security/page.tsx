@@ -30,7 +30,7 @@ export default function Security() {
       <div className="mx-auto max-w-4xl px-6 pb-20 pt-6">
         {/* Intro */}
         <div className="mb-10">
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary"><ShieldCheck size={24} /></div>
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><ShieldCheck size={24} /></div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Security &amp; trust</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
             PayAI is non-custodial. You hold your own money, you approve every payment, and every payment is a
@@ -46,7 +46,7 @@ export default function Security() {
             { icon: Signature, title: "You approve it", body: "No money moves without your signature. PayAI proposes a transaction; your wallet decides." },
           ].map((p) => (
             <div key={p.title} className="rounded-xl border border-border bg-panel p-5">
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><p.icon size={18} /></div>
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><p.icon size={18} /></div>
               <h2 className="text-sm font-semibold text-foreground">{p.title}</h2>
               <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
             </div>
@@ -77,7 +77,7 @@ export default function Security() {
               { icon: FileCheck2, title: "Checked before you sign", body: "Every payment is validated for the right recipient, amount, and limits before it ever reaches your wallet." },
             ].map((s) => (
               <div key={s.title} className="flex gap-3 rounded-xl border border-border bg-panel p-4">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-primary"><s.icon size={16} /></div>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-primary-ink"><s.icon size={16} /></div>
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">{s.title}</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
@@ -113,7 +113,7 @@ export default function Security() {
             {contract && (
               <a href={contract.executorExplorer} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
                 <span className="flex items-center gap-2"><MonadMark size={14} /> Settlement contract</span>
-                <span className="flex items-center gap-1.5 font-mono text-xs text-primary">{short(contract.paymentExecutor)} <ExternalLink size={12} /></span>
+                <span className="flex items-center gap-1.5 font-mono text-xs text-primary-ink">{short(contract.paymentExecutor)} <ExternalLink size={12} /></span>
               </a>
             )}
             <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
@@ -121,11 +121,11 @@ export default function Security() {
               <ExternalLink size={14} className="text-muted-foreground" />
             </a>
             <a href={`${GITHUB_URL}/tree/main/contracts`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
-              <span className="flex items-center gap-2"><FileCheck2 size={15} className="text-primary" /> Smart contracts</span>
+              <span className="flex items-center gap-2"><FileCheck2 size={15} className="text-primary-ink" /> Smart contracts</span>
               <ExternalLink size={14} className="text-muted-foreground" />
             </a>
             <a href={MONAD_EXPLORER} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
-              <span className="flex items-center gap-2"><Eye size={15} className="text-primary" /> Monad block explorer</span>
+              <span className="flex items-center gap-2"><Eye size={15} className="text-primary-ink" /> Monad block explorer</span>
               <ExternalLink size={14} className="text-muted-foreground" />
             </a>
           </div>
@@ -146,7 +146,7 @@ export default function Security() {
         {/* Report */}
         <section className="mt-10 flex flex-col items-start gap-2 rounded-2xl border border-border bg-panel p-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><Lock size={18} /></div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Lock size={18} /></div>
             <div>
               <h2 className="text-sm font-semibold text-foreground">Found a security issue?</h2>
               <p className="text-xs text-muted-foreground">Report it privately and we will respond quickly.</p>

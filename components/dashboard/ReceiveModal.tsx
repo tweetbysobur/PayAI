@@ -102,7 +102,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
               <div className="flex items-center gap-2">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary"><WalletIcon size={15} /></span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><WalletIcon size={15} /></span>
                 <p className="text-sm font-semibold text-foreground">Receive</p>
               </div>
               <div className="flex items-center gap-2">
@@ -134,7 +134,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
 
                 {/* Identity + address */}
                 <div className="mt-4 text-center">
-                  {identity.domain && <p className="text-sm font-semibold text-primary">{identity.domain}</p>}
+                  {identity.domain && <p className="text-sm font-semibold text-primary-ink">{identity.domain}</p>}
                   <button onClick={copy} className="mt-1 inline-flex items-center gap-2 rounded-lg border border-border bg-input/40 px-3 py-2 font-mono text-xs text-foreground transition hover:border-primary/40">
                     {short(address)}
                     {copied ? <Check size={13} className="text-success" /> : <Copy size={13} className="text-muted-foreground" />}

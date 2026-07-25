@@ -128,7 +128,7 @@ export function CommandBar() {
                 onSubmit={(e) => { e.preventDefault(); if (c.intent.trim() && !c.loading) c.run(c.intent); }}
                 className="flex items-center gap-2 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5"
               >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
                   <Sparkles size={15} />
                 </span>
                 <input
@@ -170,7 +170,7 @@ export function CommandBar() {
                               : "border-transparent text-foreground hover:border-border hover:bg-input"
                           }`}
                         >
-                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input transition ${sel === i && !c.intent ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>
+                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input transition ${sel === i && !c.intent ? "text-primary-ink" : "text-muted-foreground group-hover:text-primary-ink"}`}>
                             <ex.icon size={14} />
                           </span>
                           <span className="flex-1">{ex.label}</span>
@@ -208,7 +208,7 @@ export function CommandBar() {
                     className="rounded-xl border border-border bg-input/30 p-4"
                   >
                     <div className="flex items-center gap-3">
-                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${c.swap.phase === "done" ? "bg-success/12 text-success" : c.swap.phase === "error" ? "bg-danger/12 text-danger" : "bg-primary/12 text-primary"}`}>
+                      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${c.swap.phase === "done" ? "bg-success/12 text-success" : c.swap.phase === "error" ? "bg-danger/12 text-danger" : "bg-primary/12 text-primary-ink"}`}>
                         {c.swap.phase === "signing" ? <Loader2 size={18} className="animate-spin" /> : c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} /> : <ArrowLeftRight size={18} />}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -253,7 +253,7 @@ export function CommandBar() {
                         href={c.swap.explorerUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary transition hover:border-primary/40"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary-ink transition hover:border-primary/40"
                       >
                         {short(c.swap.txHash)} <ExternalLink size={11} />
                       </a>
@@ -313,7 +313,7 @@ export function CommandBar() {
                         href={res.transaction.explorerUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary transition hover:border-primary/40"
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 font-mono text-xs text-primary-ink transition hover:border-primary/40"
                       >
                         {short(res.transaction.txHash)} <ExternalLink size={11} />
                       </a>

@@ -66,7 +66,7 @@ const BADGE_TONE: Record<BadgeTone, string> = {
   success: "border-success/30 bg-success/10 text-success",
   warning: "border-warning/30 bg-warning/10 text-warning",
   danger: "border-danger/30 bg-danger/10 text-danger",
-  primary: "border-primary/30 bg-primary/10 text-primary",
+  primary: "border-primary/30 bg-primary/10 text-primary-ink",
 };
 
 export function Badge({ tone = "neutral", children }: { tone?: BadgeTone; children: ReactNode }) {

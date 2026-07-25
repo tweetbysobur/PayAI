@@ -163,7 +163,7 @@ export default function ConnectPage() {
             {step === "consent" && (
               <motion.div key="consent" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }} className="p-8">
                 <div className="mb-6 flex items-center justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
                     <ShieldCheck size={26} />
                   </div>
                 </div>
@@ -174,11 +174,11 @@ export default function ConnectPage() {
 
                 <div className="mt-6 space-y-2.5 rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-4">
                   <div className="flex items-start gap-2.5 text-xs text-foreground">
-                    <Lock size={14} className="mt-0.5 shrink-0 text-primary" />
+                    <Lock size={14} className="mt-0.5 shrink-0 text-primary-ink" />
                     <span>PayAI never asks for your private key or seed phrase, and never can.</span>
                   </div>
                   <div className="flex items-start gap-2.5 text-xs text-foreground">
-                    <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" />
+                    <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" />
                     <span>Every transaction requires your approval in your wallet. Nothing moves without it.</span>
                   </div>
                 </div>
@@ -188,13 +188,13 @@ export default function ConnectPage() {
                     type="checkbox"
                     checked={agreed}
                     onChange={(e) => setAgreed(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-input text-primary accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-border bg-input text-primary-ink accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
                   <span>
                     I agree to PayAI&apos;s{" "}
-                    <Link href="/terms" target="_blank" className="text-primary hover:underline">Terms of Service</Link>
+                    <Link href="/terms" target="_blank" className="text-primary-ink hover:underline">Terms of Service</Link>
                     {" "}and{" "}
-                    <Link href="/privacy" target="_blank" className="text-primary hover:underline">Privacy Policy</Link>.
+                    <Link href="/privacy" target="_blank" className="text-primary-ink hover:underline">Privacy Policy</Link>.
                   </span>
                 </label>
 
@@ -212,7 +212,7 @@ export default function ConnectPage() {
             {step === "wallets" && (
               <motion.div key="wallets" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }} className="p-8">
                 <div className="mb-6 flex items-center justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
                     <WalletIcon size={26} />
                   </div>
                 </div>
@@ -236,7 +236,7 @@ export default function ConnectPage() {
                   {!hasLegacy && isMobile && detected.length === 0 && (
                     <div className="space-y-3">
                       <div className="flex items-start gap-2 rounded-lg border border-border bg-input/40 px-3 py-2.5 text-xs text-muted-foreground">
-                        <Smartphone size={14} className="mt-0.5 shrink-0 text-primary" />
+                        <Smartphone size={14} className="mt-0.5 shrink-0 text-primary-ink" />
                         <span>To connect on your phone, open PayAI inside your wallet app&apos;s browser.</span>
                       </div>
                       <a href={metamaskLink} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
@@ -267,7 +267,7 @@ export default function ConnectPage() {
                     <div>
                       <button
                         onClick={() => setShowAllWallets((v) => !v)}
-                        className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                        className="flex w-full items-center justify-between rounded-lg px-1 py-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                       >
                         View all wallets
                         <ChevronDown size={14} className={`transition-transform duration-200 ${showAllWallets ? "rotate-180" : ""}`} />
@@ -287,7 +287,7 @@ export default function ConnectPage() {
                                   <img src={d.info.icon} alt="" width={22} height={22} className="h-[22px] w-[22px] rounded-md" />
                                   <span className="flex-1 text-left font-medium">{d.info.name}</span>
                                   {pending === d.info.rdns
-                                    ? <Loader2 size={15} className="animate-spin text-primary" />
+                                    ? <Loader2 size={15} className="animate-spin text-primary-ink" />
                                     : <ArrowRight size={14} className="text-muted-foreground transition-transform group-hover:translate-x-0.5" />}
                                 </button>
                               ))}
@@ -310,7 +310,7 @@ export default function ConnectPage() {
                         disabled={pending !== null}
                         className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/50 hover:bg-input/40 disabled:opacity-60"
                       >
-                        {pending === "__wc__" ? <Loader2 size={16} className="animate-spin text-primary" /> : <QrCode size={16} className="text-primary" />}
+                        {pending === "__wc__" ? <Loader2 size={16} className="animate-spin text-primary-ink" /> : <QrCode size={16} className="text-primary-ink" />}
                         {pending === "__wc__" ? "Connecting…" : "WalletConnect"}
                       </button>
                     </>
@@ -366,7 +366,7 @@ export default function ConnectPage() {
 
           <div className="border-t border-border px-8 py-5 text-center text-xs text-muted-foreground">
             <p className="flex items-center justify-center gap-1.5"><ShieldCheck size={12} /> Your keys never leave your wallet.</p>
-            <Link href="/security" className="mt-1.5 inline-flex items-center gap-1 text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
+            <Link href="/security" className="mt-1.5 inline-flex items-center gap-1 text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
               How PayAI keeps you safe <ArrowRight size={11} />
             </Link>
           </div>
@@ -394,7 +394,7 @@ function WalletRow({ name, url, live, pending, onConnect }: {
       )}
       <span className="flex-1 text-left text-sm font-medium text-foreground">{name}</span>
       {live ? (
-        busy ? <Loader2 size={15} className="animate-spin text-primary" /> : <ArrowRight size={14} className="text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        busy ? <Loader2 size={15} className="animate-spin text-primary-ink" /> : <ArrowRight size={14} className="text-muted-foreground transition-transform group-hover:translate-x-0.5" />
       ) : (
         <span className="text-[11px] font-medium text-muted-foreground">Install</span>
       )}

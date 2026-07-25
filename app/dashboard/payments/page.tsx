@@ -111,7 +111,7 @@ export default function Payments() {
       {/* Sender context — trust: who is paying, from where */}
       <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <WalletIcon size={13} className={wallet.address ? "text-primary" : ""} />
+          <WalletIcon size={13} className={wallet.address ? "text-primary-ink" : ""} />
           {wallet.address ? (
             <span className="font-mono text-foreground">{identity.display}</span>
           ) : (
@@ -173,7 +173,7 @@ export default function Payments() {
             <button
               type="button"
               onClick={() => setAmount(String(available))}
-              className="rounded-full border border-border px-2 py-0.5 font-medium text-primary transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-full border border-border px-2 py-0.5 font-medium text-primary-ink transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Max
             </button>
@@ -231,7 +231,7 @@ export default function Payments() {
               <p className="mt-1 text-xs text-muted-foreground">
                 Your transaction was sent and is safe on-chain. We&apos;re confirming it now — do not send it again.
               </p>
-              <a href={`${MONAD_EXPLORER}/tx/${c.pendingRecovery.txHash}`} target="_blank" rel="noreferrer" className="mt-1.5 inline-block font-mono text-xs text-primary hover:underline">
+              <a href={`${MONAD_EXPLORER}/tx/${c.pendingRecovery.txHash}`} target="_blank" rel="noreferrer" className="mt-1.5 inline-block font-mono text-xs text-primary-ink hover:underline">
                 {c.pendingRecovery.txHash.slice(0, 14)}…
               </a>
             </div>
@@ -305,7 +305,7 @@ export default function Payments() {
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>
                     <div className="space-y-1.5 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-xs">
                       <div className="flex items-center justify-between"><span className="text-muted-foreground">Payment amount</span><span className="font-medium text-foreground">{receipt.paymentAmount} {receipt.token}</span></div>
-                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
+                      <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary-ink" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
                       {receipt.gasFee && <div className="flex items-center justify-between"><span className="text-muted-foreground">Gas fee</span><span className="font-medium text-foreground">{receipt.gasFee} MON</span></div>}
                       <div className="flex items-center justify-between border-t border-border pt-1.5"><span className="text-muted-foreground">Total cost</span><span className="font-semibold text-foreground">{receipt.totalCost}</span></div>
                     </div>
@@ -348,14 +348,14 @@ export default function Payments() {
                         target="_blank"
                         rel="noreferrer"
                         title={c.res.transaction.txHash}
-                        className="block flex-1 break-all font-mono text-xs text-primary hover:underline"
+                        className="block flex-1 break-all font-mono text-xs text-primary-ink hover:underline"
                       >
                         {c.res.transaction.txHash}
                       </a>
                       <button
                         onClick={() => copyHash(c.res!.transaction!.txHash!)}
                         aria-label="Copy transaction hash"
-                        className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary"
+                        className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary-ink"
                       >
                         {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                       </button>
@@ -367,7 +367,7 @@ export default function Payments() {
                     <span className="font-mono text-foreground">{c.res.transaction.blockNumber != null ? c.res.transaction.blockNumber : "—"}</span>
                   </div>
 
-                  <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-xs text-primary hover:underline">
+                  <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-xs text-primary-ink hover:underline">
                     View on explorer <ExternalLink size={11} />
                   </a>
 

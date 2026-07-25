@@ -47,7 +47,7 @@ export function SendPaymentWorkflow({ active = true }: { active?: boolean }) {
               const Icon = s.icon;
               return (
                 <div key={s.key} className="flex items-center gap-2 py-2">
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ${now ? "bg-primary text-primary-foreground" : done ? "bg-primary/20 text-primary" : "bg-input text-muted-foreground/50"}`}>
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ${now ? "bg-primary text-primary-foreground" : done ? "bg-primary/20 text-primary-ink" : "bg-input text-muted-foreground/50"}`}>
                     <Icon size={11} />
                   </span>
                   <span className={`text-[10px] leading-tight transition-colors duration-300 ${now ? "font-medium text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground/50"}`}>{s.label}</span>
@@ -65,7 +65,7 @@ export function SendPaymentWorkflow({ active = true }: { active?: boolean }) {
               >
                 {stage.key === "describe" && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><MessageSquare size={15} className="text-primary" /> Ask PayAI</div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-foreground"><MessageSquare size={15} className="text-primary-ink" /> Ask PayAI</div>
                     <div className="rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-xs text-foreground">
                       &ldquo;Send 50 USDC to gentle.nad&rdquo;
                     </div>
@@ -82,16 +82,16 @@ export function SendPaymentWorkflow({ active = true }: { active?: boolean }) {
                     ].map((row, ri) => (
                       <motion.div key={row.k} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: ri * 0.12 }} className="flex items-center justify-between rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3 py-2.5">
                         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{row.k}</span>
-                        <span className="text-xs font-semibold text-primary">{row.v}</span>
+                        <span className="text-xs font-semibold text-primary-ink">{row.v}</span>
                       </motion.div>
                     ))}
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><ShieldCheck size={11} className="text-primary" /> Compliance checked, cleared</div>
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground"><ShieldCheck size={11} className="text-primary-ink" /> Compliance checked, cleared</div>
                   </div>
                 )}
 
                 {stage.key === "approve" && (
                   <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-                    <motion.span initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary"><Fingerprint size={26} /></motion.span>
+                    <motion.span initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Fingerprint size={26} /></motion.span>
                     <p className="text-sm font-semibold text-foreground">Approve in your wallet</p>
                     <p className="max-w-[200px] text-[11px] text-muted-foreground">You confirm every payment yourself. Nothing sends without it.</p>
                     <div className="mt-1 rounded-lg bg-primary px-4 py-2 text-[11px] font-medium text-primary-foreground">Sign</div>
@@ -115,7 +115,7 @@ export function SendPaymentWorkflow({ active = true }: { active?: boolean }) {
       </div>
 
       <div className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-        <span>Describe it</span><span className="text-muted-foreground/40">→</span><span>Approve once</span><span className="text-muted-foreground/40">→</span><span className="text-primary">Arrives in seconds</span>
+        <span>Describe it</span><span className="text-muted-foreground/40">→</span><span>Approve once</span><span className="text-muted-foreground/40">→</span><span className="text-primary-ink">Arrives in seconds</span>
       </div>
     </div>
   );

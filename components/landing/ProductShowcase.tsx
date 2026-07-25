@@ -77,7 +77,7 @@ export function ProductShowcase() {
             aria-current={screen === s.key ? "true" : undefined}
             className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               screen === s.key
-                ? "border-primary/50 bg-primary/10 text-primary"
+                ? "border-primary/50 bg-primary/10 text-primary-ink"
                 : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
             }`}
           >

@@ -3,7 +3,7 @@ import { PayWithWallet } from "@/components/PayWithWallet";
 import { Logo } from "@/components/Logo";
 
 const STATUS_TONE: Record<string, string> = {
-  active: "border-primary/30 bg-primary/10 text-primary",
+  active: "border-primary/30 bg-primary/10 text-primary-ink",
   paid: "border-success/30 bg-success/10 text-success",
 };
 

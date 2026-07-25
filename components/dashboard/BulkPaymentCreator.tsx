@@ -337,8 +337,8 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
             <div className="grid gap-6 p-6 lg:grid-cols-[190px_1fr]">
               <div className="space-y-1">
                 {STEPS.map((label, i) => (
-                  <div key={label} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${step === i + 1 ? "bg-primary/12 font-medium text-primary" : i + 1 < step ? "text-foreground" : "text-muted-foreground"}`}>
-                    {i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary" : "border-current"}`}>{i + 1}</span>}
+                  <div key={label} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${step === i + 1 ? "bg-primary/12 font-medium text-primary-ink" : i + 1 < step ? "text-foreground" : "text-muted-foreground"}`}>
+                    {i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary-ink" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary-ink" : "border-current"}`}>{i + 1}</span>}
                     {label}
                   </div>
                 ))}
@@ -351,7 +351,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     <p className="mt-1 text-sm text-muted-foreground">Paste addresses, upload a CSV or Excel file, or add recipients one at a time.</p>
                     <div className="mt-4 flex gap-2">
                       {([["paste", "Paste", ClipboardPaste], ["csv", "CSV", Upload], ["excel", "Excel", Upload], ["manual", "Manual", Keyboard]] as const).map(([tab, label, Icon]) => (
-                        <button key={tab} onClick={() => setInputTab(tab)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${inputTab === tab ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}>
+                        <button key={tab} onClick={() => setInputTab(tab)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${inputTab === tab ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}>
                           <Icon size={13} /> {label}
                         </button>
                       ))}
@@ -476,7 +476,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     <p className="text-base font-semibold text-foreground">Schedule</p>
                     <div className="mt-4 grid gap-2 sm:grid-cols-3">
                       {(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => (
-                        <button key={c} onClick={() => setCadence(c)} className={`rounded-lg border px-3 py-3 text-left text-sm capitalize transition-colors ${cadence === c ? "border-primary/50 bg-primary/[0.06] text-primary" : "border-border text-foreground hover:border-primary/30"}`}>{c === "once" ? "One Time" : c}</button>
+                        <button key={c} onClick={() => setCadence(c)} className={`rounded-lg border px-3 py-3 text-left text-sm capitalize transition-colors ${cadence === c ? "border-primary/50 bg-primary/[0.06] text-primary-ink" : "border-border text-foreground hover:border-primary/30"}`}>{c === "once" ? "One Time" : c}</button>
                       ))}
                     </div>
                     {cadence === "custom" && (
@@ -498,7 +498,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                         <label className="mb-1.5 block text-xs font-medium text-muted-foreground">When should it end?</label>
                         <div className="flex flex-wrap gap-2">
                           {([["never", "No end date"], ["after_count", "After N runs"], ["until_date", "On a date"]] as [EndMode, string][]).map(([m, label]) => (
-                            <button key={m} onClick={() => setEndMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${endMode === m ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30"}`}>{label}</button>
+                            <button key={m} onClick={() => setEndMode(m)} className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${endMode === m ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30"}`}>{label}</button>
                           ))}
                         </div>
                         {endMode === "after_count" && <div className="mt-3 flex items-center gap-2"><span className="text-sm text-muted-foreground">Stop after</span><Input value={endCount} onChange={(e) => setEndCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-24" /><span className="text-sm text-muted-foreground">runs</span></div>}
@@ -521,7 +521,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     <p className="text-base font-semibold text-foreground">Execution mode</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <div className="rounded-xl border border-primary/50 bg-primary/[0.06] p-4">
-                        <div className="flex items-center gap-2"><Wallet size={16} className="text-primary" /><p className="text-sm font-semibold text-foreground">Wallet Automation</p></div>
+                        <div className="flex items-center gap-2"><Wallet size={16} className="text-primary-ink" /><p className="text-sm font-semibold text-foreground">Wallet Automation</p></div>
                         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">Funds remain in your wallet until each payment runs. Required for Bulk Payments.</p>
                       </div>
                       <div className="rounded-xl border border-border p-4 opacity-50">

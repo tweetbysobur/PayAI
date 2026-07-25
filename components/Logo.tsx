@@ -29,7 +29,7 @@ export function Logo({ size = 32, className = "", mono = false }: { size?: numbe
   if (mono) return <LogoMark size={size} className={className} />;
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-      <rect width="32" height="32" rx="8" fill="currentColor" className="text-primary" />
+      <rect width="32" height="32" rx="8" fill="currentColor" className="text-primary-ink" />
       <path d={NOTCH_PATH} fill="white" />
     </svg>
   );

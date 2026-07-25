@@ -49,7 +49,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
             { icon: ShieldCheck, label: "Approval", value: approvalPct != null ? `${approvalPct}%` : "—" },
           ].map((k) => (
             <div key={k.label} className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3">
-              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary"><k.icon size={13} /></div>
+              <div className="mb-2 flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><k.icon size={13} /></div>
               <div className="text-xs font-semibold leading-tight text-foreground">{k.value}</div>
               <div className="mt-1 text-[10px] text-muted-foreground">{k.label}</div>
             </div>
@@ -58,7 +58,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
         <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Payment volume · 7d</span>
-            <span className="flex items-center gap-1 text-[10px] text-primary"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> live</span>
+            <span className="flex items-center gap-1 text-[10px] text-primary-ink"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> live</span>
           </div>
           {/*
             Bars must be DIRECT children of this h-24 row for their percentage

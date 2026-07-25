@@ -141,7 +141,7 @@ export default function Overview() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {wallet.address
                     ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
-                    : <Link href="/connect" className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
+                    : <Link href="/connect" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
                 </p>
               </div>
             </div>
@@ -177,7 +177,7 @@ export default function Overview() {
           { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "MON", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const },
           { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const },
         ].map((k, i) => {
-          const iconTone = { primary: "bg-primary/12 text-primary", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
+          const iconTone = { primary: "bg-primary/12 text-primary-ink", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
           return (
             <motion.div key={k.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }} whileHover={{ y: -2 }}>
               <Card className="p-5 transition-colors hover:border-primary/30">
@@ -195,7 +195,7 @@ export default function Overview() {
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Recent transactions */}
-        <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
+        <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
           {history.length === 0 ? (
             <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K), or use the form directly. It settles on Monad in seconds." cta={{ label: "Send Payment", href: "/dashboard/payments" }} />
           ) : (
@@ -212,7 +212,7 @@ export default function Overview() {
                       <td className="pr-3 [font-variant-numeric:tabular-nums]">{h.amount ?? "—"}</td>
                       <td className="pr-3"><Badge tone={DECISION_TONE[h.decision] ?? "neutral"}>{h.decision}</Badge></td>
                       <td className="pr-3 text-xs text-muted-foreground">{new Date(h.at).toLocaleDateString()}</td>
-                      <td>{h.txHash && h.explorerUrl ? <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary hover:underline">{short(h.txHash)} ↗</a> : "—"}</td>
+                      <td>{h.txHash && h.explorerUrl ? <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary-ink hover:underline">{short(h.txHash)} ↗</a> : "—"}</td>
                     </motion.tr>
                   ))}
                 </tbody>
@@ -242,7 +242,7 @@ export default function Overview() {
                 <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Pending</p></div>
                 <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
-              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View payment checks →</Link>
+              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View payment checks →</Link>
             </div>
           ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened. Results appear here." />}
         </Card>
@@ -260,7 +260,7 @@ export default function Overview() {
                 { icon: Sparkles, label: "Average payment", value: fmt(insights.avg) },
               ].map((it) => (
                 <div key={it.label} className="rounded-lg border border-border bg-input/30 p-3">
-                  <it.icon size={15} className="mb-2 text-primary" />
+                  <it.icon size={15} className="mb-2 text-primary-ink" />
                   <p className="text-sm font-semibold text-foreground">{it.value}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{it.label}</p>
                 </div>
@@ -269,7 +269,7 @@ export default function Overview() {
           ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments, PayAI surfaces patterns here." />}
         </Card>
 
-        <Card title="Payment Automations" right={<Link href="/dashboard/automations" className="text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
+        <Card title="Payment Automations" right={<Link href="/dashboard/automations" className="text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
           {upcoming.length === 0 ? (
             <EmptyHint icon={Repeat} title="No automations yet" hint="Create recurring or future-dated payments, or swap between MON and USDC on a schedule." cta={{ label: "Create Automation", href: "/dashboard/automations" }} />
           ) : (
@@ -277,7 +277,7 @@ export default function Overview() {
               {upcoming.slice(0, 3).map((s) => (
                 <div key={s.id} className="flex items-center justify-between rounded-lg border border-border bg-input/30 px-3 py-2.5">
                   <div className="flex items-center gap-2.5">
-                    <Repeat size={15} className="text-primary" />
+                    <Repeat size={15} className="text-primary-ink" />
                     <div>
                       <p className="text-sm text-foreground">{s.purpose ?? "Automation"} · {s.amount} {s.token}</p>
                       <p className="text-xs text-muted-foreground">{s.cadence} · {new Date(s.nextRun).toLocaleDateString()}</p>
@@ -303,7 +303,7 @@ export default function Overview() {
             { label: "Analytics", sub: "Business metrics", icon: Store, href: "/dashboard/analytics" },
           ].map((q) => (
             <Link key={q.label} href={q.href} className="group rounded-lg border border-border bg-panel p-4 transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <q.icon size={18} className="mb-2 text-muted-foreground group-hover:text-primary" />
+              <q.icon size={18} className="mb-2 text-muted-foreground group-hover:text-primary-ink" />
               <p className="text-sm font-medium text-foreground">{q.label}</p>
               <p className="text-xs text-muted-foreground">{q.sub}</p>
             </Link>

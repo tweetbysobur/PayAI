@@ -124,7 +124,7 @@ export function TokenSelector({ value, onChange, walletAddress, disabled }: {
             <TokenLogo token={value.symbol} logoURI={value.logoURI} size={20} />
             <span className="font-medium">{value.symbol}</span>
             <span className="truncate text-xs text-muted-foreground">{value.name}</span>
-            {value.verified && <ShieldCheck size={13} className="ml-auto shrink-0 text-primary" />}
+            {value.verified && <ShieldCheck size={13} className="ml-auto shrink-0 text-primary-ink" />}
           </>
         ) : (
           <span className="text-muted-foreground">Select a token</span>
@@ -216,7 +216,7 @@ function TokenRow({ token, walletAddress, onSelect, isFavorite, onToggleFavorite
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-sm font-medium text-foreground">{token.symbol}</span>
-          {token.verified && <ShieldCheck size={12} className="shrink-0 text-primary" aria-label="Verified" />}
+          {token.verified && <ShieldCheck size={12} className="shrink-0 text-primary-ink" aria-label="Verified" />}
         </div>
         <p className="truncate text-xs text-muted-foreground">{token.name}</p>
       </div>

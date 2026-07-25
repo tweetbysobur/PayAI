@@ -128,7 +128,7 @@ export function PayWithWallet({ linkId, amount, recipient }: { linkId: string; a
         </p>
       )}
       {txHash && (
-        <a href={`${MONAD_EXPLORER}/tx/${txHash}`} target="_blank" rel="noreferrer" className="mt-1 block text-center text-xs text-primary hover:underline">
+        <a href={`${MONAD_EXPLORER}/tx/${txHash}`} target="_blank" rel="noreferrer" className="mt-1 block text-center text-xs text-primary-ink hover:underline">
           View transaction ↗
         </a>
       )}

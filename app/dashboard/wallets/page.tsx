@@ -126,11 +126,11 @@ export default function Wallets() {
           {wallet.address ? (
             <div className="flex items-center justify-between">
               <div>
-                <p className="flex items-center gap-2 font-mono text-sm text-foreground"><WalletIcon size={14} className="text-primary" /> {identity.display}</p>
+                <p className="flex items-center gap-2 font-mono text-sm text-foreground"><WalletIcon size={14} className="text-primary-ink" /> {identity.display}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {wallet.chainId != null ? <><MonadMark size={11} /> Chain {wallet.chainId}</> : "—"}
                   {" · "}
-                  <a href={`${MONAD_EXPLORER}/address/${wallet.address}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">View on explorer ↗</a>
+                  <a href={`${MONAD_EXPLORER}/address/${wallet.address}`} target="_blank" rel="noreferrer" className="text-primary-ink hover:underline">View on explorer ↗</a>
                 </p>
               </div>
               <div className="text-right">
@@ -172,8 +172,8 @@ export default function Wallets() {
             <p className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><FileCheck2 size={12} /> Verified contracts</p>
             {onchainContracts?.configured && onchainContracts.contracts ? (
               <div className="space-y-1 text-xs">
-                <a href={onchainContracts.contracts.executorExplorer} target="_blank" rel="noreferrer" className="block font-mono text-primary hover:underline">PaymentExecutor: {short(onchainContracts.contracts.paymentExecutor)} ↗</a>
-                <a href={`${MONAD_EXPLORER}/address/${onchainContracts.contracts.merchantRegistry}`} target="_blank" rel="noreferrer" className="block font-mono text-primary hover:underline">MerchantRegistry: {short(onchainContracts.contracts.merchantRegistry)} ↗</a>
+                <a href={onchainContracts.contracts.executorExplorer} target="_blank" rel="noreferrer" className="block font-mono text-primary-ink hover:underline">PaymentExecutor: {short(onchainContracts.contracts.paymentExecutor)} ↗</a>
+                <a href={`${MONAD_EXPLORER}/address/${onchainContracts.contracts.merchantRegistry}`} target="_blank" rel="noreferrer" className="block font-mono text-primary-ink hover:underline">MerchantRegistry: {short(onchainContracts.contracts.merchantRegistry)} ↗</a>
               </div>
             ) : <p className="text-xs text-muted-foreground">Not configured on this network.</p>}
           </div>
@@ -222,7 +222,7 @@ export default function Wallets() {
             ].map((k, i) => (
               <motion.div key={k.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}>
                 <Card className="p-5">
-                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary"><k.icon size={16} /></div>
+                  <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><k.icon size={16} /></div>
                   <p className="text-xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{k.value}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{k.sub ?? k.label}</p>
                 </Card>
@@ -250,7 +250,7 @@ export default function Wallets() {
 
           <Card title="AI Insights" className="mb-4">
             <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary"><Sparkles size={14} /></div>
+              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary-ink"><Sparkles size={14} /></div>
               <p className="text-sm leading-relaxed text-foreground">{intel.insights}</p>
             </div>
           </Card>
@@ -321,7 +321,7 @@ export default function Wallets() {
                         <td className="pr-3">{e.amount.toFixed(2)} {e.token}</td>
                         <td className="pr-3 font-mono text-xs text-muted-foreground">{e.blockNumber || "—"}</td>
                         <td className="pr-3 text-xs text-muted-foreground">{e.timestamp ? new Date(e.timestamp).toLocaleString() : "—"}</td>
-                        <td>{e.explorerUrl ? <a href={e.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary hover:underline">{short(e.txHash)} ↗</a> : "—"}</td>
+                        <td>{e.explorerUrl ? <a href={e.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary-ink hover:underline">{short(e.txHash)} ↗</a> : "—"}</td>
                       </motion.tr>
                     ))}
                   </tbody>

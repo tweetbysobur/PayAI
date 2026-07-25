@@ -105,7 +105,7 @@ export default function AnalyticsPage() {
                 <li key={ins.id} className="rounded-lg border border-border bg-input/30 p-3">
                   <p className="text-sm font-medium text-foreground">{ins.title}</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">{ins.detail}</p>
-                  {ins.suggestion && <p className="mt-1 text-xs text-primary">{ins.suggestion}</p>}
+                  {ins.suggestion && <p className="mt-1 text-xs text-primary-ink">{ins.suggestion}</p>}
                 </li>
               ))}
             </ul>

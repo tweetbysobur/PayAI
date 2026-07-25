@@ -25,7 +25,7 @@ const ICON: Record<ToastVariant, typeof CheckCircle2> = {
 const ACCENT: Record<ToastVariant, string> = {
   success: "text-success",
   error: "text-danger",
-  info: "text-primary",
+  info: "text-primary-ink",
 };
 
 /**

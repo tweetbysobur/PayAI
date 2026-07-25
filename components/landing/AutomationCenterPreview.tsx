@@ -71,7 +71,7 @@ export function AutomationCenterPreview() {
 
       <div className="relative flex items-center justify-between border-b border-border/80 px-5 py-4 sm:px-6">
         <div className="flex items-center gap-2">
-          <Building2 size={15} className="text-primary" />
+          <Building2 size={15} className="text-primary-ink" />
           <p className="text-sm font-semibold tracking-tight text-foreground">Automation Center</p>
         </div>
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
@@ -95,7 +95,7 @@ export function AutomationCenterPreview() {
               transition={{ delay: 0.1 + i * 0.07, duration: 0.4, ease: "easeOut" }}
               className="group flex items-center gap-3 px-5 py-4 transition-colors duration-200 hover:bg-white/[0.02] sm:gap-3.5 sm:px-6"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary transition-colors duration-200 group-hover:border-primary/30">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                 <r.icon size={15} />
               </span>
 

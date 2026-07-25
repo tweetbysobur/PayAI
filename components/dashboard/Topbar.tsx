@@ -34,7 +34,7 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   // Payment Automation lifecycle — a distinct visual language from one-off
   // payment outcomes above, so a glance at the icon says "this is about your
   // automation," not "this is a payment result."
-  automation_created: { icon: Sparkles, tone: "text-primary", accent: "bg-primary", chip: "bg-primary/12 text-primary" },
+  automation_created: { icon: Sparkles, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
   automation_upcoming_execution: { icon: Clock3, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
   automation_executed: { icon: Repeat, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   automation_execution_failed: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
@@ -97,7 +97,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           </Button>
         ) : wallet.address ? (
           <div className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
-            <WalletIcon size={14} className="text-primary" />
+            <WalletIcon size={14} className="text-primary-ink" />
             <span className="font-medium text-foreground">
               {balances.loading ? "…" : balances.mon ? `${Number(balances.mon).toFixed(2)} MON` : "—"}
             </span>
@@ -217,13 +217,13 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-foreground">Notifications</p>
                     {unread > 0 && (
-                      <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary">{unread} new</span>
+                      <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary-ink">{unread} new</span>
                     )}
                   </div>
                   {unread > 0 && (
                     <button
                       onClick={() => onOpenNotifications?.()}
-                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                     >
                       <CheckCheck size={12} /> Mark all read
                     </button>
@@ -263,11 +263,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                             </div>
                             <p className="mt-0.5 truncate text-xs text-muted-foreground" title={n.detail}>{n.detail}</p>
                             <div className="mt-1.5 flex items-center gap-3">
-                              <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary group-hover:underline">
+                              <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary-ink group-hover:underline">
                                 View <ChevronRight size={11} />
                               </span>
                               {n.explorerUrl && (
-                                <a href={n.explorerUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary">
+                                <a href={n.explorerUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary-ink">
                                   Explorer <ExternalLink size={9} />
                                 </a>
                               )}
