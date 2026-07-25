@@ -99,7 +99,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setCategory("all")}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${category === "all" ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${category === "all" ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
                 >
                   All
                 </button>
@@ -107,7 +107,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                   <button
                     key={c.id}
                     onClick={() => setCategory(c.id)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${category === c.id ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${category === c.id ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
                   >
                     {c.emoji} {c.label}
                   </button>
@@ -121,7 +121,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                 onClick={() => onSelect(null)}
                 className="mb-5 flex w-full items-center gap-3 rounded-xl border border-dashed border-primary/40 bg-primary/[0.04] p-4 text-left transition-colors hover:border-primary/60 hover:bg-primary/[0.08]"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary"><Sparkles size={18} /></div>
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Sparkles size={18} /></div>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-foreground">Build your own</p>
                   <p className="mt-0.5 text-xs text-muted-foreground">Start from scratch and configure every detail yourself.</p>
@@ -144,7 +144,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
                             className="group flex flex-col rounded-xl border border-border bg-gradient-to-b from-primary/[0.04] to-transparent p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:from-primary/[0.08]"
                           >
-                            <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary"><t.icon size={16} /></div>
+                            <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><t.icon size={16} /></div>
                             <p className="text-sm font-semibold text-foreground">{t.name}</p>
                             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.description}</p>
                           </motion.button>

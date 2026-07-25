@@ -449,7 +449,7 @@ export default function AutomationsPage() {
           <span className="text-xs font-medium text-muted-foreground">Filter by template:</span>
           <button
             onClick={() => setCategoryFilter("all")}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === "all" ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === "all" ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
           >
             All
           </button>
@@ -457,7 +457,7 @@ export default function AutomationsPage() {
             <button
               key={c.id}
               onClick={() => setCategoryFilter(c.id)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === c.id ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${categoryFilter === c.id ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}
             >
               {c.emoji} {c.label}
             </button>
@@ -492,7 +492,7 @@ export default function AutomationsPage() {
 
       {!wallet.address ? (
         <Card className="text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary"><ShieldCheck size={20} /></div>
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><ShieldCheck size={20} /></div>
           <p className="text-sm font-medium text-foreground">Connect your wallet</p>
           <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">Automations are scoped to your wallet. Connect to create and manage yours.</p>
         </Card>
@@ -594,7 +594,7 @@ function Metric({ title, value, icon: Icon }: { title: string; value: ReactNode;
     <Card className="!p-4 bg-gradient-to-b from-primary/[0.06] to-transparent">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-        <Icon size={16} className="text-primary" />
+        <Icon size={16} className="text-primary-ink" />
       </div>
       {/* A plain div, not <p> — some values (VolumeMetricValue) render block
           children, and nesting a block element inside <p> is invalid HTML
@@ -748,7 +748,7 @@ function AutomationTimeline({ a }: { a: Automation }) {
 
 function Timeline({ items, empty }: { items: { id: string; title: string; detail: string; status: string; href: string | null }[]; empty: string }) {
   if (items.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
-  return <div className="space-y-3">{items.map((item) => <div key={item.id} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" /><div className="min-w-0 flex-1 border-b border-border pb-3 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium text-foreground">{item.title}</p>{item.href && <a href={item.href} target="_blank" rel="noreferrer" className="text-primary"><ExternalLink size={13} /></a>}</div><p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p></div></div>)}</div>;
+  return <div className="space-y-3">{items.map((item) => <div key={item.id} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" /><div className="min-w-0 flex-1 border-b border-border pb-3 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium text-foreground">{item.title}</p>{item.href && <a href={item.href} target="_blank" rel="noreferrer" className="text-primary-ink"><ExternalLink size={13} /></a>}</div><p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p></div></div>)}</div>;
 }
 
 function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicate }: {
@@ -765,7 +765,7 @@ function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicat
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-base font-semibold tracking-tight text-foreground">
-            {isBulk && <Users size={13} className="mr-1 inline text-primary" />}
+            {isBulk && <Users size={13} className="mr-1 inline text-primary-ink" />}
             {automation.purpose ?? automation.memo ?? "Automation"}
           </p>
           {template && (
@@ -848,7 +848,7 @@ function ReviewGrid({ rows }: { rows: { label: string; value: string; mono?: boo
       {rows.map((r) => (
         <div key={r.label} className="rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3.5 py-2.5 transition-colors hover:border-primary/25">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{r.label}</p>
-          <p className={`mt-0.5 truncate ${r.mono ? "font-mono text-xs" : "text-sm"} ${r.accent ? "font-semibold text-primary" : "font-medium text-foreground"}`}>{r.value}</p>
+          <p className={`mt-0.5 truncate ${r.mono ? "font-mono text-xs" : "text-sm"} ${r.accent ? "font-semibold text-primary-ink" : "font-medium text-foreground"}`}>{r.value}</p>
         </div>
       ))}
     </div>
@@ -864,7 +864,7 @@ function AnalyticsTile({ label, value }: { label: string; value: ReactNode }) {
  *  settled on-chain, a linked transaction hash. */
 function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; decision: string; explorerUrl?: string; txHash?: string }[] }) {
   const meta = (d: string) =>
-    d === "executed" ? { Icon: CheckCircle2, tone: "bg-primary/12 text-primary", label: "Sent" }
+    d === "executed" ? { Icon: CheckCircle2, tone: "bg-primary/12 text-primary-ink", label: "Sent" }
     : d === "blocked" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Blocked" }
     : d === "needs_review" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Needs review" }
     : d === "error" || d === "failed" ? { Icon: AlertTriangle, tone: "bg-danger/12 text-danger", label: "Failed" }
@@ -882,7 +882,7 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
                 <p className="truncate text-sm font-medium text-foreground">
                   {r.automation.purpose ?? r.automation.memo ?? "Automation"} <span className="font-normal text-muted-foreground">· {money(r.automation.amount, r.automation.token)}</span>
                 </p>
-                <span className={`shrink-0 text-xs font-medium ${r.decision === "executed" ? "text-primary" : r.decision === "error" || r.decision === "failed" ? "text-danger" : "text-muted-foreground"}`}>{label}</span>
+                <span className={`shrink-0 text-xs font-medium ${r.decision === "executed" ? "text-primary-ink" : r.decision === "error" || r.decision === "failed" ? "text-danger" : "text-muted-foreground"}`}>{label}</span>
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1"><CalendarClock size={11} /> {fmt(r.at)}</span>
@@ -890,7 +890,7 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
                   <>
                     <span className="text-muted-foreground/40">·</span>
                     {r.explorerUrl
-                      ? <a href={r.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-primary transition-colors hover:text-secondary hover:underline">{r.txHash.slice(0, 8)}…{r.txHash.slice(-6)} <ExternalLink size={10} /></a>
+                      ? <a href={r.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-primary-ink transition-colors hover:text-secondary hover:underline">{r.txHash.slice(0, 8)}…{r.txHash.slice(-6)} <ExternalLink size={10} /></a>
                       : <span className="font-mono">{r.txHash.slice(0, 8)}…{r.txHash.slice(-6)}</span>}
                   </>
                 )}
@@ -993,7 +993,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
                         <td className="px-3 py-2">{money(a.amount, a.token)}</td>
                         <td className="px-3 py-2">
                           {run.explorerUrl && run.txHash ? (
-                            <a href={run.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{short(run.txHash)}</a>
+                            <a href={run.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary-ink hover:underline">{short(run.txHash)}</a>
                           ) : run.txHash ? <span className="font-mono">{short(run.txHash)}</span> : "—"}
                         </td>
                         <td className="px-3 py-2">{run.gasFee != null ? `${run.gasFee.toFixed(4)} MON` : "—"}</td>
@@ -1030,7 +1030,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
                             <td className="px-3 py-2">{money(rr.amount, a.token)}</td>
                             <td className="px-3 py-2">
                               {rr.explorerUrl && rr.txHash ? (
-                                <a href={rr.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary hover:underline">{short(rr.txHash)}</a>
+                                <a href={rr.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-primary-ink hover:underline">{short(rr.txHash)}</a>
                               ) : rr.txHash ? <span className="font-mono">{short(rr.txHash)}</span> : "—"}
                             </td>
                             <td className="px-3 py-2 text-muted-foreground">{rr.durationMs != null ? `${(rr.durationMs / 1000).toFixed(1)}s` : "—"}</td>
@@ -1180,7 +1180,7 @@ type BulkAutomationSeed = {
 function choiceClass(selected: boolean, extra = "") {
   return `rounded-lg border text-sm font-medium transition-all duration-150 ${
     selected
-      ? "border-primary/60 bg-primary/10 text-primary shadow-sm shadow-primary/10"
+      ? "border-primary/60 bg-primary/10 text-primary-ink shadow-sm shadow-primary/10"
       : "border-border text-foreground hover:border-primary/40 hover:bg-input/50"
   } ${extra}`;
 }
@@ -1198,7 +1198,7 @@ function ModeCard({ selected, disabled, onSelect, badge, title, description, pro
       <span className="pr-6 text-base font-semibold tracking-tight text-foreground">{title}</span>
       <span className="mt-2"><Badge tone={badge === "Recommended" ? "primary" : "success"}>{badge}</Badge></span>
       <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{description}</p>
-      <ul className="mt-4 space-y-1.5">{pros.map((p) => <li key={p} className="flex items-center gap-2 text-xs text-foreground"><CheckCircle2 size={13} className="shrink-0 text-primary" /> {p}</li>)}</ul>
+      <ul className="mt-4 space-y-1.5">{pros.map((p) => <li key={p} className="flex items-center gap-2 text-xs text-foreground"><CheckCircle2 size={13} className="shrink-0 text-primary-ink" /> {p}</li>)}</ul>
       <p className="mt-4 text-[11px] leading-snug text-muted-foreground">{note}</p>
     </button>
   );
@@ -1427,7 +1427,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
         <motion.div role="dialog" aria-modal="true" aria-label="Create Payment Automation" initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-6 py-4"><div><p className="text-sm font-semibold tracking-tight text-foreground">Create Payment Automation</p><p className="mt-0.5 text-xs text-muted-foreground">Step {step} of 6</p></div><button onClick={onClose} aria-label="Close automation creator" className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X size={16} /></button></div>
           <div className="grid gap-6 p-6 lg:grid-cols-[190px_1fr]">
-            <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
+            <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary-ink" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary-ink" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary-ink" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
             <div className="min-h-[420px]">
               {step === 1 && <Step title="Recipient" detail="Enter a wallet address or .nads domain. PayAI verifies it before you continue."><Input value={recipientInput} onChange={(e) => setRecipientInput(e.target.value)} placeholder=".nad domain or 0x wallet address" className="w-full" />{resolved && <Verified label={resolved.domain ?? "Wallet address"} value={resolved.recipient} />}{recipientError && <p className="mt-2 text-sm text-danger">{recipientError}</p>}</Step>}
               {step === 2 && <Step title="Payment" detail="Choose a token and amount. Balance and gas are shown before review."><div className="max-w-xs"><TokenSelector value={tokenInfo} onChange={setTokenInfo} walletAddress={wallet.address} /></div><Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="mt-4 w-full" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? money(Number(balance), tokenInfo?.symbol ?? "") : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
@@ -1438,7 +1438,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                   <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Time</label><Input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
                   <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Timezone</label><Input value={timezone} onChange={(e) => setTimezone(e.target.value)} /></div>
                 </div>
-                <div className="mt-3 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="font-medium text-primary">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
+                <div className="mt-3 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="font-medium text-primary-ink">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
                 {cadence !== "once" && <div className="mt-4">
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">When should it end?</label>
                   <div className="flex flex-wrap gap-2">
@@ -1450,7 +1450,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                 </div>}
                 <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm">
                   {occurrences != null
-                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, tokenInfo?.symbol ?? "")} = <strong className="text-primary">{money(totalScheduled ?? 0, tokenInfo?.symbol ?? "")}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
+                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, tokenInfo?.symbol ?? "")} = <strong className="text-primary-ink">{money(totalScheduled ?? 0, tokenInfo?.symbol ?? "")}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
                     : <p className="text-muted-foreground">Ongoing — no fixed total. {fundingMode === "reserved" ? "Reserved Funds sets aside only the next payment; add an end date or count to reserve the full run up front." : "You authorize about a year at a time and re-approve later — funds only move at each run."}</p>}
                 </div>
               </Step>}
@@ -1474,7 +1474,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                       note="Reserved funds stay dedicated until spent or released back to you."
                     />
                   </div>
-                  <details className="mt-3 text-sm text-muted-foreground"><summary className="cursor-pointer text-primary">Learn more about the two options</summary>
+                  <details className="mt-3 text-sm text-muted-foreground"><summary className="cursor-pointer text-primary-ink">Learn more about the two options</summary>
                     <p className="mt-2"><strong className="text-foreground">Wallet Automation</strong> keeps your money in your own wallet and only moves it at the moment each payment is due — you stay fully in control. <strong className="text-foreground">Reserved Funds</strong> moves the money into a dedicated reserve up front, so the payment can never miss for lack of balance. You can get reserved money back anytime you cancel.</p>
                   </details>
                 </div>
@@ -1496,7 +1496,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                   { label: "Network", value: "Monad Mainnet" },
                   { label: "Wallet", value: short(wallet.address), mono: true },
                 ]} />
-                {savingStep && <p className="mt-4 flex items-center gap-2 text-sm text-primary"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {savingStep}…</p>}
+                {savingStep && <p className="mt-4 flex items-center gap-2 text-sm text-primary-ink"><span className="h-2 w-2 animate-pulse rounded-full bg-primary" /> {savingStep}…</p>}
               </Step>}
             </div>
           </div>

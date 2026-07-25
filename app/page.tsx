@@ -206,7 +206,7 @@ export default function LandingPage() {
                 { icon: Zap, label: "Real-time Execution" },
               ].map((b) => (
                 <span key={b.label} className="flex items-center gap-1.5">
-                  <b.icon size={13} className="text-primary" /> {b.label}
+                  <b.icon size={13} className="text-primary-ink" /> {b.label}
                 </span>
               ))}
             </div>
@@ -239,10 +239,10 @@ export default function LandingPage() {
             </ul>
           </motion.div>
           <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: 0.06, duration: 0.35 }} className="rounded-xl border border-primary/30 bg-gradient-to-b from-primary/[0.06] to-transparent p-6">
-            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary"><Sparkles size={15} /> With PayAI automation</p>
+            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary-ink"><Sparkles size={15} /> With PayAI automation</p>
             <ul className="space-y-3">
               {["Set the schedule once, approve once", "Payments fire on time, on their own", "Runs whether you're online or not", "Every payment recorded and verifiable", "Full control: pause, edit, or cancel anytime"].map((t) => (
-                <li key={t} className="flex items-start gap-2.5 text-sm text-foreground"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-primary" /> {t}</li>
+                <li key={t} className="flex items-start gap-2.5 text-sm text-foreground"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-primary-ink" /> {t}</li>
               ))}
             </ul>
           </motion.div>
@@ -260,7 +260,7 @@ export default function LandingPage() {
             {USE_CASES.map((u, i) => (
               <motion.div key={u.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }} whileHover={{ y: -3 }}>
                 <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><u.icon size={18} /></div>
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><u.icon size={18} /></div>
                   <h3 className="text-sm font-semibold text-foreground">{u.title}</h3>
                   <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{u.body}</p>
                 </div>
@@ -280,8 +280,8 @@ export default function LandingPage() {
           <div className="absolute left-0 right-0 top-6 hidden h-px bg-border lg:block" />
           {SHOWCASE.map((s, i) => (
             <motion.div key={s.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ delay: i * 0.1, duration: 0.35 }} className="relative z-10 flex flex-col items-center text-center">
-              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary"><s.icon size={20} /></span>
-              <span className="text-[11px] font-medium uppercase tracking-wide text-primary">Step {i + 1}</span>
+              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary-ink"><s.icon size={20} /></span>
+              <span className="text-[11px] font-medium uppercase tracking-wide text-primary-ink">Step {i + 1}</span>
               <p className="mt-1 text-sm font-semibold text-foreground">{s.title}</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
             </motion.div>
@@ -315,7 +315,7 @@ export default function LandingPage() {
             {TECHNOLOGY.map((t, i) => (
               <motion.div key={t.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }} whileHover={{ y: -3 }}>
                 <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary"><t.icon size={18} /></div>
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><t.icon size={18} /></div>
                   <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
                   <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.body}</p>
                 </div>
@@ -340,7 +340,7 @@ export default function LandingPage() {
               className="relative z-10 flex flex-col items-center text-center"
             >
               <div className="mb-2 flex h-[56px] w-[56px] items-center justify-center rounded-full border border-border bg-panel">
-                <step.icon size={20} className="text-primary" />
+                <step.icon size={20} className="text-primary-ink" />
               </div>
               <p className="text-xs font-medium leading-snug text-foreground">{step.title}</p>
             </motion.div>
@@ -358,7 +358,7 @@ export default function LandingPage() {
           {FEATURES.map((f, i) => (
             <motion.div key={f.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 5) * 0.04, duration: 0.3 }} whileHover={{ y: -3 }}>
               <div className="h-full rounded-xl border border-border bg-panel p-4 transition-colors hover:border-primary/30">
-                <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary"><f.icon size={16} /></div>
+                <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><f.icon size={16} /></div>
                 <h3 className="text-sm font-semibold text-foreground">{f.title}</h3>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{f.body}</p>
               </div>
@@ -435,7 +435,7 @@ export default function LandingPage() {
               <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
                 Send, swap, and automate payments with wallet confirmation. You stay in control, and money arrives in seconds.
               </p>
-              <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary">
+              <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
                 <MonadMark size={12} /> Built on Monad Mainnet
               </div>
             </div>
@@ -454,7 +454,7 @@ export default function LandingPage() {
                           {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
                           className="group flex items-center gap-2 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
                         >
-                          <l.icon size={14} className="text-muted-foreground/60 transition-colors duration-150 group-hover:text-primary" />
+                          <l.icon size={14} className="text-muted-foreground/60 transition-colors duration-150 group-hover:text-primary-ink" />
                           {l.label}
                         </Anchor>
                       </li>
@@ -472,7 +472,7 @@ export default function LandingPage() {
               target="_blank"
               rel="noreferrer"
               aria-label="PayAI on GitHub"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <GitHubMark size={16} />
             </a>
@@ -481,7 +481,7 @@ export default function LandingPage() {
               target="_blank"
               rel="noreferrer"
               aria-label="PayAI on X"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <XMark size={15} />
             </a>
@@ -528,7 +528,7 @@ function FaqItem({ q, a }: { q: string; a: string }) {
         className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-input/40"
       >
         <span className="text-sm font-medium text-foreground">{q}</span>
-        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180 text-primary" : ""}`} />
+        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-180 text-primary-ink" : ""}`} />
       </button>
       <AnimatePresence initial={false}>
         {open && (

@@ -61,7 +61,7 @@ export function OnboardingFlow() {
               {step === 1 && (
                 <motion.div key="s1" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
                   <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary"><Sparkles size={30} /></div>
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Sparkles size={30} /></div>
                   </div>
                   <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Welcome to PayAI</h1>
                   <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
@@ -75,7 +75,7 @@ export function OnboardingFlow() {
                       { icon: ShieldCheck, label: "Stay in control" },
                     ].map((f) => (
                       <div key={f.label} className="flex items-center gap-2 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3 py-2.5 text-xs font-medium text-foreground">
-                        <f.icon size={14} className="shrink-0 text-primary" /> {f.label}
+                        <f.icon size={14} className="shrink-0 text-primary-ink" /> {f.label}
                       </div>
                     ))}
                   </div>
@@ -91,7 +91,7 @@ export function OnboardingFlow() {
               {step === 2 && (
                 <motion.div key="s2" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
                   <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary"><ShieldCheck size={30} /></div>
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><ShieldCheck size={30} /></div>
                   </div>
                   <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Wallet & security</h1>
                   <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
@@ -116,8 +116,8 @@ export function OnboardingFlow() {
                   </div>
 
                   <div className="mt-4 space-y-2.5 text-xs text-foreground">
-                    <div className="flex items-start gap-2.5"><Lock size={14} className="mt-0.5 shrink-0 text-primary" /><span>PayAI never asks for, or stores, your private key or seed phrase.</span></div>
-                    <div className="flex items-start gap-2.5"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary" /><span>Every payment needs your approval in your wallet, unless you&apos;ve set up an automation with limits you chose in advance.</span></div>
+                    <div className="flex items-start gap-2.5"><Lock size={14} className="mt-0.5 shrink-0 text-primary-ink" /><span>PayAI never asks for, or stores, your private key or seed phrase.</span></div>
+                    <div className="flex items-start gap-2.5"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" /><span>Every payment needs your approval in your wallet, unless you&apos;ve set up an automation with limits you chose in advance.</span></div>
                   </div>
 
                   <button onClick={() => setStep(3)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
@@ -141,13 +141,13 @@ export function OnboardingFlow() {
                     ].map((a) => (
                       <button key={a.title} onClick={() => goTo(a.href)}
                         className="group flex flex-col items-start rounded-xl border border-border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                        <span className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary"><a.icon size={16} /></span>
+                        <span className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><a.icon size={16} /></span>
                         <span className="text-sm font-semibold text-foreground">{a.title}</span>
                         <span className="mt-0.5 text-xs text-muted-foreground">{a.body}</span>
                       </button>
                     ))}
                   </div>
-                  <button onClick={() => setStep(4)} className="mt-5 flex w-full items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary">
+                  <button onClick={() => setStep(4)} className="mt-5 flex w-full items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary-ink">
                     Show me how automations work first <ArrowRight size={12} />
                   </button>
                 </motion.div>
@@ -156,7 +156,7 @@ export function OnboardingFlow() {
               {step === 4 && (
                 <motion.div key="s4" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
                   <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary"><Repeat size={28} /></div>
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Repeat size={28} /></div>
                   </div>
                   <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">How automation works</h1>
                   <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
@@ -172,7 +172,7 @@ export function OnboardingFlow() {
                       { icon: CheckCircle2, label: "Confirm" },
                     ].map((s, i) => (
                       <motion.div key={s.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08, duration: 0.3 }} className="relative z-10 flex flex-col items-center text-center">
-                        <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary"><s.icon size={16} /></span>
+                        <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary-ink"><s.icon size={16} /></span>
                         <span className="text-[11px] font-medium text-foreground">{s.label}</span>
                       </motion.div>
                     ))}

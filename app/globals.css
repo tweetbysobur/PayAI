@@ -12,8 +12,15 @@
   --foreground: 0 0% 100%;         /* primary text */
   --muted-foreground: 240 5% 65%;  /* #a1a1aa — muted text */
 
-  --primary: 262 83% 58%;          /* #7c3aed — primary purple, the signature accent */
+  --primary: 262 83% 58%;          /* #7c3aed — primary purple, the signature accent. FILLS ONLY (buttons, chips): white on it is 5.67:1. */
   --primary-foreground: 0 0% 100%; /* white text on purple */
+  /* Purple as TEXT/ICON on a dark surface. --primary is only 3.51:1 against
+     the canvas, which fails AA for body-size text, but it cannot simply be
+     lightened: at the lightness text needs (~66%+), white-on-purple buttons
+     fall to ~4.0:1 and fail instead. No single purple satisfies both roles,
+     so ink and fill are separate tokens. Verified AA on every surface:
+     5.42:1 on --background, 5.14:1 on --panel, 4.68:1 on --input. */
+  --primary-ink: 262 83% 68%;      /* #9b6af1 */
   --secondary: 258 90% 66%;        /* #8b5cf6 — secondary purple / hover state */
 
   /* Positive / verified / live / settled — the brand PURPLE. This is a
@@ -53,6 +60,7 @@
 
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-ink: hsl(var(--primary-ink));
   --color-secondary: hsl(var(--secondary));
 
   --color-success: hsl(var(--success));

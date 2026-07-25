@@ -31,7 +31,7 @@ export default function Privacy() {
 
       <div className="mx-auto max-w-3xl px-6 pb-20 pt-6">
         <div className="mb-8">
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary"><Lock size={24} /></div>
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Lock size={24} /></div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Privacy</h1>
           <p className="mt-2 text-xs text-muted-foreground">Last updated July 2026</p>
         </div>
@@ -46,9 +46,9 @@ export default function Privacy() {
         </div>
 
         <p className="mt-8 text-xs text-muted-foreground">
-          Questions? <a href="mailto:buharisobur22@gmail.com" className="text-primary hover:underline">Email us</a>. See also our{" "}
-          <Link href="/terms" className="text-primary hover:underline">Terms</Link> and{" "}
-          <Link href="/security" className="text-primary hover:underline">Security</Link> pages.
+          Questions? <a href="mailto:buharisobur22@gmail.com" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
+          <Link href="/terms" className="text-primary-ink hover:underline">Terms</Link> and{" "}
+          <Link href="/security" className="text-primary-ink hover:underline">Security</Link> pages.
         </p>
       </div>
     </main>

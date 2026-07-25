@@ -114,7 +114,7 @@ export default function Invoices() {
               <li key={l.id} className="flex items-center justify-between py-2">
                 <div>
                   <p className="text-foreground">{l.amount} {l.token} {l.description ? `· ${l.description}` : ""}</p>
-                  <a href={l.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">{l.url}</a>
+                  <a href={l.url} target="_blank" rel="noreferrer" className="text-xs text-primary-ink hover:underline">{l.url}</a>
                 </div>
                 <Badge tone={l.status === "paid" ? "success" : "neutral"}>{l.status}</Badge>
               </li>

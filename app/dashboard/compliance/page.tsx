@@ -94,7 +94,7 @@ export default function Compliance() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={result.status === "approved" ? "success" : result.status === "review" ? "warning" : "danger"}>{result.status}</Badge>
                 <Badge tone={result.risk.level === "low" ? "success" : result.risk.level === "medium" ? "warning" : "danger"}>risk {result.risk.score}/100 · {result.risk.level}</Badge>
-                {result.domain && <span className="font-mono text-xs text-primary">{result.domain}</span>}
+                {result.domain && <span className="font-mono text-xs text-primary-ink">{result.domain}</span>}
               </div>
               <p className="mt-2 text-sm text-foreground">{result.summary}</p>
               <ul className="mt-2 space-y-1 text-xs">

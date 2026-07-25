@@ -66,7 +66,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
                     aria-disabled={item.soon}
                     onClick={onClose}
                     className={`mb-0.5 flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition ${
-                      active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-input hover:text-foreground"
+                      active ? "bg-primary/15 text-primary-ink" : "text-muted-foreground hover:bg-input hover:text-foreground"
                     } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
                   >
                     <span className="flex items-center gap-2.5">

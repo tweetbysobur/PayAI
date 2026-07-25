@@ -80,8 +80,8 @@ export default function Transactions() {
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: "Payments settled", value: <span className="[font-variant-numeric:tabular-nums]">{stats.settled.toLocaleString()}</span>, icon: CheckCircle2, tone: "bg-success/12 text-success" },
-          { label: "Volume", value: <VolumeInline byToken={stats.volumeByToken} size={14} />, icon: ArrowUpRight, tone: "bg-primary/12 text-primary" },
-          { label: "Success rate", value: <span className="[font-variant-numeric:tabular-nums]">{stats.successRate}%</span>, icon: Receipt, tone: "bg-primary/12 text-primary" },
+          { label: "Volume", value: <VolumeInline byToken={stats.volumeByToken} size={14} />, icon: ArrowUpRight, tone: "bg-primary/12 text-primary-ink" },
+          { label: "Success rate", value: <span className="[font-variant-numeric:tabular-nums]">{stats.successRate}%</span>, icon: Receipt, tone: "bg-primary/12 text-primary-ink" },
         ].map((s, i) => (
           <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}>
             <Card className="p-4">
@@ -105,7 +105,7 @@ export default function Transactions() {
                 key={s}
                 onClick={() => { setStatus(s); setPage(1); }}
                 className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  status === s ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                  status === s ? "border-primary/40 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {s === "all" ? "All" : DECISION_LABEL[s] ?? s.replace("_", " ")}
@@ -147,7 +147,7 @@ export default function Transactions() {
                     >
                       <td className="px-5 py-3 text-xs text-muted-foreground" title={new Date(h.at).toLocaleString()}>{ago(h.at)}</td>
                       <td className="px-3 py-3">
-                        {h.domain ? <span className="text-xs font-medium text-primary">{h.domain}</span> : <span className="font-mono text-xs text-foreground">{short(h.recipient)}</span>}
+                        {h.domain ? <span className="text-xs font-medium text-primary-ink">{h.domain}</span> : <span className="font-mono text-xs text-foreground">{short(h.recipient)}</span>}
                       </td>
                       <td className="px-3 py-3">
                         <span className="inline-flex items-center gap-1.5 text-xs text-foreground"><TokenLogo token={h.token} size={15} /> {h.token}</span>
@@ -156,7 +156,7 @@ export default function Transactions() {
                       <td className="px-3 py-3"><Badge tone={DECISION_TONE[h.decision] ?? "neutral"}>{DECISION_LABEL[h.decision] ?? h.decision}</Badge></td>
                       <td className="px-5 py-3 text-right">
                         {h.txHash && h.explorerUrl ? (
-                          <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline">
+                          <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline">
                             {short(h.txHash)} <ExternalLink size={11} />
                           </a>
                         ) : <span className="text-xs text-muted-foreground">—</span>}
