@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui";
 import { AutomationCenterPreview } from "@/components/landing/AutomationCenterPreview";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
+import { SupportedTokens, PlatformStatistics, DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
@@ -398,6 +399,16 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* Supported tokens, live platform totals, developer surface, and the
+          ecosystem PayAI actually plugs into. Placed after the product story
+          and before the FAQ: by this point a visitor knows what PayAI does,
+          and these answer the follow-up questions — what can it move, is
+          anyone using it, can I build on it, does it work with my wallet. */}
+      <SupportedTokens />
+      <PlatformStatistics />
+      <DeveloperApi />
+      <EcosystemIntegrations />
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-3xl px-6 py-24 sm:py-28">
