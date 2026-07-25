@@ -9,7 +9,7 @@ import {
   FileCheck2, Coins, AtSign, LayoutDashboard,
   ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles, Repeat, Vault,
-  PlayCircle, Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
+  Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
@@ -194,9 +194,6 @@ export default function LandingPage() {
               <Link href="/connect" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
               </Link>
-              <a href="#showcase" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition hover:border-muted-foreground/30 hover:bg-input">
-                <PlayCircle size={15} /> Watch Demo
-              </a>
             </div>
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
