@@ -1,0 +1,15 @@
+{
+  "network": "monad",
+  "chainId": 143,
+  "merchantRegistry": "0x3e5F94168B6748E0396d1BBB9151bC62236f4DEb",
+  "paymentExecutor": "0x824050B7ef424a730779f676EA6863f908d82991",
+  "owner": "0x8eed298c65887bb53a61e28c19a7252b9dc2364f",
+  "agent": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "dailyCap": "2000000000000",
+  "maxTxAmount": "1000000000000",
+  "dailyCapNative": "2000000000000000000000000",
+  "maxTxAmountNative": "1000000000000000000000000",
+  "deployer": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "deployedAt": "2026-07-22T12:20:43.018Z",
+  "note": "Carries the executePaymentFrom merchant-registration gate fix. Old executor (0xCB847C0B...) left untouched."
+}
