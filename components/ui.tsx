@@ -96,6 +96,38 @@ export function Button({
   );
 }
 
+/**
+ * The one skeleton primitive. Every loading placeholder in the app routes
+ * through this so a "still fetching" state looks identical on every page —
+ * previously transactions/wallets hand-rolled `animate-pulse bg-input` divs
+ * while automations showed plain "Loading..." text and analytics showed an
+ * em-dash (indistinguishable from a real zero). Respects reduced motion:
+ * the pulse is a decorative cue, so it drops to a static block.
+ */
+export function Skeleton({ className = "", style }: { className?: string; style?: React.CSSProperties }) {
+  return <div aria-hidden style={style} className={`animate-pulse rounded bg-input motion-reduce:animate-none ${className}`} />;
+}
+
+/**
+ * N skeleton list rows (icon + line + trailing value) — the shape a table or
+ * activity feed settles into, so the placeholder matches the real layout
+ * instead of reflowing when data lands.
+ */
+export function SkeletonRows({ rows = 4, className = "" }: { rows?: number; className?: string }) {
+  return (
+    <div role="status" aria-busy="true" aria-live="polite" className={`space-y-3 ${className}`}>
+      <span className="sr-only">Loading…</span>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <Skeleton className="h-8 w-8 shrink-0 rounded-lg" />
+          <Skeleton className="h-3 flex-1" />
+          <Skeleton className="h-3 w-16 shrink-0" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet } from "lucide-react";
-import { Badge, Card, Input } from "@/components/ui";
+import { Badge, Card, Input, SkeletonRows } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { TokenLogo, VolumeInline } from "@/components/TokenLogo";
 
@@ -117,15 +117,7 @@ export default function Transactions() {
 
       <Card className="!p-0 overflow-hidden">
         {loading ? (
-          <div className="space-y-3 p-6">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4">
-                <div className="h-8 w-8 animate-pulse rounded-lg bg-input" />
-                <div className="h-3 flex-1 animate-pulse rounded bg-input" />
-                <div className="h-3 w-16 animate-pulse rounded bg-input" />
-              </div>
-            ))}
-          </div>
+          <SkeletonRows rows={4} className="p-6" />
         ) : !wallet.address ? (
           <EmptyState icon={Wallet} title="Connect your wallet" hint="Your transactions are private to your wallet. Connect it from the top bar to see your history." />
         ) : history.length === 0 ? (

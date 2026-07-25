@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { Card } from "@/components/ui";
+import { Card, Skeleton } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { TokenLogo } from "@/components/TokenLogo";
 
@@ -17,11 +17,22 @@ const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : 
 export default function AnalyticsPage() {
   const wallet = useWallet();
   const [a, setA] = useState<Analytics | null>(null);
+  // Distinct from `a === null`: that state is ambiguous (still fetching vs.
+  // fetch failed vs. genuinely no data), and rendering an em-dash for all
+  // three told the user "you have zero revenue" when we simply didn't know
+  // yet. Tracked explicitly so the KPI tiles can show a skeleton while
+  // loading and a real zero once loaded.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Scoped to the connected wallet — a user's analytics reflect only their own payments.
     const headers = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
-    fetch("/api/analytics", { headers }).then((r) => r.json()).then(setA).catch(() => {});
+    setLoading(true);
+    fetch("/api/analytics", { headers })
+      .then((r) => r.json())
+      .then(setA)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [wallet.address]);
 
   return (
@@ -37,9 +48,13 @@ export default function AnalyticsPage() {
           { label: "Settled / Failed", value: a ? `${a.revenue.settledCount} / ${a.revenue.failedCount}` : "—", coin: false },
         ].map((k) => (
           <Card key={k.label} className="p-4">
-            <p className="flex items-center gap-1.5 text-xl font-semibold text-foreground">
-              {k.coin && a && <TokenLogo token={a.revenue.currency} size={16} />}{k.value}
-            </p>
+            {loading ? (
+              <Skeleton className="h-7 w-24" />
+            ) : (
+              <p className="flex items-center gap-1.5 text-xl font-semibold text-foreground">
+                {k.coin && a && <TokenLogo token={a.revenue.currency} size={16} />}{k.value}
+              </p>
+            )}
             <p className="mt-0.5 text-xs text-muted-foreground">{k.label}</p>
           </Card>
         ))}
@@ -61,7 +76,12 @@ export default function AnalyticsPage() {
               );
             })}
           </div>
-        ) : <p className="text-sm text-muted-foreground">No data yet.</p>}
+        ) : loading ? (
+          <div role="status" aria-busy="true" className="flex h-40 items-end gap-2">
+            <span className="sr-only">Loading revenue trend…</span>
+            {[45, 70, 30, 85, 55, 65, 40].map((h, i) => <Skeleton key={i} className="w-full max-w-10 flex-1 rounded-t" style={{ height: `${h}%` }} />)}
+          </div>
+        ) : <p className="text-sm text-muted-foreground">No revenue in the last 7 days.</p>}
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">

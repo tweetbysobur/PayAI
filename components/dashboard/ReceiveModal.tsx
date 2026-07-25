@@ -8,6 +8,7 @@ import { parseEther, parseUnits } from "viem";
 import { Badge } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
+import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
@@ -25,6 +26,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
   const { toast } = useToast();
+  useModalA11y(open, onClose);
   const [copied, setCopied] = useState(false);
   const [showAmount, setShowAmount] = useState(false);
   const [token, setToken] = useState<"MON" | "USDC">("MON");
@@ -80,16 +82,19 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
     }
   }
 
+  // No AnimatePresence — see the note in components/dashboard/TemplatePicker.tsx.
   return (
-    <AnimatePresence>
+    <>
       {open && (
         <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+          transition={{ duration: 0.18, ease: "easeOut" }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 px-4 sm:backdrop-blur-sm"
           onClick={onClose}
         >
           <motion.div
-            initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            role="dialog" aria-modal="true" aria-label="Receive payment"
+            initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
@@ -196,6 +201,6 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </>
   );
 }
