@@ -23,6 +23,20 @@
   --warning: 27 96% 55%;           /* #fb8b1e — orange, reserved for real caution */
   --danger: 0 84% 60%;             /* #ef4444 */
 
+  /* Execution-state colors — scoped to AUTOMATION EXECUTION STATUS ONLY:
+     Automation Center rows, run outcomes, execution logs, progress bars.
+     The brand rule above (one purple accent, no green) still governs every
+     general positive/verified state — `--success` stays violet and is not
+     repainted. These exist for a narrower job that one accent genuinely
+     cannot do: an operator scanning a list of runs has to tell executed
+     from scheduled from failed at a glance, and three shades of the same
+     violet can't carry that. Purple stays dominant — these appear only on
+     small status dots, badges and bars, never on surfaces, CTAs or type. */
+  --exec-success: 152 58% 52%;     /* emerald — an execution that settled */
+  --exec-scheduled: 38 92% 58%;    /* amber — queued / waiting to run */
+  --exec-failed: 0 84% 60%;        /* red — matches --danger deliberately */
+  --info: 213 90% 64%;             /* blue — informational only, never a state of money */
+
   --border: 240 4% 16%;            /* #27272a */
   --input: 240 4% 11%;
   --ring: 262 83% 58%;
@@ -44,6 +58,11 @@
   --color-success: hsl(var(--success));
   --color-warning: hsl(var(--warning));
   --color-danger: hsl(var(--danger));
+
+  --color-exec-success: hsl(var(--exec-success));
+  --color-exec-scheduled: hsl(var(--exec-scheduled));
+  --color-exec-failed: hsl(var(--exec-failed));
+  --color-info: hsl(var(--info));
 
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
