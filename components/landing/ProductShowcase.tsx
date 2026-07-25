@@ -2,28 +2,32 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { AutomationCenterPreview } from "@/components/landing/AutomationCenterPreview";
 import { AutomationWorkflow } from "@/components/landing/AutomationWorkflow";
 import { DashboardShowcase } from "@/components/landing/DashboardShowcase";
 import { SendPaymentWorkflow } from "@/components/landing/SendPaymentWorkflow";
 
 /**
- * The real product, cycling: the automation lifecycle first, then an instant
- * payment, then live platform activity.
+ * The hero visual: the real product, cycling.
  *
- * These three showcases used to live in the hero, where the wallet-balance
- * dashboard led and undercut the "payment automation platform" positioning.
- * The hero now holds a static Automation Center preview instead; this section
- * is where the animated product demo belongs, and it's what the hero's
- * "Watch Demo" button points at — so ordering is automation-first here, not
- * dashboard-first.
+ * Ordering is deliberate and automation-first. The Automation Center leads
+ * and is therefore what every visitor sees on load — a populated list of
+ * running automations, which is the single clearest statement of "this is a
+ * payment automation platform." The animated lifecycle, an instant payment,
+ * and live platform totals follow. The wallet-balance dashboard is LAST, so
+ * it never fronts the page and never reads as "crypto wallet app."
  *
  * Each screen gets its OWN dwell time rather than one flat interval: a
- * workflow must finish its stage sequence before the section moves on
+ * workflow must finish its stage sequence before the rotation moves on
  * (AutomationWorkflow is 6 stages at 2.6s = 15.6s, so a flat 7s cycle used to
- * switch away before it ever reached "Transaction Confirmed"). DashboardShowcase
- * has no stage sequence, just a comfortable dwell to read the live numbers.
+ * switch away before it ever reached "Transaction Confirmed"). The Automation
+ * Center and DashboardShowcase have no stage sequence, just a dwell long
+ * enough to read them.
+ *
+ * Tabs are clickable, so nothing is gated behind waiting out the cycle.
  */
 const SCREENS = [
+  { key: "center", label: "Automation Center", durationMs: 8000 },
   { key: "automation", label: "Automation Lifecycle", durationMs: 6 * 2600 + 1200 },
   { key: "payment", label: "Instant Payment", durationMs: 4 * 2600 + 1200 },
   { key: "dashboard", label: "Live Platform Activity", durationMs: 6500 },
@@ -31,7 +35,7 @@ const SCREENS = [
 type ScreenKey = (typeof SCREENS)[number]["key"];
 
 export function ProductShowcase() {
-  const [screen, setScreen] = useState<ScreenKey>("automation");
+  const [screen, setScreen] = useState<ScreenKey>("center");
   // Defaults to TRUE and is only ever turned OFF by the observer. Starting
   // false looks like the safer choice but fails in exactly the wrong
   // direction: if IntersectionObserver never delivers a callback — which
@@ -93,6 +97,7 @@ export function ProductShowcase() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
+          {screen === "center" && <AutomationCenterPreview />}
           {screen === "automation" && <AutomationWorkflow active={inView} />}
           {screen === "payment" && <SendPaymentWorkflow active={inView} />}
           {screen === "dashboard" && <DashboardShowcase active={inView} />}

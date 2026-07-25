@@ -12,7 +12,6 @@ import {
   PlayCircle, Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
-import { AutomationCenterPreview } from "@/components/landing/AutomationCenterPreview";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { SupportedTokens, PlatformStatistics, DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
 import { Logo } from "@/components/Logo";
@@ -213,13 +212,15 @@ export default function LandingPage() {
             </div>
           </motion.div>
 
-          {/* Automation Center preview — a real product screenshot (same card
-              language as the actual dashboard), not a concept illustration. */}
+          {/* The real product, in the hero — cycling Automation Center →
+              lifecycle → instant payment → live totals. Automation Center
+              leads, so the first thing a visitor sees is a list of running
+              automations rather than a wallet balance. Tabs are clickable. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.15, ease: "easeOut" }}
           >
-            <AutomationCenterPreview />
+            <ProductShowcase />
           </motion.div>
         </div>
       </section>
@@ -289,20 +290,6 @@ export default function LandingPage() {
           ))}
         </div>
 
-        {/* The actual product, running. This is what the hero's "Watch Demo"
-            button is pointing at, so the real animated showcase lives here
-            rather than in the hero (where a wallet-balance dashboard led and
-            worked against the automation positioning). */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45, ease: "easeOut" }}
-          className="mt-16"
-        >
-          <p className="mb-4 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            See it running
-          </p>
-          <ProductShowcase />
-        </motion.div>
       </section>
 
       {/* Technology */}
