@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { AutomationCenterPreview } from "@/components/landing/AutomationCenterPreview";
+import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { GitHubMark, XMark } from "@/components/BrandIcons";
@@ -286,6 +287,21 @@ export default function LandingPage() {
             </motion.div>
           ))}
         </div>
+
+        {/* The actual product, running. This is what the hero's "Watch Demo"
+            button is pointing at, so the real animated showcase lives here
+            rather than in the hero (where a wallet-balance dashboard led and
+            worked against the automation positioning). */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45, ease: "easeOut" }}
+          className="mt-16"
+        >
+          <p className="mb-4 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            See it running
+          </p>
+          <ProductShowcase />
+        </motion.div>
       </section>
 
       {/* Technology */}
