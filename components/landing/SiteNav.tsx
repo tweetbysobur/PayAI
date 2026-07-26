@@ -16,8 +16,16 @@ import { Logo } from "@/components/Logo";
  * action on the site, and a second or third purple button would compete with
  * it and dilute the one thing we want clicked.
  *
- * Two links only, so they fit inline at 375px and no hamburger menu is
- * needed. If a third is ever added, revisit that.
+ * Two links only, so they fit inline and no hamburger menu is needed. If a
+ * third is ever added, revisit that.
+ *
+ * Fitting 375px needs two concessions, because logo + wordmark + both links +
+ * the CTA measured ~421px and the header CLIPS rather than scrolls — the
+ * Launch App button was running to x=399 and was physically unreachable on a
+ * phone, which is about as bad as a landing-page bug gets. Below `sm` the
+ * wordmark is hidden (the mark alone is still the logo, and it sits beside
+ * the page title anyway) and the horizontal padding tightens. Nothing is
+ * hidden that carries information the mark doesn't.
  */
 const LINKS = [
   { href: "/product", label: "Product" },
@@ -28,10 +36,13 @@ export function SiteNav() {
   const pathname = usePathname();
 
   return (
-    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-5">
-      <Link href="/" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-5 sm:gap-4 sm:px-6">
+      <Link href="/" aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Logo size={32} />
-        <span className="text-sm font-semibold text-foreground">PayAI</span>
+        {/* Wordmark is decorative next to the mark; hidden below sm purely to
+            buy back the ~44px that pushed the CTA off-screen. aria-label on
+            the link keeps the accessible name intact either way. */}
+        <span className="hidden text-sm font-semibold text-foreground sm:inline">PayAI</span>
       </Link>
 
       {/* ONE nav, not a desktop copy plus a mobile copy. Two <nav> elements
@@ -48,7 +59,11 @@ export function SiteNav() {
               key={l.href}
               href={l.href}
               aria-current={active ? "page" : undefined}
-              className={`whitespace-nowrap rounded-lg px-2 py-2 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              // py-3.5 gives a 44px target at every width. Not overridden per
+              // breakpoint on purpose: a `sm:py-*` override loses to source
+              // order in Tailwind (media queries add no specificity), and 44px
+              // is a perfectly good nav height on desktop too.
+              className={`inline-flex items-center whitespace-nowrap rounded-lg px-2 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -61,7 +76,7 @@ export function SiteNav() {
       <div className="flex shrink-0 items-center gap-1">
         <Link
           href="/connect"
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Launch App
         </Link>
