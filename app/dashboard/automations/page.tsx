@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
-  Lock, Wallet, Zap, SkipForward, Search, Users,
+  Lock, Wallet, Zap, SkipForward, Search, Users, Vault,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
@@ -240,6 +240,84 @@ export default function AutomationsPage() {
   const [modeFilter, setModeFilter] = useState<FundingMode | "all">("all");
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "week" | "month">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  /** Needed at page level (not just in the creator) so a Reserved Funds
+   *  automation can offer a refund — the vault address lives here. */
+  const [vaultConfig, setVaultConfig] = useState<OnchainConfig | null>(null);
+  /** Live reserved balance per automation id, read straight from the vault.
+   *  Only a non-zero on-chain balance ever shows a refund button, so we never
+   *  offer to refund funds that aren't actually there. */
+  const [reserved, setReserved] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/automation-config").then((r) => r.json())
+      .then((c: OnchainConfig) => { if (!cancelled) setVaultConfig(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Read each Reserved Funds automation's ACTUAL remaining vault balance.
+   *
+   * This is deliberately read from the chain rather than inferred from the
+   * automation record: a reservation can hold funds long after the automation
+   * itself is cancelled, completed, or failed — which is exactly how money
+   * gets stranded. The record says "cancelled"; the vault still holds MON.
+   * Only the chain knows the truth, so only the chain decides whether a
+   * refund is offered.
+   */
+  const loadReserved = useCallback(async () => {
+    const vault = vaultConfig?.vault;
+    const rows = automations.filter((a) => a.fundingMode === "reserved");
+    if (!vault || rows.length === 0) return;
+    try {
+      const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
+      const client = await getBrowserPublicClient();
+      const entries = await Promise.all(rows.map(async (a) => {
+        try {
+          const bal = (await client.readContract({
+            address: vault as Hex, abi: AUTOMATION_VAULT_ABI,
+            functionName: "reservedBalance", args: [autoId32(a.id)],
+          })) as bigint;
+          const decimals = a.tokenAddress && a.tokenAddress !== NATIVE_TOKEN_ADDRESS ? (a.tokenDecimals ?? 18) : 18;
+          return [a.id, bal > 0n ? (Number(bal) / 10 ** decimals).toString() : ""] as const;
+        } catch {
+          return [a.id, ""] as const;
+        }
+      }));
+      setReserved(Object.fromEntries(entries.filter(([, v]) => v)));
+    } catch {
+      /* RPC hiccup — no refund buttons this pass rather than a wrong claim. */
+    }
+  }, [automations, vaultConfig?.vault]);
+
+  useEffect(() => { loadReserved(); }, [loadReserved]);
+
+  /**
+   * Refund a reservation back to the wallet that funded it.
+   *
+   * Sent from the USER's wallet, not the agent: AutomationVault.refund()
+   * authorizes `msg.sender == r.depositor`, so the owner can always recover
+   * their own funds without depending on PayAI's agent being available or
+   * willing. That property is the whole point of Reserved Funds being
+   * non-custodial, and it's why this button can exist at all.
+   */
+  async function refundReservation(a: Automation) {
+    const vault = vaultConfig?.vault;
+    if (!vault || !wallet.address) return;
+    setBusy(a.id);
+    try {
+      if (wallet.isWrongNetwork) await wallet.switchNetwork();
+      const data = encodeFunctionData({ abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoId32(a.id)] });
+      await confirmTx(wallet, vault, data);
+      toast("Reserved funds refunded to your wallet");
+      await loadReserved();
+      load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Refund failed");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   /** Template → wizard seed. Only sets fields the template actually
    *  specifies; recipient/amount/exact time are always left for the user to
@@ -469,6 +547,54 @@ export default function AutomationsPage() {
             </button>
           ))}
         </div>
+      )}
+
+      {/* Recoverable reserved funds. Surfaced at the very top, above the
+          metrics, because money sitting in the vault after an automation
+          stopped is the single most urgent thing on this page — and until
+          now there was no way to get it back at all. Driven entirely by the
+          live on-chain balance, so it appears only when funds are genuinely
+          there and disappears the moment they're returned. */}
+      {Object.keys(reserved).length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
+          className="rounded-xl border border-exec-scheduled/35 bg-exec-scheduled/[0.07] p-5"
+        >
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-exec-scheduled/15 text-exec-scheduled">
+              <Vault size={17} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">You have reserved funds you can withdraw</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                These are held in the AutomationVault for automations that are no longer going to spend them.
+                Refunds go straight back to your own wallet — the vault only ever lets the original depositor withdraw.
+              </p>
+              <div className="mt-3 space-y-2">
+                {automations.filter((a) => reserved[a.id]).map((a) => (
+                  <div key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/70 bg-background/40 px-3.5 py-2.5">
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                      {a.purpose ?? a.memo ?? "Automation"}
+                      <span className="ml-2 text-muted-foreground">· {a.status}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold tabular-nums text-foreground">
+                      <TokenLogo token={a.token} logoURI={a.tokenLogo} size={14} />
+                      {money(Number(reserved[a.id]), a.token)}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      className="!px-3 !py-1.5 text-xs"
+                      disabled={busy === a.id}
+                      onClick={() => refundReservation(a)}
+                    >
+                      {busy === a.id ? "Refunding…" : "Refund to my wallet"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
