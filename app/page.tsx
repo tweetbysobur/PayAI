@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
+import { WhyMonadSection } from "@/components/landing/MarketingSections";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
@@ -152,6 +153,13 @@ export default function LandingPage() {
           the landing page deliberately: it is evidence, not capability
           depth, so it belongs at the front door. */}
       <PlatformStatistics />
+
+      {/* Why Monad, immediately before the FAQ. Also rendered on
+          /how-it-works: the chain choice is both a landing-page trust signal
+          and part of the mechanical explanation, and it's a pure-presentation
+          section so showing it in both places costs nothing and duplicates
+          no state. */}
+      <WhyMonadSection />
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-3xl px-6 py-24 sm:py-28">

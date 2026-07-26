@@ -116,8 +116,24 @@ interface Stats {
   totalPayments: number;
   volumeByToken: Record<string, number>;
   compliance: { approvalRate: number };
+  trend?: { date: string; revenue: number; count: number }[];
 }
 
+/**
+ * Platform statistics.
+ *
+ * Presented as ONE bordered panel with divided cells rather than three
+ * floating cards. The reason is the volume figure: PayAI never blends MON and
+ * USDC into a single meaningless total, so "total volume" is inherently N
+ * numbers, not one. Cramming two tokens into a tile sized for one big number
+ * is what made the old version look wrong — the tile promised a headline
+ * figure and delivered a squeezed list.
+ *
+ * So volume gets its own full-width band where each token has its own cell
+ * and room to breathe, while the genuinely-single-number stats (count,
+ * approval rate) sit in the compact row above it. Adding a token widens the
+ * band instead of crushing a tile.
+ */
 export function PlatformStatistics() {
   const [s, setS] = useState<Stats | null>(null);
   const [failed, setFailed] = useState(false);
@@ -132,54 +148,109 @@ export function PlatformStatistics() {
 
   // Hide on a failed fetch AND on a successful-but-empty one. A fresh
   // environment (or an empty KV) legitimately returns zeros, and rendering
-  // "0 payments settled · 0% approval" under a heading that claims real
-  // mainnet usage is worse than showing nothing at all — it actively argues
-  // against the product. Only render once there is genuine activity.
+  // "0 payments settled · 0% approval" is worse than showing nothing — it
+  // actively argues against the product.
   const empty = s !== null && s.totalPayments === 0;
   if (failed || empty) return null;
 
   const approval = s ? Math.round(s.compliance.approvalRate * 100) : null;
+  const tokens = s ? Object.entries(s.volumeByToken).filter(([, v]) => v > 0) : [];
+  const trend = s?.trend ?? [];
+  const peak = Math.max(1, ...trend.map((d) => d.count));
 
   return (
     <section className={`${SECTION} bg-panel/20`}>
       <div className="mx-auto max-w-6xl px-6">
         <SectionHead
-          title="Running on Monad Mainnet today"
-          body="Live totals from the same engine that settles every automation. These are real payments, not a demo environment."
+          title="Platform metrics"
+          body="Live figures from the engine that settles every automation, updating as the product is used. Real payments on Monad Mainnet, not a demo environment."
         />
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatTile label="Payments settled" loading={!s}>
-            <span className="tabular-nums">{s?.totalPayments.toLocaleString()}</span>
-          </StatTile>
-          <StatTile label="Total volume" loading={!s}>
-            {s && <VolumeInline byToken={s.volumeByToken} size={16} />}
-          </StatTile>
-          <StatTile label="Compliance approval rate" loading={!s}>
-            <span className="tabular-nums">{approval}%</span>
-          </StatTile>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, ease: "easeOut" }}
+          className="overflow-hidden rounded-2xl border border-border bg-panel/60 shadow-2xl shadow-black/20"
+        >
+          {/* Hairline highlight along the top edge — the premium-surface tell. */}
+          <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
+          {/* Single-number stats + a 7-day activity sparkline. */}
+          <div className="grid divide-y divide-border/70 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <Cell label="Payments settled" loading={!s}>
+              <Figure>{s?.totalPayments.toLocaleString()}</Figure>
+            </Cell>
+
+            <Cell label="Compliance approval rate" loading={!s}>
+              <Figure>{approval}%</Figure>
+            </Cell>
+
+            <Cell label="Activity · last 7 days" loading={!s}>
+              {/* Real per-day payment counts from the same payload. Bars, not a
+                  smoothed line: the values are small integers, and a curve
+                  through them would imply precision that isn't there. */}
+              <div className="flex h-9 items-end gap-1.5" role="img" aria-label={`Payments per day over the last 7 days, ${trend.map((d) => d.count).join(", ")}`}>
+                {trend.map((d) => (
+                  <div key={d.date} className="group/bar relative flex-1">
+                    <div
+                      className="w-full rounded-sm bg-primary/70 transition-colors group-hover/bar:bg-primary"
+                      style={{ height: Math.max(2, (d.count / peak) * 36) }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Cell>
+          </div>
+
+          {/* Volume band — one cell per token, never blended into one number. */}
+          <div className="border-t border-border/70 bg-background/40 px-6 py-5 sm:px-7">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Total volume settled
+            </p>
+            <div className="mt-3 flex flex-wrap items-baseline gap-x-10 gap-y-4">
+              {!s
+                ? Array.from({ length: 2 }).map((_, i) => (
+                    <span key={i} className="h-8 w-32 animate-pulse rounded bg-border/70" />
+                  ))
+                : tokens.length === 0
+                  ? <span className="text-sm text-muted-foreground">No settled volume yet.</span>
+                  : tokens.map(([token, v]) => (
+                      <div key={token} className="flex items-center gap-2.5">
+                        <TokenLogo token={token} size={22} />
+                        <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground sm:text-3xl">
+                          {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-xs font-medium text-muted-foreground">{token}</span>
+                      </div>
+                    ))}
+            </div>
+          </div>
+        </motion.div>
+
+        <p className="mt-5 text-center text-xs text-muted-foreground">
           Aggregate and anonymized — counts and volume only, never a wallet address or an individual&apos;s history.
+          MON and USDC are shown separately because a blended total would be meaningless.
         </p>
       </div>
     </section>
   );
 }
 
-function StatTile({ label, children, loading }: { label: string; children: React.ReactNode; loading: boolean }) {
+function Cell({ label, children, loading }: { label: string; children: React.ReactNode; loading: boolean }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.4, ease: "easeOut" }}
-      className="rounded-xl border border-border bg-panel/60 p-6 text-center transition-colors duration-200 hover:border-primary/30"
-    >
-      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-      <div className="mt-3 flex min-h-[2rem] items-center justify-center text-2xl font-semibold tracking-tight text-foreground">
-        {loading ? <span className="h-7 w-24 animate-pulse rounded bg-border/70" /> : children}
+    <div className="px-6 py-7 transition-colors duration-200 hover:bg-white/[0.015] sm:px-7">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="mt-3 flex min-h-[2.25rem] items-end">
+        {loading ? <span className="h-8 w-24 animate-pulse rounded bg-border/70" /> : children}
       </div>
-    </motion.div>
+    </div>
+  );
+}
+
+function Figure({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-3xl font-semibold tabular-nums tracking-tight text-foreground sm:text-4xl">
+      {children}
+    </span>
   );
 }
 
