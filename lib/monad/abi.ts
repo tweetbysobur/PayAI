@@ -213,6 +213,30 @@ export const AUTOMATION_VAULT_ABI = [
       { name: "recipient", type: "address" }, { name: "balance", type: "uint256" }, { name: "exists", type: "bool" },
     ],
   },
+  /** Reserved — the ONLY durable record of an automationId when creation
+   *  failed after reserve() moved the funds. Required to recover a stranded
+   *  reservation from its transaction receipt (see ReservationRecovery).
+   *  Signature matches AutomationVault.sol exactly. */
+  {
+    type: "event", name: "Reserved", anonymous: false,
+    inputs: [
+      { name: "automationId", type: "bytes32", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: false },
+      { name: "recipient", type: "address", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+      { name: "newBalance", type: "uint256", indexed: false },
+    ],
+  },
+  {
+    type: "event", name: "Refunded", anonymous: false,
+    inputs: [
+      { name: "automationId", type: "bytes32", indexed: true },
+      { name: "depositor", type: "address", indexed: true },
+      { name: "token", type: "address", indexed: false },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
   {
     type: "event", name: "Released", anonymous: false,
     inputs: [

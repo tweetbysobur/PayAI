@@ -19,6 +19,8 @@ import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
+import { MONAD_EXPLORER } from "@/lib/monad/public";
+import { ReservationRecovery } from "@/components/dashboard/ReservationRecovery";
 import { calculateFee } from "@/lib/payment/feeEngine";
 import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
 import { TEMPLATE_CATEGORIES, findTemplate, canLaunchWorkflow, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
@@ -595,6 +597,14 @@ export default function AutomationsPage() {
             </div>
           </div>
         </motion.div>
+      )}
+
+      {/* Always available when a wallet is connected — NOT gated on the
+          reserved map above. A reservation whose automation was never saved
+          (creation failed after reserve()) or was deleted has no record to
+          key a banner off, which is exactly the case that strands money. */}
+      {wallet.address && vaultConfig?.vault && (
+        <ReservationRecovery vault={vaultConfig.vault} explorerBase={MONAD_EXPLORER} />
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
