@@ -67,30 +67,39 @@ export function ReservationRecovery({ vault, explorerBase }: { vault: string | n
       const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
       const client = await getBrowserPublicClient();
 
-      // Work out the automationId: either given directly as bytes32, or
-      // decoded out of the reserve transaction's Reserved event.
+      // Work out the automationId.
+      //
+      // A transaction hash and a bytes32 automationId are BOTH 32 bytes, so
+      // they are indistinguishable by length — an earlier version keyed off
+      // `length === 66` and therefore treated every pasted reserve tx hash as
+      // an id, looked up a reservation that never existed, and told the user
+      // "no reservation exists" while their funds sat in the vault. There is
+      // no way to tell them apart by inspection, so try both: resolve as a
+      // transaction first (that is what users are told to paste), and fall
+      // back to treating the same string as an id.
       let automationId: Hex | null = null;
-      if (isHex(raw) && raw.length === 66) {
-        automationId = raw as Hex;
-      } else if (isHex(raw) && raw.length === 42) {
+      if (isHex(raw) && raw.length === 42) {
         setError("That looks like a wallet address. Paste the reserve transaction hash instead.");
         return;
-      } else if (isHex(raw)) {
-        const receipt = await client.getTransactionReceipt({ hash: raw as Hex });
-        for (const log of receipt.logs) {
-          if (log.address.toLowerCase() !== vaultAddr.toLowerCase()) continue;
-          try {
-            const d = decodeEventLog({ abi: AUTOMATION_VAULT_ABI, data: log.data, topics: log.topics });
-            if (d.eventName === "Reserved") {
-              automationId = (d.args as unknown as { automationId: Hex }).automationId;
-              break;
-            }
-          } catch { /* not the Reserved event */ }
+      } else if (isHex(raw) && raw.length === 66) {
+        try {
+          const receipt = await client.getTransactionReceipt({ hash: raw as Hex });
+          for (const log of receipt.logs) {
+            if (log.address.toLowerCase() !== vaultAddr.toLowerCase()) continue;
+            try {
+              const d = decodeEventLog({ abi: AUTOMATION_VAULT_ABI, data: log.data, topics: log.topics });
+              if (d.eventName === "Reserved") {
+                automationId = (d.args as unknown as { automationId: Hex }).automationId;
+                break;
+              }
+            } catch { /* not the Reserved event */ }
+          }
+        } catch {
+          /* Not a transaction on this chain — fall through and try it as an id. */
         }
-        if (!automationId) {
-          setError("No reservation was found in that transaction. Make sure it's the transaction that reserved the funds.");
-          return;
-        }
+        // Either it wasn't a tx, or it was a tx with no Reserved event. Either
+        // way the same 32 bytes may still be a valid reservation id.
+        if (!automationId) automationId = raw as Hex;
       } else if (/^sch_[a-zA-Z0-9-]{8,}$/.test(raw)) {
         // The app's own id format — hashed the same way the creation flow did.
         automationId = keccak256(stringToHex(raw));
@@ -104,7 +113,12 @@ export function ReservationRecovery({ vault, explorerBase }: { vault: string | n
       })) as readonly [string, string, string, bigint, boolean];
       const [depositor, token, recipient, balance, exists] = r;
 
-      if (!exists) { setError("No reservation exists for that id."); return; }
+      if (!exists) {
+        setError(
+          "No reservation found. If you pasted a transaction hash, check it's the transaction that reserved the funds (the one that sent MON to the vault) and that it succeeded.",
+        );
+        return;
+      }
       if (balance === 0n) { setError("That reservation has already been fully released or refunded."); return; }
       if (wallet.address && depositor.toLowerCase() !== wallet.address.toLowerCase()) {
         setError(`These funds were reserved by ${depositor.slice(0, 8)}…${depositor.slice(-6)}. Only that wallet can refund them.`);
