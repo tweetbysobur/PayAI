@@ -180,7 +180,7 @@ export function TokenSelector({ value, onChange, walletAddress, disabled }: {
                   <Section title="Verified tokens">
                     {filtered.length ? filtered.map((t) => (
                       <TokenRow key={t.address} token={t} walletAddress={walletAddress} onSelect={select} isFavorite={favorites.some((a) => a.toLowerCase() === t.address.toLowerCase())} onToggleFavorite={toggleFavorite} />
-                    )) : <p className="px-3 py-4 text-center text-xs text-muted-foreground">No match — paste a token's contract address to use it directly.</p>}
+                    )) : <p className="px-3 py-4 text-center text-xs text-muted-foreground">No match — paste a token&apos;s contract address to use it directly.</p>}
                   </Section>
                 </>
               )}
