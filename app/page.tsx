@@ -10,6 +10,7 @@ import {
   ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
   Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles, Repeat, Vault,
   Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
+  CalendarClock, Fingerprint,
 } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
@@ -113,11 +114,25 @@ const USE_CASES = [
   { icon: Building2, title: "Business Payments", body: "Vendor and supplier payouts, automated and verifiable." },
 ];
 
+/**
+ * The real seven stages of creating and running an automation, in the order
+ * the product actually performs them. The old four-step version collapsed
+ * token choice, execution mode, and wallet verification into "create &
+ * approve" — which hid the two decisions that most distinguish PayAI
+ * (which token, and Wallet Automation vs Reserved Funds) and glossed over
+ * the fact that authorization is a wallet signature, not a checkbox.
+ *
+ * Steps 1-5 are one-time setup; 6-7 repeat on every run. That split is
+ * marked in the UI, because "sign once, runs forever" is the whole promise.
+ */
 const SHOWCASE = [
-  { icon: PlusCircle, title: "Create & approve", body: "Set amount, recipient, and schedule. Sign once to authorize." },
-  { icon: Eye, title: "PayAI monitors", body: "The engine watches the clock so you don't have to." },
-  { icon: Zap, title: "Executes on time", body: "At the scheduled moment, the payment fires on Monad." },
-  { icon: BadgeCheck, title: "Confirmed on-chain", body: "Settled, recorded, and receipted, every single run." },
+  { icon: PlusCircle, title: "Create automation", body: "Start from a template or from scratch, and set the recipient.", phase: "setup" as const },
+  { icon: Coins, title: "Choose token", body: "MON or any fungible Monad token. Decimals read from the contract.", phase: "setup" as const },
+  { icon: Vault, title: "Choose execution mode", body: "Wallet Automation keeps funds in your wallet; Reserved Funds sets them aside.", phase: "setup" as const },
+  { icon: CalendarClock, title: "Schedule", body: "One-time, daily, weekly, monthly, or a custom interval, in your timezone.", phase: "setup" as const },
+  { icon: Fingerprint, title: "Wallet verification", body: "You sign the exact terms once. PayAI can never exceed them.", phase: "setup" as const },
+  { icon: Zap, title: "Monad execution", body: "At each scheduled moment the payment fires on Monad Mainnet.", phase: "run" as const },
+  { icon: BadgeCheck, title: "Completed", body: "Settled, recorded, and receipted with a verifiable transaction hash.", phase: "run" as const },
 ];
 
 const WHY_MONAD = [
@@ -334,17 +349,51 @@ export default function LandingPage() {
           <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">How automation works</h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">You approve once. PayAI executes on time, every time, and proves each run on-chain.</p>
         </motion.div>
-        <div className="relative grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="absolute left-0 right-0 top-6 hidden h-px bg-border lg:block" />
-          {SHOWCASE.map((s, i) => (
-            <motion.div key={s.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-40px" }} transition={{ delay: i * 0.1, duration: 0.35 }} className="relative z-10 flex flex-col items-center text-center">
-              <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary-ink"><s.icon size={20} /></span>
-              <span className="text-[11px] font-medium uppercase tracking-wide text-primary-ink">Step {i + 1}</span>
-              <p className="mt-1 text-sm font-semibold text-foreground">{s.title}</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
-            </motion.div>
-          ))}
-        </div>
+        {/* Vertical timeline, not a 4-across row: seven steps don't fit a row
+            without wrapping into an ambiguous reading order, and the sequence
+            IS the content here. Left rail connects the nodes; the phase label
+            marks where one-time setup ends and the repeating run begins. */}
+        <ol className="relative mx-auto max-w-2xl">
+          {/* The rail. Inset to the node centre, and stopped short of the last
+              node so the line doesn't dangle past "Completed". */}
+          <div aria-hidden className="absolute bottom-10 left-[19px] top-3 w-px bg-gradient-to-b from-primary/40 via-border to-border" />
+
+          {SHOWCASE.map((s, i) => {
+            const phaseStart = i === 0 || SHOWCASE[i - 1].phase !== s.phase;
+            return (
+              <li key={s.title}>
+                {phaseStart && (
+                  <motion.p
+                    initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
+                    viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.35 }}
+                    className={`relative z-10 ml-[52px] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${i === 0 ? "mb-3" : "mb-3 mt-7"}`}
+                  >
+                    {s.phase === "setup" ? "One-time setup" : "Repeats on every run"}
+                  </motion.p>
+                )}
+                <motion.div
+                  initial={{ opacity: 0, x: -8 }} whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, margin: "-40px" }}
+                  transition={{ delay: Math.min(i * 0.06, 0.3), duration: 0.4, ease: "easeOut" }}
+                  className="group relative flex gap-4 pb-7 last:pb-0"
+                >
+                  {/* Node sits above the rail, with a solid bg so the line is
+                      visually interrupted rather than running through it. */}
+                  <span className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-background text-primary-ink transition-colors duration-200 group-hover:border-primary/60">
+                    <s.icon size={17} />
+                  </span>
+                  <div className="min-w-0 pt-1.5">
+                    <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold tracking-tight text-foreground">
+                      {s.title}
+                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">Step {i + 1}</span>
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
+                  </div>
+                </motion.div>
+              </li>
+            );
+          })}
+        </ol>
 
       </section>
 
