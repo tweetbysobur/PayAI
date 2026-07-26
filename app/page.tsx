@@ -78,13 +78,20 @@ const WHY_MONAD = [
   { title: "Built for real usage", body: "Wallet Automation and Reserved Funds depend on the same high-volume, repeatable transactions Monad is built to handle." },
 ];
 
+/** Answers are kept strictly to what the product does TODAY — including
+ *  where it has limits (Reserved Funds not supporting bulk, fees being free
+ *  only during beta). An FAQ that oversells is the fastest way to lose the
+ *  trust the rest of the page is trying to earn. */
 const FAQS = [
-  { q: "Who controls my money?", a: "You do. PayAI never holds your funds. You approve every payment yourself, and we never ask for your seed phrase or private keys." },
-  { q: "How fast are payments?", a: "Seconds. Every payment lands almost instantly, any time of day, and you get a receipt you can look up whenever you want." },
-  { q: "What can I send?", a: "You can send MON and USDC, swap between them in a tap, and pay easy-to-remember names instead of long wallet addresses." },
-  { q: "Can I set up payments in advance?", a: "Yes. Choose how it runs: Wallet Automation keeps funds in your own wallet until each payment fires, or Reserved Funds sets money aside up front for guaranteed, on-time execution. Either way, PayAI never moves more than the limits you set." },
-  { q: "Is it safe?", a: "Every payment is checked before it sends: the right recipient, the right amount, within your limits. Anything that looks risky is stopped." },
-  { q: "Can I verify my payments?", a: "Always. Every payment is recorded permanently and publicly, so you can prove exactly what happened, anytime." },
+  { q: "Who controls my money?", a: "You do. PayAI is non-custodial — it never holds your funds and never asks for your seed phrase or private keys. Every automation is authorized by a signature from your own wallet, and it can only ever move within the limits you set." },
+  { q: "What is Wallet Automation?", a: "Your funds stay in your wallet until each payment fires. You approve a spending allowance once, and PayAI pulls only the exact amount due at each scheduled run. Nothing is moved in advance, and you can revoke the approval at any time." },
+  { q: "What is Reserved Funds?", a: "Funds are set aside up front in the AutomationVault contract, which guarantees the payment can execute even if your wallet balance changes later. The reservation is locked to the recipient you chose, so it can only ever pay them — and you can refund what's unspent." },
+  { q: "Which tokens can I automate?", a: "Any fungible token on Monad, plus native MON. PayAI reads a token's symbol, name, and decimals directly from its contract rather than assuming them, so a token doesn't need to be on a list to work — paste its address and it's supported." },
+  { q: "How do Bulk Payments work?", a: "Upload a CSV or Excel file, paste addresses, or add recipients manually, then split by equal, fixed, percentage, or custom amounts. PayAI validates every address, catches duplicates, and shows the full allocation before you sign. Bulk runs use Wallet Automation — Reserved Funds can't back a bulk payment, because a vault reservation is locked to a single recipient." },
+  { q: "What are the fees?", a: "There is no platform fee during beta. You pay only Monad network gas, which is a fraction of a cent per payment. If a platform fee is ever introduced, it will be shown on the review screen before you approve anything." },
+  { q: "Are there templates to start from?", a: "Yes — ready-made automations for payroll, contractors, vendors, subscriptions, rent, savings, treasury distributions, DAO payouts, creator revenue splits, launchpad distributions, and more. A template just pre-fills sensible defaults; every field stays editable before you activate it." },
+  { q: "When exactly does a payment execute?", a: "At the time and timezone you set. A scheduler checks for due automations continuously, and each run is idempotent — enforced both in the app and on-chain — so a retry can never double-pay. If a run fails, PayAI retries with a backoff and tells you why." },
+  { q: "Can I verify what happened?", a: "Always. Every execution is recorded on Monad Mainnet with a transaction hash, and the dashboard shows each run's status, amount, recipient, gas, and failure reason if any — including per-recipient results for bulk payments." },
 ];
 
 /** Live previews of the real dashboard, driven entirely by the same
@@ -225,8 +232,10 @@ export default function LandingPage() {
       {/* Why PayAI — manual vs automated */}
       <section id="why" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Why PayAI</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">Stop signing the same payments by hand. Set them once and let PayAI handle the rest.</p>
+          {/* Names the visitor's problem, not the product. The old "Why PayAI"
+              asked them to care about us before we'd shown we understand them. */}
+          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Stop managing payments manually</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">Every recurring payment you sign by hand is a deadline you have to remember and a step that can be missed. Automation removes both.</p>
         </motion.div>
         <div className="grid gap-4 md:grid-cols-2">
           <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.35 }} className="rounded-xl border border-border bg-panel p-6">
@@ -272,8 +281,10 @@ export default function LandingPage() {
       {/* Automation Showcase — animated timeline */}
       <section id="showcase" className="mx-auto max-w-5xl px-6 py-24 sm:py-28">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
-          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">How a scheduled payment runs</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You approve once. PayAI does the rest, on time, every time, and proves it on-chain.</p>
+          {/* "Scheduled payment" undersold it — scheduling is one cadence the
+              engine supports, not the whole product. */}
+          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">How automation works</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">You approve once. PayAI executes on time, every time, and proves each run on-chain.</p>
         </motion.div>
         <div className="relative grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <div className="absolute left-0 right-0 top-6 hidden h-px bg-border lg:block" />
@@ -293,8 +304,11 @@ export default function LandingPage() {
       <section className="border-t border-border bg-panel/30 py-24 sm:py-28">
         <div className="mx-auto max-w-6xl px-6">
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Money you can trust PayAI with</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">You stay in control of your funds, every payment is checked before it sends, and everything arrives in seconds.</p>
+            {/* "Money you can trust PayAI with" asked for trust; this states
+                the property that earns it. Automation is the thing being
+                secured, so the title says so. */}
+            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Built for secure automation</h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">Funds never leave your control. Every run is screened before it sends, executes on Monad Mainnet, and leaves a receipt you can verify.</p>
           </motion.div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {TECHNOLOGY.map((t, i) => (
@@ -407,14 +421,24 @@ export default function LandingPage() {
       {/* Final CTA */}
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
-          <h2 className="text-4xl font-semibold tracking-tight text-foreground">
-            Start moving money in seconds.
+          {/* "Start moving money in seconds" sold speed — the thing PayAI is
+              NOT differentiated on. The close should name the product's actual
+              job, and the button should describe the next action rather than
+              repeating the nav's generic "Launch App". */}
+          <h2 className="text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
+            Build your first automation.
           </h2>
+          <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Connect your wallet, pick a template or start from scratch, and approve once. PayAI handles every run after that.
+          </p>
           <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/connect" className="rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              Launch App
+            <Link href="/connect" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
+              Start automating payments
             </Link>
           </div>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Non-custodial · No platform fee during beta · Monad Mainnet
+          </p>
         </motion.div>
       </section>
 
