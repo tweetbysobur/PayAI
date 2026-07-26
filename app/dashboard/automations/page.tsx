@@ -21,7 +21,7 @@ const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { calculateFee } from "@/lib/payment/feeEngine";
 import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
-import { TEMPLATE_CATEGORIES, findTemplate, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
+import { TEMPLATE_CATEGORIES, findTemplate, canLaunchWorkflow, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
 
 type FundingMode = "wallet" | "reserved";
 type OnchainConfig = {
@@ -246,6 +246,11 @@ export default function AutomationsPage() {
    *  fill in, even from a template — templates set smart defaults, not
    *  locked-in values. */
   function handleTemplateSelect(template: AutomationTemplate | null) {
+    // Defense in depth: the picker already disables and guards Coming Soon
+    // workflows, but the wizard must refuse one regardless of how it was
+    // reached — an unimplemented workflow can never begin creating a
+    // real, money-moving automation.
+    if (template && !canLaunchWorkflow(template)) return;
     setPickerOpen(false);
     if (!template) {
       setDuplicateSeed(null);
@@ -269,6 +274,7 @@ export default function AutomationsPage() {
    *  of the single-recipient one — same pre-fill contract, different
    *  existing wizard. */
   function handleBulkTemplateSelect(template: AutomationTemplate) {
+    if (!canLaunchWorkflow(template)) return; // same guard as the single-recipient path
     setPickerOpen(false);
     setBulkSeed({
       purpose: template.defaults.purpose,

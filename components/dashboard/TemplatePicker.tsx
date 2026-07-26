@@ -3,7 +3,10 @@
 import { useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Search, X, ArrowRight, Sparkles } from "lucide-react";
-import { TEMPLATE_CATEGORIES, TEMPLATES, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
+import {
+  TEMPLATE_CATEGORIES, TEMPLATES, WORKFLOW_STATUS_META, canLaunchWorkflow, workflowStatus,
+  type AutomationTemplate, type TemplateCategory,
+} from "@/lib/automation/templates";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
 /**
@@ -137,18 +140,65 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                     <div key={c.id}>
                       <p className="mb-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground/70">{c.emoji} {c.label}</p>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {grouped.get(c.id)!.map((t) => (
-                          <motion.button
-                            key={t.id}
-                            onClick={() => (t.category === "bulk" ? onSelectBulk(t) : onSelect(t))}
-                            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
-                            className="group flex flex-col rounded-xl border border-border bg-gradient-to-b from-primary/[0.04] to-transparent p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:from-primary/[0.08]"
-                          >
-                            <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><t.icon size={16} /></div>
-                            <p className="text-sm font-semibold text-foreground">{t.name}</p>
-                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.description}</p>
-                          </motion.button>
-                        ))}
+                        {grouped.get(c.id)!.map((t) => {
+                          const status = workflowStatus(t);
+                          const meta = WORKFLOW_STATUS_META[status];
+                          const launchable = canLaunchWorkflow(t);
+                          return (
+                            <motion.div
+                              key={t.id}
+                              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
+                              className={`flex flex-col rounded-xl border p-4 text-left transition-all duration-150 ${
+                                launchable
+                                  ? "group border-border bg-gradient-to-b from-primary/[0.04] to-transparent hover:-translate-y-0.5 hover:border-primary/40 hover:from-primary/[0.08]"
+                                  : "border-border/70 bg-panel/30"
+                              }`}
+                            >
+                              <div className="mb-2.5 flex items-start justify-between gap-2">
+                                <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink ${launchable ? "" : "opacity-50"}`}>
+                                  <t.icon size={16} />
+                                </div>
+                                {/* No badge for "available" — a badge on every
+                                    card is a badge on nothing. */}
+                                {meta.badge && (
+                                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${meta.tone}`}>
+                                    {meta.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-sm font-semibold ${launchable ? "text-foreground" : "text-muted-foreground"}`}>{t.name}</p>
+                              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.description}</p>
+
+                              {/* A badge is never unexplained: beta states its
+                                  limitation, coming soon states the plan. */}
+                              {t.statusNote && (
+                                <p className="mt-2 border-t border-border/60 pt-2 text-[11px] leading-relaxed text-muted-foreground/80">
+                                  {t.statusNote}
+                                </p>
+                              )}
+
+                              <button
+                                type="button"
+                                disabled={!launchable}
+                                aria-disabled={!launchable}
+                                onClick={() => {
+                                  // Guarded here too, not just via `disabled`:
+                                  // a Coming Soon workflow must not be able to
+                                  // open a wizard by any path.
+                                  if (!canLaunchWorkflow(t)) return;
+                                  t.category === "bulk" ? onSelectBulk(t) : onSelect(t);
+                                }}
+                                className={`mt-3 w-full rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
+                                  launchable
+                                    ? "bg-primary/12 text-primary-ink hover:bg-primary/20"
+                                    : "cursor-not-allowed bg-input/60 text-muted-foreground/60"
+                                }`}
+                              >
+                                {meta.action}
+                              </button>
+                            </motion.div>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}

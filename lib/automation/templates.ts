@@ -37,12 +37,37 @@ export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; emoji: 
  *  wizard pre-selects it, the user can still change it before signing. */
 export type BulkDistributionHint = "equal" | "fixed" | "percentage" | "custom";
 
+/**
+ * Maturity of a workflow, shown to the user as a badge.
+ *
+ *   "available"   — fully implemented and proven in production. No badge:
+ *                   a badge on everything is a badge on nothing, and this is
+ *                   the expected default. This is also why the badge
+ *                   "disappears automatically" once a workflow ships — you
+ *                   change one field here and the UI follows.
+ *   "beta"        — genuinely works end to end, but has a real limitation
+ *                   worth disclosing before someone commits money to it.
+ *   "coming_soon" — NOT implemented. The card is readable so the plan is
+ *                   transparent, but creation is blocked at the UI *and*
+ *                   refuses at the picker, so it can never start a wizard.
+ *
+ * Assigning a status is a factual claim about the product. Anything marked
+ * "available" must actually be proven; anything with a known constraint gets
+ * "beta" and states the constraint in `statusNote`.
+ */
+export type WorkflowStatus = "available" | "beta" | "coming_soon";
+
 export interface AutomationTemplate {
   id: string;
   category: TemplateCategory;
   name: string;
   description: string;
   icon: LucideIcon;
+  /** Absent means "available" — the common case stays uncluttered. */
+  status?: WorkflowStatus;
+  /** Required for beta/coming_soon: the specific limitation or the plan.
+   *  Shown in the card so the badge is never unexplained. */
+  statusNote?: string;
   /** Defaults applied to the creation wizard — every field stays fully
    *  editable afterward. Omitted fields keep the wizard's own defaults. */
   defaults: {
@@ -75,11 +100,11 @@ export const TEMPLATES: AutomationTemplate[] = [
   { id: "business-subscription", category: "business", name: "Subscription Billing", description: "Recurring dues that never miss a date.", icon: Repeat2, defaults: { cadence: "monthly", token: "USDC", purpose: "Subscription", fundingMode: "wallet", endMode: "never" } },
 
   // Bulk Payments
-  { id: "bulk-community-rewards", category: "bulk", name: "Community Rewards", description: "Distribute a reward amount across many community wallets at once.", icon: Gift, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "equal" } },
-  { id: "bulk-airdrops", category: "bulk", name: "Airdrops", description: "A one-time token airdrop to a list of recipient addresses.", icon: Coins, defaults: { cadence: "once", token: "MON", purpose: "Business", distributionMethod: "fixed" } },
-  { id: "bulk-salary-distribution", category: "bulk", name: "Salary Distribution", description: "Pay a whole team's salaries in one recurring run.", icon: Wallet2, defaults: { cadence: "monthly", token: "USDC", purpose: "Salary", fundingMode: "reserved", distributionMethod: "custom" } },
-  { id: "bulk-contributor-payments", category: "bulk", name: "Contributor Payments", description: "Recurring payouts to a group of contributors, split however you choose.", icon: Handshake, defaults: { cadence: "monthly", token: "USDC", purpose: "Business", fundingMode: "wallet", distributionMethod: "percentage" } },
-  { id: "bulk-multi-wallet-transfer", category: "bulk", name: "Multi-wallet Transfers", description: "Send different amounts to a set of your own or others' wallets in one go.", icon: Banknote, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "custom" } },
+  { id: "bulk-community-rewards", category: "bulk", name: "Community Rewards", description: "Distribute a reward amount across many community wallets at once.", status: "beta", statusNote: "Fully functional in Wallet Automation. Reserved Funds cannot back a bulk run — a vault reservation is locked to a single recipient.", icon: Gift, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "equal" } },
+  { id: "bulk-airdrops", category: "bulk", name: "Airdrops", description: "A one-time token airdrop to a list of recipient addresses.", status: "beta", statusNote: "Fully functional in Wallet Automation. Reserved Funds cannot back a bulk run — a vault reservation is locked to a single recipient.", icon: Coins, defaults: { cadence: "once", token: "MON", purpose: "Business", distributionMethod: "fixed" } },
+  { id: "bulk-salary-distribution", category: "bulk", name: "Salary Distribution", description: "Pay a whole team's salaries in one recurring run.", status: "beta", statusNote: "Fully functional in Wallet Automation. Reserved Funds cannot back a bulk run — a vault reservation is locked to a single recipient.", icon: Wallet2, defaults: { cadence: "monthly", token: "USDC", purpose: "Salary", fundingMode: "reserved", distributionMethod: "custom" } },
+  { id: "bulk-contributor-payments", category: "bulk", name: "Contributor Payments", description: "Recurring payouts to a group of contributors, split however you choose.", status: "beta", statusNote: "Fully functional in Wallet Automation. Reserved Funds cannot back a bulk run — a vault reservation is locked to a single recipient.", icon: Handshake, defaults: { cadence: "monthly", token: "USDC", purpose: "Business", fundingMode: "wallet", distributionMethod: "percentage" } },
+  { id: "bulk-multi-wallet-transfer", category: "bulk", name: "Multi-wallet Transfers", description: "Send different amounts to a set of your own or others' wallets in one go.", status: "beta", statusNote: "Fully functional in Wallet Automation. Reserved Funds cannot back a bulk run — a vault reservation is locked to a single recipient.", icon: Banknote, defaults: { cadence: "once", token: "USDC", purpose: "Business", distributionMethod: "custom" } },
 
   // Launchpad
   { id: "launchpad-token-sale", category: "launchpad", name: "Token Sale Contribution", description: "A one-time contribution to a token sale.", icon: Rocket, defaults: { cadence: "once", token: "USDC", purpose: "Investment" } },
@@ -112,3 +137,26 @@ export function findTemplate(id: string): AutomationTemplate | undefined {
 }
 
 export const VALID_TEMPLATE_CATEGORIES: string[] = TEMPLATE_CATEGORIES.map((c) => c.id);
+
+/** A template's effective status. Absent = "available", so the common case
+ *  needs no field and a shipped workflow's badge disappears by deleting one. */
+export function workflowStatus(t: AutomationTemplate): WorkflowStatus {
+  return t.status ?? "available";
+}
+
+/** Whether a workflow may start a creation wizard. The picker enforces this
+ *  in addition to disabling the button, so a "Coming Soon" workflow cannot be
+ *  launched by any path — keyboard, programmatic click, or a stale render. */
+export function canLaunchWorkflow(t: AutomationTemplate): boolean {
+  return workflowStatus(t) !== "coming_soon";
+}
+
+/** Presentation for each status. Kept beside the data so the badge, the
+ *  action label, and the disabled state can never drift apart. */
+export const WORKFLOW_STATUS_META: Record<WorkflowStatus, {
+  label: string; action: string; badge: string | null; tone: string;
+}> = {
+  available: { label: "Available", action: "Use Workflow", badge: null, tone: "border-exec-success/30 bg-exec-success/10 text-exec-success" },
+  beta: { label: "Beta", action: "Try Beta", badge: "Beta", tone: "border-primary/40 bg-primary/10 text-primary-ink" },
+  coming_soon: { label: "Coming Soon", action: "Coming Soon", badge: "Coming Soon", tone: "border-exec-scheduled/30 bg-exec-scheduled/10 text-exec-scheduled" },
+};
