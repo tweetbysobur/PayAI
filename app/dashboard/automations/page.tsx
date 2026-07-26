@@ -41,6 +41,48 @@ function autoId32(id: string): Hex {
 }
 
 /**
+ * Client-side ledger of reservation ids whose automation may not have been
+ * saved yet.
+ *
+ * Reserved Funds moves money in the browser BEFORE the record is created
+ * server-side, and the id is generated in the tab. Without writing it down
+ * first, a create that fails after the reserve tx leaves funds in the vault
+ * with no handle anywhere — the failure that already stranded 400 MON.
+ *
+ * localStorage is not a real database, and this is not a substitute for the
+ * proper fix (reserve should not precede a durable record). It is a cheap
+ * safety net that survives the common cases: a reload, a failed POST, a
+ * validation rejection. Scoped by wallet so one browser with several wallets
+ * doesn't offer one wallet's reservation to another — refund() would reject
+ * it on-chain anyway, but showing it would be misleading.
+ */
+const PENDING_KEY = "payai_pending_reservations";
+type PendingReservation = { id: string; wallet: string; at: number };
+
+function readPendingReservations(): PendingReservation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(PENDING_KEY) ?? "[]");
+    return Array.isArray(raw) ? (raw as PendingReservation[]).filter((p) => p && typeof p.id === "string") : [];
+  } catch { return []; }
+}
+
+function rememberPendingReservation(id: string, wallet: string | null) {
+  if (typeof window === "undefined" || !wallet) return;
+  try {
+    const next = [{ id, wallet: wallet.toLowerCase(), at: Date.now() }, ...readPendingReservations().filter((p) => p.id !== id)];
+    localStorage.setItem(PENDING_KEY, JSON.stringify(next.slice(0, 25)));
+  } catch { /* storage unavailable — the recovery-by-tx-hash path still works */ }
+}
+
+function forgetPendingReservation(id: string) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(readPendingReservations().filter((p) => p.id !== id)));
+  } catch { /* ignore */ }
+}
+
+/**
  * Send a tx and wait for it to confirm through the wallet the user actually
  * connected with (wallet.sendTransaction/waitForReceipt), not the raw
  * `window.ethereum` global — with multiple wallet extensions installed,
@@ -249,6 +291,10 @@ export default function AutomationsPage() {
    *  Only a non-zero on-chain balance ever shows a refund button, so we never
    *  offer to refund funds that aren't actually there. */
   const [reserved, setReserved] = useState<Record<string, string>>({});
+  /** Reservations with funds but NO automation record — a create that failed
+   *  after the reserve tx, or a deleted automation. Rendered from the id
+   *  alone, since there is no row to read a name or token off. */
+  const [orphanIds, setOrphanIds] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,28 +315,48 @@ export default function AutomationsPage() {
    */
   const loadReserved = useCallback(async () => {
     const vault = vaultConfig?.vault;
-    const rows = automations.filter((a) => a.fundingMode === "reserved");
-    if (!vault || rows.length === 0) return;
+    if (!vault) return;
+    // Saved automations PLUS ids written down before a reserve tx whose
+    // automation may never have been created. The second set is the whole
+    // point: those have no record, so nothing else would ever surface them.
+    const ids = new Set(automations.filter((a) => a.fundingMode === "reserved").map((a) => a.id));
+    const pending = readPendingReservations()
+      .filter((p) => !wallet.address || p.wallet === wallet.address.toLowerCase());
+    for (const p of pending) ids.add(p.id);
+    if (ids.size === 0) { setReserved({}); setOrphanIds([]); return; }
+
     try {
       const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
       const client = await getBrowserPublicClient();
-      const entries = await Promise.all(rows.map(async (a) => {
+      const byId = new Map(automations.map((a) => [a.id, a]));
+      const entries = await Promise.all([...ids].map(async (id) => {
+        const a = byId.get(id);
         try {
           const bal = (await client.readContract({
             address: vault as Hex, abi: AUTOMATION_VAULT_ABI,
-            functionName: "reservedBalance", args: [autoId32(a.id)],
+            functionName: "reservedBalance", args: [autoId32(id)],
           })) as bigint;
-          const decimals = a.tokenAddress && a.tokenAddress !== NATIVE_TOKEN_ADDRESS ? (a.tokenDecimals ?? 18) : 18;
-          return [a.id, bal > 0n ? (Number(bal) / 10 ** decimals).toString() : ""] as const;
+          if (bal === 0n) {
+            // Fully released or refunded — drop the pending note so it stops
+            // being re-checked forever.
+            if (!a) forgetPendingReservation(id);
+            return [id, ""] as const;
+          }
+          const decimals = a?.tokenAddress && a.tokenAddress !== NATIVE_TOKEN_ADDRESS ? (a.tokenDecimals ?? 18) : 18;
+          return [id, (Number(bal) / 10 ** decimals).toString()] as const;
         } catch {
-          return [a.id, ""] as const;
+          // A read failure must NOT be reported as "no funds" — that is how
+          // money becomes invisible. Leave it out of this pass and retry.
+          return [id, ""] as const;
         }
       }));
-      setReserved(Object.fromEntries(entries.filter(([, v]) => v)));
+      const found = Object.fromEntries(entries.filter(([, v]) => v));
+      setReserved(found);
+      setOrphanIds(Object.keys(found).filter((id) => !byId.has(id)));
     } catch {
       /* RPC hiccup — no refund buttons this pass rather than a wrong claim. */
     }
-  }, [automations, vaultConfig?.vault]);
+  }, [automations, vaultConfig?.vault, wallet.address]);
 
   useEffect(() => { loadReserved(); }, [loadReserved]);
 
@@ -303,14 +369,17 @@ export default function AutomationsPage() {
    * willing. That property is the whole point of Reserved Funds being
    * non-custodial, and it's why this button can exist at all.
    */
-  async function refundReservation(a: Automation) {
+  async function refundReservationById(id: string) {
     const vault = vaultConfig?.vault;
     if (!vault || !wallet.address) return;
-    setBusy(a.id);
+    setBusy(id);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
-      const data = encodeFunctionData({ abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoId32(a.id)] });
+      const data = encodeFunctionData({ abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoId32(id)] });
       await confirmTx(wallet, vault, data);
+      // Only forget the pending note AFTER the refund confirms — dropping it
+      // on a failed attempt would discard the handle to live funds.
+      forgetPendingReservation(id);
       toast("Reserved funds refunded to your wallet");
       await loadReserved();
       load();
@@ -320,6 +389,8 @@ export default function AutomationsPage() {
       setBusy(null);
     }
   }
+
+  const refundReservation = (a: Automation) => refundReservationById(a.id);
 
   /** Template → wizard seed. Only sets fields the template actually
    *  specifies; recipient/amount/exact time are always left for the user to
@@ -573,6 +644,25 @@ export default function AutomationsPage() {
                 Refunds go straight back to your own wallet — the vault only ever lets the original depositor withdraw.
               </p>
               <div className="mt-3 space-y-2">
+                {/* Reservations with funds but no automation record. These are
+                    the dangerous ones — nothing else in the UI knows they
+                    exist — so they're listed first. */}
+                {orphanIds.map((id) => (
+                  <div key={id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-exec-scheduled/30 bg-background/40 px-3.5 py-2.5">
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
+                      Reservation with no automation
+                      <span className="ml-2 font-mono text-[10px] text-muted-foreground">{autoId32(id).slice(0, 10)}…</span>
+                    </span>
+                    <span className="text-sm font-semibold tabular-nums text-foreground">{money(Number(reserved[id]))}</span>
+                    <Button
+                      variant="secondary" className="!px-3 !py-1.5 text-xs"
+                      disabled={busy === id}
+                      onClick={() => refundReservationById(id)}
+                    >
+                      {busy === id ? "Refunding…" : "Refund to my wallet"}
+                    </Button>
+                  </div>
+                ))}
                 {automations.filter((a) => reserved[a.id]).map((a) => (
                   <div key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/70 bg-background/40 px-3.5 py-2.5">
                     <span className="min-w-0 flex-1 truncate text-xs text-foreground">
@@ -1541,6 +1631,19 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
           abi: AUTOMATION_VAULT_ABI, functionName: "reserve",
           args: [autoId32(id), (isNative ? "0x0000000000000000000000000000000000000000" : tokenInfo.address) as Hex, resolved.recipient as Hex, reservedBudget],
         });
+
+        // Write the id down BEFORE the funds move.
+        //
+        // reserve() moves real money, and the automation record is only saved
+        // after it. If anything between the two fails — validation, a dropped
+        // request, a closed tab — the funds are in the vault and the id, which
+        // is generated in this tab and needed by refund(), is gone on reload.
+        // That is how 400 MON became unrecoverable-by-UI once already.
+        // Persisting first means a failed create leaves a durable handle, so
+        // the refund banner can surface the money without the user having to
+        // hunt down a transaction hash. Cleared on success below.
+        rememberPendingReservation(id, wallet.address);
+
         setSavingStep("Waiting for the reservation to confirm on Monad");
         const rHash = await confirmTx(wallet, config.vault, reserveData, isNative ? reservedBudget : undefined);
         body.reserveTxHash = rHash;
@@ -1550,6 +1653,9 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
       const r = await fetch("/api/automations", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Could not create automation.");
+      // Record exists now, so the pending handle is no longer the only way
+      // back to the funds — the automation itself is.
+      if (typeof body.id === "string") forgetPendingReservation(body.id);
       toast("Automation created");
       onCreated();
     } catch (e) {
