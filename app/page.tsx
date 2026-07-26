@@ -1,145 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
-  ShieldCheck, Lock, ArrowUpRight, Receipt,
-  MessageSquare, ShieldHalf, Zap, ExternalLink,
-  FileCheck2, Coins,
-  ScrollText, Wallet as WalletIcon, Eye, Blocks, BadgeCheck,
-  Rocket, BookOpen, Code2, LifeBuoy, Compass, ChevronDown, Sparkles, Repeat, Vault,
-  Clock, X, CheckCircle2, Users, Landmark, Building2, HandCoins, PlusCircle,
-  CalendarClock, Fingerprint,
+  Zap, Wallet as WalletIcon, ChevronDown, Sparkles, Vault,
+  Clock, X, CheckCircle2, Users,
 } from "lucide-react";
-import { Badge } from "@/components/ui";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
-import { SupportedTokens, PlatformStatistics, DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
-import { TemplateShowcase } from "@/components/landing/TemplateShowcase";
-import { Logo } from "@/components/Logo";
+import { PlatformStatistics } from "@/components/landing/PlatformSections";
+import { SiteNav } from "@/components/landing/SiteNav";
+import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
-import { GitHubMark, XMark } from "@/components/BrandIcons";
-import { MONAD_EXPLORER } from "@/lib/monad/public";
-import pkg from "../package.json";
-
-interface OnchainPayment { id: number; merchant: string; amount: number; riskScore: number; compliance: number; timestamp: number }
-interface Onchain {
-  configured: boolean;
-  contracts?: { paymentExecutor: string; merchantRegistry: string; executorExplorer: string };
-  stats?: { payments: number; volume: number; approved: number; rejected: number; requests: number } | null;
-  payments: OnchainPayment[];
-  explorerTxBase?: string;
-}
-
-const FLOW = [
-  { icon: MessageSquare, title: "Say what you want to pay" },
-  { icon: WalletIcon, title: "Approve it in your wallet" },
-  { icon: Zap, title: "It arrives in seconds" },
-];
-
-
-const TECHNOLOGY = [
-  { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
-  { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
-  { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day, with a receipt you can always look up." },
-  { icon: Eye, title: "Nothing to hide", body: "Every payment is recorded permanently, so you can prove it happened whenever you need to." },
-];
-
-/**
- * Grouped, not a flat grid. Ten equally-weighted cards made a visitor read
- * all ten to find the one that mattered to them; grouping lets them skip
- * straight to the column they care about. Automation leads, because that is
- * what PayAI is — the payment features underneath it are the primitives it
- * automates, not the headline.
- *
- * Every item here ships today. Nothing aspirational.
- */
-const FEATURE_GROUPS = [
-  {
-    label: "Automation",
-    icon: Repeat,
-    items: [
-      { title: "Wallet Automation", body: "Recurring and scheduled payments that keep funds in your wallet until each run fires." },
-      { title: "Reserved Funds", body: "Set money aside up front so a payment is guaranteed to execute on time." },
-      { title: "Bulk Payments", body: "Pay hundreds of recipients from one automation, with per-recipient results." },
-      { title: "Templates", body: "Start from payroll, rent, treasury, or a dozen other ready-made automations." },
-    ],
-  },
-  {
-    label: "Payments",
-    icon: Coins,
-    items: [
-      { title: "Any Monad token", body: "MON or any fungible token on Monad. Decimals read from the contract, never assumed." },
-      { title: "Pay a name", body: "Send to a .nad name instead of a 42-character address." },
-      { title: "Swap instantly", body: "Move between MON and USDC in a tap." },
-      { title: "Pay by typing", body: "Describe the payment in plain language and review it before it sends." },
-    ],
-  },
-  {
-    label: "Security",
-    icon: ShieldHalf,
-    items: [
-      { title: "Non-custodial", body: "PayAI never holds your funds and never asks for your keys." },
-      { title: "Screened before sending", body: "Recipient, amount, and limits are checked on every single run." },
-      { title: "Can't double-pay", body: "Each run carries an idempotency key enforced in the app and on-chain." },
-      { title: "On-chain caps", body: "Per-transaction and daily limits are enforced by the contract, not just the app." },
-    ],
-  },
-  {
-    label: "Analytics",
-    icon: ScrollText,
-    items: [
-      { title: "Execution history", body: "Every run with its status, amount, gas, and failure reason if any." },
-      { title: "Automation health", body: "Success rate, upcoming runs, and what failed today, at a glance." },
-      { title: "Always verifiable", body: "Every payment has a Monad transaction hash you can independently check." },
-    ],
-  },
-  {
-    label: "Developer",
-    icon: Code2,
-    items: [
-      { title: "HTTP API", body: "Create and manage automations programmatically with an API key." },
-      { title: "Public contracts", body: "PaymentExecutor, MerchantRegistry, and AutomationVault are verifiable on mainnet." },
-      { title: "Open source", body: "The whole application, execution engine included, is on GitHub." },
-    ],
-  },
-];
-
-const USE_CASES = [
-  { icon: Users, title: "Payroll", body: "Pay a team or contributors on a fixed cycle, automatically." },
-  { icon: Repeat, title: "Subscriptions", body: "Recurring dues and memberships that never miss a date." },
-  { icon: Landmark, title: "Treasury", body: "Scheduled transfers and payouts from a reserved balance." },
-  { icon: Rocket, title: "Launchpads", body: "Time-based distributions to the right wallets, on schedule." },
-  { icon: HandCoins, title: "Personal Payments", body: "Rent, allowances, or gifts that send themselves on time." },
-  { icon: Building2, title: "Business Payments", body: "Vendor and supplier payouts, automated and verifiable." },
-];
-
-/**
- * The real seven stages of creating and running an automation, in the order
- * the product actually performs them. The old four-step version collapsed
- * token choice, execution mode, and wallet verification into "create &
- * approve" — which hid the two decisions that most distinguish PayAI
- * (which token, and Wallet Automation vs Reserved Funds) and glossed over
- * the fact that authorization is a wallet signature, not a checkbox.
- *
- * Steps 1-5 are one-time setup; 6-7 repeat on every run. That split is
- * marked in the UI, because "sign once, runs forever" is the whole promise.
- */
-const SHOWCASE = [
-  { icon: PlusCircle, title: "Create automation", body: "Start from a template or from scratch, and set the recipient.", phase: "setup" as const },
-  { icon: Coins, title: "Choose token", body: "MON or any fungible Monad token. Decimals read from the contract.", phase: "setup" as const },
-  { icon: Vault, title: "Choose execution mode", body: "Wallet Automation keeps funds in your wallet; Reserved Funds sets them aside.", phase: "setup" as const },
-  { icon: CalendarClock, title: "Schedule", body: "One-time, daily, weekly, monthly, or a custom interval, in your timezone.", phase: "setup" as const },
-  { icon: Fingerprint, title: "Wallet verification", body: "You sign the exact terms once. PayAI can never exceed them.", phase: "setup" as const },
-  { icon: Zap, title: "Monad execution", body: "At each scheduled moment the payment fires on Monad Mainnet.", phase: "run" as const },
-  { icon: BadgeCheck, title: "Completed", body: "Settled, recorded, and receipted with a verifiable transaction hash.", phase: "run" as const },
-];
-
-const WHY_MONAD = [
-  { title: "Fast settlement", body: "Payments and automations confirm in seconds, so a scheduled payout or an AI-triggered send never leaves you waiting." },
-  { title: "Low fees", body: "High throughput keeps gas costs low, so frequent and recurring payments stay practical instead of a tax on convenience." },
-  { title: "Built for real usage", body: "Wallet Automation and Reserved Funds depend on the same high-volume, repeatable transactions Monad is built to handle." },
-];
 
 /** Answers are kept strictly to what the product does TODAY — including
  *  where it has limits (Reserved Funds not supporting bulk, fees being free
@@ -157,55 +29,19 @@ const FAQS = [
   { q: "Can I verify what happened?", a: "Always. Every execution is recorded on Monad Mainnet with a transaction hash, and the dashboard shows each run's status, amount, recipient, gas, and failure reason if any — including per-recipient results for bulk payments." },
 ];
 
-/** Live previews of the real dashboard, driven entirely by the same
- *  /api/platform-stats aggregate the hero chips + Platform Status use — so every
- *  screen shows real, current numbers that agree with the rest of the page.
- *  Strictly aggregate + anonymized (counts, volume, an approval rate, recent
- *  amounts with no recipient) — never a wallet address or a specific user's
- *  history. Never fabricated. */
-
-const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
-const X_URL = "https://x.com/usepayAI";
-
-const FOOTER_COLUMNS = [
-  {
-    title: "Product",
-    links: [
-      { label: "Launch App", href: "/connect", icon: Rocket, internal: true },
-      { label: "Documentation", href: `${GITHUB_URL}#readme`, icon: BookOpen, internal: false },
-      { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
-      { label: "Compliance", href: "/dashboard/compliance", icon: FileCheck2, internal: true },
-    ],
-  },
-  {
-    title: "Developers",
-    links: [
-      { label: "GitHub", href: GITHUB_URL, icon: Code2, internal: false },
-      { label: "Smart Contracts", href: `${GITHUB_URL}/tree/main/contracts`, icon: Blocks, internal: false },
-      { label: "API Reference", href: `${GITHUB_URL}/tree/main/app/api`, icon: ScrollText, internal: false },
-      { label: "Changelog", href: `${GITHUB_URL}/blob/main/CHANGELOG.md`, icon: Compass, internal: false },
-    ],
-  },
-  {
-    title: "Resources",
-    links: [
-      { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
-      { label: "Support", href: `${GITHUB_URL}/issues`, icon: LifeBuoy, internal: false },
-      { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
-      { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
-    ],
-  },
-];
-
+/**
+ * The landing page: the five-second pitch and the proof, nothing else.
+ *
+ * It was 15 sections and ~690 lines, which buried the pitch under capability
+ * depth. Everything answering a second-order question ("what exactly can it
+ * do", "how does it work mechanically") now lives on /product and
+ * /how-it-works, reachable from the header nav.
+ *
+ * What stays: hero, the problem being solved, live platform totals as proof,
+ * the FAQ, and one closing CTA. No data fetching of its own any more — the
+ * footer and the stats section each own theirs.
+ */
 export default function LandingPage() {
-  const [onchain, setOnchain] = useState<Onchain | null>(null);
-
-  useEffect(() => {
-    // Only real dependency the landing still needs: the live on-chain config
-    // for the footer's verified smart-contract link. One fetch, no polling.
-    fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
-  }, []);
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-background">
       {/* Ambient depth — a restrained purple glow with a lighter violet hint,
@@ -233,16 +69,7 @@ export default function LandingPage() {
         />
       </div>
 
-      {/* Navigation — product-specific, no SaaS marketing items */}
-      <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2">
-          <Logo size={32} />
-          <span className="text-sm font-semibold text-foreground">PayAI</span>
-        </div>
-        <Link href="/connect" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-          Launch App
-        </Link>
-      </header>
+      <SiteNav />
 
       {/* Hero */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 pb-10 pt-10 sm:pt-16">
@@ -320,214 +147,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Real Use Cases */}
-      <section id="use-cases" className="border-t border-border bg-panel/30 py-24 sm:py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Built for real on-chain payments</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm text-muted-foreground">One automation engine, many ways to use it.</p>
-          </motion.div>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            {USE_CASES.map((u, i) => (
-              <motion.div key={u.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }} whileHover={{ y: -3 }}>
-                <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><u.icon size={18} /></div>
-                  <h3 className="text-sm font-semibold text-foreground">{u.title}</h3>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{u.body}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* Automation Showcase — animated timeline */}
-      <section id="showcase" className="mx-auto max-w-5xl px-6 py-24 sm:py-28">
-        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
-          {/* "Scheduled payment" undersold it — scheduling is one cadence the
-              engine supports, not the whole product. */}
-          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">How automation works</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">You approve once. PayAI executes on time, every time, and proves each run on-chain.</p>
-        </motion.div>
-        {/* Vertical timeline, not a 4-across row: seven steps don't fit a row
-            without wrapping into an ambiguous reading order, and the sequence
-            IS the content here. Left rail connects the nodes; the phase label
-            marks where one-time setup ends and the repeating run begins. */}
-        <ol className="relative mx-auto max-w-2xl">
-          {/* The rail. Inset to the node centre, and stopped short of the last
-              node so the line doesn't dangle past "Completed". */}
-          <div aria-hidden className="absolute bottom-10 left-[19px] top-3 w-px bg-gradient-to-b from-primary/40 via-border to-border" />
-
-          {SHOWCASE.map((s, i) => {
-            const phaseStart = i === 0 || SHOWCASE[i - 1].phase !== s.phase;
-            return (
-              <li key={s.title}>
-                {phaseStart && (
-                  <motion.p
-                    initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
-                    viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.35 }}
-                    className={`relative z-10 ml-[52px] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${i === 0 ? "mb-3" : "mb-3 mt-7"}`}
-                  >
-                    {s.phase === "setup" ? "One-time setup" : "Repeats on every run"}
-                  </motion.p>
-                )}
-                <motion.div
-                  initial={{ opacity: 0, x: -8 }} whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true, margin: "-40px" }}
-                  transition={{ delay: Math.min(i * 0.06, 0.3), duration: 0.4, ease: "easeOut" }}
-                  className="group relative flex gap-4 pb-7 last:pb-0"
-                >
-                  {/* Node sits above the rail, with a solid bg so the line is
-                      visually interrupted rather than running through it. */}
-                  <span className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-background text-primary-ink transition-colors duration-200 group-hover:border-primary/60">
-                    <s.icon size={17} />
-                  </span>
-                  <div className="min-w-0 pt-1.5">
-                    <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold tracking-tight text-foreground">
-                      {s.title}
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">Step {i + 1}</span>
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
-                  </div>
-                </motion.div>
-              </li>
-            );
-          })}
-        </ol>
-
-      </section>
-
-      {/* Technology */}
-      <section className="border-t border-border bg-panel/30 py-24 sm:py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-            {/* "Money you can trust PayAI with" asked for trust; this states
-                the property that earns it. Automation is the thing being
-                secured, so the title says so. */}
-            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Built for secure automation</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">Funds never leave your control. Every run is screened before it sends, executes on Monad Mainnet, and leaves a receipt you can verify.</p>
-          </motion.div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {TECHNOLOGY.map((t, i) => (
-              <motion.div key={t.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }} whileHover={{ y: -3 }}>
-                <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><t.icon size={18} /></div>
-                  <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.body}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section id="how" className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
-        <motion.h2 initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">
-          How it works
-        </motion.h2>
-        <div className="relative grid grid-cols-1 gap-6 sm:grid-cols-3 sm:gap-2">
-          <div className="absolute left-0 right-0 top-7 hidden h-px bg-border sm:block" />
-          {FLOW.map((step, i) => (
-            <motion.div
-              key={step.title}
-              initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }}
-              transition={{ delay: i * 0.08, duration: 0.35 }}
-              className="relative z-10 flex flex-col items-center text-center"
-            >
-              <div className="mb-2 flex h-[56px] w-[56px] items-center justify-center rounded-full border border-border bg-panel">
-                <step.icon size={20} className="text-primary-ink" />
-              </div>
-              <p className="text-xs font-medium leading-snug text-foreground">{step.title}</p>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
-        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Everything you need to automate payments</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">Grouped by what you came here to do. Every capability below works today.</p>
-        </motion.div>
-
-        {/* One column per group. A visitor scans five labels and reads the one
-            that applies to them, instead of ten equal cards. */}
-        <div className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
-          {FEATURE_GROUPS.map((g, gi) => (
-            <motion.div
-              key={g.label}
-              initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-50px" }}
-              transition={{ delay: Math.min(gi * 0.06, 0.24), duration: 0.4, ease: "easeOut" }}
-            >
-              <div className="mb-4 flex items-center gap-2.5 border-b border-border pb-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink">
-                  <g.icon size={15} />
-                </span>
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-foreground">{g.label}</h3>
-              </div>
-              <ul className="space-y-3.5">
-                {g.items.map((it) => (
-                  <li key={it.title} className="group">
-                    <p className="flex items-start gap-2 text-sm font-medium tracking-tight text-foreground">
-                      <CheckCircle2 size={13} className="mt-[3px] shrink-0 text-primary-ink" />
-                      {it.title}
-                    </p>
-                    <p className="mt-0.5 pl-[21px] text-xs leading-relaxed text-muted-foreground">{it.body}</p>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      {/* Templates — answers "can PayAI do MY thing?", which is the question a
-          visitor has immediately after seeing the grouped capabilities above. */}
-      <TemplateShowcase />
-
-      {/* Why PayAI is built on Monad */}
-      <section id="why-monad" className="border-t border-border bg-panel/30 py-24 sm:py-28">
-        <div className="mx-auto grid max-w-6xl gap-10 px-6 lg:grid-cols-2 lg:items-center">
-          <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}>
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted-foreground">
-              <MonadMark size={14} /> Built on Monad
-            </div>
-            <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground sm:text-4xl">
-              Why PayAI is built on Monad
-            </h2>
-            <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-              Automations and AI-triggered payments only feel instant if the chain underneath actually is. Monad&apos;s speed and low fees are what make that real, not a future promise.
-            </p>
-          </motion.div>
-          <div className="space-y-6">
-            {WHY_MONAD.map((item, i) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, x: 12 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, margin: "-40px" }}
-                transition={{ delay: i * 0.08, duration: 0.35 }}
-                className="border-l-2 border-primary/40 pl-5"
-              >
-                <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{item.body}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Supported tokens, live platform totals, developer surface, and the
-          ecosystem PayAI actually plugs into. Placed after the product story
-          and before the FAQ: by this point a visitor knows what PayAI does,
-          and these answer the follow-up questions — what can it move, is
-          anyone using it, can I build on it, does it work with my wallet. */}
-      <SupportedTokens />
+      {/* Live platform totals — the proof the pitch above is real. Kept on
+          the landing page deliberately: it is evidence, not capability
+          depth, so it belongs at the front door. */}
       <PlatformStatistics />
-      <DeveloperApi />
-      <EcosystemIntegrations />
 
       {/* FAQ */}
       <section id="faq" className="mx-auto max-w-3xl px-6 py-24 sm:py-28">
@@ -563,96 +187,7 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
-      <footer className="border-t border-border bg-panel/40">
-        <div className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
-          <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-5">
-            {/* Brand */}
-            <div className="col-span-2 sm:col-span-3 lg:col-span-2">
-              <Link href="/" className="flex items-center gap-2">
-                <Logo size={26} />
-                <span className="text-base font-semibold text-foreground">PayAI</span>
-              </Link>
-              <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Send, swap, and automate payments with wallet confirmation. You stay in control, and money arrives in seconds.
-              </p>
-              <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
-                <MonadMark size={12} /> Built on Monad Mainnet
-              </div>
-            </div>
-
-            {FOOTER_COLUMNS.map((col) => (
-              <div key={col.title}>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{col.title}</p>
-                <ul className="mt-4 space-y-3">
-                  {col.links.map((l) => {
-                    const external = !l.internal;
-                    const Anchor = external ? "a" : Link;
-                    return (
-                      <li key={l.label}>
-                        <Anchor
-                          href={l.href}
-                          {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
-                          className="group flex items-center gap-2 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
-                        >
-                          <l.icon size={14} className="text-muted-foreground/60 transition-colors duration-150 group-hover:text-primary-ink" />
-                          {l.label}
-                        </Anchor>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
-          </div>
-
-          {/* Social */}
-          <div className="mt-12 flex items-center gap-3 border-t border-border pt-8">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="PayAI on GitHub"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <GitHubMark size={16} />
-            </a>
-            <a
-              href={X_URL}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="PayAI on X"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <XMark size={15} />
-            </a>
-          </div>
-
-          {/* Bottom bar */}
-          <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
-            <p>© {new Date().getFullYear()} PayAI. All rights reserved.</p>
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-              <span className="font-mono">v{pkg.version}</span>
-              <span className="hidden h-3 w-px bg-border sm:inline" />
-              <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
-              <span className="hidden h-3 w-px bg-border sm:inline" />
-              {onchain?.configured && onchain.contracts ? (
-                <a
-                  href={onchain.contracts.executorExplorer}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
-                >
-                  <BadgeCheck size={13} /> Contract Live on Monad
-                </a>
-              ) : (
-                <span className="flex items-center gap-1.5 text-muted-foreground/60">
-                  <BadgeCheck size={13} /> Contract status unavailable
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   );
 }
