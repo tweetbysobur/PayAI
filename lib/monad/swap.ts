@@ -19,15 +19,12 @@ import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { getStablecoin } from "./config";
 
-export type SwapToken = "MON" | "USDC";
+/** A token SYMBOL. Any verified Monad token, resolved via resolveSwapSide()
+ *  against the on-chain registry — no longer a two-token union. */
+export type SwapToken = string;
 
 /** Default slippage tolerance (0.5%) — overridable per request. */
 export const DEFAULT_SLIPPAGE = 0.005;
-
-/** Native MON is 18 decimals; USDC is read from config (6). */
-function tokenDecimals(token: SwapToken): number {
-  return token === "MON" ? 18 : getStablecoin().decimals;
-}
 
 /* ── Verified Uniswap v3 deployment on Monad mainnet (chain 143) ──────────────
  * Source: Uniswap official docs — developers.uniswap.org/contracts/v3/reference/
@@ -145,9 +142,37 @@ export interface SwapProvider {
   buildPlan(fromToken: SwapToken, toToken: SwapToken, amountIn: number, wallet: Address, slippage?: number): Promise<SwapPlan>;
 }
 
-/** Resolve a swap token to the ERC-20 it trades as (MON trades as WMON). */
-function tokenAddress(token: SwapToken): Address {
-  return token === "MON" ? UNISWAP_MAINNET.wmon : getStablecoin().address;
+/** A swap side, fully resolved: what to route through, how to scale it, and
+ *  whether it is the chain's native asset (which decides wrap/unwrap). */
+export interface ResolvedSwapSide {
+  symbol: string;
+  /** The address Uniswap routes through — WMON for native MON. */
+  routeAddress: Address;
+  decimals: number;
+  isNative: boolean;
+}
+
+/**
+ * Resolve a swap side from a token symbol against the same on-chain registry
+ * the rest of the app uses, so a swap is no longer limited to MON/USDC while
+ * every other surface (automations, bulk, the token selector) accepts any
+ * fungible Monad token.
+ *
+ * MON resolves to WMON for routing but is flagged native, because Uniswap
+ * always trades the wrapped form — the router wraps on the way in and unwraps
+ * on the way out.
+ */
+export async function resolveSwapSide(symbol: string): Promise<ResolvedSwapSide> {
+  const sym = symbol.trim().toUpperCase();
+  if (sym === "MON") {
+    return { symbol: "MON", routeAddress: UNISWAP_MAINNET.wmon, decimals: 18, isNative: true };
+  }
+  const { getVerifiedTokens } = await import("./tokenRegistry");
+  const match = (await getVerifiedTokens()).find((t) => t.symbol.toUpperCase() === sym && !/^0x0+$/.test(t.address));
+  if (!match) {
+    throw new Error(`${sym} isn't a token PayAI can swap yet. Try MON, USDC, USDT0, AUSD, WETH, or WBTC.`);
+  }
+  return { symbol: match.symbol, routeAddress: match.address as Address, decimals: match.decimals, isNative: false };
 }
 
 const uniswapV3Provider: SwapProvider = {
@@ -161,9 +186,12 @@ const uniswapV3Provider: SwapProvider = {
   async quote(fromToken, toToken, amountIn) {
     if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
     const pub = getPublicClient();
-    const tokenIn = tokenAddress(fromToken);
-    const tokenOut = tokenAddress(toToken);
-    const amountInWei = parseUnits(String(amountIn), tokenDecimals(fromToken));
+    // Registry-resolved, so quoting works for any verified token pair.
+    const inSide = await resolveSwapSide(fromToken);
+    const outSide = await resolveSwapSide(toToken);
+    const tokenIn = inSide.routeAddress;
+    const tokenOut = outSide.routeAddress;
+    const amountInWei = parseUnits(String(amountIn), inSide.decimals);
 
     // Quote every fee tier in parallel; pools that don't exist revert and are
     // simply skipped. The tier with the largest output is the real best route.
@@ -189,7 +217,7 @@ const uniswapV3Provider: SwapProvider = {
       throw new Error(`No liquidity pool found for ${fromToken} → ${toToken} on Monad. This pair may not be tradable yet.`);
     }
 
-    const outDecimals = tokenDecimals(toToken);
+    const outDecimals = outSide.decimals;
     const amountOut = Number(formatUnits(best.amountOut, outDecimals));
     const minOutWei = (best.amountOut * BigInt(Math.round((1 - DEFAULT_SLIPPAGE) * 1e6))) / 1_000_000n;
     return {
@@ -206,58 +234,76 @@ const uniswapV3Provider: SwapProvider = {
     const q = await this.quote(fromToken, toToken, amountIn);
     const pub = getPublicClient();
     const router = UNISWAP_MAINNET.swapRouter02;
-    const tokenIn = tokenAddress(fromToken);
-    const tokenOut = tokenAddress(toToken);
-    const amountInWei = parseUnits(String(amountIn), tokenDecimals(fromToken));
-    const minOutWei = parseUnits(q.minAmountOut.toFixed(tokenDecimals(toToken)), tokenDecimals(toToken));
+    // Resolve both sides against the token registry rather than assuming
+    // MON/USDC, so any verified Monad token can be swapped.
+    const inSide = await resolveSwapSide(fromToken);
+    const outSide = await resolveSwapSide(toToken);
+    const tokenIn = inSide.routeAddress;
+    const tokenOut = outSide.routeAddress;
+    const amountInWei = parseUnits(String(amountIn), inSide.decimals);
+    const minOutWei = parseUnits(q.minAmountOut.toFixed(outSide.decimals), outSide.decimals);
     const steps: UnsignedStep[] = [];
 
-    if (fromToken === "MON") {
-      // Native MON in: the router wraps msg.value, so a single exactInputSingle
-      // with value = amountIn and recipient = the user. No approval needed.
-      const data = encodeFunctionData({
-        abi: SWAP_ROUTER_ABI,
-        functionName: "exactInputSingle",
-        args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: wallet, amountIn: amountInWei, amountOutMinimum: minOutWei, sqrtPriceLimitX96: 0n }],
-      });
-      steps.push({
-        kind: "swap",
-        label: `Swap ${amountIn} MON for USDC`,
-        tx: { to: router, data, value: `0x${amountInWei.toString(16)}` },
-      });
-    } else {
-      // ERC-20 (USDC) in, native MON out. First ensure the router is approved
-      // to pull the USDC; then multicall [swap into the router, unwrap to MON].
+    // An ERC-20 input must be pulled by the router, so it needs an allowance
+    // first. A native input needs none — it arrives as msg.value.
+    if (!inSide.isNative) {
       const allowance = (await pub.readContract({
         address: tokenIn, abi: ERC20_ABI, functionName: "allowance", args: [wallet, router],
       })) as bigint;
       if (allowance < amountInWei) {
-        const approveData = encodeFunctionData({
-          abi: ERC20_ABI, functionName: "approve", args: [router, amountInWei],
-        });
         steps.push({
           kind: "approve",
-          label: `Approve ${amountIn} USDC for the swap`,
-          tx: { to: tokenIn, data: approveData, value: "0x0" },
+          label: `Approve ${amountIn} ${inSide.symbol} for the swap`,
+          tx: {
+            to: tokenIn,
+            data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [router, amountInWei] }),
+            value: "0x0",
+          },
         });
       }
-      // Swap USDC -> WMON with the router itself as recipient, then unwrap the
-      // WMON to native MON and send it to the user — atomically via multicall.
+    }
+
+    const swapLabel = `Swap ${amountIn} ${inSide.symbol} for ${outSide.symbol}`;
+
+    if (outSide.isNative) {
+      // Native OUT: Uniswap can only deliver WMON, so the swap sends it to the
+      // router (ADDRESS_THIS) and unwrapWETH9 forwards real MON to the user —
+      // atomically in one multicall, so a failed unwrap reverts the swap too
+      // and the user is never left holding WMON they didn't ask for.
       const swapCall = encodeFunctionData({
-        abi: SWAP_ROUTER_ABI,
-        functionName: "exactInputSingle",
+        abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
         args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: ADDRESS_THIS, amountIn: amountInWei, amountOutMinimum: minOutWei, sqrtPriceLimitX96: 0n }],
       });
       const unwrapCall = encodeFunctionData({
         abi: SWAP_ROUTER_ABI, functionName: "unwrapWETH9", args: [minOutWei, wallet],
       });
-      const multicallData = encodeFunctionData({
-        abi: SWAP_ROUTER_ABI, functionName: "multicall", args: [[swapCall, unwrapCall]],
-      });
       steps.push({
         kind: "swap",
-        label: `Swap ${amountIn} USDC for MON`,
-        tx: { to: router, data: multicallData, value: "0x0" },
+        label: swapLabel,
+        tx: {
+          to: router,
+          data: encodeFunctionData({ abi: SWAP_ROUTER_ABI, functionName: "multicall", args: [[swapCall, unwrapCall]] }),
+          // Native IN and native OUT can't both apply (from === to is rejected).
+          value: inSide.isNative ? `0x${amountInWei.toString(16)}` : "0x0",
+        },
+      });
+    } else {
+      // ERC-20 out — the token goes straight to the user, and crucially NO
+      // unwrap step. The previous code unwrapped on every non-MON input, which
+      // was only correct because the pair was hardcoded to MON/USDC; applied to
+      // an ERC-20 → ERC-20 swap it would have tried to unwrap a token that
+      // isn't WMON. `value` carries the input only when it is native MON.
+      steps.push({
+        kind: "swap",
+        label: swapLabel,
+        tx: {
+          to: router,
+          data: encodeFunctionData({
+            abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
+            args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: wallet, amountIn: amountInWei, amountOutMinimum: minOutWei, sqrtPriceLimitX96: 0n }],
+          }),
+          value: inSide.isNative ? `0x${amountInWei.toString(16)}` : "0x0",
+        },
       });
     }
 

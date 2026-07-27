@@ -49,8 +49,11 @@ export type QueryIntent = "show_history" | "check_compliance" | "show_balance" |
 
 /** A parsed swap request — distinct from a payment (two tokens, no recipient). */
 export interface SwapIntent {
-  fromToken: "MON" | "USDC";
-  toToken: "MON" | "USDC";
+  /** Token SYMBOL as typed. Validated against the on-chain registry by
+   *  resolveSwapSide(), not by this type — parsing shouldn't decide what is
+   *  swappable, since the registry can gain tokens without touching this. */
+  fromToken: string;
+  toToken: string;
   amount: number | null;
 }
 
@@ -64,10 +67,19 @@ export function detectSwapIntent(text: string): SwapIntent | null {
   const t = text.toLowerCase();
   if (!/\b(swap|convert|exchange|trade)\b/.test(t)) return null;
   // "<verb> [amount] <FROM> (to|for|into|->) <TO>"
-  const m = t.match(/\b(?:swap|convert|exchange|trade)\b[^a-z0-9]*(\d+(?:[.,]\d+)?)?\s*(mon|usdc)\b\s*(?:to|for|into|->|→|>)?\s*(mon|usdc)\b/);
+  //
+  // Token symbols are matched generically rather than as a (mon|usdc) literal.
+  // That literal was the real limit on swapping: "swap 1 MON to WETH" failed
+  // the match entirely, so it was never even recognised as a swap and fell
+  // through to the payment parser. The registry now decides what is swappable
+  // and reports an unknown symbol with a useful message.
+  //
+  // The separator is required (not optional) now that symbols are generic —
+  // otherwise "swap 5 usdc" alone could capture two adjacent words as a pair.
+  const m = t.match(/\b(?:swap|convert|exchange|trade)\b[^a-z0-9]*(\d+(?:[.,]\d+)?)?\s*([a-z0-9]{2,10})\b\s*(?:to|for|into|->|→|>)\s*([a-z0-9]{2,10})\b/);
   if (!m) return null;
-  const from = m[2].toUpperCase() as "MON" | "USDC";
-  const to = m[3].toUpperCase() as "MON" | "USDC";
+  const from = m[2].toUpperCase();
+  const to = m[3].toUpperCase();
   if (from === to) return null;
   const amount = m[1] != null ? Number(m[1].replace(",", ".")) : null;
   return { fromToken: from, toToken: to, amount: Number.isFinite(amount as number) ? amount : null };
