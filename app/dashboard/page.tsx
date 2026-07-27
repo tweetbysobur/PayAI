@@ -8,6 +8,8 @@ import {
   ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles, ArrowRight,
 } from "lucide-react";
 import { Badge, Card, CountUp } from "@/components/ui";
+import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
+import { MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -73,8 +75,17 @@ export default function Overview() {
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, [refresh]);
 
+  const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
   const totalMon = balances.mon ? Number(balances.mon) : null;
   const totalUsdc = balances.usdc ? Number(balances.usdc) : null;
+  // One batched price fetch for both tiles, cached at module level and shared
+  // with the token selector, so this adds no perceptible load cost.
+  const { usdValue } = useTokenPrices([
+    { address: NATIVE_TOKEN_ADDRESS, decimals: 18 },
+    ...(MONAD_USDC ? [{ address: MONAD_USDC, decimals: MONAD_USDC_DECIMALS }] : []),
+  ]);
+  const monUsd = totalMon != null ? formatUsd(usdValue(NATIVE_TOKEN_ADDRESS, totalMon)) : null;
+  const usdcUsd = totalUsdc != null && MONAD_USDC ? formatUsd(usdValue(MONAD_USDC, totalUsdc)) : null;
 
   // Period transaction counts (computed from real settled history).
   const counts = useMemo(() => {
@@ -172,10 +183,10 @@ export default function Overview() {
       {/* Portfolio + headline KPIs (animated) */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, token: "MON" as const, tone: "primary" as const },
-          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, token: "USDC" as const, tone: "success" as const },
-          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "MON", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const },
-          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const },
+          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, token: "MON" as const, tone: "primary" as const, usd: monUsd },
+          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, token: "USDC" as const, tone: "success" as const, usd: usdcUsd },
+          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "MON", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const, usd: null },
+          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const, usd: null },
         ].map((k, i) => {
           const iconTone = { primary: "bg-primary/12 text-primary-ink", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
           return (
@@ -187,6 +198,14 @@ export default function Overview() {
                   {k.value != null && k.unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{k.unit}</span>}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">{k.label}</p>
+                {/* Approximate dollar value, only when the token is genuinely
+                    priceable. Reserved line height so a tile never reflows when
+                    the price resolves a moment after the balance. */}
+                {k.token && (
+                  <p className="mt-0.5 min-h-[1rem] text-[11px] tabular-nums text-muted-foreground/70">
+                    {k.usd ?? ""}
+                  </p>
+                )}
               </Card>
             </motion.div>
           );
