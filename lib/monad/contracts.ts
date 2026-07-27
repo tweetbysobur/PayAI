@@ -495,3 +495,50 @@ export async function registerMerchant(wallet: `0x${string}`, name: string): Pro
   await pub.waitForTransactionReceipt({ hash: txHash, timeout: 90_000 });
   return { txHash, explorerUrl: explorerTx(txHash) };
 }
+
+/**
+ * Refund a Reserved Funds reservation back to the wallet that deposited it.
+ *
+ * Agent-triggered, and safe to be: AutomationVault.refund() authorizes
+ * `msg.sender == r.depositor || isAgent[msg.sender]`, but ALWAYS pays out to
+ * `r.depositor`. The agent can therefore return a user's money but can never
+ * redirect it anywhere — the destination is fixed on-chain, not passed in.
+ *
+ * Returns null (never throws) when there is nothing to do or nothing
+ * configured, because every caller is a cleanup path attached to something
+ * more important: cancelling an automation must still succeed even if the
+ * refund leg fails, or the user would be unable to cancel at all. A failed
+ * refund leaves the reservation intact and retryable, so nothing is lost.
+ */
+export async function refundReservationViaAgent(
+  automationId: string,
+): Promise<{ txHash: Hash; explorerUrl: string; amountRaw: bigint } | null> {
+  const vault = getAutomationVault();
+  const account = getAgentAccount();
+  if (!vault || !account) return null;
+
+  const pub = getPublicClient();
+  const autoIdBytes = requestId32(automationId);
+
+  try {
+    // Nothing reserved (never funded, already refunded, or fully released) —
+    // refund() would revert with "nothing to refund", so skip quietly. This
+    // also makes the whole operation naturally idempotent.
+    const reserved = (await pub.readContract({
+      address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [autoIdBytes],
+    })) as bigint;
+    if (reserved === 0n) return null;
+
+    const { request } = await pub.simulateContract({
+      account, address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoIdBytes],
+    });
+    const wallet = getWalletClient();
+    const txHash = await wallet.writeContract(request);
+    const receipt = await pub.waitForTransactionReceipt({ hash: txHash, timeout: 90_000 });
+    if (receipt.status !== "success") return null;
+    return { txHash, explorerUrl: explorerTx(txHash), amountRaw: reserved };
+  } catch {
+    // Reservation stays intact and can be refunded again later.
+    return null;
+  }
+}

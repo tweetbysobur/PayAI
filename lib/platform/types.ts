@@ -40,7 +40,7 @@ export interface TxLogEntry {
 export type AutomationEventType =
   | "created" | "upcoming_execution" | "executed" | "execution_failed"
   | "paused" | "resumed" | "cancelled" | "completed" | "skipped"
-  | "low_balance" | "reserved_funds_low";
+  | "low_balance" | "reserved_funds_low" | "refunded";
 
 export interface AutomationEvent {
   id: string;
@@ -200,6 +200,8 @@ export interface PaymentAutomation {
   fundingMode?: "wallet" | "reserved";
   /** Reserved Funds: the tx hash that funded the vault reservation (audit trail). */
   reserveTxHash?: string | null;
+  /** Reserved Funds: the tx that returned the unspent reservation to the depositor, set when an automation is cancelled or terminally fails. Presence means the money is already back in their wallet. */
+  reserveRefundTxHash?: string | null;
   /** The Automation Template this was created from (see lib/automation/templates.ts),
    *  or null/absent for a from-scratch ("Custom") automation. Purely a label on
    *  top of the same engine — a template never changes execution behavior,
