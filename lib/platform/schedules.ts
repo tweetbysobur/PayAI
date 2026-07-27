@@ -214,6 +214,9 @@ export async function cancelSchedule(merchantId: string, id: string, opts?: { se
   const wasLive = row.status === "active" || row.status === "scheduled" || row.status === "paused" || row.status === "failed";
   if (wasLive) row.status = "cancelled";
   await persist(row);
+  // A cancelled automation will never run again, so holding its deposit
+  // serves no purpose — hand it straight back.
+  await refundReservedIfAny(row, "the automation was cancelled");
   if (wasLive) {
     await recordAutomationEvent({
       merchantId, automationId: row.id, sender: row.sender, type: "cancelled",
@@ -453,6 +456,18 @@ export async function recordRun(
 
   await persist(row);
 
+  // Terminal states for a Reserved Funds automation: it has either stopped for
+  // good ("failed" — a hard compliance block, or retries exhausted) or finished
+  // its whole schedule ("completed"). Either way nothing further will draw on
+  // the reservation, so any remaining balance goes back to the depositor
+  // instead of sitting in the vault indefinitely.
+  if (row.status === "failed" || row.status === "completed") {
+    await refundReservedIfAny(
+      row,
+      row.status === "failed" ? "the automation stopped after a failed execution" : "the automation finished its schedule",
+    );
+  }
+
   if (run.decision === "executed") {
     const succeeded = run.recipientResults?.filter((r) => r.decision === "executed").length ?? null;
     await recordAutomationEvent({
@@ -542,4 +557,43 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
     amount: row.amount, token: row.token,
   });
   return row;
+}
+
+/**
+ * Return a Reserved Funds automation's unspent reservation to the wallet that
+ * deposited it, and tell the user it happened.
+ *
+ * Called whenever a reserved automation reaches a state where it will never
+ * run again — cancelled, or terminally failed. Before this existed, cancelling
+ * or exhausting a reserved automation left the deposit sitting in the vault
+ * with no path back through the UI at all: the money was recoverable on-chain
+ * but effectively invisible, which is how a real user ended up with 400 MON
+ * stranded.
+ *
+ * Deliberately best-effort and never throws. The status change is the caller's
+ * actual job; if the chain leg fails the reservation stays intact and is
+ * refunded on the next attempt, so the worst case is a delay, never a loss.
+ */
+async function refundReservedIfAny(row: ScheduledPayment, reason: string): Promise<void> {
+  if (row.fundingMode !== "reserved") return;
+  try {
+    const { refundReservationViaAgent } = await import("@/lib/monad/contracts");
+    const result = await refundReservationViaAgent(row.id);
+    if (!result) return; // nothing reserved, or vault/signer unavailable
+
+    const decimals = row.tokenDecimals ?? (row.token === "MON" ? 18 : 6);
+    const amount = Number(result.amountRaw) / 10 ** decimals;
+    row.reserveRefundTxHash = result.txHash;
+    await persist(row);
+    await recordAutomationEvent({
+      merchantId: row.merchantId, automationId: row.id, sender: row.sender,
+      type: "refunded",
+      title: "Reserved funds returned",
+      detail: `${amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${row.token} was refunded to your wallet because ${reason}.`,
+      amount, token: row.token,
+      txHash: result.txHash, explorerUrl: result.explorerUrl,
+    });
+  } catch {
+    /* best-effort — reservation remains refundable */
+  }
 }
