@@ -14,6 +14,7 @@ import { useToast } from "@/components/Toast";
 import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
 import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
+import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 
@@ -1523,6 +1524,10 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const [recipientError, setRecipientError] = useState<string | null>(null);
   const [tokenInfo, setTokenInfo] = useState<TokenInfo | null>(null);
   const { balance, loading: balanceLoading } = useTokenBalance(tokenInfo?.address ?? null, tokenInfo?.decimals ?? null, wallet.address);
+  // Unit price fetched once per token (module-cached); the dollar figures are
+  // plain multiplications, so typing stays instant. Derived after `amount` is
+  // declared below.
+  const { usdValue } = useTokenPrices(tokenInfo ? [{ address: tokenInfo.address, decimals: tokenInfo.decimals }] : []);
   const [amount, setAmount] = useState("");
   const [cadence, setCadence] = useState<Cadence>("weekly");
   const [intervalCount, setIntervalCount] = useState("1");
@@ -1546,6 +1551,8 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
   const startAt = useMemo(() => new Date(`${date}T${time}:00`).getTime(), [date, time]);
   const amountNum = Number(amount);
   const balanceNum = balance == null ? null : Number(balance);
+  const amountUsd = tokenInfo ? formatUsd(usdValue(tokenInfo.address, amountNum)) : null;
+  const balanceUsd = tokenInfo && balanceNum != null ? formatUsd(usdValue(tokenInfo.address, balanceNum)) : null;
   const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0 || (balanceNum != null && amountNum > balanceNum);
   const finalPurpose = purpose === "Other" ? customPurpose.trim() : purpose;
   const estimateGas = tokenInfo?.address === NATIVE_TOKEN_ADDRESS ? "0.002 MON" : "0.004 MON";
@@ -1755,7 +1762,16 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
             <div className="space-y-1">{["Recipient", "Payment", "Automation", "Execution Time", "Purpose", "Review"].map((label, i) => <button key={label} onClick={() => setStep(i + 1)} className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${step === i + 1 ? "bg-primary/12 font-medium text-primary-ink" : i + 1 < step ? "text-foreground hover:bg-input/50" : "text-muted-foreground hover:bg-input/40"}`}>{i + 1 < step ? <CheckCircle2 size={15} className="shrink-0 text-primary-ink" /> : <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] ${step === i + 1 ? "border-primary text-primary-ink" : "border-current"}`}>{i + 1}</span>} {label}</button>)}</div>
             <div className="min-h-[420px]">
               {step === 1 && <Step title="Recipient" detail="Enter a wallet address or .nads domain. PayAI verifies it before you continue."><Input value={recipientInput} onChange={(e) => setRecipientInput(e.target.value)} placeholder=".nad domain or 0x wallet address" className="w-full" />{resolved && <Verified label={resolved.domain ?? "Wallet address"} value={resolved.recipient} />}{recipientError && <p className="mt-2 text-sm text-danger">{recipientError}</p>}</Step>}
-              {step === 2 && <Step title="Payment" detail="Choose a token and amount. Balance and gas are shown before review."><div className="max-w-xs"><TokenSelector value={tokenInfo} onChange={setTokenInfo} walletAddress={wallet.address} /></div><Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="mt-4 w-full" /><div className="mt-3 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? money(Number(balance), tokenInfo?.symbol ?? "") : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
+              {step === 2 && <Step title="Payment" detail="Choose a token and amount. Balance and gas are shown before review."><div className="max-w-xs"><TokenSelector value={tokenInfo} onChange={setTokenInfo} walletAddress={wallet.address} /></div><div className="mt-4">
+                  <Input value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal" className="w-full" />
+                  {/* Live dollar value under the field. Computed locally from a
+                      cached unit price, so it updates as fast as you type —
+                      no request per keystroke. Hidden entirely when the token
+                      has no priceable pool, rather than showing "$0.00". */}
+                  <p className="mt-1.5 min-h-[1.15rem] text-xs tabular-nums text-muted-foreground">
+                    {amountUsd ? `≈ ${amountUsd}` : ""}
+                  </p>
+                </div><div className="mt-1 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? `${money(Number(balance), tokenInfo?.symbol ?? "")}${balanceUsd ? ` · ≈ ${balanceUsd}` : ""}` : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
               {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={choiceClass(cadence === c, "px-3 py-3 text-left capitalize")}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
               {step === 4 && <Step title="Execution Time" detail="Set the first execution date and time, then choose when it ends.">
                 <div className="grid gap-3 sm:grid-cols-3">

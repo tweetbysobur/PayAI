@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Search, Star, ChevronDown, ShieldCheck, X, Loader2 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
+import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
 
 export interface TokenInfo {
   address: string;
@@ -206,6 +207,10 @@ function TokenRow({ token, walletAddress, onSelect, isFavorite, onToggleFavorite
   isFavorite: boolean; onToggleFavorite: (address: string, e: React.MouseEvent) => void;
 }) {
   const { balance, loading } = useTokenBalance(token.address, token.decimals, walletAddress ?? null);
+  // One shared price lookup across the whole list (module-level cache), so a
+  // dropdown of seven tokens doesn't fire seven independent requests.
+  const { usdValue } = useTokenPrices([{ address: token.address, decimals: token.decimals }]);
+  const usd = balance != null ? formatUsd(usdValue(token.address, Number(balance))) : null;
   return (
     <button
       type="button"
@@ -224,7 +229,9 @@ function TokenRow({ token, walletAddress, onSelect, isFavorite, onToggleFavorite
         <p className="text-xs font-medium text-foreground">
           {walletAddress ? (loading ? "…" : balance != null ? Number(balance).toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—") : "—"}
         </p>
-        <p className="text-[10px] text-muted-foreground">USD n/a</p>
+        {/* Only rendered when there's a real price — an unpriceable token shows
+            nothing rather than "$0.00", which would read as worthless. */}
+        {usd && <p className="text-[10px] tabular-nums text-muted-foreground">≈ {usd}</p>}
       </div>
       <span onClick={(e) => onToggleFavorite(token.address, e)} className="shrink-0 text-muted-foreground transition hover:text-warning">
         <Star size={14} fill={isFavorite ? "currentColor" : "none"} className={isFavorite ? "text-warning" : ""} />
