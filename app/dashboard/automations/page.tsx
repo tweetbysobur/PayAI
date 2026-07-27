@@ -495,8 +495,78 @@ export default function AutomationsPage() {
     delete: "Automation deleted", skip_next: "Next execution skipped", execute_now: "Execution triggered",
   };
 
+  /**
+   * After a Wallet Automation is cancelled or deleted, offer to revoke the
+   * ERC-20 allowance it was created with.
+   *
+   * This exists because cancelling used to leave that allowance live forever:
+   * creation approves the automation's WHOLE budget (its full scheduled total,
+   * or roughly a year of volume when open-ended), so a cancelled monthly
+   * automation could leave many months of spending authority granted to the
+   * executor indefinitely. The vault refund is the same story for Reserved
+   * Funds, but that one the agent can settle itself; an allowance can only be
+   * revoked by the token owner, so it must be a tx the user signs.
+   *
+   * Critically, allowance is per (owner, token, spender) — NOT per automation.
+   * Several automations paying in the same token share ONE allowance, so
+   * revoking after cancelling one of them would break the others. We therefore
+   * only offer it when no other live wallet-funded automation uses that token.
+   */
+  async function offerAllowanceRevoke(ended: Automation | undefined) {
+    if (!ended || !wallet.address) return;
+    if ((ended.fundingMode ?? "wallet") !== "wallet") return; // reserved → refunded server-side
+
+    // Native MON has no allowance to revoke.
+    const tokenAddr = ended.tokenAddress;
+    if (!tokenAddr || /^0x0+$/.test(tokenAddr)) return;
+
+    // Would revoking strand another automation? Compare by token address, and
+    // exclude the one that just ended.
+    const stillUsingToken = automations.some(
+      (a) =>
+        a.id !== ended.id &&
+        (a.fundingMode ?? "wallet") === "wallet" &&
+        (a.tokenAddress ?? "").toLowerCase() === tokenAddr.toLowerCase() &&
+        (a.status === "active" || a.status === "scheduled" || a.status === "executing" || a.status === "paused"),
+    );
+    if (stillUsingToken) {
+      toast(`Approval left in place — another active automation still pays in ${ended.token}.`);
+      return;
+    }
+
+    try {
+      const cfg: OnchainConfig = await fetch("/api/automation-config").then((r) => r.json());
+      if (!cfg.executor) return;
+
+      // Nothing granted (already revoked, or fully spent) — say nothing.
+      const client = await (await import("@/lib/monad/browserClient")).getBrowserPublicClient();
+      const allowance = (await client.readContract({
+        address: tokenAddr as Hex,
+        abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
+        functionName: "allowance",
+        args: [wallet.address as Hex, cfg.executor as Hex],
+      })) as bigint;
+      if (allowance === 0n) return;
+
+      const human = Number(allowance) / 10 ** (ended.tokenDecimals ?? 18);
+      const ok = window.confirm(
+        `This automation left PayAI approved to spend up to ${human.toLocaleString(undefined, { maximumFractionDigits: 4 })} ${ended.token} from your wallet.\n\n` +
+        `Revoke that approval now? You'll sign one transaction. Nothing can be pulled from your wallet afterwards.`,
+      );
+      if (!ok) return;
+
+      const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [cfg.executor as Hex, 0n] });
+      await confirmTx(wallet, tokenAddr, data);
+      toast(`Approval revoked — PayAI can no longer spend your ${ended.token}.`);
+    } catch (e) {
+      // Never let this fail the cancel itself; the allowance stays revocable.
+      toast(e instanceof Error ? e.message : "Could not revoke the approval — you can retry from the automation.");
+    }
+  }
+
   async function action(id: string, actionName: "pause" | "resume" | "cancel" | "delete" | "skip_next" | "execute_now") {
     if (!wallet.address) return;
+    const ended = automations.find((a) => a.id === id);
     setBusy(id);
     try {
       const proof = await signMutation(wallet, id, actionName);
@@ -510,6 +580,13 @@ export default function AutomationsPage() {
         toast(j.outcome === "executed" ? "Payment sent" : j.outcome === "error" ? "Execution failed — check activity for details" : "Payment could not be sent — needs review");
       } else {
         toast(ACTION_LABEL[actionName] ?? "Done");
+      }
+      // Reserved Funds is refunded server-side by the agent (the vault pays the
+      // depositor, so the agent is allowed to trigger it). Wallet Automation's
+      // leftover is an ERC-20 ALLOWANCE, which only the token owner can revoke
+      // — so it has to be offered here, as a tx the user signs.
+      if (actionName === "cancel" || actionName === "delete") {
+        await offerAllowanceRevoke(ended);
       }
       load();
     } catch (e) {
