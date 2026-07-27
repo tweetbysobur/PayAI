@@ -27,6 +27,12 @@ import { getPublicClient } from "./wallet";
 
 const PRICE_TTL_MS = 60_000;
 
+/** Max tolerated divergence between a 1-unit and a 10-unit quote before the
+ *  pool is judged too shallow to price honestly. 5% is loose enough for normal
+ *  pool fees and tick spacing, tight enough to reject a pool whose price moves
+ *  materially on a trade that small. */
+const MAX_PRICE_IMPACT = 0.05;
+
 /** Same deployment the swap engine uses, verified to have bytecode on mainnet. */
 const QUOTER = (process.env.MONAD_MAINNET_UNISWAP_QUOTER || "0x661e93cca42afacb172121ef892830ca3b70f08d") as Address;
 const WMON = (process.env.MONAD_MAINNET_WMON || "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A") as Address;
@@ -80,25 +86,50 @@ export async function getUsdPrice(address: string, decimals: number): Promise<nu
   if (hit && Date.now() - hit.at < PRICE_TTL_MS) return hit.usd;
 
   const pub = getPublicClient();
-  // Quote one whole unit so the result is directly a unit price. Thin pools
-  // make tiny inputs round badly, and huge ones eat their own slippage.
-  const amountIn = parseUnits("1", decimals);
 
-  let best: bigint | null = null;
-  for (const fee of FEE_TIERS) {
-    try {
-      const { result } = await pub.simulateContract({
-        address: QUOTER, abi: QUOTER_ABI, functionName: "quoteExactInputSingle",
-        args: [{ tokenIn: routeAddress, tokenOut: USDC, amountIn, fee, sqrtPriceLimitX96: 0n }],
-      });
-      const out = (result as readonly [bigint, bigint, number, bigint])[0];
-      if (out > 0n && (best === null || out > best)) best = out;
-    } catch {
-      /* no pool at this tier — try the next */
+  const quoteUnitPrice = async (units: string): Promise<number | null> => {
+    const amountIn = parseUnits(units, decimals);
+    let best: bigint | null = null;
+    for (const fee of FEE_TIERS) {
+      try {
+        const { result } = await pub.simulateContract({
+          address: QUOTER, abi: QUOTER_ABI, functionName: "quoteExactInputSingle",
+          args: [{ tokenIn: routeAddress, tokenOut: USDC, amountIn, fee, sqrtPriceLimitX96: 0n }],
+        });
+        const out = (result as readonly [bigint, bigint, number, bigint])[0];
+        if (out > 0n && (best === null || out > best)) best = out;
+      } catch {
+        /* no pool at this tier — try the next */
+      }
+    }
+    if (best === null) return null;
+    // Normalise back to a per-1-unit price so the two probes are comparable.
+    return Number(best) / 10 ** USDC_DECIMALS / Number(units);
+  };
+
+  // Two probes at different sizes. In a deep pool the implied unit price is
+  // near-identical; in a shallow one the larger trade walks the curve and the
+  // implied price collapses. That divergence IS the liquidity signal.
+  //
+  // This guard exists because a real pool on this chain quotes WBTC at ~$652
+  // against a true price orders of magnitude higher. Rendering that as
+  // "≈ $652" next to someone's balance would be actively misleading, and on a
+  // payments product a confidently wrong dollar figure is worse than none. So
+  // when the two probes disagree materially we return null and the UI shows
+  // nothing rather than a number nobody should rely on.
+  const [small, large] = await Promise.all([quoteUnitPrice("1"), quoteUnitPrice("10")]);
+
+  let usd: number | null = null;
+  if (small !== null) {
+    if (large === null) {
+      // Can't quote 10 units at all — too shallow to trust.
+      usd = null;
+    } else {
+      const drift = Math.abs(small - large) / small;
+      usd = drift <= MAX_PRICE_IMPACT ? small : null;
     }
   }
 
-  const usd = best === null ? null : Number(best) / 10 ** USDC_DECIMALS;
   cache.set(key, { usd, at: Date.now() });
   return usd;
 }
