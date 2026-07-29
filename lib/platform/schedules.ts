@@ -276,6 +276,13 @@ export async function deleteSchedule(merchantId: string, id: string, opts?: { se
   if (!row || row.merchantId !== merchantId) return false;
   const sender = opts?.sender?.trim().toLowerCase();
   if (sender && (row.sender ?? "").toLowerCase() !== sender) return false;
+  // Deleting removes the row entirely, so this is the LAST chance to refund a
+  // Reserved Funds deposit through the normal automation record — after this,
+  // recovering it requires the manual "paste a tx hash" tool. A user can
+  // delete straight from active/paused without cancelling first, so this
+  // can't assume cancelSchedule already ran. Best-effort and never blocks the
+  // delete itself: refundReservedIfAny never throws.
+  await refundReservedIfAny(row, "the automation was deleted");
   const r = await getRedis();
   if (r) {
     const client = r as unknown as { hdel?: (key: string, field: string) => Promise<unknown> };
