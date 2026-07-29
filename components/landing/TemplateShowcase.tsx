@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { TEMPLATE_CATEGORIES, TEMPLATES, type TemplateCategory } from "@/lib/automation/templates";
+import { TEMPLATE_CATEGORIES, TEMPLATES, WORKFLOW_STATUS_META, workflowStatus, type TemplateCategory } from "@/lib/automation/templates";
 
 /**
  * Automation Templates, on the landing page.
@@ -29,6 +29,8 @@ export function TemplateShowcase() {
   );
   const [active, setActive] = useState<TemplateCategory>(categories[0]?.id ?? "personal");
   const shown = TEMPLATES.filter((t) => t.category === active);
+  const liveCount = TEMPLATES.filter((t) => workflowStatus(t) !== "coming_soon").length;
+  const comingCount = TEMPLATES.length - liveCount;
 
   return (
     <section id="templates" className="border-t border-border py-24 sm:py-28">
@@ -42,8 +44,12 @@ export function TemplateShowcase() {
             Start from a template
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            {TEMPLATES.length} ready-made automations across {categories.length} categories. Each one pre-fills
-            sensible defaults — cadence, funding mode, purpose — and every field stays editable before you activate it.
+            {/* Counts are derived, never written by hand: the moment a workflow
+                flips to available its badge disappears here AND this sentence
+                updates, so the page can't claim more than the app delivers. */}
+            {liveCount} ready to use today{comingCount > 0 ? `, ${comingCount} more in active development` : ""}. Each
+            template pre-fills sensible defaults — cadence, funding mode, purpose — and every field stays editable
+            before you activate it.
           </p>
         </motion.div>
 
@@ -92,13 +98,27 @@ export function TemplateShowcase() {
             {shown.map((t) => (
               <div
                 key={t.id}
-                className="group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
+                className={`group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 ${
+                  workflowStatus(t) === "coming_soon"
+                    ? "opacity-70"
+                    : "hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
+                }`}
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                   <t.icon size={16} />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold tracking-tight text-foreground">{t.name}</p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="text-sm font-semibold tracking-tight text-foreground">{t.name}</p>
+                    {/* The landing page must not advertise a workflow the app
+                        then refuses to open. Same status source as the picker,
+                        so the two can't drift. */}
+                    {WORKFLOW_STATUS_META[workflowStatus(t)].badge && (
+                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${WORKFLOW_STATUS_META[workflowStatus(t)].tone}`}>
+                        {WORKFLOW_STATUS_META[workflowStatus(t)].badge}
+                      </span>
+                    )}
+                  </div>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.description}</p>
                 </div>
               </div>
@@ -110,7 +130,9 @@ export function TemplateShowcase() {
             href="/connect"
             className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input"
           >
-            Browse all {TEMPLATES.length} templates <ArrowRight size={14} className="text-primary-ink" />
+            {/* "all N" would promise N usable workflows; the live count is the
+                honest number to put on a call to action. */}
+            Start automating <ArrowRight size={14} className="text-primary-ink" />
           </Link>
         </div>
       </div>
