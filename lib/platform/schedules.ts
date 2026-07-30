@@ -288,6 +288,17 @@ export async function deleteSchedule(merchantId: string, id: string, opts?: { se
     const client = r as unknown as { hdel?: (key: string, field: string) => Promise<unknown> };
     await client.hdel?.(mKey(row.merchantId), row.id);
     await client.hdel?.(GLOBAL_KEY, row.id);
+    // Every other exit from "live" goes through persist(), which keeps this
+    // index in sync — delete bypasses persist() entirely (it removes the row,
+    // not updates it), so it's the one place that must clean the index itself.
+    // Currently harmless (fetchByIds null-filters a hget miss), but the index
+    // exists specifically so dueSchedules() scales with due count rather than
+    // total-ever-created, and every uncleaned id erodes that.
+    try {
+      await r.zrem(DUE_INDEX_KEY, row.id);
+    } catch {
+      /* the full-scan fallback in dueSchedules/dueForReminder covers this */
+    }
   } else {
     mem.delete(row.id);
   }

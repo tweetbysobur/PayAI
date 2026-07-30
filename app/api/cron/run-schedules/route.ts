@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { dueSchedules, dueForReminder, markReminded, markLowBalanceWarned, recordRun } = await import("@/lib/platform/schedules");
+  const { dueSchedules, dueForReminder, markReminded, markLowBalanceWarned, recordRun, getSchedule } = await import("@/lib/platform/schedules");
   const { executeScheduleNow, executeBulkScheduleNow } = await import("@/lib/automation/execute");
   const { checkFundingHealth } = await import("@/lib/automation/fundingHealth");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
@@ -136,6 +136,23 @@ export async function GET(req: NextRequest) {
     if (!claim.claimed) {
       trace("skip_duplicate", { automationId: s.id, requestId, status: claim.status });
       if (claim.status === "done" && claim.result) results.push({ id: s.id, ...claim.result });
+      continue;
+    }
+
+    // Re-check liveness against a fresh read, not the batch snapshot `s`.
+    // `due` was fetched once at the top of this run; if a user cancels,
+    // pauses, or deletes an automation in the seconds between that fetch and
+    // this exact iteration, `s` still shows its old status and this loop
+    // would otherwise execute a payment the user just told PayAI to stop.
+    // The requestId claim above only guards against re-running the SAME
+    // occurrence twice — it says nothing about whether the automation is
+    // still supposed to run at all. Release rather than complete the claim,
+    // since nothing was attempted: the next legitimate due occurrence (if
+    // any) must not find a stale claim in its way.
+    const fresh = await getSchedule(s.id);
+    if (!fresh || (fresh.status !== "active" && fresh.status !== "scheduled")) {
+      trace("skip_no_longer_live", { automationId: s.id, requestId, status: fresh?.status ?? "deleted" });
+      await releaseRequest(requestId);
       continue;
     }
 
