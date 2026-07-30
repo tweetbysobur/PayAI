@@ -113,6 +113,10 @@ type Automation = {
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
+  /** Set once refundReservedIfAny actually sends a refund tx — the one
+   *  reliable signal that a Reserved Funds deposit came back, since refunds
+   *  run synchronously (no persisted "in progress" state to show separately). */
+  reserveRefundTxHash?: string | null;
   templateId?: string | null; templateCategory?: string | null;
   /** Bulk Payments only — presence marks this as a multi-recipient automation. */
   recipients?: BulkRecipient[];
@@ -1216,6 +1220,8 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
 /** Full detail view for a single automation — real per-automation analytics
  *  (created date, last/next execution, success rate, volume, gas, completion)
  *  plus its own execution timeline, none of it fabricated. */
+interface RefundEvent { id: string; at: number; detail: string; amount?: number | null; token?: string | null; txHash?: string; explorerUrl?: string }
+
 function AutomationDetail({ automation, onClose }: { automation: Automation | null; onClose: () => void }) {
   // Hooks must run unconditionally (before the early return below), so the
   // live-balance check is guarded by optional chaining on its arguments
@@ -1223,6 +1229,26 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   const wallet = useWallet();
   const { balance: liveBalance } = useTokenBalance(automation?.tokenAddress ?? null, automation?.tokenDecimals ?? null, wallet.address);
   useModalA11y(!!automation, onClose);
+
+  // Refund history for THIS automation — filtered client-side from the
+  // wallet's whole event feed (the feed isn't indexed per-automation
+  // server-side, so this is the honest cost of reusing it rather than
+  // standing up a second endpoint for one field).
+  const [refundEvents, setRefundEvents] = useState<RefundEvent[]>([]);
+  useEffect(() => {
+    if (!automation || !wallet.address) { setRefundEvents([]); return; }
+    let cancelled = false;
+    fetch(`/api/automation-events?wallet=${wallet.address}`)
+      .then((r) => r.json())
+      .then((j: { events?: { automationId: string; type: string; id: string; at: number; detail: string; amount?: number | null; token?: string | null; txHash?: string; explorerUrl?: string }[] }) => {
+        if (cancelled) return;
+        const mine = (j.events ?? []).filter((e) => e.automationId === automation.id && e.type === "refunded");
+        setRefundEvents(mine);
+      })
+      .catch(() => { if (!cancelled) setRefundEvents([]); });
+    return () => { cancelled = true; };
+  }, [automation?.id, wallet.address]);
+
   if (!automation) return null;
   const a = automation;
   const m = automationMetrics(a);
@@ -1253,6 +1279,11 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               { label: "Execution Mode", value: a.fundingMode === "reserved" ? "Reserved Funds" : "Wallet Automation" },
               { label: "Timezone", value: a.timezone ?? "—" },
               ...(isBulk ? [{ label: "Distribution Method", value: a.distributionMethod ?? "custom" }] : []),
+              // Only shown for Reserved Funds — Wallet Automation has no
+              // deposit to refund, so there's nothing honest to report here.
+              ...(a.fundingMode === "reserved"
+                ? [{ label: "Refund Status", value: a.reserveRefundTxHash ? "Refunded" : "Not refunded", accent: !!a.reserveRefundTxHash }]
+                : []),
             ]} />
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</p>
@@ -1272,6 +1303,29 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
                 <AnalyticsTile label="Successful" value={String(bulk.successful)} />
                 <AnalyticsTile label="Failed" value={String(bulk.failed)} />
                 <AnalyticsTile label="Total Distributed" value={money(bulk.totalDistributed, a.token)} />
+              </div>
+            )}
+            {refundEvents.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Refund history</p>
+                <div className="space-y-2">
+                  {refundEvents.map((e) => (
+                    <div key={e.id} className="rounded-lg border border-primary/20 bg-primary/[0.04] px-3.5 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {e.amount != null ? money(e.amount, e.token ?? "") : "Refund"} returned to your wallet
+                        </p>
+                        <span className="shrink-0 text-xs text-muted-foreground">{new Date(e.at).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{e.detail}</p>
+                      {e.txHash && (
+                        e.explorerUrl
+                          ? <a href={e.explorerUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block font-mono text-xs text-primary-ink hover:underline">{short(e.txHash)}</a>
+                          : <p className="mt-1 font-mono text-xs text-muted-foreground">{short(e.txHash)}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div>
