@@ -312,3 +312,26 @@ export interface AssistantAnswer {
   data?: unknown;
   action?: { type: string; result: unknown };
 }
+
+/* ── Support Center ──────────────────────────────────────────────────────── */
+
+export type SupportCategory =
+  | "failed_automation" | "missing_refund" | "payment_issue"
+  | "wallet_issue" | "bug_report" | "feature_request" | "general_question";
+
+export type SupportTicketStatus = "open" | "resolved";
+
+export interface SupportTicket {
+  id: string;
+  merchantId: string;
+  sender?: string | null;
+  category: SupportCategory;
+  description: string;
+  /** Optional cross-references the reporter supplies or that get auto-filled
+   *  from context (e.g. opened from an Automation Details page). Never
+   *  required — a general question has neither. */
+  automationId?: string | null;
+  txHash?: string | null;
+  status: SupportTicketStatus;
+  createdAt: number;
+}

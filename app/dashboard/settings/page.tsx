@@ -1,6 +1,7 @@
 "use client";
 
-import { Wallet, ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { Wallet, ShieldCheck, LifeBuoy, ArrowRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { useWallet } from "@/lib/wallet/useWallet";
 import { MonadMark } from "@/components/MonadMark";
@@ -47,6 +48,19 @@ export default function Settings() {
         <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" />
         <p>PayAI never asks for your seed phrase or private key. Your data — payments, automations, activity — is scoped to your connected wallet address only.</p>
       </div>
+
+      <Card title="Support" className="mt-4">
+        <Link href="/dashboard/support" className="flex items-center justify-between gap-3 rounded-lg transition-colors hover:bg-input/40">
+          <div className="flex items-center gap-3 p-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><LifeBuoy size={18} /></div>
+            <div>
+              <p className="text-sm text-foreground">Report a problem or ask a question</p>
+              <p className="text-xs text-muted-foreground">Failed automations, missing refunds, payments, or your wallet.</p>
+            </div>
+          </div>
+          <ArrowRight size={15} className="mr-1 shrink-0 text-muted-foreground" />
+        </Link>
+      </Card>
     </div>
   );
 }
