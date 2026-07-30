@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import {
   AlertTriangle, ArrowRight, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
   Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
-  Lock, Wallet, Zap, SkipForward, Search, Users, Vault,
+  Lock, Wallet, Zap, SkipForward, Search, Users, Vault, LifeBuoy,
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
@@ -1265,7 +1265,18 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
         <motion.div role="dialog" aria-modal="true" aria-label={`Automation details: ${a.purpose ?? a.memo ?? "Automation"}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div><p className="text-sm font-semibold text-foreground">{a.purpose ?? a.memo ?? "Automation"}</p><p className="text-xs text-muted-foreground">{money(a.amount, a.token)} · {cadenceLabel(a)}</p></div>
-            <button onClick={onClose} aria-label="Close automation details" className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X size={16} /></button>
+            <div className="flex items-center gap-1.5">
+              <a
+                href={`/dashboard/support?automationId=${encodeURIComponent(a.id)}&category=${
+                  a.fundingMode === "reserved" && !a.reserveRefundTxHash && (a.status === "cancelled" || a.status === "failed")
+                    ? "missing_refund" : "failed_automation"
+                }`}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+              >
+                <LifeBuoy size={13} /> Report issue
+              </a>
+              <button onClick={onClose} aria-label="Close automation details" className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X size={16} /></button>
+            </div>
           </div>
           <div className="space-y-5 p-5">
             <ReviewGrid rows={[
