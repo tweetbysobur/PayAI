@@ -295,7 +295,7 @@ const monadProvider: PaymentProvider = {
         const tokenDecimals = isNative ? 18 : (req.tokenDecimals ?? getStablecoin().decimals);
         const r = await releaseFromVault({
           automationId: req.automationId ?? "", amount, tokenDecimals,
-          requestId: req.requestId,
+          requestId: req.requestId, vaultAddress: req.vaultAddress,
         });
         return {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
@@ -332,6 +332,7 @@ const monadProvider: PaymentProvider = {
           from: req.fromWallet as `0x${string}`, token: erc20 as `0x${string}`, tokenDecimals, merchant: to,
           amount, riskScore: req.riskScore ?? 0, decisionMeta,
           ref: req.invoiceRef ?? req.purpose ?? null, requestId: req.requestId,
+          executorAddress: req.executorAddress as `0x${string}` | null | undefined,
         });
         return {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
@@ -352,7 +353,10 @@ const monadProvider: PaymentProvider = {
     // compliance, requestId) on-chain in a single transaction — the canonical
     // on-chain execution layer, with idempotency enforced by the contract.
     const { executorEnabled } = await import("../monad/contracts");
-    if (executorEnabled()) {
+    // An automation's own pinned executorAddress counts as "available" even
+    // if a later redeploy changed the global config to a different address —
+    // this automation still has a real, working executor to settle against.
+    if (executorEnabled() || req.executorAddress) {
       try {
         if (isNative) {
           const { executeNativeViaExecutor } = await import("../monad/contracts");
@@ -364,6 +368,7 @@ const monadProvider: PaymentProvider = {
             decisionMeta,
             ref: req.invoiceRef ?? req.purpose ?? null,
             requestId: req.requestId,
+            executorAddress: req.executorAddress as `0x${string}` | null | undefined,
           });
           return {
             status: "settled", mode: "monad", network: req.network,
@@ -382,6 +387,7 @@ const monadProvider: PaymentProvider = {
           // separate "generic ERC-20 executor," just a parameter.
           tokenAddress: req.tokenAddress as `0x${string}` | undefined,
           tokenDecimals: req.tokenDecimals ?? undefined,
+          executorAddress: req.executorAddress as `0x${string}` | null | undefined,
         });
         return {
           status: "settled", mode: "monad", network: req.network,

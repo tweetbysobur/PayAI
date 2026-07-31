@@ -54,6 +54,18 @@ export interface ExecuteInput {
   /** Settle in this ERC-20 instead of the configured stablecoin — any Monad token works, PaymentExecutor takes an arbitrary token address. */
   tokenAddress?: `0x${string}`;
   tokenDecimals?: number;
+  /**
+   * Use THIS PaymentExecutor deployment instead of whatever is currently
+   * configured globally. An automation stamps the executor address that was
+   * actually live when it was created, so a later contract redeploy (a new
+   * address in MONAD_MAINNET_PAYMENT_EXECUTOR) affects only NEW automations
+   * — an existing one keeps executing against the exact contract its
+   * Wallet Automation ERC-20 approval was granted to, forever, with no
+   * forced re-approval. Falls back to getPaymentExecutor() when absent, so
+   * every caller that predates this field (or isn't automation-scoped at
+   * all, e.g. the AI chat's instant-payment path) behaves exactly as before.
+   */
+  executorAddress?: `0x${string}` | null;
 }
 
 export interface ExecuteResult {
@@ -109,7 +121,7 @@ async function buildAuditTrail(
  * the same id (API retry, UI double-click), regardless of server state.
  */
 export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteResult> {
-  const executor = getPaymentExecutor();
+  const executor = input.executorAddress ?? getPaymentExecutor();
   const account = getAgentAccount();
   if (!executor) throw new Error("PaymentExecutor not configured (MONAD_MAINNET_PAYMENT_EXECUTOR).");
   if (!account) throw new Error("No Monad signer configured.");
@@ -167,7 +179,7 @@ export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteRe
 
 /** Native-MON counterpart of executeViaExecutor — same idempotency/limit guarantees. */
 export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount"> & { amountWei: bigint }): Promise<ExecuteResult> {
-  const executor = getPaymentExecutor();
+  const executor = input.executorAddress ?? getPaymentExecutor();
   const account = getAgentAccount();
   if (!executor) throw new Error("PaymentExecutor not configured (MONAD_MAINNET_PAYMENT_EXECUTOR).");
   if (!account) throw new Error("No Monad signer configured.");
@@ -219,7 +231,7 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
 export async function executePaymentFromViaExecutor(
   input: ExecuteInput & { from: `0x${string}`; token: `0x${string}`; tokenDecimals?: number },
 ): Promise<ExecuteResult> {
-  const executor = getPaymentExecutor();
+  const executor = input.executorAddress ?? getPaymentExecutor();
   const account = getAgentAccount();
   if (!executor) throw new Error("PaymentExecutor not configured (MONAD_MAINNET_PAYMENT_EXECUTOR).");
   if (!account) throw new Error("No Monad signer configured.");
@@ -275,9 +287,12 @@ export async function executePaymentFromViaExecutor(
  * agent can neither exceed the reservation nor redirect it.
  */
 export async function releaseFromVault(
-  input: { automationId: string; amount: number; tokenDecimals: number; requestId: string },
+  input: { automationId: string; amount: number; tokenDecimals: number; requestId: string; vaultAddress?: string | null },
 ): Promise<ExecuteResult> {
-  const vault = getAutomationVault();
+  // Use the exact vault this automation reserved into — see ExecuteInput's
+  // executorAddress doc comment for why: a later AutomationVault redeploy
+  // must not orphan an existing reservation's release/refund path.
+  const vault = (input.vaultAddress as `0x${string}` | undefined) ?? getAutomationVault();
   const account = getAgentAccount();
   if (!vault) throw new Error("AutomationVault not configured (MONAD_MAINNET_AUTOMATION_VAULT).");
   if (!account) throw new Error("No Monad signer configured.");
@@ -512,8 +527,10 @@ export async function registerMerchant(wallet: `0x${string}`, name: string): Pro
  */
 export async function refundReservationViaAgent(
   automationId: string,
+  vaultAddress?: string | null,
 ): Promise<{ txHash: Hash; explorerUrl: string; amountRaw: bigint } | null> {
-  const vault = getAutomationVault();
+  // Same per-automation vault override as releaseFromVault.
+  const vault = (vaultAddress as `0x${string}` | undefined) ?? getAutomationVault();
   const account = getAgentAccount();
   if (!vault || !account) return null;
 

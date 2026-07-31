@@ -360,6 +360,9 @@ async function handleBulkCreate(
     fundingMode, templateId, templateCategory,
     recipients: resolvedRows.map((r) => ({ input: r.input, address: r.address, domain: r.domain, amount: r.amount, note: r.note })),
     distributionMethod: method,
+    // Same per-automation contract pinning as the single-recipient path.
+    executorAddress: executor ?? null,
+    vaultAddress: (await import("@/lib/monad/config")).getAutomationVault() ?? null,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
@@ -561,6 +564,11 @@ export async function POST(req: NextRequest) {
     reserveTxHash: body.reserveTxHash ?? null,
     id: fundingMode === "reserved" ? body.id : undefined,
     templateId, templateCategory,
+    // Stamp whichever contract is actually live right now, so a later
+    // redeploy only affects automations created AFTER it — this one keeps
+    // executing/releasing against the exact address recorded here forever.
+    executorAddress: (await import("@/lib/monad/config")).getPaymentExecutor() ?? null,
+    vaultAddress: (await import("@/lib/monad/config")).getAutomationVault() ?? null,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
