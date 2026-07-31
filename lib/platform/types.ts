@@ -141,6 +141,23 @@ export interface PaymentAutomation {
   tokenDecimals?: number;
   /** Curated logo URI for display, if the token was verified at creation; null/absent falls back to the generic token badge. */
   tokenLogo?: string | null;
+  /**
+   * The PaymentExecutor / AutomationVault contract address that was actually
+   * live when this automation was created, stamped once and never changed.
+   * This is what lets a contract redeploy (a fix, a new feature) ship
+   * without breaking every existing automation: execution reads THESE
+   * addresses instead of always calling the current global config, so an
+   * existing Wallet Automation keeps using the exact executor its ERC-20
+   * approval was granted to, and an existing Reserved Funds automation keeps
+   * releasing/refunding from the exact vault holding its deposit — forever,
+   * with no forced re-approval or fund migration. Absent on automations
+   * created before this existed; execution falls back to the current global
+   * config for those, which is correct since they were created against
+   * whatever was live at the time this field was introduced.
+   */
+  executorAddress?: string | null;
+  /** Same per-automation pinning as executorAddress, for AutomationVault (Reserved Funds only). */
+  vaultAddress?: string | null;
   /** Resolved 0x address the payment settles to. */
   recipient: string;
   /** Original .nad/.nads domain, when the recipient was resolved from one. */

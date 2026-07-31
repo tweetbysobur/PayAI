@@ -82,6 +82,11 @@ export async function createSchedule(
     /** Reserved Funds only: a client-generated id the vault reservation was
      *  keyed to, so the on-chain reservation and the stored record share one id. */
     id?: string;
+    /** The PaymentExecutor/AutomationVault contract addresses currently live
+     *  at creation time, stamped once so a later redeploy never affects this
+     *  automation — see PaymentAutomation.executorAddress/vaultAddress. */
+    executorAddress?: string | null;
+    vaultAddress?: string | null;
     templateId?: string | null; templateCategory?: string | null;
     recipients?: import("./types").BulkRecipient[];
     distributionMethod?: import("./types").DistributionMethod;
@@ -124,6 +129,8 @@ export async function createSchedule(
     templateCategory: input.templateCategory ?? null,
     recipients: input.recipients,
     distributionMethod: input.distributionMethod,
+    executorAddress: input.executorAddress ?? null,
+    vaultAddress: input.vaultAddress ?? null,
   };
   await persist(row);
   await recordAutomationEvent({
@@ -596,7 +603,10 @@ async function refundReservedIfAny(row: ScheduledPayment, reason: string): Promi
   if (row.fundingMode !== "reserved") return;
   try {
     const { refundReservationViaAgent } = await import("@/lib/monad/contracts");
-    const result = await refundReservationViaAgent(row.id);
+    // The vault THIS automation actually reserved into — never the current
+    // global config, which may point at a newer AutomationVault deployment
+    // by the time this automation is cancelled/completed.
+    const result = await refundReservationViaAgent(row.id, row.vaultAddress);
     if (!result) return; // nothing reserved, or vault/signer unavailable
 
     const decimals = row.tokenDecimals ?? (row.token === "MON" ? 18 : 6);

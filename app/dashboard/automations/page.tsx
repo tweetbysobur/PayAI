@@ -113,6 +113,11 @@ type Automation = {
   cadence: Cadence; intervalCount?: number; intervalUnit?: IntervalUnit; nextRun: number; status: Status;
   createdAt: number; modifiedAt?: number | null; runs: Run[]; purpose?: string; memo?: string; timezone?: string; runsCompleted: number; failureCount: number; lastError?: string | null; sender?: string | null;
   endCondition?: EndCondition; fundingMode?: "wallet" | "reserved";
+  /** The exact PaymentExecutor this automation's ERC-20 approval was granted
+   *  to, stamped at creation — may differ from the currently configured
+   *  executor after a contract redeploy. Absent on automations created before
+   *  this existed, which really were approved against whatever is current. */
+  executorAddress?: string | null;
   /** Set once refundReservedIfAny actually sends a refund tx — the one
    *  reliable signal that a Reserved Funds deposit came back, since refunds
    *  run synchronously (no persisted "in progress" state to show separately). */
@@ -540,8 +545,17 @@ export default function AutomationsPage() {
     }
 
     try {
-      const cfg: OnchainConfig = await fetch("/api/automation-config").then((r) => r.json());
-      if (!cfg.executor) return;
+      // Use the exact executor THIS automation's approval was granted to —
+      // never just the current global config, which may point at a newer
+      // PaymentExecutor deployment by the time this automation ends. Checking
+      // allowance against the wrong (new) address would read 0 and silently
+      // skip revoking a real stale approval still standing on the old one.
+      let executor = ended.executorAddress;
+      if (!executor) {
+        const cfg: OnchainConfig = await fetch("/api/automation-config").then((r) => r.json());
+        executor = cfg.executor ?? null;
+      }
+      if (!executor) return;
 
       // Nothing granted (already revoked, or fully spent) — say nothing.
       const client = await (await import("@/lib/monad/browserClient")).getBrowserPublicClient();
@@ -549,7 +563,7 @@ export default function AutomationsPage() {
         address: tokenAddr as Hex,
         abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
         functionName: "allowance",
-        args: [wallet.address as Hex, cfg.executor as Hex],
+        args: [wallet.address as Hex, executor as Hex],
       })) as bigint;
       if (allowance === 0n) return;
 
@@ -560,7 +574,7 @@ export default function AutomationsPage() {
       );
       if (!ok) return;
 
-      const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [cfg.executor as Hex, 0n] });
+      const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [executor as Hex, 0n] });
       await confirmTx(wallet, tokenAddr, data);
       toast(`Approval revoked — PayAI can no longer spend your ${ended.token}.`);
     } catch (e) {

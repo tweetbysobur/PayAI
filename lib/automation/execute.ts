@@ -34,6 +34,7 @@ async function executeOnePayment(input: {
   amount: number; token: string; tokenAddress?: string | null; tokenDecimals?: number | null;
   recipient: string; domain?: string | null;
   purpose?: string | null; memo?: string | null; fundingMode?: "wallet" | "reserved";
+  executorAddress?: string | null; vaultAddress?: string | null;
 }): Promise<ScheduleExecutionResult> {
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
   const { recordTx } = await import("@/lib/platform/store");
@@ -52,6 +53,8 @@ async function executeOnePayment(input: {
     fundingMode: input.fundingMode,
     fromWallet: input.sender,
     automationId: input.automationId,
+    executorAddress: input.executorAddress,
+    vaultAddress: input.vaultAddress,
   };
 
   const compliance = runValidation(request);
@@ -93,6 +96,7 @@ export async function executeScheduleNow(s: ScheduledPayment, requestId: string)
     amount: s.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
     recipient: s.recipient, domain: s.domain,
     purpose: s.purpose, memo: s.memo, fundingMode: s.fundingMode,
+    executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
   });
 }
 
@@ -127,6 +131,7 @@ export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId:
       amount: r.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
       recipient: r.address, domain: r.domain,
       purpose: s.purpose, memo: r.note ?? s.memo, fundingMode: s.fundingMode,
+      executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
     });
     results.push({
       address: r.address, domain: r.domain, amount: r.amount,

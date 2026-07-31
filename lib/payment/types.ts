@@ -77,6 +77,10 @@ export interface PaymentRequest {
   tokenAddress?: string | null;
   /** The token's on-chain decimals, resolved once at creation time and stored with the automation — never re-guessed at execution time. */
   tokenDecimals?: number | null;
+  /** The exact PaymentExecutor this automation was created against — see PaymentAutomation.executorAddress. Absent falls back to the current global config. */
+  executorAddress?: string | null;
+  /** The exact AutomationVault this automation was created against — see PaymentAutomation.vaultAddress. Absent falls back to the current global config. */
+  vaultAddress?: string | null;
 }
 
 /* ── Compliance ─────────────────────────────────────────────────────────── */
