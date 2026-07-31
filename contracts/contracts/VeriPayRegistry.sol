@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
+}
+
 /**
  * @title VeriPayRegistry
  * @notice On-chain audit trail for PayAI. Every payment that clears the
@@ -13,33 +17,41 @@ pragma solidity 0.8.24;
  *           - payAndRecord():  pull USDC from the agent and pay the recipient in
  *                              the same transaction it's recorded (atomic).
  *
- *         Only authorized agents may write. The deployer is the owner and can
- *         add/remove agents and pause writes.
+ * @custom:security-property INVARIANT-VR-1: Agent-Only Audit Logging
+ *   Only authorized agents (`isAgent[msg.sender] == true`) can call `recordPayment` or `payAndRecord`.
+ *   Unauthorized callers MUST revert.
+ *
+ * @custom:security-property INVARIANT-VR-2: Risk Score Ceiling
+ *   `riskScore` MUST be strictly <= 100. Any value > 100 MUST revert.
+ *
+ * @custom:security-property INVARIANT-VR-3: Pause Compliance
+ *   When `paused == true`, write operations MUST revert.
  */
-interface IERC20 {
-    function transferFrom(address from, address to, uint256 value) external returns (bool);
-}
-
 contract VeriPayRegistry {
     /* ── Roles ──────────────────────────────────────────────────────────── */
+    /// @notice Admin owner address.
     address public owner;
+
+    /// @notice Authorized agent wallets.
     mapping(address => bool) public isAgent;
+
+    /// @notice Global pause status.
     bool public paused;
 
     /* ── Storage ────────────────────────────────────────────────────────── */
     struct Payment {
-        address agent;       // the PayAI agent wallet that submitted it
-        address recipient;   // payee
-        address token;       // stablecoin contract (USDC/aUSDC)
-        uint256 amount;      // base units
+        address agent;       // PayAI agent wallet that submitted it
+        address recipient;   // Payee address
+        address token;       // Stablecoin contract (USDC/aUSDC)
+        uint256 amount;      // Base units
         uint16 riskScore;    // 0–100, from PayAI risk engine
-        uint64 timestamp;    // block time
-        bytes32 purposeHash; // keccak256 of the payment purpose / memo
-        bytes32 ref;         // off-chain reference (intent id / invoice)
+        uint64 timestamp;    // Block time
+        bytes32 purposeHash; // keccak256 of payment purpose/memo
+        bytes32 ref;         // Off-chain reference (intent ID / invoice)
     }
 
     Payment[] private _payments;
-    /// recipient => indices into _payments
+    /// Recipient wallet => array of indices into _payments
     mapping(address => uint256[]) private _byRecipient;
 
     /* ── Events ─────────────────────────────────────────────────────────── */
@@ -62,6 +74,7 @@ contract VeriPayRegistry {
         require(msg.sender == owner, "not owner");
         _;
     }
+
     modifier onlyAgent() {
         require(isAgent[msg.sender], "not agent");
         require(!paused, "paused");
@@ -70,22 +83,26 @@ contract VeriPayRegistry {
 
     constructor() {
         owner = msg.sender;
-        isAgent[msg.sender] = true; // deployer is the first agent
+        isAgent[msg.sender] = true; // Deployer is the first agent
         emit OwnershipTransferred(address(0), msg.sender);
         emit AgentSet(msg.sender, true);
     }
 
     /* ── Admin ──────────────────────────────────────────────────────────── */
+
+    /// @notice Grant or revoke agent authorization.
     function setAgent(address agent, bool allowed) external onlyOwner {
         isAgent[agent] = allowed;
         emit AgentSet(agent, allowed);
     }
 
+    /// @notice Toggle global pause state.
     function setPaused(bool p) external onlyOwner {
         paused = p;
         emit PausedSet(p);
     }
 
+    /// @notice Transfer administrative ownership.
     function transferOwnership(address to) external onlyOwner {
         require(to != address(0), "zero addr");
         emit OwnershipTransferred(owner, to);
@@ -94,7 +111,7 @@ contract VeriPayRegistry {
 
     /* ── Writes ─────────────────────────────────────────────────────────── */
 
-    /// @notice Anchor a payment that already settled elsewhere (audit only).
+    /// @notice Anchor a payment that already settled elsewhere (audit log only).
     function recordPayment(
         address recipient,
         address token,
@@ -106,8 +123,7 @@ contract VeriPayRegistry {
         return _record(recipient, token, amount, riskScore, purposeHash, ref);
     }
 
-    /// @notice Pay `recipient` `amount` of `token` from the agent and record it
-    ///         atomically. Agent must have approved this contract for `amount`.
+    /// @notice Pay `recipient` `amount` of `token` from agent and record it atomically.
     function payAndRecord(
         address recipient,
         address token,
@@ -150,15 +166,19 @@ contract VeriPayRegistry {
     }
 
     /* ── Views ──────────────────────────────────────────────────────────── */
+
+    /// @notice Total count of recorded payments.
     function paymentsCount() external view returns (uint256) {
         return _payments.length;
     }
 
+    /// @notice Fetch recorded payment details by ID.
     function getPayment(uint256 id) external view returns (Payment memory) {
         require(id < _payments.length, "bad id");
         return _payments[id];
     }
 
+    /// @notice Get array of payment IDs for a recipient.
     function paymentsOf(address recipient) external view returns (uint256[] memory) {
         return _byRecipient[recipient];
     }
