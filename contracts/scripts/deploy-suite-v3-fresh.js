@@ -91,9 +91,20 @@ async function main() {
   console.log("\n5/5 Handing registry ownership to the new cold wallet…");
   tx = await registry.setManager(ownerAddr, true, { gasLimit: 100_000 });
   await tx.wait();
+  // Ultrafuzz M-01: the constructor grants isManager[msg.sender] = true, and
+  // the deployer here IS the hot agent key (agentAddr = deployer.address,
+  // see above). Without this revoke, the hot agent key would retain
+  // MerchantRegistry manager authority forever after handoff — a compromised
+  // hot key could then register itself as a merchant and pull any approved
+  // payer's ERC-20 via executePaymentFrom. Revoked here, while the deployer
+  // still has manager rights to do so, in the SAME deploy run that hands
+  // ownership to the cold wallet — so a fresh suite is never even
+  // momentarily left in the vulnerable state this finding describes.
+  tx = await registry.setManager(agentAddr, false, { gasLimit: 100_000 });
+  await tx.wait();
   tx = await registry.transferOwnership(ownerAddr, { gasLimit: 100_000 });
   await tx.wait();
-  console.log("    done.");
+  console.log("    done. Hot agent key's MerchantRegistry manager role revoked (Ultrafuzz M-01).");
 
   console.log("\n✅ Fresh suite deployed and fully wired — no cold-wallet action required.");
   console.log("\nSend me these three addresses and I'll update Vercel + redeploy the app:");

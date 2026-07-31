@@ -6,6 +6,7 @@ import {IMerchantRegistry} from "./interfaces/IMerchantRegistry.sol";
 
 interface IERC20 {
     function transferFrom(address from, address to, uint256 value) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /**
@@ -22,62 +23,105 @@ interface IERC20 {
  *                     executePaymentNative / payRequest / createPaymentRequest
  *                     / recordRejection — no admin power at all.
  *
- *         Flow (ERC-20): agent approves this contract for `amount` of `token`,
- *         then calls executePayment() — the contract pulls the tokens, forwards
- *         them to the merchant, records the payment, accrues merchant volume,
- *         and emits PaymentExecuted + ComplianceApproved.
+ * @custom:security-property INVARIANT-PE-1: Payment Idempotency
+ *   Every payment execution claims a `requestId`. `usedRequestId[requestId]` ensures
+ *   no `requestId` can ever be executed twice. Duplicate resubmissions MUST revert.
  *
- *         Flow (native MON): agent calls executePaymentNative() with `value`
- *         attached — the contract forwards it to the merchant directly.
+ * @custom:security-property INVARIANT-PE-2: Single-Transaction Spend Ceiling
+ *   No single payment can exceed `merchantMaxTx[merchant]` (if non-zero) or `maxTxAmount`
+ *   (or native MON equivalent). Exceeding transfers MUST revert.
  *
- *         Every payment carries a `requestId` (idempotency key, supplied by the
- *         caller) that can only ever be used once — replaying the same approved
- *         intent (API retry, UI double-click, client crash-and-resubmit) reverts
- *         instead of executing a second time.
+ * @custom:security-property INVARIANT-PE-3: Per-Agent Daily Spend Ceiling
+ *   The cumulative amount spent by `agent` on UTC day `block.timestamp / 1 days` MUST NOT
+ *   exceed `dailyCap` (or `dailyCapNative`).
+ *
+ * @custom:security-property INVARIANT-PE-4: Pull Payment Merchant Registration Gate
+ *   `executePaymentFrom` (pulling funds from a user's approval) MUST ALWAYS check that
+ *   `merchantRegistry` recognizes `merchant` as registered AND active (when registry is set).
+ *
+ * @custom:security-property INVARIANT-PE-5: Risk Score Boundary
+ *   `riskScore` MUST be strictly <= 100. Any value > 100 MUST revert.
+ *
+ * @custom:security-property INVARIANT-PE-6: Strict Role Isolation
+ *   `owner != agent` is enforced. Owner CANNOT execute payments, and agents CANNOT
+ *   modify limits, pause state, or agent sets.
+ *
+ * @custom:security-property INVARIANT-PE-7: Reentrancy & Checks-Effects-Interactions
+ *   `_claimRequestId` and limit accounting happen BEFORE external ERC-20 transfers or
+ *   native MON transfers, protected by `nonReentrant`.
+ *
+ * @custom:security-property INVARIANT-PE-8: Actual Delivery, Not Requested Amount
+ *   `executePayment` / `executePaymentFrom` MUST verify the merchant's ERC-20 balance
+ *   increased by EXACTLY `amount` (via before/after `balanceOf`), not merely that
+ *   `transferFrom` returned true. A fee-on-transfer or otherwise non-standard token
+ *   delivering less than `amount` MUST revert the whole payment rather than being
+ *   recorded as a full settlement.
  */
 contract PaymentExecutor is IPaymentExecutor {
+    /// @notice Cold wallet / multisig contract owner address.
     address public owner;
+
+    /// @notice Set of authorized hot-wallet execution agent addresses.
     mapping(address => bool) public isAgent;
+
+    /// @notice Emergency stop flag preventing execution.
     bool public paused;
 
+    /// @notice Reference to the MerchantRegistry contract for payee validation.
     IMerchantRegistry public immutable merchantRegistry;
 
+    /// @dev Internal store of executed payments.
     Payment[] private _payments;
+
+    /// @dev Internal store of created payment requests.
     PaymentRequest[] private _requests;
+
+    /// @dev Merchant wallet => array of payment IDs.
     mapping(address => uint256[]) private _paymentsByMerchant;
 
     /* ── Idempotency ───────────────────────────────────────────────────────── */
+    /// @notice Idempotency key registry — maps requestId to execution status.
     mapping(bytes32 => bool) public usedRequestId;
 
     /* ── Analytics counters (cheap reads for dashboards) ─────────────────── */
+    /// @notice Cumulative volume executed across all payment types in base units.
     uint256 public totalVolume;
+
+    /// @notice Cumulative count of approved payments.
     uint256 public approvedCount;
+
+    /// @notice Cumulative count of rejected payment intents.
     uint256 public rejectedCount;
 
     /* ── On-chain spend limits (defense-in-depth beyond app guardrails) ──── */
-    /// These apply to executePayment (ERC-20, e.g. USDC's 6 decimals). Kept
-    /// separate from the *Native fields below because a single shared cap
-    /// across token types with different decimals is meaningless — a limit
-    /// sized for 6-decimal USDC base units is either near-zero or effectively
-    /// unlimited when reused verbatim against 18-decimal native MON wei.
-    /// Per-agent cap on total amount executed per UTC day (0 = unlimited).
+    /// @notice Per-agent daily cap on ERC-20 spend (0 = unlimited).
     uint256 public dailyCap;
-    /// Hard ceiling on any single payment, regardless of merchant (0 = unlimited).
+
+    /// @notice Hard ceiling on any single ERC-20 payment (0 = unlimited).
     uint256 public maxTxAmount;
-    /// Optional per-merchant override of the single-payment ceiling (0 = use maxTxAmount).
+
+    /// @notice Optional per-merchant single payment ERC-20 ceiling override (0 = default).
     mapping(address => uint256) public merchantMaxTx;
-    /// agent => day index (block.timestamp / 1 days) => amount spent that day.
+
+    /// @notice agent => day index (timestamp / 1 days) => ERC-20 amount spent that day.
     mapping(address => mapping(uint256 => uint256)) public spentPerDay;
 
-    /// Same shape as above, denominated in native MON wei (18 decimals) —
-    /// used by executePaymentNative instead of the ERC-20 fields.
+    /// @notice Per-agent daily cap on native MON spend in wei (0 = unlimited).
     uint256 public dailyCapNative;
+
+    /// @notice Hard ceiling on any single native MON payment in wei (0 = unlimited).
     uint256 public maxTxAmountNative;
+
+    /// @notice Optional per-merchant single payment native MON ceiling override in wei.
     mapping(address => uint256) public merchantMaxTxNative;
+
+    /// @notice agent => day index (timestamp / 1 days) => native MON amount spent that day.
     mapping(address => mapping(uint256 => uint256)) public spentPerDayNative;
 
-    bool private _locked; // reentrancy mutex
+    /// @dev Reentrancy lock mutex state.
+    bool private _locked;
 
+    /* ── Events ─────────────────────────────────────────────────────────── */
     event AgentSet(address indexed agent, bool allowed);
     event PausedSet(bool paused);
     event DailyCapSet(uint256 cap);
@@ -88,15 +132,18 @@ contract PaymentExecutor is IPaymentExecutor {
     event MerchantMaxTxNativeSet(address indexed merchant, uint256 amount);
     event OwnershipTransferred(address indexed from, address indexed to);
 
+    /* ── Modifiers ──────────────────────────────────────────────────────── */
     modifier onlyOwner() {
         require(msg.sender == owner, "not owner");
         _;
     }
+
     modifier onlyAgent() {
         require(isAgent[msg.sender], "not agent");
         require(!paused, "paused");
         _;
     }
+
     modifier nonReentrant() {
         require(!_locked, "reentrant");
         _locked = true;
@@ -104,13 +151,14 @@ contract PaymentExecutor is IPaymentExecutor {
         _locked = false;
     }
 
-    /// @param registry MerchantRegistry address.
-    /// @param cap Initial per-agent daily spend cap, ERC-20 base units (0 = unlimited).
-    /// @param initialOwner Cold wallet / multisig — admin only, never a signer for payments.
-    /// @param initialAgent Dedicated hot wallet — execution only, no admin power.
-    /// @param maxTx Initial per-payment ceiling, ERC-20 base units (0 = unlimited).
-    /// @param capNative Initial per-agent daily spend cap, native MON wei (0 = unlimited).
-    /// @param maxTxNative Initial per-payment ceiling, native MON wei (0 = unlimited).
+    /// @notice Contract constructor initializing roles, merchant registry, and initial limits.
+    /// @param registry Address of MerchantRegistry contract.
+    /// @param cap Initial ERC-20 daily cap (0 = unlimited).
+    /// @param initialOwner Cold wallet / multisig admin address.
+    /// @param initialAgent Dedicated hot wallet execution agent address.
+    /// @param maxTx Initial single transaction ERC-20 max (0 = unlimited).
+    /// @param capNative Initial native MON daily cap in wei (0 = unlimited).
+    /// @param maxTxNative Initial single transaction native MON max in wei (0 = unlimited).
     constructor(
         address registry,
         uint256 cap,
@@ -140,6 +188,8 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /* ── Admin (owner only — cold wallet / multisig) ───────────────────────── */
+
+    /// @notice Authorize a new hot wallet agent.
     function addAgent(address agent) external onlyOwner {
         require(agent != address(0), "zero agent");
         require(agent != owner, "owner cannot be agent");
@@ -147,53 +197,62 @@ contract PaymentExecutor is IPaymentExecutor {
         emit AgentSet(agent, true);
     }
 
+    /// @notice Revoke agent authorization.
     function removeAgent(address agent) external onlyOwner {
         isAgent[agent] = false;
         emit AgentSet(agent, false);
     }
 
-    /// @dev Kept for interface familiarity; equivalent to addAgent/removeAgent.
+    /// @notice Set agent authorization status (equivalent to addAgent/removeAgent).
     function setAgent(address agent, bool allowed) external onlyOwner {
         require(!allowed || agent != owner, "owner cannot be agent");
         isAgent[agent] = allowed;
         emit AgentSet(agent, allowed);
     }
 
+    /// @notice Toggle emergency pause state.
     function setPaused(bool p) external onlyOwner {
         paused = p;
         emit PausedSet(p);
     }
 
+    /// @notice Update global ERC-20 daily cap per agent.
     function setDailyCap(uint256 cap) external onlyOwner {
         dailyCap = cap;
         emit DailyCapSet(cap);
     }
 
+    /// @notice Update global ERC-20 single-transaction max amount.
     function setMaxTxAmount(uint256 amount) external onlyOwner {
         maxTxAmount = amount;
         emit MaxTxAmountSet(amount);
     }
 
+    /// @notice Set merchant-specific ERC-20 single-transaction max amount.
     function setMerchantMaxTx(address merchant, uint256 amount) external onlyOwner {
         merchantMaxTx[merchant] = amount;
         emit MerchantMaxTxSet(merchant, amount);
     }
 
+    /// @notice Update global native MON daily cap per agent.
     function setDailyCapNative(uint256 cap) external onlyOwner {
         dailyCapNative = cap;
         emit DailyCapNativeSet(cap);
     }
 
+    /// @notice Update global native MON single-transaction max amount.
     function setMaxTxAmountNative(uint256 amount) external onlyOwner {
         maxTxAmountNative = amount;
         emit MaxTxAmountNativeSet(amount);
     }
 
+    /// @notice Set merchant-specific native MON single-transaction max amount.
     function setMerchantMaxTxNative(address merchant, uint256 amount) external onlyOwner {
         merchantMaxTxNative[merchant] = amount;
         emit MerchantMaxTxNativeSet(merchant, amount);
     }
 
+    /// @notice Transfer contract administrative ownership.
     function transferOwnership(address to) external onlyOwner {
         require(to != address(0), "zero addr");
         require(!isAgent[to], "owner cannot be agent");
@@ -203,31 +262,12 @@ contract PaymentExecutor is IPaymentExecutor {
 
     /* ── Limit checks ───────────────────────────────────────────────────── */
     /**
-     * Security note (added after a Slither static-analysis pass flagged
-     * `executePaymentFrom`'s arbitrary `from` as a real risk): the agent hot
-     * wallet is the ONLY thing standing between a compromised key and every
-     * user who has ever approved this contract for the Wallet Automation
-     * path — `executePaymentFrom` pulls from an attacker-chosen `from`
-     * address straight through to a `merchant` address the caller also
-     * chooses, with no on-chain check that `merchant` is a real, onboarded
-     * business.
-     *
-     * The `requireRegisteredMerchant` gate below is deliberately scoped to
-     * ONLY `executePaymentFrom` (see its call site), not `executePayment` /
-     * `executePaymentNative`. Those two move the AGENT's own already-funded
-     * balance, not a third party's approved funds pulled on their behalf —
-     * an unregistered destination there is not the same class of risk, and
-     * gating them too would have broken every existing live payment to any
-     * recipient that was never manually registered via the Recipients
-     * dashboard page (registration there is a manual admin action, not an
-     * automatic step before sending a payment — most real recipients today
-     * are almost certainly unregistered). `executePaymentFrom` itself has
-     * not yet been used live on mainnet, so gating only it regresses
-     * nothing currently working while closing the actual pull-from-a-third-
-     * party exploit: even with a compromised agent key, funds can only be
-     * pulled from a user's approval into an address a MerchantRegistry
-     * manager has explicitly onboarded — a role the agent is never granted
-     * (`registerMerchant` is `onlyManager`).
+     * @dev Internal helper to validate merchant status and enforce per-tx & daily limits.
+     * @param agent Executing agent address.
+     * @param merchant Target merchant recipient address.
+     * @param amount Payment amount.
+     * @param isNative True if payment is native MON, false if ERC-20.
+     * @param requireRegisteredMerchant If true, verifies merchant registration in MerchantRegistry.
      */
     function _enforceLimits(
         address agent,
@@ -261,6 +301,7 @@ contract PaymentExecutor is IPaymentExecutor {
         }
     }
 
+    /// @dev Internal helper claiming a unique requestId or reverting if already used.
     function _claimRequestId(bytes32 requestId) private {
         require(requestId != bytes32(0), "requestId required");
         require(!usedRequestId[requestId], "duplicate requestId");
@@ -286,26 +327,22 @@ contract PaymentExecutor is IPaymentExecutor {
         _claimRequestId(requestId);
         _enforceLimits(msg.sender, merchant, amount, false, false);
 
-        // Pull stablecoin from the agent and forward to the merchant.
+        // Pull stablecoin from the agent and forward to the merchant. Verified
+        // by actual balance delta, not just a truthy return value (see
+        // INVARIANT-PE-8) -- a fee-on-transfer or otherwise non-standard
+        // token could return true while delivering less than `amount`, which
+        // would silently under-fund the merchant while every off-chain
+        // record (totalVolume, MerchantRegistry volume, the app's own
+        // execution log) still believes the full amount landed.
+        uint256 balBefore = IERC20(token).balanceOf(merchant);
         bool ok = IERC20(token).transferFrom(msg.sender, merchant, amount);
         require(ok, "transfer failed");
+        require(IERC20(token).balanceOf(merchant) - balBefore == amount, "token did not deliver full amount");
 
         id = _recordPayment(merchant, token, amount, riskScore, aiDecisionHash, ref, requestId);
     }
 
-    /**
-     * Wallet Automation (non-custodial) path: pull the ERC-20 from the
-     * AUTHORIZING USER (`from`) — who has approved this contract for at least
-     * `amount` — straight to the merchant. The agent only triggers and pays
-     * gas; it never holds or routes the user's funds, and can never redirect
-     * them (recipient is fixed by the call, and `from` must have approved).
-     * Native MON in this mode is handled off-chain by wrapping to WMON first,
-     * so it arrives here as a standard ERC-20 transferFrom.
-     *
-     * Same caps, same requestId idempotency, same risk gate as executePayment.
-     * The on-chain ERC-20 Transfer event (from → merchant) is itself the
-     * audit record of who actually paid.
-     */
+    /// @inheritdoc IPaymentExecutor
     function executePaymentFrom(
         address from,
         address merchant,
@@ -324,9 +361,13 @@ contract PaymentExecutor is IPaymentExecutor {
         _claimRequestId(requestId);
         _enforceLimits(msg.sender, merchant, amount, false, true);
 
-        // Pull from the user (who approved this contract) directly to the merchant.
+        // Pull from the user (who approved this contract) directly to the
+        // merchant. Same actual-delivery check as executePayment -- see
+        // INVARIANT-PE-8.
+        uint256 balBefore = IERC20(token).balanceOf(merchant);
         bool ok = IERC20(token).transferFrom(from, merchant, amount);
         require(ok, "transfer failed");
+        require(IERC20(token).balanceOf(merchant) - balBefore == amount, "token did not deliver full amount");
 
         id = _recordPayment(merchant, token, amount, riskScore, aiDecisionHash, ref, requestId);
     }
@@ -354,6 +395,7 @@ contract PaymentExecutor is IPaymentExecutor {
         id = _recordPayment(merchant, address(0), msg.value, riskScore, aiDecisionHash, ref, requestId);
     }
 
+    /// @dev Internal recording helper emitting events and recording merchant volume.
     function _recordPayment(
         address merchant,
         address token,
@@ -383,11 +425,6 @@ contract PaymentExecutor is IPaymentExecutor {
         totalVolume += amount;
         approvedCount += 1;
 
-        // Accrue merchant volume. _enforceLimits already required `merchant`
-        // to be registered+active whenever a registry is configured, so this
-        // is no longer reachable with an unregistered payee in that case —
-        // the address(0) branch below only matters if merchantRegistry was
-        // deployed as the zero address (registry checks fully disabled).
         if (address(merchantRegistry) != address(0)) {
             merchantRegistry.recordVolume(merchant, amount);
         }
@@ -403,6 +440,7 @@ contract PaymentExecutor is IPaymentExecutor {
         uint16 riskScore,
         bytes32 ref
     ) external onlyAgent {
+        require(riskScore <= 100, "risk>100");
         rejectedCount += 1;
         emit ComplianceRejected(msg.sender, merchant, amount, riskScore, ref);
     }
@@ -477,7 +515,7 @@ contract PaymentExecutor is IPaymentExecutor {
         return usedRequestId[requestId];
     }
 
-    /// One-call analytics snapshot for the dashboard.
+    /// @notice Returns dashboard summary metrics in a single RPC call.
     function stats()
         external
         view

@@ -83,9 +83,16 @@ async function main() {
   console.log("\n4/4 Transferring MerchantRegistry admin to cold wallet…");
   tx = await registry.setManager(ownerAddr, true, { gasLimit: 100_000 });
   await tx.wait();
+  // Ultrafuzz M-01: the constructor grants isManager[msg.sender] = true to
+  // the deployer. Even though this script's deployer is intentionally
+  // neither owner nor agent, that lingering manager grant is still an
+  // unintended standing privilege on a key this deploy considers "no role" —
+  // revoke it in the same run, while the deployer still has the rights to.
+  tx = await registry.setManager(deployer.address, false, { gasLimit: 100_000 });
+  await tx.wait();
   tx = await registry.transferOwnership(ownerAddr, { gasLimit: 100_000 });
   await tx.wait();
-  console.log("    done.");
+  console.log("    done. Deployer's own MerchantRegistry manager role revoked (Ultrafuzz M-01).");
 
   console.log("\n✅ Suite v2 deployed.");
   console.log("\nAdd to VeriPAYai .env.local (and Vercel env):");
