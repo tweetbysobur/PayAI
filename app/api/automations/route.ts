@@ -579,10 +579,11 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   let body: {
-    walletAddress?: string; action?: "pause" | "resume" | "cancel" | "skip_next" | "execute_now";
+    walletAddress?: string; action?: "pause" | "resume" | "cancel" | "skip_next" | "execute_now" | "report_self_refund";
     signature?: string; timestamp?: number;
     amount?: number; cadence?: string; nextRun?: number; memo?: string; purpose?: string; timezone?: string;
     intervalCount?: number; intervalUnit?: string; endCondition?: { type?: string; totalRuns?: number; untilMs?: number };
+    refundTxHash?: string;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -641,6 +642,70 @@ export async function PATCH(req: NextRequest) {
     } catch (e) {
       await releaseRequest(requestId);
       return NextResponse.json({ error: e instanceof Error ? e.message : "Execution failed." }, { status: 502 });
+    }
+  }
+
+  if (body.action === "report_self_refund") {
+    // The dashboard's "Recover reserved funds" tool lets the user call
+    // AutomationVault.refund() DIRECTLY from their own wallet, bypassing the
+    // agent entirely (the whole point of Reserved Funds being non-custodial:
+    // this must work even if PayAI's agent is down or unwilling). But that
+    // means the server's own row never heard about it — without this,
+    // reserveRefundStatus would stay "pending" forever even after the user
+    // already got their money back, which is exactly the false-alarm this
+    // endpoint exists to close. The wallet signature above only proves WHO
+    // is claiming this; the actual proof that funds moved is verified
+    // on-chain below, never taken on the client's word alone.
+    const { getSchedule } = await import("@/lib/platform/schedules");
+    const row = await getSchedule(id);
+    if (!row || row.merchantId !== merchantId) return NextResponse.json({ error: "Automation not found." }, { status: 404 });
+    if (sender && (row.sender ?? "").toLowerCase() !== sender.toLowerCase()) {
+      return NextResponse.json({ error: "This automation isn't yours." }, { status: 404 });
+    }
+    if (row.fundingMode !== "reserved") return NextResponse.json({ error: "Not a Reserved Funds automation." }, { status: 400 });
+    if (!body.refundTxHash || !/^0x[0-9a-fA-F]{64}$/.test(body.refundTxHash)) {
+      return NextResponse.json({ error: "A valid transaction hash is required." }, { status: 400 });
+    }
+    try {
+      const { getPublicClient } = await import("@/lib/monad/wallet");
+      const { requestId32 } = await import("@/lib/monad/contracts");
+      const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
+      const { getAutomationVault } = await import("@/lib/monad/config");
+      const { decodeEventLog } = await import("viem");
+      const vault = (row.vaultAddress as `0x${string}` | null) ?? getAutomationVault();
+      if (!vault) return NextResponse.json({ error: "Vault unavailable." }, { status: 503 });
+
+      const pub = getPublicClient();
+      const receipt = await pub.getTransactionReceipt({ hash: body.refundTxHash as `0x${string}` });
+      if (receipt.status !== "success") return NextResponse.json({ error: "That transaction did not succeed." }, { status: 422 });
+
+      const autoIdBytes = requestId32(id);
+      const matched = receipt.logs
+        .filter((l) => l.address.toLowerCase() === vault.toLowerCase())
+        .map((l) => {
+          try {
+            return decodeEventLog({ abi: AUTOMATION_VAULT_ABI, data: l.data, topics: l.topics });
+          } catch {
+            return null;
+          }
+        })
+        .find(
+          (ev) =>
+            ev?.eventName === "Refunded" &&
+            (ev.args as { automationId?: string }).automationId?.toLowerCase() === autoIdBytes.toLowerCase(),
+        );
+      if (!matched) {
+        return NextResponse.json({ error: "That transaction doesn't match a refund for this automation." }, { status: 422 });
+      }
+
+      const args = matched.args as { amount: bigint };
+      const decimals = row.tokenDecimals ?? (row.token === "MON" ? 18 : 6);
+      const amount = Number(args.amount) / 10 ** decimals;
+      const { recordSelfReportedRefund } = await import("@/lib/platform/schedules");
+      const updated = await recordSelfReportedRefund(id, { txHash: body.refundTxHash, amount });
+      return NextResponse.json({ automation: updated, success: true });
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : "Could not verify that refund." }, { status: 502 });
     }
   }
 
