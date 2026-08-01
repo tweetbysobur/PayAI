@@ -7,6 +7,7 @@ interface HistoryRow { at: number; decision: string; summary: string; recipient?
 interface AutomationEventRow {
   id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string;
 }
+interface SupportTicketRow { id: string; category: string; description: string; createdAt: number }
 
 export interface NotifItem {
   id: string;
@@ -92,9 +93,29 @@ export function useNotifications(walletAddress?: string | null) {
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
 
-      Promise.all([payments, automations]).then(([fresh, automationFresh]) => {
+      // Support tickets the wallet itself submitted — a real, timestamped
+      // record (lib/platform/support.ts), not a synthesized "we emailed you"
+      // claim PayAI can't back up (there's no email infra behind this yet).
+      const tickets = fetch(`/api/support?wallet=${walletAddress}`)
+        .then((r) => r.json())
+        .then((j) => {
+          const rows = (j.tickets ?? []) as SupportTicketRow[];
+          return rows
+            .filter((t) => t.createdAt > cutoff)
+            .map((t): Omit<NotifItem, "read"> => ({
+              id: `ticket-${t.id}`,
+              decision: "support_ticket_submitted",
+              title: "Support ticket submitted",
+              detail: `Reference ${t.id} — ${t.description.slice(0, 80)}${t.description.length > 80 ? "…" : ""}`,
+              at: t.createdAt,
+              href: "/dashboard/support",
+            }));
+        })
+        .catch(() => [] as Omit<NotifItem, "read">[]);
+
+      Promise.all([payments, automations, tickets]).then(([fresh, automationFresh, ticketFresh]) => {
         if (cancelled) return;
-        const all = [...fresh, ...automationFresh].sort((a, b) => b.at - a.at).slice(0, 15);
+        const all = [...fresh, ...automationFresh, ...ticketFresh].sort((a, b) => b.at - a.at).slice(0, 15);
         // Read items stay in the feed (dimmed) until they age past 24h; only
         // unseen ones drive the unread badge.
         setNotifications(all.map((n) => ({ ...n, read: n.at <= seenAt })));

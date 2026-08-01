@@ -627,6 +627,14 @@ export async function PATCH(req: NextRequest) {
     const claim = await claimRequest<{ outcome: string; txHash?: string }>(requestId);
     if (!claim.claimed) return NextResponse.json({ error: "This automation is already running. Please wait." }, { status: 409 });
     try {
+      const { recordAutomationEvent } = await import("@/lib/platform/automationEvents");
+      const isBulk = !!row.recipients?.length;
+      await recordAutomationEvent({
+        merchantId, automationId: id, sender: row.sender, type: "execution_started",
+        title: "Execution started",
+        detail: isBulk ? `Sending to ${row.recipients?.length ?? 0} recipients now.` : `${row.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${row.token} to ${row.domain ?? row.recipient} is being sent now.`,
+        amount: row.amount, token: row.token,
+      });
       if (row.recipients?.length) {
         const bulkResult = await executeBulkScheduleNow(row, requestId);
         await recordRun(id, { at: Date.now(), decision: bulkResult.outcome, recipientResults: bulkResult.recipientResults, durationMs: bulkResult.durationMs });

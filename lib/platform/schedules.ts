@@ -164,6 +164,11 @@ export async function updateSchedule(
   if (sender && (row.sender ?? "").toLowerCase() !== sender) return null;
   Object.assign(row, patch);
   await persist(row);
+  await recordAutomationEvent({
+    merchantId, automationId: row.id, sender: row.sender, type: "updated",
+    title: "Automation updated", detail: `${label(row)}'s terms were changed.`,
+    amount: row.amount, token: row.token,
+  });
   return row;
 }
 
@@ -635,6 +640,20 @@ async function refundReservedIfAny(row: ScheduledPayment, reason: string, origin
   const lock = await claimRequest(lockKey);
   if (!lock.claimed) return; // a concurrent attempt already owns this — let it finish and persist the truth
   try {
+    // Honest wording matters here: at this point we know a deposit was made
+    // at some point (reserveTxHash) and it hasn't been refunded yet, but NOT
+    // whether anything is actually still there to return — that's only known
+    // after the on-chain check below. "Checking" never overclaims a refund
+    // is coming; "started"/"returned" wording is reserved for once it's real.
+    if (row.reserveTxHash) {
+      await recordAutomationEvent({
+        merchantId: row.merchantId, automationId: row.id, sender: row.sender,
+        type: "refund_started",
+        title: "Checking reserved funds",
+        detail: `PayAI is checking whether any reserved balance for ${label(row)} needs to be returned, because ${reason}.`,
+        amount: row.amount, token: row.token,
+      });
+    }
     const { refundReservationViaAgent } = await import("@/lib/monad/contracts");
     // The vault THIS automation actually reserved into — never the current
     // global config, which may point at a newer AutomationVault deployment
