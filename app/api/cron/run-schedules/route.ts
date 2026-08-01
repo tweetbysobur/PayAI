@@ -15,11 +15,23 @@ function trace(event: string, fields: Record<string, unknown>) {
 /**
  * GET /api/cron/run-schedules — fires every due payment automation through the
  * custodial agent path (the agent wallet signs via PaymentExecutor, bounded by
- * the on-chain per-tx + daily caps). Triggered by Vercel Cron.
+ * the on-chain per-tx + daily caps).
  *
- * Auth: Vercel Cron attaches `Authorization: Bearer ${CRON_SECRET}`. We refuse
- * any request without it, so this can't be invoked to move funds by anyone but
- * the scheduler.
+ * Trigger: vercel.json's own cron entry is once-daily ("0 9 * * *") — that's
+ * the Vercel Hobby plan's minimum granularity, NOT the real execution cadence.
+ * In production this endpoint is actually invoked roughly every minute by an
+ * external scheduler the operator controls (outside this repo, using the
+ * real CRON_SECRET), which is what real automations' near-real-time timing
+ * actually depends on. If that external pinger is ever paused or its config
+ * lost, this endpoint silently falls back to Vercel's own once-daily
+ * schedule with no in-app warning — nothing here would detect the gap. Don't
+ * assume "once daily" from vercel.json alone when reasoning about actual
+ * user-facing execution timing; check live invocation logs instead.
+ *
+ * Auth: every real caller (Vercel Cron or the external pinger) attaches
+ * `Authorization: Bearer ${CRON_SECRET}`. We refuse any request without it,
+ * so this can't be invoked to move funds by anyone who doesn't hold that
+ * secret.
  *
  * Duplicate-processing protection is two-layered, and BOTH layers are real:
  *   1. App layer — each occurrence claims a deterministic requestId
