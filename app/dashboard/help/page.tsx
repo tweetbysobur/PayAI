@@ -78,6 +78,15 @@ const ARTICLES: Article[] = [
     ],
   },
   {
+    id: "auto-timing",
+    category: "automation",
+    question: "Will my automation run at the exact time I picked?",
+    answer: [
+      "Not to the minute — automations are processed once daily, so the actual execution is the earliest daily pass on or after your scheduled time, not that exact minute.",
+      "If you need a payment sent right now instead of waiting for the next daily pass, use \"Execute Now\" on the automation — it runs immediately, any time.",
+    ],
+  },
+  {
     id: "auto-templates",
     category: "automation",
     question: "What are Automation Templates?",
