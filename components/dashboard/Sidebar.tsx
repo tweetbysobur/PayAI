@@ -14,9 +14,8 @@ const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
 
 export const LEARN_LINKS = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
-  { label: "Automation Guide", icon: BookOpen, href: "/dashboard/automations" },
   { label: "Wallet Security", icon: Lock, href: "/security" },
-  { label: "FAQs", icon: HelpCircle, href: "/#faq" },
+  { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
   { label: "GitHub Issues", icon: LifeBuoy, href: `${GITHUB_URL}/issues`, external: true },
 ];
 
@@ -31,6 +30,7 @@ export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; s
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, section: "Compliance" },
   { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Settings" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
+  { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },
   { href: "/dashboard/support", label: "Support", icon: LifeBuoy, section: "Settings" },
 ] as const;
 
