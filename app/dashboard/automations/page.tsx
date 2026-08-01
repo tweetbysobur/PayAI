@@ -118,10 +118,19 @@ type Automation = {
    *  executor after a contract redeploy. Absent on automations created before
    *  this existed, which really were approved against whatever is current. */
   executorAddress?: string | null;
-  /** Set once refundReservedIfAny actually sends a refund tx — the one
-   *  reliable signal that a Reserved Funds deposit came back, since refunds
-   *  run synchronously (no persisted "in progress" state to show separately). */
+  /** Set once a refund (agent-triggered or self-reported) actually lands —
+   *  kept for back-compat with anything still reading this field directly;
+   *  refundHistory below is the source of truth. */
   reserveRefundTxHash?: string | null;
+  /** Explicit refund outcome — see PaymentAutomation.reserveRefundStatus in
+   *  lib/platform/types.ts for why this exists instead of just checking
+   *  reserveRefundTxHash: "undefined"/absent must never be read as "nothing
+   *  owed," only as "this concept predates the row." */
+  reserveRefundStatus?: "none" | "refunded" | "pending";
+  refundHistory?: {
+    reason: string; amount: number; txHash: string; explorerUrl?: string;
+    at: number; automationId: string; originalExecutionAt?: number | null;
+  }[];
   templateId?: string | null; templateCategory?: string | null;
   /** Bulk Payments only — presence marks this as a multi-recipient automation. */
   recipients?: BulkRecipient[];
@@ -154,10 +163,27 @@ const STATUS_TONE: Record<Status, "neutral" | "success" | "warning" | "danger" |
  * `status`). "Retrying" and "Waiting" are both derived from fields that
  * already exist and are real (failureCount, nextRun) — never a fabricated
  * state with no backing.
+ *
+ * "Refunding" / "Refunded" (Mini Sprint Part 1) are the same kind of derived
+ * label, specific to Reserved Funds, driven by the EXPLICIT
+ * reserveRefundStatus rather than just checking whether a tx hash is
+ * present — "nothing owed" (the reservation was fully spent through
+ * legitimate runs) and "something is owed and the refund hasn't landed" both
+ * look identical if you only check for an empty txHash, and showing
+ * "refunding" for the former would be a false alarm. reserveRefundStatus is
+ * absent only on rows created before this field existed (never shown as
+ * "refunding" — same "absence means predates this concept" rule as every
+ * other optional field added after existing data).
  */
 function displayStatus(a: Automation): { label: string; tone: "neutral" | "success" | "warning" | "danger" | "primary" } {
   if (a.status === "active" && a.failureCount > 0) return { label: "retrying", tone: "warning" };
   if ((a.status === "active" || a.status === "scheduled") && a.nextRun > Date.now()) return { label: "waiting", tone: "primary" };
+  const isTerminal = a.status === "cancelled" || a.status === "failed" || a.status === "completed";
+  if (a.fundingMode === "reserved" && isTerminal && a.reserveRefundStatus) {
+    if (a.reserveRefundStatus === "refunded") return { label: "refunded", tone: "success" };
+    if (a.reserveRefundStatus === "pending") return { label: "refunding", tone: "warning" };
+    // "none" — nothing was ever owed back, fall through to the plain status label.
+  }
   return { label: a.status, tone: STATUS_TONE[a.status] };
 }
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}...${s.slice(-4)}` : "-");
@@ -386,11 +412,26 @@ export default function AutomationsPage() {
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
       const data = encodeFunctionData({ abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoId32(id)] });
-      await confirmTx(wallet, vault, data);
+      const txHash = await confirmTx(wallet, vault, data);
       // Only forget the pending note AFTER the refund confirms — dropping it
       // on a failed attempt would discard the handle to live funds.
       forgetPendingReservation(id);
       toast("Reserved funds refunded to your wallet");
+      // Tell the server this happened — self-service recovery bypasses the
+      // agent entirely (the whole point: it must work even if the agent is
+      // down), so without this report the automation's own row would never
+      // learn its reservation came back, and would show "refunding" (money
+      // still owed) forever even after the user already has it. Best-effort:
+      // if this fails, the funds are still safely in the user's wallet
+      // either way — only the dashboard's own status display would lag.
+      const proof = await signMutation(wallet, id, "report_self_refund");
+      if (proof) {
+        await fetch(`/api/automations?id=${id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ walletAddress: wallet.address, action: "report_self_refund", refundTxHash: txHash, ...proof }),
+        }).catch(() => {});
+      }
       await loadReserved();
       load();
     } catch (e) {
@@ -1282,7 +1323,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
             <div className="flex items-center gap-1.5">
               <a
                 href={`/dashboard/support?automationId=${encodeURIComponent(a.id)}&category=${
-                  a.fundingMode === "reserved" && !a.reserveRefundTxHash && (a.status === "cancelled" || a.status === "failed")
+                  a.fundingMode === "reserved" && a.reserveRefundStatus === "pending" && (a.status === "cancelled" || a.status === "failed")
                     ? "missing_refund" : "failed_automation"
                 }`}
                 className="flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
@@ -1307,9 +1348,37 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               // Only shown for Reserved Funds — Wallet Automation has no
               // deposit to refund, so there's nothing honest to report here.
               ...(a.fundingMode === "reserved"
-                ? [{ label: "Refund Status", value: a.reserveRefundTxHash ? "Refunded" : "Not refunded", accent: !!a.reserveRefundTxHash }]
+                ? [{
+                    label: "Refund Status",
+                    value: a.reserveRefundStatus === "refunded" ? "Refunded"
+                      : a.reserveRefundStatus === "pending" ? "Refund pending"
+                      : a.reserveRefundStatus === "none" ? "Nothing owed"
+                      : "—",
+                    accent: a.reserveRefundStatus === "refunded",
+                  }]
                 : []),
             ]} />
+            {a.fundingMode === "reserved" && !!a.refundHistory?.length && (
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Refund History</p>
+                <div className="space-y-2">
+                  {a.refundHistory.map((r, i) => (
+                    <div key={i} className="rounded-lg border border-border bg-input/40 p-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-foreground">{money(r.amount, a.token)} refunded</span>
+                        <span className="text-muted-foreground">{new Date(r.at).toLocaleString()}</span>
+                      </div>
+                      <p className="mt-1 text-muted-foreground">Because {r.reason}.</p>
+                      {r.explorerUrl && (
+                        <a href={r.explorerUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-primary hover:underline">
+                          View transaction ↗
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Timeline</p>
               <AutomationTimeline a={a} />

@@ -193,6 +193,21 @@ export async function GET(req: NextRequest) {
   }
 
   trace("batch_end", { processed: results.length });
+
+  // Retry any Reserved Funds refund that didn't land on its first (synchronous)
+  // attempt — an RPC hiccup at the exact moment an automation went terminal
+  // shouldn't leave money stuck with no automatic path back. Best-effort and
+  // bounded: never let a refund retry block or fail this tick's real job of
+  // executing due payments, which is why it's placed last.
+  let refundsRetried = 0;
+  try {
+    const { retryPendingRefunds } = await import("@/lib/platform/schedules");
+    refundsRetried = await retryPendingRefunds();
+    if (refundsRetried > 0) trace("refund_retry_sweep", { refundsRetried });
+  } catch (e) {
+    trace("refund_retry_sweep_error", { error: e instanceof Error ? e.message : String(e) });
+  }
+
   await recordHeartbeat({ startedAt, finishedAt: Date.now(), dueCount: due.length, processed: results.length });
-  return NextResponse.json({ ran: results.length, results });
+  return NextResponse.json({ ran: results.length, results, refundsRetried });
 }

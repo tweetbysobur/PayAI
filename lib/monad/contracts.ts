@@ -519,20 +519,30 @@ export async function registerMerchant(wallet: `0x${string}`, name: string): Pro
  * `r.depositor`. The agent can therefore return a user's money but can never
  * redirect it anywhere — the destination is fixed on-chain, not passed in.
  *
- * Returns null (never throws) when there is nothing to do or nothing
- * configured, because every caller is a cleanup path attached to something
- * more important: cancelling an automation must still succeed even if the
- * refund leg fails, or the user would be unable to cancel at all. A failed
- * refund leaves the reservation intact and retryable, so nothing is lost.
+ * Never throws (every caller is a cleanup path attached to something more
+ * important: cancelling an automation must still succeed even if the refund
+ * leg fails, or the user would be unable to cancel at all). A failed refund
+ * leaves the reservation intact and retryable, so nothing is lost.
+ *
+ * The three-way return (rather than a plain T | null) exists specifically so
+ * callers can tell "nothing was ever owed back" apart from "something IS
+ * owed back and this attempt didn't land" — collapsing both into null was
+ * exactly the ambiguity that let a stuck reservation look identical to a
+ * fully-settled one in lib/platform/schedules.ts's persisted row (see
+ * PaymentAutomation.reserveRefundStatus in lib/platform/types.ts).
  */
 export async function refundReservationViaAgent(
   automationId: string,
   vaultAddress?: string | null,
-): Promise<{ txHash: Hash; explorerUrl: string; amountRaw: bigint } | null> {
+): Promise<
+  | { outcome: "refunded"; txHash: Hash; explorerUrl: string; amountRaw: bigint }
+  | { outcome: "none" }
+  | { outcome: "failed" }
+> {
   // Same per-automation vault override as releaseFromVault.
   const vault = (vaultAddress as `0x${string}` | undefined) ?? getAutomationVault();
   const account = getAgentAccount();
-  if (!vault || !account) return null;
+  if (!vault || !account) return { outcome: "failed" }; // can't even check — not "none"
 
   const pub = getPublicClient();
   const autoIdBytes = requestId32(automationId);
@@ -544,7 +554,7 @@ export async function refundReservationViaAgent(
     const reserved = (await pub.readContract({
       address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [autoIdBytes],
     })) as bigint;
-    if (reserved === 0n) return null;
+    if (reserved === 0n) return { outcome: "none" };
 
     const { request } = await pub.simulateContract({
       account, address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "refund", args: [autoIdBytes],
@@ -552,10 +562,10 @@ export async function refundReservationViaAgent(
     const wallet = getWalletClient();
     const txHash = await wallet.writeContract(request);
     const receipt = await pub.waitForTransactionReceipt({ hash: txHash, timeout: 90_000 });
-    if (receipt.status !== "success") return null;
-    return { txHash, explorerUrl: explorerTx(txHash), amountRaw: reserved };
+    if (receipt.status !== "success") return { outcome: "failed" };
+    return { outcome: "refunded", txHash, explorerUrl: explorerTx(txHash), amountRaw: reserved };
   } catch {
     // Reservation stays intact and can be refunded again later.
-    return null;
+    return { outcome: "failed" };
   }
 }

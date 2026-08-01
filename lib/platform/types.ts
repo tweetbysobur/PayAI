@@ -112,6 +112,30 @@ export interface BulkRecipient {
 
 export type DistributionMethod = "equal" | "fixed" | "percentage" | "custom";
 
+/** One refund event on a Reserved Funds automation (Mini Sprint Part 1's
+ *  "AUTOMATIC REFUND HISTORY"). Immutable once recorded — nothing ever
+ *  edits or removes an entry after the fact, only appends. */
+export interface RefundRecord {
+  /** Why the refund happened, in the same plain-language form already used
+   *  in the automation event log (e.g. "the automation was cancelled",
+   *  "the automation stopped after a failed execution"). */
+  reason: string;
+  /** Amount actually returned, in the automation's display token/decimals — not base units. */
+  amount: number;
+  txHash: string;
+  explorerUrl?: string;
+  /** Unix ms the refund transaction was confirmed. */
+  at: number;
+  /** This automation's own id — redundant with the row it lives on, but kept
+   *  so a refund record is self-describing if it's ever surfaced outside the
+   *  automation's own page (e.g. a merchant-wide refund ledger). */
+  automationId: string;
+  /** The `at` timestamp of the run in `runs[]` whose failure triggered this
+   *  refund, when there was one — null for a refund triggered by an explicit
+   *  cancel/delete rather than an execution failure. */
+  originalExecutionAt?: number | null;
+}
+
 export interface BulkRecipientResult {
   address: string;
   domain?: string | null;
@@ -217,8 +241,42 @@ export interface PaymentAutomation {
   fundingMode?: "wallet" | "reserved";
   /** Reserved Funds: the tx hash that funded the vault reservation (audit trail). */
   reserveTxHash?: string | null;
-  /** Reserved Funds: the tx that returned the unspent reservation to the depositor, set when an automation is cancelled or terminally fails. Presence means the money is already back in their wallet. */
+  /** Reserved Funds: the tx that returned the unspent reservation to the depositor, set when an automation is cancelled or terminally fails. Presence means the money is already back in their wallet. Kept alongside refundHistory[0].txHash for back-compat with anything still reading this field directly. */
   reserveRefundTxHash?: string | null;
+  /**
+   * Reserved Funds refund outcome — the explicit signal displayStatus() and
+   * the dashboard need to tell "nothing was ever owed back" apart from "money
+   * is owed back and the refund hasn't landed yet." Without this, the mere
+   * absence of reserveRefundTxHash is ambiguous: it's equally true for an
+   * automation that spent its ENTIRE reservation through legitimate runs
+   * (nothing left, "none" — correct, no action needed) and for one where the
+   * refund attempt failed on an RPC hiccup (money still owed, "pending" —
+   * needs the "Recover reserved funds" tool or a retry).
+   *   - undefined → pre-Mini-Sprint row, or a non-reserved automation. Never
+   *     shown as "refunding" in the UI (see displayStatus in
+   *     app/dashboard/automations/page.tsx) — same reasoning as every other
+   *     optional field introduced after existing data: absence must never be
+   *     read as "stuck," only as "this concept didn't exist yet when it was
+   *     created."
+   *   - "none"     → checked on-chain at terminal time, reservedBalance was
+   *                   already 0. Nothing owed.
+   *   - "refunded" → refund succeeded. reserveRefundTxHash / refundHistory
+   *                   has the tx.
+   *   - "pending"  → the automation is terminal, something WAS reserved, and
+   *                   the refund attempt hasn't succeeded yet (chain hiccup,
+   *                   or genuinely still in flight). Retryable via the
+   *                   dashboard's recovery tool.
+   */
+  reserveRefundStatus?: "none" | "refunded" | "pending";
+  /**
+   * Full refund history for this automation (Reserved Funds only). In
+   * practice at most one entry today — a reservation is refunded once, at
+   * the one terminal moment nothing will draw on it again — but this is an
+   * array, not a single record, so a future scenario with more than one
+   * refund event (e.g. a partial refund followed by a final sweep) doesn't
+   * require another migration.
+   */
+  refundHistory?: RefundRecord[];
   /** The Automation Template this was created from (see lib/automation/templates.ts),
    *  or null/absent for a from-scratch ("Custom") automation. Purely a label on
    *  top of the same engine — a template never changes execution behavior,

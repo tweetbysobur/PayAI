@@ -27,7 +27,7 @@
 import "server-only";
 import { getRedis } from "./kv";
 import { recordAutomationEvent } from "./automationEvents";
-import type { AutomationIntervalUnit, ScheduleCadence, ScheduledPayment, ScheduleStatus, ScheduleEndCondition } from "./types";
+import type { AutomationIntervalUnit, ScheduleCadence, ScheduledPayment, ScheduleStatus, ScheduleEndCondition, RefundRecord } from "./types";
 
 function short(addr: string): string {
   return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -39,6 +39,12 @@ function label(row: Pick<ScheduledPayment, "amount" | "token" | "domain" | "reci
 const mKey = (m: string) => `veripay:${m}:schedules`;
 const GLOBAL_KEY = "veripay:schedules:all";
 const DUE_INDEX_KEY = "veripay:schedules:due-index";
+/** Sorted set of automation ids whose Reserved Funds refund is owed but
+ *  hasn't landed yet (reserveRefundStatus === "pending") — lets the cron
+ *  tick retry them without a full scan. Score is the time it entered
+ *  "pending", purely so retryPendingRefunds can process oldest-first;
+ *  membership, not score, is what matters. */
+const PENDING_REFUND_INDEX_KEY = "veripay:schedules:pending-refunds";
 const LIVE_STATUSES: ScheduleStatus[] = ["active", "scheduled"];
 
 /** After this many consecutive execution errors, an automation auto-pauses to
@@ -490,6 +496,7 @@ export async function recordRun(
     await refundReservedIfAny(
       row,
       row.status === "failed" ? "the automation stopped after a failed execution" : "the automation finished its schedule",
+      row.status === "failed" ? run.at : null,
     );
   }
 
@@ -598,21 +605,74 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
  * Deliberately best-effort and never throws. The status change is the caller's
  * actual job; if the chain leg fails the reservation stays intact and is
  * refunded on the next attempt, so the worst case is a delay, never a loss.
+ *
+ * Guarded against duplicate refunds two ways:
+ *   1. If this row is already marked "refunded", skip entirely — no reason
+ *      to touch the chain again, and re-checking would be actively wrong:
+ *      reservedBalance would read 0 (already paid out) and get
+ *      misread as outcome "none" ("nothing was ever owed"), silently
+ *      downgrading a correct "refunded" status back to "none".
+ *   2. A short-lived mutex (the same claimRequest/releaseRequest primitive
+ *      used for execution idempotency, borrowed here purely as a lock, not
+ *      a long-term cache — always released when this call finishes,
+ *      regardless of outcome) serializes concurrent callers. This function
+ *      has three real call sites (cancel, delete, recordRun's terminal
+ *      path) that could plausibly race on the same automation — e.g. a user
+ *      clicking "delete" the instant a scheduled run independently pushes
+ *      the same automation to "failed". Without this, both calls could read
+ *      reservedBalance before either's refund tx lands, both attempt
+ *      refund() on-chain, and whichever finishes SECOND (its tx reverts,
+ *      since the first already zeroed the balance) would persist "pending"
+ *      even though the money is already back — the same false-alarm bug
+ *      as (1), just via a race instead of a sequential re-trigger.
  */
-async function refundReservedIfAny(row: ScheduledPayment, reason: string): Promise<void> {
+async function refundReservedIfAny(row: ScheduledPayment, reason: string, originalExecutionAt?: number | null): Promise<void> {
   if (row.fundingMode !== "reserved") return;
+  if (row.reserveRefundStatus === "refunded") return;
+
+  const { claimRequest, releaseRequest } = await import("./idempotency");
+  const lockKey = `refund-lock:${row.id}`;
+  const lock = await claimRequest(lockKey);
+  if (!lock.claimed) return; // a concurrent attempt already owns this — let it finish and persist the truth
   try {
     const { refundReservationViaAgent } = await import("@/lib/monad/contracts");
     // The vault THIS automation actually reserved into — never the current
     // global config, which may point at a newer AutomationVault deployment
     // by the time this automation is cancelled/completed.
     const result = await refundReservationViaAgent(row.id, row.vaultAddress);
-    if (!result) return; // nothing reserved, or vault/signer unavailable
+
+    if (result.outcome === "none") {
+      // Checked on-chain, genuinely nothing left (fully spent through prior
+      // runs, or already refunded) — this is the ONLY case that means
+      // nothing is owed, distinct from "failed" below.
+      row.reserveRefundStatus = "none";
+      await persist(row);
+      await removeFromPendingRefundIndex(row.id);
+      return;
+    }
+    if (result.outcome === "failed") {
+      // Something may still be reserved; this attempt just didn't land
+      // (RPC hiccup, signer unavailable, tx reverted). The reservation is
+      // untouched and refundable again later, either by another automatic
+      // attempt (see retryPendingRefunds, run each cron tick) or the
+      // dashboard's self-service "Recover reserved funds".
+      row.reserveRefundStatus = "pending";
+      await persist(row);
+      await addToPendingRefundIndex(row.id);
+      return;
+    }
 
     const decimals = row.tokenDecimals ?? (row.token === "MON" ? 18 : 6);
     const amount = Number(result.amountRaw) / 10 ** decimals;
+    const record: RefundRecord = {
+      reason, amount, txHash: result.txHash, explorerUrl: result.explorerUrl,
+      at: Date.now(), automationId: row.id, originalExecutionAt: originalExecutionAt ?? null,
+    };
     row.reserveRefundTxHash = result.txHash;
+    row.reserveRefundStatus = "refunded";
+    row.refundHistory = [...(row.refundHistory ?? []), record];
     await persist(row);
+    await removeFromPendingRefundIndex(row.id);
     await recordAutomationEvent({
       merchantId: row.merchantId, automationId: row.id, sender: row.sender,
       type: "refunded",
@@ -622,6 +682,115 @@ async function refundReservedIfAny(row: ScheduledPayment, reason: string): Promi
       txHash: result.txHash, explorerUrl: result.explorerUrl,
     });
   } catch {
-    /* best-effort — reservation remains refundable */
+    // Reaching here means refundReservationViaAgent itself threw, which it
+    // shouldn't (it catches internally) — treat identically to "failed" so
+    // the row never regresses to looking like nothing was ever owed.
+    row.reserveRefundStatus = "pending";
+    await persist(row).catch(() => {});
+    await addToPendingRefundIndex(row.id).catch(() => {});
+  } finally {
+    // Always release, regardless of outcome — this is a short-lived mutex
+    // for THIS call, not a long-term idempotency cache (reserveRefundStatus
+    // already serves that role and is deliberately still retryable from
+    // "pending"/"none"). Leaving it held would permanently block every
+    // future legitimate attempt for this automation.
+    await releaseRequest(lockKey).catch(() => {});
   }
+}
+
+async function addToPendingRefundIndex(id: string): Promise<void> {
+  const r = await getRedis();
+  if (r) await r.zadd(PENDING_REFUND_INDEX_KEY, { score: Date.now(), member: id });
+  // No in-memory-mode index — retryPendingRefunds falls back to scanning
+  // `mem` directly in that mode (dev-only; production always has Redis).
+}
+
+async function removeFromPendingRefundIndex(id: string): Promise<void> {
+  const r = await getRedis();
+  if (r) await r.zrem(PENDING_REFUND_INDEX_KEY, id);
+}
+
+/**
+ * Retry every Reserved Funds automation whose last refund attempt failed
+ * (reserveRefundStatus === "pending") — called once per cron tick, best-
+ * effort. Without this, a "pending" refund that misses its one synchronous
+ * attempt (an RPC hiccup at the exact moment the automation went terminal)
+ * would sit stuck forever with no automatic path back, relying entirely on
+ * the user finding and using the dashboard's manual "Recover reserved
+ * funds" tool — which most users would never think to look for.
+ *
+ * Safe to call as often as this: refundReservedIfAny is itself idempotent
+ * (skips outright if already "refunded", and mutex-guarded against
+ * concurrent/overlapping calls for the same automation), so calling it
+ * again for something that already resolved, or that's mid-retry from
+ * another trigger, is always a correct no-op.
+ */
+export async function retryPendingRefunds(limit = 25): Promise<number> {
+  const r = await getRedis();
+  let candidates: ScheduledPayment[] = [];
+  if (r) {
+    // byScore, matching the DUE_INDEX_KEY pattern above — score is the time
+    // each entry was added, so this naturally processes oldest-first.
+    const allIds = (await r.zrange(PENDING_REFUND_INDEX_KEY, 0, Date.now(), { byScore: true })) as string[];
+    const ids = allIds.slice(0, limit);
+    candidates = (await Promise.all(ids.map((id) => getSchedule(id)))).filter((s): s is ScheduledPayment => !!s);
+  } else {
+    candidates = [...mem.values()].filter((s) => s.reserveRefundStatus === "pending").slice(0, limit);
+  }
+
+  let retried = 0;
+  for (const row of candidates) {
+    if (row.fundingMode !== "reserved" || row.reserveRefundStatus !== "pending") {
+      // Stale index entry (resolved by another path since it was added) —
+      // clean it up rather than leave it to be re-checked forever.
+      await removeFromPendingRefundIndex(row.id);
+      continue;
+    }
+    await refundReservedIfAny(row, "an automatic retry after a previous refund attempt didn't land");
+    retried += 1;
+  }
+  return retried;
+}
+
+/**
+ * Record a refund the WALLET OWNER triggered directly against the vault
+ * contract, bypassing the agent entirely — the dashboard's "Recover reserved
+ * funds" self-service tool exists specifically so a user can get their money
+ * back even if PayAI's agent is down or unwilling, which is the whole point
+ * of Reserved Funds being non-custodial. Without this, the server's own row
+ * never hears about it: reserveRefundStatus would stay stuck on "pending"
+ * (or undefined) forever even though the user already has their funds back,
+ * which is a false alarm just as real as the stuck-funds problem this whole
+ * refund-tracking system exists to prevent.
+ *
+ * The caller (app/api/automations/route.ts) is responsible for verifying the
+ * refund actually happened on-chain (decoding the vault's Refunded event for
+ * this exact automation id from the given tx's receipt) before calling this
+ * — this function trusts its caller completely and does no on-chain
+ * verification itself, so it must never be reachable from an unverified path.
+ */
+export async function recordSelfReportedRefund(
+  id: string,
+  input: { txHash: string; amount: number },
+): Promise<ScheduledPayment | null> {
+  const row = await getSchedule(id);
+  if (!row) return null;
+  const alreadyRecorded = (row.refundHistory ?? []).some((r) => r.txHash.toLowerCase() === input.txHash.toLowerCase());
+  if (alreadyRecorded) return row;
+  row.reserveRefundTxHash = input.txHash;
+  row.reserveRefundStatus = "refunded";
+  const record: RefundRecord = {
+    reason: "the wallet owner recovered the reservation directly",
+    amount: input.amount, txHash: input.txHash, at: Date.now(), automationId: row.id, originalExecutionAt: null,
+  };
+  row.refundHistory = [...(row.refundHistory ?? []), record];
+  await persist(row);
+  await removeFromPendingRefundIndex(row.id);
+  await recordAutomationEvent({
+    merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "refunded",
+    title: "Reserved funds returned",
+    detail: `${input.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${row.token} was refunded directly to your wallet.`,
+    amount: input.amount, token: row.token, txHash: input.txHash,
+  });
+  return row;
 }
