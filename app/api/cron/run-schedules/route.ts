@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
 
   const { dueSchedules, dueForReminder, markReminded, markLowBalanceWarned, recordRun, getSchedule } = await import("@/lib/platform/schedules");
   const { executeScheduleNow, executeBulkScheduleNow } = await import("@/lib/automation/execute");
+  const { recordAutomationEvent } = await import("@/lib/platform/automationEvents");
   const { checkFundingHealth } = await import("@/lib/automation/fundingHealth");
   const { ensureSanctionsLoaded } = await import("@/lib/payment/sanctions");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
@@ -159,6 +160,12 @@ export async function GET(req: NextRequest) {
     try {
       const isBulk = !!s.recipients?.length;
       trace("attempt_start", { automationId: s.id, requestId, amount: s.amount, token: s.token, fundingMode: s.fundingMode ?? "agent", bulk: isBulk, recipientCount: s.recipients?.length });
+      await recordAutomationEvent({
+        merchantId: s.merchantId, automationId: s.id, sender: s.sender, type: "execution_started",
+        title: "Execution started",
+        detail: isBulk ? `Sending to ${s.recipients?.length ?? 0} recipients now.` : `${s.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${s.token} to ${s.domain ?? s.recipient} is being sent now.`,
+        amount: s.amount, token: s.token,
+      });
 
       if (isBulk) {
         // Same per-recipient pipeline a single automation uses, just called

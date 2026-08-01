@@ -38,9 +38,9 @@ export interface TxLogEntry {
  * rather than folded into the tx log.
  */
 export type AutomationEventType =
-  | "created" | "upcoming_execution" | "executed" | "execution_failed"
+  | "created" | "updated" | "upcoming_execution" | "execution_started" | "executed" | "execution_failed"
   | "paused" | "resumed" | "cancelled" | "completed" | "skipped"
-  | "low_balance" | "reserved_funds_low" | "refunded";
+  | "low_balance" | "reserved_funds_low" | "refund_started" | "refunded";
 
 export interface AutomationEvent {
   id: string;
