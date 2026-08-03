@@ -28,6 +28,26 @@ describe("advanceRun", () => {
     expect(advanceRun(now, "weekly")).toBe(Date.UTC(2026, 0, 8));
     expect(advanceRun(now, "monthly")).toBe(Date.UTC(2026, 1, 1));
   });
+
+  it("clamps a monthly advance to the target month's last day instead of overflowing", () => {
+    // Jan 31 + 1 month must land on Feb 28 (2026 is not a leap year), not Mar 3.
+    const jan31 = Date.UTC(2026, 0, 31);
+    expect(advanceRun(jan31, "monthly")).toBe(Date.UTC(2026, 1, 28));
+  });
+
+  it("clamps a leap-year February monthly advance to Feb 29", () => {
+    const jan31_2028 = Date.UTC(2028, 0, 31); // 2028 is a leap year
+    expect(advanceRun(jan31_2028, "monthly")).toBe(Date.UTC(2028, 1, 29));
+  });
+
+  it("keeps clamping across consecutive short months for a custom months interval", () => {
+    // Jan 31 + 1 month (custom) -> Feb 28; a second +1 month from Feb 28 -> Mar 28,
+    // not Mar 31 — each advance is computed from the actual previous nextRun.
+    const jan31 = Date.UTC(2026, 0, 31);
+    const feb28 = advanceRun(jan31, "custom", { count: 1, unit: "months" });
+    expect(feb28).toBe(Date.UTC(2026, 1, 28));
+    expect(advanceRun(feb28!, "custom", { count: 1, unit: "months" })).toBe(Date.UTC(2026, 2, 28));
+  });
 });
 
 describe("recordRun — executed", () => {
