@@ -1885,7 +1885,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                 </div>
                 <div className="mt-3 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-sm"><span className="text-muted-foreground">First run: </span><span className="font-medium text-primary-ink">{new Date(startAt).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  PayAI checks for due automations roughly every minute, so this fires close to the time you picked — not necessarily to the exact second. Need it sooner? "Execute Now" on the automation runs it immediately, any time.
+                  PayAI checks for due automations roughly every minute, so this fires close to the time you picked — not necessarily to the exact second. Need it sooner? &quot;Execute Now&quot; on the automation runs it immediately, any time.
                 </p>
                 {cadence !== "once" && <div className="mt-4">
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">When should it end?</label>

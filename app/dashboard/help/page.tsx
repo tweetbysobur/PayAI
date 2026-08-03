@@ -357,7 +357,7 @@ function HelpCenterInner() {
       <Card className="!p-0 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-sm font-medium text-foreground">No articles match "{query}"</p>
+            <p className="text-sm font-medium text-foreground">No articles match &quot;{query}&quot;</p>
             <p className="mt-1 text-xs text-muted-foreground">Try a different search, or ask directly in the Support Center.</p>
           </div>
         ) : (
