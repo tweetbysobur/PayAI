@@ -102,7 +102,7 @@ function SupportPageInner() {
         <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground"><LifeBuoy size={24} className="text-primary-ink" /> Support Center</h1>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
           Report a problem with an automation, a refund, a payment, or your wallet. Every report is saved with a
-          reference id, and the automation or transaction it's about if you have one.
+          reference id, and the automation or transaction it&apos;s about if you have one.
         </p>
       </div>
 
@@ -172,8 +172,8 @@ function SupportPageInner() {
           <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:underline">{SUPPORT_EMAIL}</a>
         </p>
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          A report through this form is saved with a reference id you can bring to that address. PayAI doesn't yet
-          have a dedicated response-time commitment to promise you here, so we won't pretend to.
+          A report through this form is saved with a reference id you can bring to that address. PayAI doesn&apos;t yet
+          have a dedicated response-time commitment to promise you here, so we won&apos;t pretend to.
         </p>
       </Card>
 

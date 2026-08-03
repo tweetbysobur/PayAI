@@ -58,6 +58,19 @@ const RETRY_BACKOFF_MS = 15 * 60 * 1000;
 const g = globalThis as unknown as { __veripaySchedules?: Map<string, ScheduledPayment> };
 const mem = (g.__veripaySchedules ??= new Map());
 
+/** Add `months` calendar months to `d`, clamping to the target month's last
+ *  day instead of letting it overflow. `Date#setUTCMonth` alone rolls a day
+ *  that doesn't exist in the target month into the following month (e.g. Jan
+ *  31 + 1 month lands on Mar 3, not Feb 28) — which for a monthly automation
+ *  due on the 29th/30th/31st would silently skip or shift months forever. */
+function addUTCMonths(d: Date, months: number): void {
+  const day = d.getUTCDate();
+  d.setUTCDate(1); // park on a day valid in every month while the month itself shifts
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const lastDayOfTargetMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDayOfTargetMonth));
+}
+
 /** Advance a recurring automation's next run; null for a fired one-off (it completes). */
 export function advanceRun(from: number, cadence: ScheduleCadence, interval?: { count?: number; unit?: AutomationIntervalUnit }): number | null {
   const d = new Date(from);
@@ -65,10 +78,10 @@ export function advanceRun(from: number, cadence: ScheduleCadence, interval?: { 
   switch (cadence) {
     case "daily": d.setUTCDate(d.getUTCDate() + 1); return d.getTime();
     case "weekly": d.setUTCDate(d.getUTCDate() + 7); return d.getTime();
-    case "monthly": d.setUTCMonth(d.getUTCMonth() + 1); return d.getTime();
+    case "monthly": addUTCMonths(d, 1); return d.getTime();
     case "custom":
       if (interval?.unit === "weeks") d.setUTCDate(d.getUTCDate() + count * 7);
-      else if (interval?.unit === "months") d.setUTCMonth(d.getUTCMonth() + count);
+      else if (interval?.unit === "months") addUTCMonths(d, count);
       else d.setUTCDate(d.getUTCDate() + count);
       return d.getTime();
     case "once": return null;
