@@ -8,6 +8,7 @@ interface AutomationEventRow {
   id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string;
 }
 interface SupportTicketRow { id: string; category: string; description: string; createdAt: number }
+interface WalletEventRow { id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string }
 
 export interface NotifItem {
   id: string;
@@ -40,7 +41,7 @@ const LABEL: Record<string, string> = {
   error: "Payment failed",
 };
 
-export function useNotifications(walletAddress?: string | null) {
+export function useNotifications(walletAddress?: string | null, providerId?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
   const [unread, setUnread] = useState(0);
 
@@ -113,9 +114,30 @@ export function useNotifications(walletAddress?: string | null) {
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
 
-      Promise.all([payments, automations, tickets]).then(([fresh, automationFresh, ticketFresh]) => {
+      // Wallet-level notifications — created/connected/disconnected, deposits,
+      // withdrawals (lib/platform/walletEvents.ts). Provider-agnostic: same
+      // feed for an embedded PayAI Wallet or an external one.
+      const walletEvents = fetch(`/api/wallet-events?wallet=${walletAddress}${providerId ? `&provider=${providerId}` : ""}`)
+        .then((r) => r.json())
+        .then((j) => {
+          const rows = (j.events ?? []) as WalletEventRow[];
+          return rows
+            .filter((e) => e.at > cutoff)
+            .map((e): Omit<NotifItem, "read"> => ({
+              id: e.id,
+              decision: e.type,
+              title: e.title,
+              detail: e.detail,
+              at: e.at,
+              explorerUrl: e.explorerUrl,
+              href: "/dashboard/wallets",
+            }));
+        })
+        .catch(() => [] as Omit<NotifItem, "read">[]);
+
+      Promise.all([payments, automations, tickets, walletEvents]).then(([fresh, automationFresh, ticketFresh, walletFresh]) => {
         if (cancelled) return;
-        const all = [...fresh, ...automationFresh, ...ticketFresh].sort((a, b) => b.at - a.at).slice(0, 15);
+        const all = [...fresh, ...automationFresh, ...ticketFresh, ...walletFresh].sort((a, b) => b.at - a.at).slice(0, 15);
         // Read items stay in the feed (dimmed) until they age past 24h; only
         // unseen ones drive the unread badge.
         setNotifications(all.map((n) => ({ ...n, read: n.at <= seenAt })));
@@ -125,7 +147,7 @@ export function useNotifications(walletAddress?: string | null) {
     load();
     const t = setInterval(load, 20000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [walletAddress]);
+  }, [walletAddress, providerId]);
 
   // Opening the bell marks everything currently shown as read — but keeps it
   // visible (dimmed) for the rest of its 24h window rather than clearing it.

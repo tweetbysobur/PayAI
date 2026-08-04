@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet } from "lucide-react";
 import { Badge, Card, Input, SkeletonRows } from "@/components/ui";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { TokenLogo, VolumeInline } from "@/components/TokenLogo";
 
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }

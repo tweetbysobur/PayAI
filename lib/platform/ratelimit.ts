@@ -47,21 +47,36 @@ function clientIp(req: NextRequest): string {
   return (fwd ? fwd.split(",")[0].trim() : "") || "unknown";
 }
 
-/** Returns a 429 response when the caller exceeds the window, else null. */
-export async function rateLimited(req: NextRequest, bucket = "write"): Promise<NextResponse | null> {
-  const ip = clientIp(req);
-  const key = `veripay:rl:${bucket}:${ip}`;
+/**
+ * Returns a 429 response when the caller exceeds the window, else null.
+ *
+ * `opts` tightens the limit for buckets where the global default (built for
+ * ordinary write traffic) is far too generous — sending sign-in emails, for
+ * instance, costs real money per request and gates account access, so it
+ * gets single-digit limits rather than 30/minute. `subject` keys the counter
+ * on something other than the IP (e.g. the target email address), so an
+ * attacker rotating IPs still can't flood one inbox.
+ */
+export async function rateLimited(
+  req: NextRequest,
+  bucket = "write",
+  opts?: { max?: number; windowSec?: number; subject?: string },
+): Promise<NextResponse | null> {
+  const max = opts?.max ?? MAX_REQ;
+  const windowSec = opts?.windowSec ?? WINDOW_SEC;
+  const subject = opts?.subject?.trim().toLowerCase() || clientIp(req);
+  const key = `veripay:rl:${bucket}:${subject}`;
   let count: number;
 
   const r = await redis();
   if (r) {
     count = await r.incr(key);
-    if (count === 1) await r.expire(key, WINDOW_SEC);
+    if (count === 1) await r.expire(key, windowSec);
   } else {
     const now = Date.now();
     const e = mem.get(key);
     if (!e || e.resetAt < now) {
-      mem.set(key, { count: 1, resetAt: now + WINDOW_SEC * 1000 });
+      mem.set(key, { count: 1, resetAt: now + windowSec * 1000 });
       count = 1;
     } else {
       e.count += 1;
@@ -69,10 +84,10 @@ export async function rateLimited(req: NextRequest, bucket = "write"): Promise<N
     }
   }
 
-  if (count > MAX_REQ) {
+  if (count > max) {
     return NextResponse.json(
-      { error: `Rate limit exceeded — max ${MAX_REQ} requests per ${WINDOW_SEC}s.` },
-      { status: 429, headers: { "Retry-After": String(WINDOW_SEC) } },
+      { error: `Rate limit exceeded — max ${max} requests per ${windowSec}s.` },
+      { status: 429, headers: { "Retry-After": String(windowSec) } },
     );
   }
   return null;

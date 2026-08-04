@@ -89,7 +89,7 @@ export default function LandingPage() {
               payments while keeping full control of your wallet.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link href="/connect" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
+              <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
               </Link>
             </div>
@@ -185,7 +185,7 @@ export default function LandingPage() {
             Connect your wallet, pick a template or start from scratch, and approve once. PayAI handles every run after that.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
-            <Link href="/connect" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
+            <Link href="/auth" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
               Start automating payments
             </Link>
           </div>

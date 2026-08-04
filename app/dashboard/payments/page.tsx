@@ -244,9 +244,49 @@ export default function Payments() {
 
       {c.err && !c.pendingRecovery && <Card><p className="text-sm text-danger">{friendlyError(c.err)}</p></Card>}
 
+      {/* AI CONFIRMATION — the pipeline approved this payment, but no wallet
+          signature has been requested yet. Nothing signs until Confirm. */}
+      {c.pendingConfirm && (
+        <Card className="border-2 border-primary/40 bg-gradient-to-b from-primary/[0.05] to-transparent">
+          <div className="mb-3 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Confirm this payment</p>
+              <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
+            </div>
+          </div>
+          <dl className="space-y-1.5 rounded-lg border border-border bg-panel px-3.5 py-3 text-sm">
+            {[
+              ["Recipient", c.pendingConfirm.domain || short(c.pendingConfirm.recipient)],
+              ["Token", c.pendingConfirm.token],
+              ["Amount", c.pendingConfirm.amount != null ? `${c.pendingConfirm.amount} ${c.pendingConfirm.token}` : "—"],
+              ["Schedule", "Once — immediately"],
+              ["Execution Mode", "Non-custodial — signed from your wallet"],
+              ["Estimated Fees", "Shown by your wallet at signing"],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-center justify-between gap-3">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="truncate text-right font-medium text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-3.5 flex gap-2">
+            <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-input/40">
+              Edit
+            </button>
+            <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger">
+              Cancel
+            </button>
+            <button onClick={c.confirmSign} className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+              Confirm
+            </button>
+          </div>
+        </Card>
+      )}
+
       {/* Receipt / result */}
       <AnimatePresence>
-        {c.res && (
+        {c.res && !c.pendingConfirm && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
             <Card className="p-6 text-center">
               <motion.div

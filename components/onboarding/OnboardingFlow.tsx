@@ -7,7 +7,7 @@ import {
   Sparkles, ShieldCheck, Lock, Repeat, ArrowLeftRight, LayoutDashboard,
   ArrowRight, CheckCircle2, Clock3, PlusCircle, Eye, Send,
 } from "lucide-react";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MonadMark } from "@/components/MonadMark";
 import { useOnboarding } from "@/lib/hooks/useOnboarding";

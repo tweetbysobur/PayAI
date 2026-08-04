@@ -7,7 +7,7 @@ import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { useNotifications } from "@/lib/hooks/useNotifications";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface Health {
   payment: { connected: boolean; engine: string };
@@ -18,7 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const wallet = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { notifications, markSeen } = useNotifications(wallet.address);
+  const { notifications, markSeen } = useNotifications(wallet.address, wallet.providerId);
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { amountError, isValidAmount, addressError, isValidAddress } from "@/lib/validation";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface PayLink { id: string; amount: number; token: string; description?: string; url: string; status: string; createdAt: number }
 interface OnchainRequest { id: number; merchant: string; amount: number; paid: boolean; paymentId: number }

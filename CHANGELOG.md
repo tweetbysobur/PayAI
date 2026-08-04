@@ -2,6 +2,63 @@
 
 All notable changes to PayAI are documented here.
 
+## [Unreleased]
+
+- **Mera is live as the first embedded-wallet provider.** A new user signs in
+  and gets a real wallet with one biometric prompt — no extension, no seed
+  phrase. Mera derives a standard EVM account from the user's passkey via the
+  WebAuthn PRF extension, so the key exists only in the browser: PayAI's
+  server never receives, stores, or can use it. Recovery is deterministic —
+  the same passkey always reproduces the same address, on any device it syncs
+  to, so a returning user can never end up with a duplicate wallet.
+  Integrating it required no change to the Wallet Service interface and no
+  change to any call site (automations, AI assistant, dashboard), despite the
+  provider working nothing like the placeholder it replaced.
+- Social/email sign-in now establishes the PayAI **account**, with the wallet
+  derived from the passkey immediately afterwards — Mera is passkey-based and
+  cannot derive a wallet from an OAuth identity.
+- Onboarding rebuilt around the new flow: Terms/Privacy acceptance, then
+  "Continue with PayAI Wallet / Google / Apple / X / Email", with
+  "Connect Existing Wallet" below the divider for people who already have one.
+- **Wallet Service**: a new provider-agnostic wallet abstraction
+  (`lib/wallet-service/`) sits between PayAI and every wallet provider —
+  nothing in the app talks to a specific provider directly anymore. Ships
+  with two providers: the existing external-wallet integration (MetaMask,
+  Rabby, Backpack, WalletConnect…) and a Mera embedded-wallet adapter, ready
+  to activate the moment `MERA_API_KEY`/`MERA_PROJECT_ID` are configured.
+- **Embedded wallets & social sign-in**: a new `/auth` onboarding flow —
+  "Continue with Google / Apple / X / Email" — creates or recovers a user's
+  embedded wallet automatically, no seed phrase, no browser extension.
+  Config-gated per provider; degrades honestly (never fabricates a signed-in
+  state) until real OAuth credentials are set.
+  `useWalletService()` is now the one hook the whole app uses to read the
+  active wallet (embedded or external) and sign — automations, the AI
+  assistant, and the dashboard all go through it, never a provider SDK.
+- **AI Confirmation screen**: the AI assistant now shows Recipient / Token /
+  Amount / Schedule / Execution Mode / Estimated Fees — with Edit, Cancel,
+  and Confirm — before ever requesting a wallet signature, in both the
+  command bar and the Send Payment page.
+- **Wallet dashboard**: added Connected Wallets, Recovery Status, and a
+  Withdraw action alongside Deposit/Receive.
+- **Notifications**: new wallet-level notification types (wallet created/
+  connected/disconnected, deposit received, withdrawal completed, automation
+  signed) alongside the existing automation and payment feeds.
+- **Email sign-in** now sends real one-time codes (Resend). Codes are stored
+  only as salted hashes, are single-use, expire after 10 minutes, and are
+  burned after 5 wrong guesses; the send and verify endpoints are rate
+  limited per-IP and per-address.
+- **Deposit & withdrawal notifications** are now raised from real on-chain
+  activity, via a throttled catch-up scan per wallet: ERC-20 movements from
+  `Transfer` logs, and native MON — which emits no log — by reading the
+  transactions in the blocks since the wallet's last checkpoint, so a MON
+  deposit is reported with the same real txHash, sender, and amount as a
+  token one. The first scan sets a baseline only (no replay of a wallet's
+  whole history), sends PayAI already settled are never notified twice, and
+  the scan is time-boxed so a slow RPC can't stall the notification feed.
+  Native sends made from inside a contract still need trace APIs public RPCs
+  don't expose, and a catch-up window wider than ~1,500 blocks skips native
+  detection rather than issuing tens of thousands of block reads.
+
 ## [0.2.0] - 2026-07-02
 
 - Custom domain: PayAI now lives at [usepayai.xyz](https://usepayai.xyz).
