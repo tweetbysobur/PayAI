@@ -32,7 +32,7 @@ function AuthFlow() {
   // at the passkey step — their account exists, the wallet is one prompt away.
   useEffect(() => {
     const err = params.get("error");
-    if (err) setError(err === "invalid_state" ? "That sign-in link expired. Please try again." : err === "apple_not_configured" ? "Continue with Apple isn't set up on this deployment yet." : err);
+    if (err) setError(err === "invalid_state" ? "That sign-in link expired. Please try again." : err === "apple_not_configured" ? "Continue with Apple is coming soon." : err);
     if (params.get("step") === "wallet") { setAgreed(true); setStep("wallet"); return; }
     if (typeof window !== "undefined" && localStorage.getItem(CONSENT_KEY) === "1") {
       setAgreed(true);
@@ -176,12 +176,12 @@ function AuthFlow() {
                   {social.map((s) => (
                     <button
                       key={s.method}
-                      onClick={() => (s.available ? wallet.connectEmbeddedOAuth(s.method) : setError(`${s.label} isn't set up on this deployment yet.`))}
+                      onClick={() => (s.available ? wallet.connectEmbeddedOAuth(s.method) : setError(`${s.label} is coming soon. For now, use PayAI Wallet — it takes seconds.`))}
                       className="flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40"
                     >
                       <BrandIcon name={s.method} size={16} />
                       <span className="flex-1 text-left">{s.label}</span>
-                      {!s.available && <span className="text-[10px] font-medium text-muted-foreground">Not set up</span>}
+                      {!s.available && <span className="rounded-full bg-input px-2 py-0.5 text-[10px] font-medium text-muted-foreground">Coming soon</span>}
                     </button>
                   ))}
 
@@ -194,7 +194,7 @@ function AuthFlow() {
                     />
                   </div>
                   <button
-                    onClick={() => (wallet.authMethods.email ? sendCode() : setError("Continue with Email isn't set up on this deployment yet."))}
+                    onClick={() => (wallet.authMethods.email ? sendCode() : setError("Continue with Email is coming soon. For now, use PayAI Wallet — it takes seconds."))}
                     disabled={!email.includes("@") || pending === "email"}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-40"
                   >
