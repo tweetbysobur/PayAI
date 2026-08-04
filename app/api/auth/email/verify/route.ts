@@ -1,13 +1,11 @@
-/** Verifies the one-time code from POST /api/auth/email, then creates or
- *  recovers the embedded wallet and opens a session — same downstream path
- *  as the OAuth callback. */
+/** Verifies the one-time code from POST /api/auth/email and opens a PayAI
+ *  account session. Like the OAuth callback, this establishes identity only —
+ *  the wallet is derived in the browser from a passkey, so no wallet is (or
+ *  can be) created here. */
 import { NextRequest, NextResponse } from "next/server";
 import { verifyEmailCode } from "@/lib/auth/email";
-import { rateLimited } from "@/lib/platform/ratelimit";
 import { encodeSession, SESSION_COOKIE, SESSION_COOKIE_OPTS } from "@/lib/auth/session";
-import { getEmbeddedProvider } from "@/lib/wallet-service/registry";
-import { recordWalletEvent } from "@/lib/platform/walletEvents";
-import { DEMO_TENANT } from "@/lib/platform/merchants";
+import { rateLimited } from "@/lib/platform/ratelimit";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
@@ -28,32 +26,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "That code is invalid or expired." }, { status: 401 });
   }
 
-  const userId = `email:${email.toLowerCase()}`;
-  const embedded = getEmbeddedProvider();
-  const wallet = await embedded.createOrRecoverWallet({ userId, authMethod: "email" });
-
-  const session = { userId, authMethod: "email" as const, label: email, address: wallet.address, createdAt: Date.now() };
-  const res = NextResponse.json({ address: wallet.address });
+  const session = {
+    userId: `email:${email.toLowerCase()}`,
+    authMethod: "email" as const,
+    label: email,
+    createdAt: Date.now(),
+  };
+  const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE, encodeSession(session), SESSION_COOKIE_OPTS);
-
-  // Same once-only rule as the OAuth callback: created on first login,
-  // connected on every recovery afterwards.
-  await recordWalletEvent({
-    merchantId: DEMO_TENANT,
-    sender: wallet.address,
-    providerId: embedded.id,
-    ...(wallet.created
-      ? {
-          type: "wallet_created" as const,
-          title: "Wallet created",
-          detail: "Your PayAI Wallet was created and secured with your email sign-in.",
-        }
-      : {
-          type: "wallet_connected" as const,
-          title: "Embedded wallet connected",
-          detail: "Signed in with email and connected your PayAI Wallet.",
-        }),
-  }).catch(() => {});
-
   return res;
 }

@@ -4,6 +4,22 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
+- **Mera is live as the first embedded-wallet provider.** A new user signs in
+  and gets a real wallet with one biometric prompt — no extension, no seed
+  phrase. Mera derives a standard EVM account from the user's passkey via the
+  WebAuthn PRF extension, so the key exists only in the browser: PayAI's
+  server never receives, stores, or can use it. Recovery is deterministic —
+  the same passkey always reproduces the same address, on any device it syncs
+  to, so a returning user can never end up with a duplicate wallet.
+  Integrating it required no change to the Wallet Service interface and no
+  change to any call site (automations, AI assistant, dashboard), despite the
+  provider working nothing like the placeholder it replaced.
+- Social/email sign-in now establishes the PayAI **account**, with the wallet
+  derived from the passkey immediately afterwards — Mera is passkey-based and
+  cannot derive a wallet from an OAuth identity.
+- Onboarding rebuilt around the new flow: Terms/Privacy acceptance, then
+  "Continue with PayAI Wallet / Google / Apple / X / Email", with
+  "Connect Existing Wallet" below the divider for people who already have one.
 - **Wallet Service**: a new provider-agnostic wallet abstraction
   (`lib/wallet-service/`) sits between PayAI and every wallet provider —
   nothing in the app talks to a specific provider directly anymore. Ships

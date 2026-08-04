@@ -12,6 +12,5 @@ export interface AuthSession {
   /** Best-effort display label (email or handle) — never used for anything
    *  security-sensitive, only shown in the UI. */
   label: string;
-  address: string;
   createdAt: number;
 }
