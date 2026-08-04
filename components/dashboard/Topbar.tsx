@@ -105,15 +105,12 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           >
             {busy ? "Switching…" : "Wrong network — switch to Monad"}
           </Button>
-        ) : wallet.address ? (
-          <div className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs">
-            <WalletIcon size={14} className="text-primary-ink" />
-            <span className="font-medium text-foreground">
-              {balances.loading ? "…" : balances.mon ? `${Number(balances.mon).toFixed(2)} MON` : "—"}
-            </span>
-            {balances.usdc && <span className="text-muted-foreground">${Number(balances.usdc).toFixed(2)} USDC</span>}
-          </div>
-        ) : (
+        ) : wallet.address ? null : (
+          /* No balance pill here on purpose. The dashboard already shows MON
+             and USDC as their own cards, so repeating them in the top bar was
+             the same numbers twice on one screen — and on a phone it crowded
+             out the address. Balances are still one tap away in the wallet
+             menu, which is where a second look belongs. */
           <div className="flex items-center gap-2">
             {/* An embedded wallet's key lives in memory only, so a reload
                 leaves the account signed in but the wallet locked. That's the
