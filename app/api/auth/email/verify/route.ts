@@ -29,13 +29,23 @@ export async function POST(req: NextRequest) {
   const res = NextResponse.json({ address: wallet.address });
   res.cookies.set(SESSION_COOKIE, encodeSession(session), SESSION_COOKIE_OPTS);
 
+  // Same once-only rule as the OAuth callback: created on first login,
+  // connected on every recovery afterwards.
   await recordWalletEvent({
     merchantId: DEMO_TENANT,
     sender: wallet.address,
-    type: "wallet_connected",
     providerId: embedded.id,
-    title: "Embedded wallet connected",
-    detail: "Signed in with email and connected your PayAI Wallet.",
+    ...(wallet.created
+      ? {
+          type: "wallet_created" as const,
+          title: "Wallet created",
+          detail: "Your PayAI Wallet was created and secured with your email sign-in.",
+        }
+      : {
+          type: "wallet_connected" as const,
+          title: "Embedded wallet connected",
+          detail: "Signed in with email and connected your PayAI Wallet.",
+        }),
   }).catch(() => {});
 
   return res;
