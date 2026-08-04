@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { isOAuthConfigured, buildAuthorizeUrl, type OAuthProviderId } from "@/lib/auth/oauth";
 import { isEmailAuthConfigured, sendEmailCode } from "@/lib/auth/email";
+import { isSessionConfigured } from "@/lib/auth/session";
 import { rateLimited } from "@/lib/platform/ratelimit";
 
 const OAUTH_PROVIDERS: OAuthProviderId[] = ["google", "apple", "x"];
@@ -29,6 +30,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     return NextResponse.json({ error: `Unknown auth provider "${provider}".` }, { status: 404 });
   }
   const p = provider as OAuthProviderId;
+  if (!isSessionConfigured()) {
+    return NextResponse.json(
+      { configured: false, error: "Social sign-in needs AUTH_SESSION_SECRET set on this deployment." },
+      { status: 501 },
+    );
+  }
   if (!isOAuthConfigured(p)) {
     return NextResponse.json(
       { configured: false, error: `Continue with ${p} isn't set up on this deployment yet.` },
@@ -50,7 +57,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
   if (provider !== "email") {
     return NextResponse.json({ error: "POST is only used for email sign-in." }, { status: 405 });
   }
-  if (!isEmailAuthConfigured()) {
+  if (!isSessionConfigured() || !isEmailAuthConfigured()) {
     return NextResponse.json({ configured: false, error: "Continue with email isn't set up on this deployment yet." }, { status: 501 });
   }
   const body = await req.json().catch(() => null);
