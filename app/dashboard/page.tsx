@@ -18,6 +18,7 @@ import { useToast } from "@/components/Toast";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
+import { WelcomeCard } from "@/components/dashboard/WelcomeCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 
@@ -139,6 +140,15 @@ export default function Overview() {
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
       </motion.div>
+
+      {/* A brand-new wallet lands on a dashboard with nothing in it, which
+          says "you have nothing" rather than "here's what to do". This shows
+          only while there is genuinely no activity, and retires itself for
+          good the moment there is. */}
+      <WelcomeCard
+        address={wallet.address}
+        show={!!wallet.address && history.length === 0 && automations.length === 0}
+      />
 
       {/* Wallet summary */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="mb-5">
