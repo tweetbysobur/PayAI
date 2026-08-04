@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Wallet, ShieldCheck, LifeBuoy, ArrowRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { MonadMark } from "@/components/MonadMark";
 
 /** Settings is wallet-only, matching the rest of the product — there is no

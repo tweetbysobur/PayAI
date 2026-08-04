@@ -282,7 +282,54 @@ export function CommandBar() {
                   </div>
                 )}
 
-                {res && !c.loading && (
+                {/* AI CONFIRMATION — the pipeline approved this, but no
+                    signature has been requested yet. Nothing signs until
+                    Confirm is pressed. */}
+                {c.pendingConfirm && !c.loading && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="rounded-xl border-2 border-primary/40 bg-gradient-to-b from-primary/[0.05] to-transparent p-4"
+                  >
+                    <div className="mb-3 flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={16} /></span>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Confirm this payment</p>
+                        <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
+                      </div>
+                    </div>
+                    <dl className="space-y-1.5 rounded-lg border border-border bg-panel px-3.5 py-3 text-sm">
+                      {[
+                        ["Recipient", c.pendingConfirm.domain || short(c.pendingConfirm.recipient)],
+                        ["Token", c.pendingConfirm.token],
+                        ["Amount", c.pendingConfirm.amount != null ? `${c.pendingConfirm.amount} ${c.pendingConfirm.token}` : "—"],
+                        ["Schedule", "Once — immediately"],
+                        ["Execution Mode", "Non-custodial — signed from your wallet"],
+                        ["Estimated Fees", "Shown by your wallet at signing"],
+                      ].map(([label, value]) => (
+                        <div key={label} className="flex items-center justify-between gap-3">
+                          <dt className="text-xs text-muted-foreground">{label}</dt>
+                          <dd className="truncate text-right font-medium text-foreground">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="mt-3.5 flex gap-2">
+                      <button
+                        onClick={() => { const raw = c.pendingConfirm!.confirmRawText; c.cancelConfirm(); c.setIntent(raw); inputRef.current?.focus(); }}
+                        className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-input/40"
+                      >
+                        Edit
+                      </button>
+                      <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger">
+                        Cancel
+                      </button>
+                      <button onClick={c.confirmSign} className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+                        Confirm
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {res && !c.loading && !c.pendingConfirm && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}
                     className="rounded-xl border border-border bg-input/30 p-4"
@@ -339,7 +386,7 @@ export function CommandBar() {
 
                 {/* Once a command reaches a terminal state, offer a clean reset
                     back to the start instead of leaving the old result sitting. */}
-                {((res && !c.loading) || c.info || c.err || (c.swap && (c.swap.phase === "done" || c.swap.phase === "error"))) && (
+                {((res && !c.loading && !c.pendingConfirm) || c.info || c.err || (c.swap && (c.swap.phase === "done" || c.swap.phase === "error"))) && (
                   <motion.button
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
                     onClick={startOver}

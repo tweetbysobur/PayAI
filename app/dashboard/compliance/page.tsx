@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { recipientError, isValidRecipient } from "@/lib/validation";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface Compliance { approved: number; rejected: number; review: number; blocked: number; approvalRate: number }
 interface Analytics { compliance: Compliance }

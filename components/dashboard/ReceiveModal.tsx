@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";

@@ -8,7 +8,7 @@ import {
   Bug, Sparkles, HelpCircle, Mail, CheckCircle2, Clock,
 } from "lucide-react";
 import { Badge, Button, Card } from "@/components/ui";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 const SUPPORT_EMAIL = "support@usepayai.xyz";
 

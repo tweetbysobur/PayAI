@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { savePendingSettlement, getPendingSettlement, clearPendingSettlement, type PendingSettlement } from "@/lib/hooks/pendingSettlement";
 
@@ -69,6 +69,24 @@ export interface Onchain {
   requests: OnchainRequest[];
   explorerTxBase?: string;
 }
+/**
+ * What the AI Confirmation screen shows before a signature is ever
+ * requested — Recipient / Token / Amount / Schedule / Execution Mode /
+ * Estimated Fees — with Edit / Cancel / Confirm. Nothing gets signed until
+ * the user explicitly confirms (see confirmSign() below); "Edit" just
+ * cancels back to the input so the user can retype the request.
+ */
+export interface PendingConfirmation {
+  unsignedTx: { to: string; data: string; value?: string; from: string };
+  confirmRawText: string;
+  requestId?: string;
+  recipient: string | null;
+  domain?: string | null;
+  token: string;
+  amount: number | null;
+  network: string;
+}
+
 export interface InfoResult {
   decision: "info";
   query: "show_history" | "check_compliance" | "show_balance" | "scheduled_payment";
@@ -185,6 +203,10 @@ export function useAgentConsole() {
   // closing between broadcast and confirm. Never treat this as a failed payment.
   const [pendingRecovery, setPendingRecovery] = useState<PendingSettlement | null>(null);
   const [recovering, setRecovering] = useState(false);
+  // Set the moment the pipeline approves a payment but before any signature
+  // is requested — the AI Confirmation screen renders from this and nothing
+  // else. Cleared by confirmSign() (which then signs) or cancelConfirm().
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmation | null>(null);
 
   function loadOnchain() {
     fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
@@ -409,7 +431,23 @@ export function useAgentConsole() {
   /** Clear everything back to the idle prompt — used after a command finishes
    *  so the bar returns to its start state instead of holding the old result. */
   function reset() {
-    setIntent(""); setRes(null); setInfo(null); setSwap(null); setErr(null); setLoading(false);
+    setIntent(""); setRes(null); setInfo(null); setSwap(null); setErr(null); setLoading(false); setPendingConfirm(null);
+  }
+
+  /** "Cancel" (or "Edit") on the AI Confirmation screen — no signature was ever
+   *  requested, so there's nothing to undo, just clear back to idle. */
+  function cancelConfirm() {
+    setPendingConfirm(null);
+    setRes(null);
+  }
+
+  /** "Confirm" on the AI Confirmation screen — the ONLY path that reaches
+   *  signAndConfirm(), i.e. the only place a signature is ever requested. */
+  async function confirmSign() {
+    if (!pendingConfirm) return;
+    const { unsignedTx, confirmRawText, requestId } = pendingConfirm;
+    setPendingConfirm(null);
+    await signAndConfirm(unsignedTx, confirmRawText, requestId);
   }
 
   async function run(text: string) {
@@ -470,7 +508,20 @@ export function useAgentConsole() {
       if (!("intent" in json) || !json.intent) throw new Error(json.error || "Request failed");
       setRes(json);
       if (json.decision === "ready_to_sign" && json.unsignedTx && json.confirmRawText) {
-        await signAndConfirm(json.unsignedTx, json.confirmRawText, (json as { requestId?: string }).requestId);
+        // AI CONFIRMATION: show Recipient/Token/Amount/Schedule/Execution
+        // Mode/Fees and require an explicit Confirm — signAndConfirm() (the
+        // only place that requests a wallet signature) is never called from
+        // here directly.
+        setPendingConfirm({
+          unsignedTx: json.unsignedTx,
+          confirmRawText: json.confirmRawText,
+          requestId: (json as { requestId?: string }).requestId,
+          recipient: json.intent.recipient,
+          domain: json.intent.domain,
+          token: json.intent.token,
+          amount: json.intent.amount,
+          network: json.intent.network,
+        });
         return;
       }
       pushHistory(json);
@@ -500,5 +551,7 @@ export function useAgentConsole() {
     // Recovery for a signed-and-broadcast transaction whose confirm step never
     // completed — never treat this as a failed payment. See lib/hooks/pendingSettlement.ts.
     pendingRecovery, recovering, retryPendingConfirm,
+    // AI Confirmation screen — see PendingConfirmation above.
+    pendingConfirm, confirmSign, cancelConfirm,
   };
 }
