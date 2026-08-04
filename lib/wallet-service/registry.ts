@@ -38,9 +38,13 @@ function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
     },
     async sendTransaction(tx: UnsignedTx) {
       const client = await mera.walletClientFor(wallet);
+      // `chain` is deliberately NOT passed. This is a local (Mera) account, so
+      // viem signs the transaction here rather than handing it to a wallet —
+      // it needs the chain to put a chainId in the signature (EIP-155 replay
+      // protection). Passing `chain: null` would suppress that; omitting it
+      // inherits the client's configured Monad chain, which is what we want.
       return client.sendTransaction({
         account: wallet.account,
-        chain: null,
         to: tx.to as `0x${string}`,
         data: (tx.data ?? undefined) as `0x${string}` | undefined,
         value: tx.value ? BigInt(tx.value) : undefined,

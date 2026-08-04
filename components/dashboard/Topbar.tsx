@@ -115,13 +115,25 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           </div>
         ) : (
           <div className="flex items-center gap-2">
+            {/* An embedded wallet's key lives in memory only, so a reload
+                leaves the account signed in but the wallet locked. That's the
+                intended security behaviour, but it must read as "unlock",
+                not "connect" — and it re-unlocks in place with one passkey
+                prompt rather than sending the user back through onboarding. */}
             <Button
               variant="secondary"
               className="text-xs"
               disabled={busy}
-              onClick={() => { window.location.href = "/auth"; }}
+              onClick={() => {
+                if (!wallet.account) { window.location.href = "/auth"; return; }
+                setBusy(true);
+                wallet.setUpEmbeddedWallet({ create: false })
+                  .then(() => toast("Wallet unlocked"))
+                  .catch(() => toast(wallet.error ?? "Couldn't unlock your wallet.", "error"))
+                  .finally(() => setBusy(false));
+              }}
             >
-              Connect wallet
+              {busy ? "Unlocking…" : wallet.account ? "Unlock wallet" : "Connect wallet"}
             </Button>
             {wallet.error && <span className="text-xs text-danger">{wallet.error}</span>}
           </div>
