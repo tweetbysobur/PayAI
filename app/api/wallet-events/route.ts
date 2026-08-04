@@ -5,11 +5,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { listWalletEvents, recordWalletEvent } from "@/lib/platform/walletEvents";
 import { resolveTenantId } from "@/lib/platform/tenant";
 import { WALLET_EVENT_TYPES, type WalletEventType } from "@/lib/wallet-service/types";
+import { reconcileWalletTransfers } from "@/lib/wallet-service/reconcile";
 
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get("wallet");
-  if (!wallet) return NextResponse.json({ events: [] });
+  if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return NextResponse.json({ events: [] });
   const merchantId = await resolveTenantId(req);
+
+  // Catch up on-chain deposits/withdrawals before reading the feed, so a
+  // transfer that landed while the user was away shows up the moment they
+  // come back. Self-throttling (see reconcile.ts), so the 20s notification
+  // poll triggers a real chain scan at most once a minute — and never fails
+  // the request: a chain hiccup should degrade to "no new deposits", not to
+  // an empty notification list.
+  await reconcileWalletTransfers({
+    merchantId,
+    address: wallet,
+    providerId: req.nextUrl.searchParams.get("provider") === "mera" ? "mera" : "injected",
+  }).catch(() => {});
+
   const events = await listWalletEvents(merchantId, wallet);
   return NextResponse.json({ events });
 }

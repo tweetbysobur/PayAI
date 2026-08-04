@@ -3,6 +3,7 @@
  *  as the OAuth callback. */
 import { NextRequest, NextResponse } from "next/server";
 import { verifyEmailCode } from "@/lib/auth/email";
+import { rateLimited } from "@/lib/platform/ratelimit";
 import { encodeSession, SESSION_COOKIE, SESSION_COOKIE_OPTS } from "@/lib/auth/session";
 import { getEmbeddedProvider } from "@/lib/wallet-service/registry";
 import { recordWalletEvent } from "@/lib/platform/walletEvents";
@@ -15,6 +16,12 @@ export async function POST(req: NextRequest) {
   if (!email || !code) {
     return NextResponse.json({ error: "Email and code are required." }, { status: 400 });
   }
+
+  // Defence in depth over the per-code attempt cap in verifyEmailCode: that
+  // cap burns one code after 5 guesses, this stops an attacker cheaply
+  // requesting a fresh code and spending 5 more guesses, over and over.
+  const limited = await rateLimited(req, "auth-email-verify", { max: 10, windowSec: 300, subject: email });
+  if (limited) return limited;
 
   const ok = await verifyEmailCode(email, code);
   if (!ok) {

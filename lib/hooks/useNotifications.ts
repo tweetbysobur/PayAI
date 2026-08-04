@@ -41,7 +41,7 @@ const LABEL: Record<string, string> = {
   error: "Payment failed",
 };
 
-export function useNotifications(walletAddress?: string | null) {
+export function useNotifications(walletAddress?: string | null, providerId?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
   const [unread, setUnread] = useState(0);
 
@@ -117,7 +117,7 @@ export function useNotifications(walletAddress?: string | null) {
       // Wallet-level notifications — created/connected/disconnected, deposits,
       // withdrawals (lib/platform/walletEvents.ts). Provider-agnostic: same
       // feed for an embedded PayAI Wallet or an external one.
-      const walletEvents = fetch(`/api/wallet-events?wallet=${walletAddress}`)
+      const walletEvents = fetch(`/api/wallet-events?wallet=${walletAddress}${providerId ? `&provider=${providerId}` : ""}`)
         .then((r) => r.json())
         .then((j) => {
           const rows = (j.events ?? []) as WalletEventRow[];
@@ -147,7 +147,7 @@ export function useNotifications(walletAddress?: string | null) {
     load();
     const t = setInterval(load, 20000);
     return () => { cancelled = true; clearInterval(t); };
-  }, [walletAddress]);
+  }, [walletAddress, providerId]);
 
   // Opening the bell marks everything currently shown as read — but keeps it
   // visible (dimmed) for the rest of its 24h window rather than clearing it.
