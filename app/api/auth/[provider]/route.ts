@@ -8,9 +8,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { isOAuthConfigured, buildAuthorizeUrl, type OAuthProviderId } from "@/lib/auth/oauth";
 import { isEmailAuthConfigured, sendEmailCode } from "@/lib/auth/email";
+import { rateLimited } from "@/lib/platform/ratelimit";
 
 const OAUTH_PROVIDERS: OAuthProviderId[] = ["google", "apple", "x"];
 const STATE_COOKIE = "payai_oauth_state";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function siteUrl(req: NextRequest): string {
   return process.env.VERIPAYAI_PUBLIC_URL || req.nextUrl.origin;
@@ -53,9 +55,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
   }
   const body = await req.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim() : "";
-  if (!email || !email.includes("@")) {
+  if (!EMAIL_RE.test(email)) {
     return NextResponse.json({ error: "A valid email address is required." }, { status: 400 });
   }
+
+  // Two limiters, both required: per-IP stops one host enumerating addresses,
+  // per-address stops a rotating-IP attacker flooding one person's inbox
+  // (each send costs real money and lands in a stranger's mail).
+  const ipLimited = await rateLimited(req, "auth-email-ip", { max: 5, windowSec: 300 });
+  if (ipLimited) return ipLimited;
+  const addressLimited = await rateLimited(req, "auth-email-addr", { max: 3, windowSec: 300, subject: email });
+  if (addressLimited) return addressLimited;
+
   try {
     await sendEmailCode(email);
     return NextResponse.json({ sent: true });

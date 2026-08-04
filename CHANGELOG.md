@@ -27,6 +27,16 @@ All notable changes to PayAI are documented here.
 - **Notifications**: new wallet-level notification types (wallet created/
   connected/disconnected, deposit received, withdrawal completed, automation
   signed) alongside the existing automation and payment feeds.
+- **Email sign-in** now sends real one-time codes (Resend). Codes are stored
+  only as salted hashes, are single-use, expire after 10 minutes, and are
+  burned after 5 wrong guesses; the send and verify endpoints are rate
+  limited per-IP and per-address.
+- **Deposit & withdrawal notifications** are now raised from real on-chain
+  ERC-20 Transfer logs, via a throttled catch-up scan per wallet. The first
+  scan sets a baseline only (no replay of a wallet's whole history), and
+  sends PayAI already settled are never notified twice. Native MON deposits
+  emit no log and so are not detected — reported as a known limitation
+  rather than inferred from balance changes.
 
 ## [0.2.0] - 2026-07-02
 
