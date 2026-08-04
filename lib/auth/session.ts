@@ -14,6 +14,16 @@ import type { AuthSession } from "./types";
 export const SESSION_COOKIE = "payai_session";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
+/**
+ * Whether account sessions can be signed at all. Social and email sign-in
+ * depend on this; the passkey wallet does NOT — it needs no server session,
+ * so an unconfigured deployment still gives users a fully working wallet
+ * while reporting the social methods as unavailable.
+ */
+export function isSessionConfigured(): boolean {
+  return !!process.env.AUTH_SESSION_SECRET?.trim() || process.env.NODE_ENV !== "production";
+}
+
 function secret(): string {
   const s = process.env.AUTH_SESSION_SECRET;
   if (s) return s;
@@ -32,15 +42,22 @@ export function encodeSession(session: AuthSession): string {
   return `${payload}.${sign(payload)}`;
 }
 
+/**
+ * Never throws. A cookie that can't be verified — tampered, malformed, or
+ * signed with a secret this deployment no longer has — means "not signed
+ * in", which is exactly what an unauthenticated visitor already is. Letting
+ * it throw instead would turn a stale cookie into a 500 on every request
+ * that reads the session, including the public capability probe.
+ */
 export function decodeSession(cookieValue: string | undefined | null): AuthSession | null {
   if (!cookieValue) return null;
   const [payload, sig] = cookieValue.split(".");
   if (!payload || !sig) return null;
-  const expected = sign(payload);
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   try {
+    const expected = sign(payload);
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
     return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AuthSession;
   } catch {
     return null;

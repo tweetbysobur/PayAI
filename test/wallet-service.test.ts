@@ -50,6 +50,40 @@ describe("Session cookie codec", () => {
     expect(decodeSession("")).toBeNull();
   });
 
+  it("treats an unverifiable cookie as signed-out instead of throwing", async () => {
+    const { decodeSession } = await import("@/lib/auth/session");
+    // Garbage, and a well-formed payload signed with a different secret —
+    // both must read as "not signed in". If either threw, a stale cookie
+    // would 500 every request that reads the session.
+    expect(decodeSession("not-a-session")).toBeNull();
+    expect(decodeSession("a.b")).toBeNull();
+    expect(() => decodeSession("%%%.%%%")).not.toThrow();
+  });
+
+  it("reports social sign-in unusable in production without a signing secret", async () => {
+    const { isSessionConfigured } = await import("@/lib/auth/session");
+    const secret = process.env.AUTH_SESSION_SECRET;
+    const nodeEnv = process.env.NODE_ENV;
+    const setEnv = (k: string, v: string | undefined) => {
+      if (v === undefined) delete (process.env as Record<string, string | undefined>)[k];
+      else (process.env as Record<string, string | undefined>)[k] = v;
+    };
+    try {
+      setEnv("AUTH_SESSION_SECRET", undefined);
+      setEnv("NODE_ENV", "production");
+      // Must be false so the UI shows "not set up" rather than sending the
+      // user to Google and 500ing on the way back. The passkey wallet does
+      // not consult this at all and keeps working.
+      expect(isSessionConfigured()).toBe(false);
+
+      setEnv("AUTH_SESSION_SECRET", "a-real-secret");
+      expect(isSessionConfigured()).toBe(true);
+    } finally {
+      setEnv("NODE_ENV", nodeEnv);
+      setEnv("AUTH_SESSION_SECRET", secret);
+    }
+  });
+
   it("carries no wallet address — the server never learns one", async () => {
     const { encodeSession, decodeSession } = await import("@/lib/auth/session");
     const decoded = decodeSession(
