@@ -125,7 +125,12 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               className="text-xs"
               disabled={busy}
               onClick={() => {
-                if (!wallet.account) { window.location.href = "/auth"; return; }
+                // A passkey on this device is the signal that there's a wallet
+                // to unlock — NOT the account session. Someone who onboarded
+                // with the passkey alone never has an OAuth/email session, and
+                // gating on that sent them back through onboarding to reach a
+                // wallet they already had.
+                if (!wallet.hasEmbeddedCredential) { window.location.href = "/auth"; return; }
                 setBusy(true);
                 wallet.setUpEmbeddedWallet({ create: false })
                   .then(() => toast("Wallet unlocked"))
@@ -133,7 +138,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                   .finally(() => setBusy(false));
               }}
             >
-              {busy ? "Unlocking…" : wallet.account ? "Unlock wallet" : "Connect wallet"}
+              {busy ? "Unlocking…" : wallet.hasEmbeddedCredential ? "Unlock wallet" : "Connect wallet"}
             </Button>
             {wallet.error && <span className="text-xs text-danger">{wallet.error}</span>}
           </div>
