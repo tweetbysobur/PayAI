@@ -156,6 +156,30 @@ export async function recoverWallet(): Promise<MeraWallet> {
   return walletFrom(result.prfOutput, result.credentialId);
 }
 
+/**
+ * Re-derives the wallet's raw private key for export.
+ *
+ * This is a safety feature, not a convenience one. A passkey-derived wallet
+ * is unrecoverable if the passkey is lost — no seed phrase exists to fall
+ * back on, and PayAI holds nothing that could restore it. Export is the only
+ * escape hatch, and it also means a user is never locked into PayAI: the key
+ * imports straight into MetaMask or Rabby.
+ *
+ * It deliberately runs a FRESH passkey ceremony rather than reading the live
+ * session, so revealing a key always costs a biometric check even if the
+ * wallet is already unlocked. The value is returned, never stored, logged, or
+ * sent anywhere — the caller is responsible for showing it and dropping it.
+ */
+export async function exportPrivateKey(): Promise<`0x${string}`> {
+  const known = storedCredential();
+  const { prfOutput } = await getPasskeyPrfOutput({
+    rpId: relyingPartyId(),
+    ...(known ? { credential: known } : {}),
+  });
+  const hex = Array.from(prfOutput).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `0x${hex}`;
+}
+
 /** A viem wallet client bound to this session's account, for broadcasting.
  *  Signing happens locally and shows no passkey prompt — the session already
  *  holds the key, which is what keeps the send flow to a single approval. */

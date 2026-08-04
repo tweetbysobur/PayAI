@@ -77,6 +77,13 @@ export interface WalletServiceState extends ExternalWalletState {
   setUpEmbeddedWallet: (opts?: { create?: boolean }) => Promise<string>;
   /** Signs out of the embedded wallet and zeroes its in-memory key. */
   signOutEmbedded: () => Promise<void>;
+  /** This device has a wallet, but its key isn't in memory right now (after a
+   *  reload or a new tab). One passkey check restores it — the wallet is
+   *  locked, not lost. */
+  isLocked: boolean;
+  /** Re-derives the raw private key for export. Always costs a fresh passkey
+   *  check. The caller must show it and drop it — never persist it. */
+  exportEmbeddedKey: () => Promise<`0x${string}`>;
 }
 
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
@@ -112,6 +119,18 @@ function useWalletServiceState(): WalletServiceState {
       })
       .catch(() => {});
   }, []);
+
+  /**
+   * True when this device has a wallet but the in-memory key is gone — after
+   * a reload, a new tab, or an explicit lock. The wallet has NOT disappeared;
+   * it needs one passkey check to come back. Surfaced so the UI can say
+   * "locked" instead of "not connected", which reads like data loss.
+   *
+   * The key is deliberately never persisted to storage: keeping it in memory
+   * only is what stops a stolen localStorage dump, or injected script reading
+   * storage, from walking away with the wallet.
+   */
+  const isLocked = !external.address && !wallet && hasEmbeddedCredential;
 
   const usingEmbedded = !external.address && !!wallet;
 
@@ -217,6 +236,10 @@ function useWalletServiceState(): WalletServiceState {
     [provider, account?.label],
   );
 
+  const exportEmbeddedKey = useCallback(async () => {
+    return provider.exportPrivateKey();
+  }, [provider]);
+
   const signOutEmbedded = useCallback(async () => {
     const address = wallet?.address;
     wallet?.end(); // zeroes the in-memory key
@@ -293,6 +316,8 @@ function useWalletServiceState(): WalletServiceState {
     hasEmbeddedCredential,
     setUpEmbeddedWallet,
     signOutEmbedded,
+    exportEmbeddedKey,
+    isLocked,
   };
 }
 

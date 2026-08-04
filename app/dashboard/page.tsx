@@ -113,7 +113,17 @@ export default function Overview() {
 
   const upcoming = automations.filter((s) => s.status === "active" || s.status === "scheduled" || s.status === "executing");
   const network = health?.wallet?.network ?? "Monad";
-  const walletStatus = !wallet.address ? { label: "Not connected", tone: "neutral" as const } : wallet.isWrongNetwork ? { label: "Wrong network", tone: "warning" as const } : { label: "Active", tone: "success" as const };
+  // "Locked" is deliberately distinct from "Not connected": after a reload the
+  // embedded wallet's in-memory key is gone, but the wallet itself still
+  // exists and is one passkey check away. Showing "Not connected" there reads
+  // like the wallet was lost.
+  const walletStatus = wallet.isLocked
+    ? { label: "Locked", tone: "warning" as const }
+    : !wallet.address
+      ? { label: "Not connected", tone: "neutral" as const }
+      : wallet.isWrongNetwork
+        ? { label: "Wrong network", tone: "warning" as const }
+        : { label: "Active", tone: "success" as const };
 
   function copyAddr() {
     if (!wallet.address) return;
@@ -141,7 +151,7 @@ export default function Overview() {
                   {identity.domain ? (
                     <p className="text-sm font-semibold text-foreground">{identity.domain}</p>
                   ) : (
-                    <p className="font-mono text-sm text-foreground">{wallet.address ? identity.display : "No wallet connected"}</p>
+                    <p className="font-mono text-sm text-foreground">{wallet.address ? identity.display : wallet.isLocked ? "Wallet locked" : "No wallet connected"}</p>
                   )}
                   {wallet.address && (
                     <button onClick={copyAddr} className="text-muted-foreground transition hover:text-foreground" title="Copy address">
@@ -152,7 +162,9 @@ export default function Overview() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {wallet.address
                     ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
-                    : <Link href="/auth" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
+                    : wallet.isLocked
+                      ? <button onClick={() => { void wallet.setUpEmbeddedWallet({ create: false }).catch(() => {}); }} className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Unlock with your passkey →</button>
+                      : <Link href="/auth" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
                 </p>
               </div>
             </div>

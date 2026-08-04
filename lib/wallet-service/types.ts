@@ -88,6 +88,12 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   hasLocalCredential(): boolean;
   /** Ends the in-memory session and zeroes key material. */
   forget(): void;
+  /** Re-derives the raw private key so the user can move their funds
+   *  elsewhere. Required of any embedded provider: a wallet a user cannot
+   *  leave, or cannot rescue when their sign-in method is lost, is custody by
+   *  another name. Implementations must re-authenticate rather than reuse an
+   *  unlocked session. */
+  exportPrivateKey(): Promise<`0x${string}`>;
   /** Maps provider-specific failures to language a user can act on. */
   friendlyError(e: unknown): string;
 }

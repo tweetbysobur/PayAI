@@ -5,6 +5,7 @@ import { Wallet, ShieldCheck, LifeBuoy, ArrowRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { MonadMark } from "@/components/MonadMark";
+import { ExportWalletCard } from "@/components/dashboard/ExportWalletCard";
 
 /** Settings is wallet-only, matching the rest of the product — there is no
  *  separate account/API-key system to sign into. Everything here reflects
@@ -24,7 +25,9 @@ export default function Settings() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Wallet size={18} /></div>
               <div>
                 <p className="font-mono text-sm text-foreground">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</p>
-                <p className="text-xs text-muted-foreground">Connected wallet</p>
+                <p className="text-xs text-muted-foreground">
+                  {wallet.kind === "embedded" ? "PayAI Wallet — secured by your passkey" : "Connected wallet"}
+                </p>
               </div>
             </div>
             <Badge tone="success">Active</Badge>
@@ -43,6 +46,8 @@ export default function Settings() {
           </div>
         </div>
       </Card>
+
+      <ExportWalletCard />
 
       <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-4 text-xs text-muted-foreground">
         <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" />
