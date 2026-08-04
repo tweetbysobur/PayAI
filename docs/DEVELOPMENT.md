@@ -19,10 +19,16 @@ npm run build       # next build
 ```
 
 Contracts: `cd contracts && npx hardhat test`.
-CI (`.github/workflows/ci.yml`) runs typecheck + test + build on every push/PR.
+CI (`.github/workflows/ci.yml`) runs typecheck + **lint** + test + build on
+every push to `main` and every PR targeting it — note it does NOT run on other
+branches, so a feature branch only gets checked once its PR is open. CI uses
+Node 20; `@category-labs/mera` asks for Node 24 in `engines`, but works on 20
+(it needs `Symbol.dispose`, present since 20.11) and the full sequence has been
+verified there.
 
-> `npm run lint` is currently broken by a pre-existing Next 16 + ESLint 9
-> FlatCompat config bug (not a code issue). The build is the real gate.
+> The lint step passes as of Aug 2026 — the older note here about `npm run lint`
+> being broken by a Next 16 + ESLint 9 FlatCompat bug is out of date. Lint is a
+> real gate again (0 errors; warnings don't fail the build).
 
 ## Architecture
 
@@ -57,5 +63,17 @@ funds move — safe for local dev) or `monad` (real on-chain). Production runs
 
 `npx vercel deploy --prod --yes`. DNS to vercel.com is flaky in some
 environments — wrap deploys in a retry loop. Pushing to `main` also triggers a
-Vercel build via the git integration. The public URL comes from
-`VERIPAYAI_PUBLIC_URL`.
+Vercel build via the git integration (Vercel project `veripayai`, scope
+`omnichatdev`). The public URL comes from `VERIPAYAI_PUBLIC_URL`.
+
+> The git integration is worth sanity-checking when a merge doesn't appear on
+> `usepayai.xyz`. It was disconnected for a stretch in Aug 2026, during which
+> pushes to `main` landed in GitHub and silently never built — production
+> served a days-old deployment while `main` moved on, with nothing surfaced as
+> an error anywhere. Vercel → project → Settings → Git shows the current state;
+> the tell that it's live is a Vercel check appearing on new PRs.
+>
+> Some sandboxes (including Claude Code's) cannot reach `api.vercel.com` at all,
+> so a deploy or a deployment-status check may be impossible from there rather
+> than merely flaky. `deployment_status` events are enabled on the repo, so
+> GitHub's deployments API is a usable fallback for confirming a deploy landed.
