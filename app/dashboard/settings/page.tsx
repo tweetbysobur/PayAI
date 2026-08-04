@@ -6,6 +6,7 @@ import { Card, Badge } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { MonadMark } from "@/components/MonadMark";
 import { ExportWalletCard } from "@/components/dashboard/ExportWalletCard";
+import { UsernameCard } from "@/components/dashboard/UsernameCard";
 
 /** Settings is wallet-only, matching the rest of the product — there is no
  *  separate account/API-key system to sign into. Everything here reflects
@@ -36,6 +37,8 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground">Connect a wallet to see your account here.</p>
         )}
       </Card>
+
+      <UsernameCard />
 
       <Card title="Network">
         <div className="flex items-center gap-3">
