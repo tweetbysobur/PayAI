@@ -58,13 +58,23 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     res.cookies.set(SESSION_COOKIE, encodeSession(session), SESSION_COOKIE_OPTS);
     res.cookies.delete(STATE_COOKIE);
 
+    // "Created" fires once, on the real first login; every later sign-in is
+    // a recovery, which is a connection — not a new wallet.
     await recordWalletEvent({
       merchantId: DEMO_TENANT,
       sender: wallet.address,
-      type: "wallet_connected",
       providerId: embedded.id,
-      title: "Embedded wallet connected",
-      detail: `Signed in with ${provider} and connected your PayAI Wallet.`,
+      ...(wallet.created
+        ? {
+            type: "wallet_created" as const,
+            title: "Wallet created",
+            detail: `Your PayAI Wallet was created and secured with your ${provider} sign-in.`,
+          }
+        : {
+            type: "wallet_connected" as const,
+            title: "Embedded wallet connected",
+            detail: `Signed in with ${provider} and connected your PayAI Wallet.`,
+          }),
     }).catch(() => {});
 
     return res;

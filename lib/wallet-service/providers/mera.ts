@@ -68,14 +68,24 @@ export const meraProvider: EmbeddedWalletProvider = {
 
   /** Create-or-recover is idempotent on userId at Mera's end — the same
    *  logged-in user always gets back the same address, no local mapping to
-   *  maintain on PayAI's side. */
+   *  maintain on PayAI's side.
+   *
+   *  `created` is taken from the response rather than inferred: only the
+   *  provider knows whether this call minted a wallet or returned an
+   *  existing one. If the field is absent it degrades to `false`, so a
+   *  returning user is never wrongly told their wallet was just created —
+   *  the safe direction to be wrong in. */
   async createOrRecoverWallet({ userId, authMethod }: { userId: string; authMethod: AuthMethod }) {
     const cfg = requireConfig();
     const json = await meraFetch(cfg, "/v1/wallets", {
       method: "POST",
       body: JSON.stringify({ userId, authMethod, chain: "monad" }),
     });
-    return { address: json.address as string, recoveryMethod: (json.recoveryMethod as string) ?? authMethod };
+    return {
+      address: json.address as string,
+      recoveryMethod: (json.recoveryMethod as string) ?? authMethod,
+      created: json.created === true,
+    };
   },
 
   async signMessage({ userId, address, message }: { userId: string; address: string; message: string }) {

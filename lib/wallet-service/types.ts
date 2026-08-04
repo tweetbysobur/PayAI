@@ -64,8 +64,13 @@ export interface WalletProvider {
 export interface EmbeddedWalletProvider extends WalletProvider {
   kind: "embedded";
   /** Create the user's wallet on first login, or return the existing one on
-   *  every later login — the provider owns dedup/recovery by userId. */
-  createOrRecoverWallet(input: { userId: string; authMethod: AuthMethod }): Promise<{ address: string; recoveryMethod: string }>;
+   *  every later login — the provider owns dedup/recovery by userId.
+   *  `created` distinguishes the two so the caller can raise a
+   *  "wallet_created" notification exactly once, on the real first login,
+   *  instead of on every sign-in. A provider that genuinely can't tell the
+   *  difference must report `false` rather than guess — a wrong `true` would
+   *  tell a returning user their wallet was just created. */
+  createOrRecoverWallet(input: { userId: string; authMethod: AuthMethod }): Promise<{ address: string; recoveryMethod: string; created: boolean }>;
   signMessage(input: { userId: string; address: string; message: string }): Promise<string>;
   sendTransaction(input: { userId: string; address: string; tx: UnsignedTx; chainId: number }): Promise<string>;
 }
