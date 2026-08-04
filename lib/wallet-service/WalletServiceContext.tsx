@@ -9,23 +9,27 @@
  * can switch to `useWalletService` with no other changes, and gains embedded
  * wallets for free.
  *
- * Internally this is a thin router: an "external" account still goes through
- * the real EIP-1193 hook underneath (unchanged); an "embedded" account calls
- * the server (`/api/wallet-service/embedded/*`), which is the only place
- * that ever talks to Mera (see lib/wallet-service/providers/mera.ts). No
- * provider SDK, embedded or external, is imported here.
+ * Internally this is a thin router: an "external" account goes through the
+ * real EIP-1193 hook underneath (unchanged); an "embedded" account goes
+ * through the registry's active provider. Neither provider's SDK is imported
+ * here — the registry owns that, which is why swapping the embedded provider
+ * for one that works completely differently (a passkey-derived key instead
+ * of a hosted signing API) changed nothing in this file's public shape and
+ * nothing at all in its consumers.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useWallet as useExternalWallet, type WalletState as ExternalWalletState } from "@/lib/wallet/useWallet";
 import { MONAD_CHAIN_ID } from "@/lib/monad/public";
-import type { AuthMethod, WalletProviderId, WalletProviderKind } from "./types";
+import { getEmbeddedProvider } from "./registry";
+import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
 
-interface EmbeddedSession {
+/** The signed-in PayAI account. Identity only — the wallet address is NOT
+ *  part of it, because the server never learns it. */
+interface AccountSession {
   userId: string;
   authMethod: AuthMethod;
   label: string;
-  address: string;
 }
 
 export interface AuthMethodAvailability {
@@ -48,46 +52,72 @@ export interface WalletServiceState extends ExternalWalletState {
   /** Kicks off the redirect-based OAuth flow for google/apple/x. Leaves the
    *  page — there is nothing to await. */
   connectEmbeddedOAuth: (method: "google" | "apple" | "x") => void;
-  /** Two-step email sign-in: request a code, then verify it. */
+  /** Two-step email sign-in: request a code, then verify it. Establishes the
+   *  ACCOUNT; call `setUpEmbeddedWallet` afterwards to derive the wallet. */
   requestEmailCode: (email: string) => Promise<void>;
-  verifyEmailCode: (email: string, code: string) => Promise<string>;
+  verifyEmailCode: (email: string, code: string) => Promise<void>;
   embeddedBusy: boolean;
   /** Explicit alias for connecting an external wallet — same as `connect`. */
   connectExternal: (provider?: EthProvider) => Promise<string>;
+
+  /* ── Embedded wallet (passkey) ─────────────────────────────────────────── */
+  /** The signed-in PayAI account, if any. Present without a wallet during
+   *  the brief window between signing in and completing the passkey step. */
+  account: AccountSession | null;
+  /** Whether this browser can do passkey-derived wallets at all. */
+  embeddedSupported: boolean;
+  /** True when this device already has a passkey for PayAI, so the natural
+   *  action is "unlock" rather than "create". */
+  hasEmbeddedCredential: boolean;
+  /**
+   * Derives the embedded wallet: creates a passkey for a first-time user, or
+   * re-derives the existing one for a returning user. Deterministic — a
+   * returning user always lands on the same address, never a duplicate.
+   */
+  setUpEmbeddedWallet: (opts?: { create?: boolean }) => Promise<string>;
+  /** Signs out of the embedded wallet and zeroes its in-memory key. */
+  signOutEmbedded: () => Promise<void>;
 }
 
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
 
 function useWalletServiceState(): WalletServiceState {
   const external = useExternalWallet();
-  const [embedded, setEmbedded] = useState<EmbeddedSession | null>(null);
-  const [embeddedAvailable, setEmbeddedAvailable] = useState(false);
+  const provider = getEmbeddedProvider();
+
+  const [account, setAccount] = useState<AccountSession | null>(null);
+  const [wallet, setWallet] = useState<EmbeddedWalletHandle | null>(null);
   const [authMethods, setAuthMethods] = useState<AuthMethodAvailability>(emptyAuthMethods);
+  const [embeddedSupported, setEmbeddedSupported] = useState(false);
+  const [hasEmbeddedCredential, setHasEmbeddedCredential] = useState(false);
   const [embeddedBusy, setEmbeddedBusy] = useState(false);
   const [embeddedError, setEmbeddedError] = useState<string | null>(null);
 
-  // Probe capability + restore an embedded session on load. An external
-  // wallet connecting later (see below) always wins — a user actively
-  // picking "Connect Existing Wallet" is a deliberate switch away from
-  // embedded, not a conflict to resolve.
+  // Passkey support is a browser capability, so it can only be read on the
+  // client — never from the server's config.
+  useEffect(() => {
+    setEmbeddedSupported(provider.isSupported());
+    setHasEmbeddedCredential(provider.hasLocalCredential());
+  }, [provider]);
+
+  // Restore the account session (identity only). The wallet itself is NOT
+  // restored here: its key lives in memory and a reload ends that session by
+  // design, so the next signature re-prompts for the passkey.
   useEffect(() => {
     fetch("/api/wallet-service/status")
       .then((r) => r.json())
       .then((j) => {
-        setEmbeddedAvailable(!!j.embedded?.available);
         setAuthMethods(j.authMethods ?? emptyAuthMethods);
-        if (j.session) setEmbedded(j.session);
+        if (j.session) setAccount(j.session);
       })
       .catch(() => {});
   }, []);
 
-  const usingEmbedded = !external.address && !!embedded;
+  const usingEmbedded = !external.address && !!wallet;
 
   // Fire-and-forget wallet_connected/wallet_disconnected notifications for
-  // the external provider — embedded already records wallet_connected
-  // server-side (see the OAuth/email callback routes) at the moment the
-  // wallet is actually created or recovered, which this effect must not
-  // duplicate.
+  // the external provider. The embedded side reports its own events from
+  // setUpEmbeddedWallet, where "created" and "recovered" are distinguishable.
   const prevExternalAddress = useRef<string | null>(null);
   useEffect(() => {
     const prev = prevExternalAddress.current;
@@ -124,7 +154,7 @@ function useWalletServiceState(): WalletServiceState {
     if (!r.ok) throw new Error(j.error || "Could not send the code.");
   }, []);
 
-  const verifyEmailCodeFn = useCallback(async (email: string, code: string): Promise<string> => {
+  const verifyEmailCodeFn = useCallback(async (email: string, code: string) => {
     setEmbeddedBusy(true);
     setEmbeddedError(null);
     try {
@@ -135,9 +165,7 @@ function useWalletServiceState(): WalletServiceState {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Invalid code.");
-      const session: EmbeddedSession = { userId: `email:${email.toLowerCase()}`, authMethod: "email", label: email, address: j.address };
-      setEmbedded(session);
-      return j.address as string;
+      setAccount({ userId: `email:${email.toLowerCase()}`, authMethod: "email", label: email });
     } catch (e) {
       setEmbeddedError(e instanceof Error ? e.message : "Could not verify the code.");
       throw e;
@@ -146,72 +174,110 @@ function useWalletServiceState(): WalletServiceState {
     }
   }, []);
 
+  /**
+   * The one passkey ceremony. `create` forces a brand-new passkey; otherwise
+   * a device that already has one recovers from it. Recovery is deterministic
+   * inside the provider, so this can never mint a second wallet for someone
+   * who already has one.
+   */
+  const setUpEmbeddedWallet = useCallback(
+    async (opts?: { create?: boolean }): Promise<string> => {
+      setEmbeddedBusy(true);
+      setEmbeddedError(null);
+      try {
+        const shouldCreate = opts?.create ?? !provider.hasLocalCredential();
+        const handle = shouldCreate
+          ? await provider.create(account?.label ?? "PayAI Wallet")
+          : await provider.recover();
+        setWallet(handle);
+        setHasEmbeddedCredential(true);
+
+        fetch("/api/wallet-events", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sender: handle.address,
+            providerId: provider.id,
+            type: shouldCreate ? "wallet_created" : "wallet_connected",
+            title: shouldCreate ? "Wallet created" : "Wallet unlocked",
+            detail: shouldCreate
+              ? "Your PayAI Wallet was created and secured with your passkey."
+              : "You unlocked your PayAI Wallet with your passkey.",
+          }),
+        }).catch(() => {});
+
+        return handle.address;
+      } catch (e) {
+        setEmbeddedError(provider.friendlyError(e));
+        throw e;
+      } finally {
+        setEmbeddedBusy(false);
+      }
+    },
+    [provider, account?.label],
+  );
+
+  const signOutEmbedded = useCallback(async () => {
+    const address = wallet?.address;
+    wallet?.end(); // zeroes the in-memory key
+    setWallet(null);
+    setAccount(null);
+    await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
+    if (address) {
+      fetch("/api/wallet-events", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected", title: "Wallet locked", detail: "You signed out of your PayAI Wallet." }),
+      }).catch(() => {});
+    }
+  }, [wallet, provider.id]);
+
   const disconnect = useCallback(async () => {
     if (external.address) {
       await external.disconnect();
       return;
     }
-    if (embedded) {
-      await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
-      fetch("/api/wallet-events", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: embedded.address, type: "wallet_disconnected", providerId: "mera", title: "Embedded wallet disconnected", detail: "Signed out of your PayAI Wallet." }),
-      }).catch(() => {});
-      setEmbedded(null);
-    }
-  }, [external, embedded]);
+    await signOutEmbedded();
+  }, [external, signOutEmbedded]);
 
-  const signMessage = useCallback(async (message: string): Promise<string> => {
-    if (usingEmbedded) {
-      const r = await fetch("/api/wallet-service/embedded/sign-message", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Signing failed.");
-      return j.signature as string;
-    }
-    return external.signMessage(message);
-  }, [usingEmbedded, external]);
+  const signMessage = useCallback(
+    async (message: string): Promise<string> => {
+      if (usingEmbedded && wallet) return wallet.signMessage(message);
+      return external.signMessage(message);
+    },
+    [usingEmbedded, wallet, external],
+  );
 
-  const sendTransaction = useCallback(async (tx: { to: string; data?: string; value?: string }): Promise<string> => {
-    if (usingEmbedded) {
-      const r = await fetch("/api/wallet-service/embedded/send-transaction", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(tx),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Transaction failed.");
-      return j.txHash as string;
-    }
-    return external.sendTransaction(tx);
-  }, [usingEmbedded, external]);
+  const sendTransaction = useCallback(
+    async (tx: { to: string; data?: string; value?: string }): Promise<string> => {
+      if (usingEmbedded && wallet) return wallet.sendTransaction(tx);
+      return external.sendTransaction(tx);
+    },
+    [usingEmbedded, wallet, external],
+  );
 
   const switchNetwork = useCallback(async () => {
-    // Embedded wallets always operate on the one chain the server is
-    // configured for — there's no wrong network to switch away from.
+    // An embedded wallet signs for whichever chain PayAI is configured for —
+    // there is no wrong network to switch away from.
     if (usingEmbedded) return;
     return external.switchNetwork();
   }, [usingEmbedded, external]);
 
-  const address = external.address ?? embedded?.address ?? null;
-  const providerId: WalletProviderId | null = external.address ? "injected" : embedded ? "mera" : null;
-  const kind: WalletProviderKind | null = external.address ? "external" : embedded ? "embedded" : null;
+  const address = external.address ?? wallet?.address ?? null;
+  const providerId: WalletProviderId | null = external.address ? "injected" : wallet ? provider.id : null;
+  const kind: WalletProviderKind | null = external.address ? "external" : wallet ? "embedded" : null;
 
   return {
     ...external,
     address,
     chainId: usingEmbedded ? MONAD_CHAIN_ID : external.chainId,
     isWrongNetwork: usingEmbedded ? false : external.isWrongNetwork,
-    error: usingEmbedded ? embeddedError : external.error,
+    error: usingEmbedded || (!external.address && embeddedError) ? embeddedError : external.error,
     providerId,
     kind,
-    authMethod: embedded?.authMethod ?? null,
-    label: external.address ? external.address : embedded?.label ?? null,
-    embeddedAvailable,
+    authMethod: account?.authMethod ?? null,
+    label: external.address ? external.address : account?.label ?? wallet?.address ?? null,
+    embeddedAvailable: embeddedSupported,
     authMethods,
     disconnect,
     signMessage,
@@ -222,6 +288,11 @@ function useWalletServiceState(): WalletServiceState {
     requestEmailCode,
     verifyEmailCode: verifyEmailCodeFn,
     embeddedBusy,
+    account,
+    embeddedSupported,
+    hasEmbeddedCredential,
+    setUpEmbeddedWallet,
+    signOutEmbedded,
   };
 }
 
@@ -233,8 +304,8 @@ export function WalletServiceProvider({ children }: { children: ReactNode }) {
   return <WalletServiceContext.Provider value={state}>{children}</WalletServiceContext.Provider>;
 }
 
-/** The provider-agnostic wallet hook. Drop-in replacement for
- *  `useWallet()` — same fields, plus `kind`/`providerId`/embedded sign-in. */
+/** The provider-agnostic wallet hook. Drop-in replacement for `useWallet()` —
+ *  same fields, plus `kind`/`providerId` and the embedded sign-in surface. */
 export function useWalletService(): WalletServiceState {
   const ctx = useContext(WalletServiceContext);
   if (!ctx) {

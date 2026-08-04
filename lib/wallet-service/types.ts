@@ -58,21 +58,47 @@ export interface WalletProvider {
   isAvailable(): boolean | Promise<boolean>;
 }
 
-/** Server-side embedded-wallet operations. Implemented once per embedded
- *  provider (see providers/mera.ts); never called from client code — routes
- *  under app/api/wallet-service/ are the only callers. */
+/**
+ * Embedded-wallet operations.
+ *
+ * These run in the BROWSER, not on the server. That isn't an arbitrary
+ * choice: the first provider (Mera) derives its key from a passkey via the
+ * WebAuthn PRF extension, so the key material only ever exists in the user's
+ * browser and PayAI's server has nothing to sign with. Any future embedded
+ * provider plugs in here the same way; one that genuinely needs a server
+ * would add its own route rather than change this contract.
+ *
+ * The Wallet Service interface the rest of the app consumes
+ * (`useWalletService()`) is unchanged by any of this — see
+ * WalletServiceContext.
+ */
 export interface EmbeddedWalletProvider extends WalletProvider {
   kind: "embedded";
-  /** Create the user's wallet on first login, or return the existing one on
-   *  every later login — the provider owns dedup/recovery by userId.
-   *  `created` distinguishes the two so the caller can raise a
-   *  "wallet_created" notification exactly once, on the real first login,
-   *  instead of on every sign-in. A provider that genuinely can't tell the
-   *  difference must report `false` rather than guess — a wrong `true` would
-   *  tell a returning user their wallet was just created. */
-  createOrRecoverWallet(input: { userId: string; authMethod: AuthMethod }): Promise<{ address: string; recoveryMethod: string; created: boolean }>;
-  signMessage(input: { userId: string; address: string; message: string }): Promise<string>;
-  sendTransaction(input: { userId: string; address: string; tx: UnsignedTx; chainId: number }): Promise<string>;
+  /** Whether this browser/device can support the provider at all (passkey +
+   *  PRF availability, for Mera). Reported honestly so the UI can steer to an
+   *  external wallet instead of dead-ending a device that can't finish. */
+  isSupported(): boolean;
+  /** Create a wallet for a first-time user. */
+  create(label: string): Promise<EmbeddedWalletHandle>;
+  /** Re-derive an existing user's wallet. Must be deterministic — the same
+   *  user must always recover the SAME address, never a second wallet. */
+  recover(): Promise<EmbeddedWalletHandle>;
+  /** Whether this device has a remembered credential, i.e. whether the
+   *  natural next action is "recover" rather than "create". */
+  hasLocalCredential(): boolean;
+  /** Ends the in-memory session and zeroes key material. */
+  forget(): void;
+  /** Maps provider-specific failures to language a user can act on. */
+  friendlyError(e: unknown): string;
+}
+
+/** A live embedded wallet: an address plus the ability to sign with it. */
+export interface EmbeddedWalletHandle {
+  address: `0x${string}`;
+  signMessage(message: string): Promise<string>;
+  sendTransaction(tx: UnsignedTx): Promise<string>;
+  /** Zeroes the session's key material. */
+  end(): void;
 }
 
 export const WALLET_EVENT_TYPES = [
