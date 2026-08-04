@@ -26,6 +26,7 @@ const meraProvider: EmbeddedWalletProvider = {
   hasLocalCredential: () => mera.storedCredential() !== null,
   friendlyError: (e) => mera.friendlyMeraError(e),
   forget: () => mera.forgetCredential(),
+  exportPrivateKey: () => mera.exportPrivateKey(),
   create: (label) => mera.createWallet(label).then(toHandle),
   recover: () => mera.recoverWallet().then(toHandle),
 };
