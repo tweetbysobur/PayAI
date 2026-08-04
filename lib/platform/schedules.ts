@@ -157,6 +157,17 @@ export async function createSchedule(
     title: "Automation created", detail: `${label(row)} — ${row.cadence}, next run ${new Date(row.nextRun).toLocaleString()}.`,
     amount: row.amount, token: row.token,
   });
+  // A wallet-level notification (not automation-level) — the moment the
+  // owner authorized this automation with a signature, distinct from the
+  // "created" event above which is about the automation record itself.
+  if (row.signature && row.sender) {
+    const { recordWalletEvent } = await import("./walletEvents");
+    await recordWalletEvent({
+      merchantId, sender: row.sender, type: "automation_signed", providerId: "injected",
+      title: "Automation signed", detail: `You authorized ${label(row)} — ${row.cadence}.`,
+      amount: row.amount, token: row.token,
+    }).catch(() => {});
+  }
   return row;
 }
 

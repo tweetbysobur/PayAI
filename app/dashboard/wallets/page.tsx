@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2 } from "lucide-react";
+import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint } from "lucide-react";
+import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
@@ -42,7 +43,6 @@ export default function Wallets() {
   const identity = useIdentity(wallet.address);
   const balances = useWalletBalances(wallet.address);
   const [onchainContracts, setOnchainContracts] = useState<OnchainContracts | null>(null);
-  const [busy, setBusy] = useState(false);
   const [intel, setIntel] = useState<WalletIntel | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -112,8 +112,11 @@ export default function Wallets() {
         {wallet.address && (
           <div className="flex items-center gap-2">
             <Button onClick={() => setReceiveOpen(true)} className="flex items-center gap-1.5 text-xs">
-              <ArrowDownLeft size={13} /> Receive
+              <ArrowDownLeft size={13} /> Deposit / Receive
             </Button>
+            <Link href="/dashboard/payments" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40">
+              <ArrowUpRight size={13} /> Withdraw
+            </Link>
             <Button variant="secondary" onClick={loadIntel} disabled={loading} className="flex items-center gap-1.5 text-xs">
               <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
             </Button>
@@ -126,7 +129,11 @@ export default function Wallets() {
           {wallet.address ? (
             <div className="flex items-center justify-between">
               <div>
-                <p className="flex items-center gap-2 font-mono text-sm text-foreground"><WalletIcon size={14} className="text-primary-ink" /> {identity.display}</p>
+                <p className="flex items-center gap-2 font-mono text-sm text-foreground">
+                  <WalletIcon size={14} className="text-primary-ink" />
+                  {wallet.kind === "embedded" ? wallet.label : identity.display}
+                  <Badge tone={wallet.kind === "embedded" ? "primary" : "neutral"}>{wallet.kind === "embedded" ? "PayAI Wallet (Embedded)" : "External wallet"}</Badge>
+                </p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                   {wallet.chainId != null ? <><MonadMark size={11} /> Chain {wallet.chainId}</> : "—"}
                   {" · "}
@@ -139,13 +146,61 @@ export default function Wallets() {
               </div>
             </div>
           ) : (
-            <Button disabled={busy} onClick={() => { setBusy(true); wallet.connect().catch(() => {}).finally(() => setBusy(false)); }}>
-              {busy ? "Connecting…" : "Connect wallet"}
-            </Button>
+            <Button onClick={() => { window.location.href = "/auth"; }}>Connect wallet</Button>
           )}
           {wallet.address && <Button variant="ghost" onClick={wallet.disconnect} className="mt-3 text-xs hover:text-danger">Disconnect</Button>}
         </Card>
       </div>
+
+      {wallet.address && (
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
+          <Card title="Connected Wallets">
+            <div className="flex items-center justify-between rounded-lg border border-border bg-input/30 px-3 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <WalletIcon size={15} className="text-primary-ink" />
+                <div>
+                  <p className="text-sm text-foreground">{wallet.kind === "embedded" ? "PayAI Wallet" : "External wallet"}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{short(wallet.address)}</p>
+                </div>
+              </div>
+              <Badge tone="success">Active</Badge>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              {wallet.kind === "embedded"
+                ? "Want to use a browser wallet instead? Connecting one switches your active wallet — your automations keep working, funded from whichever wallet is active."
+                : "Prefer not to manage a browser wallet? Switch to an embedded PayAI Wallet — your automations keep working either way."}
+            </p>
+            <Link href={wallet.kind === "embedded" ? "/connect" : "/auth"} className="mt-2 inline-block text-xs font-medium text-primary-ink hover:underline">
+              {wallet.kind === "embedded" ? "Connect an external wallet →" : "Switch to PayAI Wallet (Embedded) →"}
+            </Link>
+          </Card>
+
+          <Card title="Recovery Status">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary-ink">
+                {wallet.kind === "embedded" ? <Fingerprint size={15} /> : <KeyRound size={15} />}
+              </span>
+              <div>
+                {wallet.kind === "embedded" ? (
+                  <>
+                    <p className="text-sm text-foreground">Recoverable via {wallet.authMethod ?? "your sign-in"}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Sign in again with {wallet.authMethod ?? "the same account"} on any device to recover this exact wallet. PayAI never sees your private key.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-foreground">Self-custody — you hold the keys</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Recovery is entirely up to your wallet app (seed phrase / hardware device). PayAI has no ability to recover or reset it.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Security Center */}
       <Card title="Security Center" className="mb-4">

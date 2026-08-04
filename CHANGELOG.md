@@ -2,6 +2,32 @@
 
 All notable changes to PayAI are documented here.
 
+## [Unreleased]
+
+- **Wallet Service**: a new provider-agnostic wallet abstraction
+  (`lib/wallet-service/`) sits between PayAI and every wallet provider —
+  nothing in the app talks to a specific provider directly anymore. Ships
+  with two providers: the existing external-wallet integration (MetaMask,
+  Rabby, Backpack, WalletConnect…) and a Mera embedded-wallet adapter, ready
+  to activate the moment `MERA_API_KEY`/`MERA_PROJECT_ID` are configured.
+- **Embedded wallets & social sign-in**: a new `/auth` onboarding flow —
+  "Continue with Google / Apple / X / Email" — creates or recovers a user's
+  embedded wallet automatically, no seed phrase, no browser extension.
+  Config-gated per provider; degrades honestly (never fabricates a signed-in
+  state) until real OAuth credentials are set.
+  `useWalletService()` is now the one hook the whole app uses to read the
+  active wallet (embedded or external) and sign — automations, the AI
+  assistant, and the dashboard all go through it, never a provider SDK.
+- **AI Confirmation screen**: the AI assistant now shows Recipient / Token /
+  Amount / Schedule / Execution Mode / Estimated Fees — with Edit, Cancel,
+  and Confirm — before ever requesting a wallet signature, in both the
+  command bar and the Send Payment page.
+- **Wallet dashboard**: added Connected Wallets, Recovery Status, and a
+  Withdraw action alongside Deposit/Receive.
+- **Notifications**: new wallet-level notification types (wallet created/
+  connected/disconnected, deposit received, withdrawal completed, automation
+  signed) alongside the existing automation and payment feeds.
+
 ## [0.2.0] - 2026-07-02
 
 - Custom domain: PayAI now lives at [usepayai.xyz](https://usepayai.xyz).

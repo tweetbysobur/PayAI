@@ -6,7 +6,8 @@ import { LifeBuoy, ExternalLink } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
-import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
+import type { WalletState } from "@/lib/wallet/useWallet";
 
 /**
  * Recovery for reserved funds whose automation record no longer exists.

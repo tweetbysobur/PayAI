@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
+import { WalletServiceProvider } from "@/lib/wallet-service/WalletServiceContext";
 import { ToastProvider } from "@/components/Toast";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
 
@@ -46,7 +47,9 @@ export default function RootLayout({
     <html lang="en" className={jakarta.variable}>
       <body className="antialiased">
         <WalletProvider>
-          <ToastProvider>{children}</ToastProvider>
+          <WalletServiceProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </WalletServiceProvider>
         </WalletProvider>
         <GoogleAnalytics />
       </body>

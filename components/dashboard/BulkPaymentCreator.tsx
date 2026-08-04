@@ -6,7 +6,8 @@ import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertT
 import { encodeFunctionData, type Hex } from "viem";
 import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
-import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
+import type { WalletState } from "@/lib/wallet/useWallet";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";

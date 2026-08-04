@@ -75,7 +75,7 @@ export function SiteNav() {
 
       <div className="flex shrink-0 items-center gap-1">
         <Link
-          href="/connect"
+          href="/auth"
           className="inline-flex items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           Launch App

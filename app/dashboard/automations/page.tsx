@@ -11,7 +11,8 @@ import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from
 import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
-import { useWallet, type WalletState } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
+import type { WalletState } from "@/lib/wallet/useWallet";
 import { BulkPaymentCreator } from "@/components/dashboard/BulkPaymentCreator";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";

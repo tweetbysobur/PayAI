@@ -7,7 +7,7 @@ import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { useNotifications } from "@/lib/hooks/useNotifications";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface Health {
   payment: { connected: boolean; engine: string };
