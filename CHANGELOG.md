@@ -32,11 +32,16 @@ All notable changes to PayAI are documented here.
   burned after 5 wrong guesses; the send and verify endpoints are rate
   limited per-IP and per-address.
 - **Deposit & withdrawal notifications** are now raised from real on-chain
-  ERC-20 Transfer logs, via a throttled catch-up scan per wallet. The first
-  scan sets a baseline only (no replay of a wallet's whole history), and
-  sends PayAI already settled are never notified twice. Native MON deposits
-  emit no log and so are not detected — reported as a known limitation
-  rather than inferred from balance changes.
+  activity, via a throttled catch-up scan per wallet: ERC-20 movements from
+  `Transfer` logs, and native MON — which emits no log — by reading the
+  transactions in the blocks since the wallet's last checkpoint, so a MON
+  deposit is reported with the same real txHash, sender, and amount as a
+  token one. The first scan sets a baseline only (no replay of a wallet's
+  whole history), sends PayAI already settled are never notified twice, and
+  the scan is time-boxed so a slow RPC can't stall the notification feed.
+  Native sends made from inside a contract still need trace APIs public RPCs
+  don't expose, and a catch-up window wider than ~1,500 blocks skips native
+  detection rather than issuing tens of thousands of block reads.
 
 ## [0.2.0] - 2026-07-02
 

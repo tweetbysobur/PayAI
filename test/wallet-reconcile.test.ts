@@ -9,16 +9,24 @@ let latestBlock = 1000n;
 let incoming: unknown[] = [];
 let outgoing: unknown[] = [];
 let ownTxs: { txHash?: string }[] = [];
+/** Native transactions, keyed by block number, as block bodies would carry them. */
+let nativeTxsByBlock: Record<string, unknown[]> = {};
+let blocksRead: string[] = [];
 
 vi.mock("@/lib/monad/wallet", () => ({
   getPublicClient: () => ({
     getBlockNumber: async () => latestBlock,
     getLogs: async ({ args }: { args: Record<string, string> }) =>
       "to" in args ? incoming : outgoing,
+    getBlock: async ({ blockNumber }: { blockNumber: bigint }) => {
+      blocksRead.push(blockNumber.toString());
+      return { number: blockNumber, transactions: nativeTxsByBlock[blockNumber.toString()] ?? [] };
+    },
   }),
 }));
 vi.mock("@/lib/monad/config", () => ({
   explorerTx: (h: string) => `https://explorer.monad.xyz/tx/${h}`,
+  getChain: () => ({ nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 } }),
 }));
 vi.mock("@/lib/monad/tokenRegistry", () => ({
   resolveToken: async () => ({ address: "0xtok", symbol: "USDC", name: "USD Coin", decimals: 6, verified: true }),
@@ -32,6 +40,12 @@ const OTHER = "0x2222222222222222222222222222222222222222";
 
 function transferLog(txHash: string, from: string, to: string, value = 5_000_000n) {
   return { transactionHash: txHash, blockNumber: 1001n, address: "0xtok", args: { from, to, value } };
+}
+
+/** A native MON transfer as it appears in a block body — no log, just a
+ *  transaction carrying `value`. */
+function nativeTx(txHash: string, from: string, to: string | null, value = 2_000000000000000000n) {
+  return { hash: txHash, from, to, value };
 }
 
 async function fresh() {
@@ -54,6 +68,8 @@ describe("wallet transfer reconciliation", () => {
     incoming = [];
     outgoing = [];
     ownTxs = [];
+    nativeTxsByBlock = {};
+    blocksRead = [];
   });
   afterEach(() => vi.useRealTimers());
 
@@ -81,6 +97,83 @@ describe("wallet transfer reconciliation", () => {
     expect(evt.txHash).toBe("0xdep");
     expect(evt.amount).toBe(5);
     expect(evt.token).toBe("USDC");
+  }));
+
+  it("detects a native MON deposit, which emits no log at all", run(async (m) => {
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+
+    latestBlock = 1010n;
+    // Deliberately NO Transfer log — a native send produces none. If this is
+    // detected, it came from reading the block body.
+    nativeTxsByBlock["1005"] = [nativeTx("0xnative", OTHER, WALLET)];
+
+    const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    expect(r.deposits).toBe(1);
+    expect(r.nativeComplete).toBe(true);
+
+    const [evt] = await m.listWalletEvents("demo", WALLET);
+    expect(evt.type).toBe("deposit_received");
+    expect(evt.txHash).toBe("0xnative");
+    expect(evt.token).toBe("MON");
+    expect(evt.amount).toBe(2); // 2e18 wei at 18 decimals
+  }));
+
+  it("ignores a zero-value contract call and a transfer between strangers", run(async (m) => {
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+
+    latestBlock = 1010n;
+    nativeTxsByBlock["1005"] = [
+      nativeTx("0xcall", OTHER, WALLET, 0n), // a call, not a transfer
+      nativeTx("0xstranger", OTHER, "0x9999999999999999999999999999999999999999"), // not ours
+      nativeTx("0xselfnative", WALLET, WALLET), // self-transfer
+    ];
+
+    const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    expect(r.deposits + r.withdrawals).toBe(0);
+  }));
+
+  it("reports a native send PayAI didn't make as a withdrawal, but skips one it did", run(async (m) => {
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+
+    latestBlock = 1010n;
+    nativeTxsByBlock["1004"] = [nativeTx("0xmine", WALLET, OTHER)];
+    nativeTxsByBlock["1005"] = [nativeTx("0xtheirs", WALLET, OTHER)];
+    ownTxs = [{ txHash: "0xmine" }];
+
+    const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    expect(r.withdrawals).toBe(1);
+    const evts = await m.listWalletEvents("demo", WALLET);
+    expect(evts).toHaveLength(1);
+    expect(evts[0].txHash).toBe("0xtheirs");
+  }));
+
+  it("skips native detection on a window too wide to read block-by-block, and says so", run(async (m) => {
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+
+    latestBlock = 40_000n; // ~39k blocks since the checkpoint, far past the cap
+    const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+
+    expect(r.nativeComplete).toBe(false);
+    // Crucially it did NOT try to read 39,000 blocks.
+    expect(blocksRead).toHaveLength(0);
+  }));
+
+  it("reads only the blocks since the checkpoint, not the whole chain", run(async (m) => {
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    vi.useFakeTimers();
+    vi.advanceTimersByTime(61_000);
+
+    latestBlock = 1005n; // checkpoint was 1000 → expect 1001..1005
+    await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+    expect(blocksRead.sort()).toEqual(["1001", "1002", "1003", "1004", "1005"]);
   }));
 
   it("does not double-notify a send PayAI already recorded as a payment", run(async (m) => {
