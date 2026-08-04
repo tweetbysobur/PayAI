@@ -17,7 +17,7 @@ import dynamic from "next/dynamic";
 import { useToast } from "@/components/Toast";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 
@@ -152,7 +152,7 @@ export default function Overview() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {wallet.address
                     ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
-                    : <Link href="/connect" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
+                    : <Link href="/auth" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
                 </p>
               </div>
             </div>

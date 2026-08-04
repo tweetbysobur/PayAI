@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle } from "lucide-react";
-import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
@@ -43,6 +43,16 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   automation_cancelled: { icon: Ban, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
   automation_low_balance: { icon: AlertTriangle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
   automation_reserved_funds_low: { icon: AlertTriangle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
+  // Wallet Service notifications (lib/platform/walletEvents.ts) — a distinct
+  // visual language again, this time for wallet-level (not payment- or
+  // automation-level) activity.
+  wallet_created: { icon: Sparkles, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
+  wallet_connected: { icon: WalletIcon, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  wallet_disconnected: { icon: WalletIcon, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
+  deposit_received: { icon: ArrowDownLeft, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  withdrawal_completed: { icon: ArrowDownLeft, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  automation_signed: { icon: CheckCircle2, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
+  refund_completed: { icon: CheckCircle2, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */
@@ -109,19 +119,9 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               variant="secondary"
               className="text-xs"
               disabled={busy}
-              onClick={() => {
-                // No injected wallet (typical on a phone browser) — send them to
-                // /connect, which offers wallet-app deep links instead of a
-                // dead-end error.
-                if (typeof window !== "undefined" && !window.ethereum) { window.location.href = "/connect"; return; }
-                setBusy(true);
-                wallet.connect()
-                  .then(() => toast("Wallet connected"))
-                  .catch((e) => toast(e instanceof Error ? e.message : "Connection cancelled.", "error"))
-                  .finally(() => setBusy(false));
-              }}
+              onClick={() => { window.location.href = "/auth"; }}
             >
-              {busy ? "Connecting…" : "Connect wallet"}
+              Connect wallet
             </Button>
             {wallet.error && <span className="text-xs text-danger">{wallet.error}</span>}
           </div>
@@ -137,7 +137,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               aria-expanded={showWalletMenu}
             >
               <Identicon address={wallet.address} size={20} />
-              {identity.display}
+              {wallet.kind === "embedded" ? wallet.label : identity.display}
               <ChevronDown size={12} className={`text-muted-foreground transition-transform ${showWalletMenu ? "rotate-180" : ""}`} />
             </button>
             <AnimatePresence>

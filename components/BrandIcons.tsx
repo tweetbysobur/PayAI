@@ -1,3 +1,5 @@
+import type { ReactElement } from "react";
+
 interface IconProps {
   size?: number;
   className?: string;
@@ -19,4 +21,38 @@ export function XMark({ size = 16, className = "" }: IconProps) {
       <path d="M18.244 2.25h3.308l-7.227 8.26 8.26 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.5 2.25H8.08l4.713 6.231ZM17.083 19.77h1.833L7.084 4.126H5.117Z" />
     </svg>
   );
+}
+
+/** Google "G" mark, official four-color version. */
+export function GoogleMark({ size = 16, className = "" }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path fill="#EA4335" d="M24 9.5c3.4 0 6.4 1.17 8.8 3.46l6.55-6.55C35.4 2.62 30.06 0 24 0 14.62 0 6.52 5.38 2.56 13.22l7.62 5.92C12.1 13.13 17.6 9.5 24 9.5Z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.6-.14-3.13-.4-4.6H24v9.15h12.9c-.56 2.9-2.22 5.36-4.74 7.02l7.42 5.76C43.86 37.6 46.98 31.6 46.98 24.55Z" />
+      <path fill="#FBBC05" d="M10.18 28.14a14.5 14.5 0 0 1 0-8.28l-7.62-5.92a24 24 0 0 0 0 20.12l7.62-5.92Z" />
+      <path fill="#34A853" d="M24 48c6.06 0 11.15-2 14.87-5.42l-7.42-5.76c-2.06 1.4-4.7 2.22-7.45 2.22-6.4 0-11.9-3.63-14.06-8.9l-7.62 5.92C6.52 42.62 14.62 48 24 48Z" />
+    </svg>
+  );
+}
+
+/** Apple mark, monochrome via currentColor. */
+export function AppleMark({ size = 16, className = "" }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M16.365 1.43c0 1.14-.417 2.06-1.25 2.86-.895.847-1.99 1.34-3.045 1.25-.11-1.13.41-2.27 1.22-3.08.833-.83 1.99-1.4 3.045-1.43.02.13.03.27.03.4Zm4.24 16.44c-.36.83-.53 1.2-.99 1.94-.65 1.06-1.57 2.38-2.71 2.4-1.02.01-1.28-.66-2.66-.65-1.38 0-1.68.65-2.7.66-1.14.01-2-1.2-2.65-2.26-1.81-2.98-2-6.48-.88-8.34.79-1.32 2.04-2.09 3.21-2.09 1.19 0 1.94.66 2.93.66.96 0 1.54-.66 2.92-.66.99 0 2.05.55 2.8 1.5-2.46 1.35-2.06 4.87.79 5.84Z" />
+    </svg>
+  );
+}
+
+const BRAND_ICONS: Record<string, (p: IconProps) => ReactElement> = {
+  google: GoogleMark,
+  apple: AppleMark,
+  x: XMark,
+  github: GitHubMark,
+};
+
+/** Small dispatcher so callers can pick a brand mark by name without importing each one. */
+export function BrandIcon({ name, ...props }: IconProps & { name: keyof typeof BRAND_ICONS }) {
+  const Icon = BRAND_ICONS[name];
+  return Icon ? <Icon {...props} /> : null;
 }
