@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet } from "lucide-react";
 import { Badge, Card, Input, SkeletonRows } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
-import { TokenLogo, VolumeInline } from "@/components/TokenLogo";
+import { TokenLogo, VolumeStack } from "@/components/TokenLogo";
 
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 
@@ -80,7 +80,9 @@ export default function Transactions() {
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: "Payments settled", value: <span className="[font-variant-numeric:tabular-nums]">{stats.settled.toLocaleString()}</span>, icon: CheckCircle2, tone: "bg-success/12 text-success" },
-          { label: "Volume", value: <VolumeInline byToken={stats.volumeByToken} size={14} />, icon: ArrowUpRight, tone: "bg-primary/12 text-primary-ink" },
+          // Stacked, not inline: three columns at the sm breakpoint leave each
+          // card ~200px, which two currencies on one line overrun.
+          { label: "Volume", value: <VolumeStack byToken={stats.volumeByToken} size={15} valueClassName="text-xl font-semibold" />, icon: ArrowUpRight, tone: "bg-primary/12 text-primary-ink" },
           { label: "Success rate", value: <span className="[font-variant-numeric:tabular-nums]">{stats.successRate}%</span>, icon: Receipt, tone: "bg-primary/12 text-primary-ink" },
         ].map((s, i) => (
           <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}>

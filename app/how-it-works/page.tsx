@@ -6,6 +6,7 @@ import { ArrowRight, Sparkles, Wallet, Lock, CheckCircle2 } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { AutomationTimelineSection, SecuritySection, WhyMonadSection } from "@/components/landing/MarketingSections";
+import { HowPayAIWorksSection, AIOperatorSection } from "@/components/landing/PlatformOverview";
 import { DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
 
 /**
@@ -78,6 +79,12 @@ export default function HowItWorksPage() {
         </motion.div>
       </section>
 
+      {/* The six-step walkthrough leads: it is what the landing page's "See how
+          it works" button promises, and what someone arriving here came for.
+          The automation timeline that follows goes a level deeper, into how a
+          single automation is authorised and executed. */}
+      <HowPayAIWorksSection />
+      <AIOperatorSection />
       <AutomationTimelineSection />
 
       {/* Execution modes — the one decision a user must understand. */}

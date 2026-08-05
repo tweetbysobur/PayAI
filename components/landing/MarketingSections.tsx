@@ -3,7 +3,7 @@
 import { motion } from "motion/react";
 import {
   Users, Repeat, Landmark, Rocket, HandCoins, Building2,
-  Lock, ShieldHalf, Zap, Eye,
+  Lock, ShieldHalf, Zap, Eye, Undo2, LifeBuoy, Wallet,
   Coins, Vault, CalendarClock, Fingerprint, PlusCircle, BadgeCheck,
   CheckCircle2, Code2, ScrollText,
 } from "lucide-react";
@@ -224,9 +224,13 @@ export function AutomationTimelineSection() {
 
 const TECHNOLOGY = [
   { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
+  { icon: Fingerprint, title: "Confirmation before execution", body: "Nothing signs itself. A PayAI wallet asks for your passkey on every transaction; a connected wallet asks you to sign. What you approve is what you were shown." },
+  { icon: Wallet, title: "Your wallet, or ours", body: "Create a PayAI wallet from a passkey — no seed phrase, because there is nothing for us to hold — or connect the wallet you already use. Link both to one account." },
   { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
+  { icon: Undo2, title: "Cancelled means refunded", body: "Cancel an automation backed by Reserved Funds and what was set aside is released back to you automatically — the same when a schedule finishes its last run." },
   { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day, with a receipt you can always look up." },
   { icon: Eye, title: "Nothing to hide", body: "Every payment is recorded permanently, so you can prove it happened whenever you need to." },
+  { icon: LifeBuoy, title: "Something wrong? Report it", body: "Report an issue on any transaction from the dashboard, and the Support Center tracks it — with your history beside it rather than in a separate inbox." },
 ];
 
 export function SecuritySection() {
@@ -234,8 +238,8 @@ export function SecuritySection() {
     <section id="security" className="border-t border-border bg-panel/30 py-24 sm:py-28">
       <div className="mx-auto max-w-6xl px-6">
         <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          <h2 className={H2}>Built for secure automation</h2>
-          <p className={SUB}>Funds never leave your control. Every run is screened before it sends, executes on Monad Mainnet, and leaves a receipt you can verify.</p>
+          <h2 className={H2}>Built for money you cannot afford to lose</h2>
+          <p className={SUB}>Funds never leave your control. Every payment is screened before it sends and approved by you, every run settles on Monad Mainnet with a receipt you can verify, and anything set aside comes back if you cancel.</p>
         </motion.div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {TECHNOLOGY.map((t, i) => (

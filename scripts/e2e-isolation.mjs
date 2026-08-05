@@ -26,9 +26,32 @@ async function main() {
   console.log(`\nIsolation E2E against ${BASE}\n`);
 
   // Wallet A creates a schedule and a payment link.
-  const sched = await post("/api/agent", { intent: `schedule 5 USDC to ${B} every friday`, walletAddress: A });
+  //
+  // Describing an automation no longer creates one: /api/agent answers with an
+  // `automation_prefill` that the user confirms, and the confirmation is what
+  // POSTs to /api/schedule. This script used to read `schedule.id` off the
+  // agent response, which stopped existing when that confirmation step went
+  // in — so A never created a schedule, and the three checks that matter
+  // ("B sees NONE of A's schedules", "B cannot cancel A's schedule") were
+  // passing against a schedule that did not exist. A privacy test that passes
+  // because there is nothing to leak is worse than no test. It now walks the
+  // same two steps the UI does.
+  const proposal = await post("/api/agent", { intent: `schedule 5 USDC to ${B} every friday`, walletAddress: A });
+  const prefill = proposal?.prefill;
+  check("A's intent produced an automation proposal", proposal?.decision === "automation_prefill" && !!prefill);
+
+  const sched = prefill
+    ? await post("/api/schedule", {
+        walletAddress: A,
+        amount: prefill.amount,
+        token: prefill.token,
+        recipient: prefill.domain || prefill.recipient,
+        cadence: prefill.cadence,
+        startAt: prefill.nextRun,
+      })
+    : {};
   const schedId = sched?.schedule?.id;
-  check("A created a schedule", !!schedId);
+  check("A confirmed the proposal into a schedule", !!schedId);
 
   const link = await post("/api/links", { amount: 12.5, token: "USDC", walletAddress: A });
   const linkId = link?.link?.id;
@@ -54,10 +77,18 @@ async function main() {
 
   // B cannot cancel A's schedule.
   if (schedId) {
+    // Compare against the status the row actually had a moment ago rather than
+    // a hardcoded one. A new schedule reports "active" now, not "upcoming",
+    // and the old literal made this fail as though isolation had broken when
+    // only a label had changed — the kind of false alarm that gets a privacy
+    // test ignored. What matters is that B's delete changed nothing.
+    const before = ((await get(`/api/schedule?wallet=${A}`)).schedules ?? []).find((s) => s.id === schedId);
     await del(`/api/schedule?id=${schedId}&wallet=${B}`);
-    const stillThere = (await get(`/api/schedule?wallet=${A}`)).schedules ?? [];
-    const row = stillThere.find((s) => s.id === schedId);
-    check("B cannot cancel A's schedule (still upcoming)", row?.status === "upcoming");
+    const row = ((await get(`/api/schedule?wallet=${A}`)).schedules ?? []).find((s) => s.id === schedId);
+    check(
+      `B cannot cancel A's schedule (still ${before?.status})`,
+      !!row && row.status === before?.status && row.status !== "cancelled",
+    );
 
     // A can cancel its own (also cleans up the test row).
     await del(`/api/schedule?id=${schedId}&wallet=${A}`);
