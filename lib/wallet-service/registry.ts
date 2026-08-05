@@ -33,29 +33,60 @@ const meraProvider: EmbeddedWalletProvider = {
 };
 
 function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
+  /**
+   * Runs one operation under a fresh user approval.
+   *
+   * An external wallet puts a confirmation pop-up in front of every
+   * signature; unlocking once and then signing silently would make the
+   * embedded wallet the weaker of the two, which is exactly backwards for the
+   * option we recommend to newcomers. So every signature re-authenticates:
+   * the user approves with their passkey, key material is derived for that
+   * one operation, and it is zeroed as soon as the operation finishes.
+   *
+   * The session created at unlock is never used to sign — it only marks the
+   * wallet as unlocked and carries its address.
+   */
+  async function approved<T>(run: (w: mera.MeraWallet) => Promise<T>): Promise<T> {
+    let session: mera.MeraWallet;
+    try {
+      session = await mera.authorizeWallet(wallet.address);
+    } catch (e) {
+      throw new Error(mera.friendlyApprovalError(e));
+    }
+    try {
+      return await run(session);
+    } finally {
+      session.session.end();
+    }
+  }
+
   return {
     address: wallet.address,
     async signMessage(message: string) {
-      return wallet.account.signMessage({ message });
+      return approved((w) => w.account.signMessage({ message }));
     },
     async sendTransaction(tx: UnsignedTx) {
-      // An embedded wallet is brand new, so the single most likely first
-      // action — create a wallet, immediately send something — hits a wallet
-      // with zero MON and no way to pay gas. Left unguarded that surfaces as
-      // a raw RPC error ("insufficient funds for gas * price + value"), which
-      // tells a new user nothing. Check first and say what's actually wrong.
+      // Affordability first, so a transaction that cannot succeed never costs
+      // the user a biometric prompt. An embedded wallet is brand new, so the
+      // single most likely first action — create a wallet, immediately send
+      // something — hits a wallet with zero MON and no way to pay gas. Left
+      // unguarded that surfaces as a raw RPC error ("insufficient funds for
+      // gas * price + value"), which tells a new user nothing.
       await assertCanAfford(wallet.address, tx);
-      const client = await mera.walletClientFor(wallet);
-      // `chain` is deliberately NOT passed. This is a local (Mera) account, so
-      // viem signs the transaction here rather than handing it to a wallet —
-      // it needs the chain to put a chainId in the signature (EIP-155 replay
-      // protection). Passing `chain: null` would suppress that; omitting it
-      // inherits the client's configured Monad chain, which is what we want.
-      return client.sendTransaction({
-        account: wallet.account,
-        to: tx.to as `0x${string}`,
-        data: (tx.data ?? undefined) as `0x${string}` | undefined,
-        value: tx.value ? BigInt(tx.value) : undefined,
+      return approved(async (w) => {
+        const client = await mera.walletClientFor(w);
+        // `chain` is deliberately NOT passed. This is a local (Mera) account,
+        // so viem signs the transaction here rather than handing it to a
+        // wallet — it needs the chain to put a chainId in the signature
+        // (EIP-155 replay protection). Passing `chain: null` would suppress
+        // that; omitting it inherits the client's configured Monad chain,
+        // which is what we want.
+        return client.sendTransaction({
+          account: w.account,
+          to: tx.to as `0x${string}`,
+          data: (tx.data ?? undefined) as `0x${string}` | undefined,
+          value: tx.value ? BigInt(tx.value) : undefined,
+        });
       });
     },
     end() {

@@ -62,8 +62,9 @@ export function UsernameCard() {
     setBusy(true);
     setError(null);
     try {
-      // Proves ownership. For the embedded wallet this is silent (the session
-      // already holds the key); an external wallet shows its own prompt.
+      // Proves ownership, and costs an approval either way: a PayAI Wallet
+      // asks for the passkey, an external wallet shows its own prompt. A name
+      // is how other people will find and pay you, so it should.
       const signature = await wallet.signMessage(renameMessage(wallet.address!, next));
       const r = await fetch("/api/username", {
         method: "PUT",

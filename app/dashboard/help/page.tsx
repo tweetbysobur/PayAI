@@ -53,7 +53,7 @@ const ARTICLES: Article[] = [
     category: "getting_started",
     question: "What's the fastest way to send a payment?",
     answer: [
-      "Go to Send Payment, type what you want in plain language (an amount, a token, and a recipient — an address, a .nad domain, or a saved payee), and confirm it in your wallet.",
+      "Go to Send Payment, type what you want in plain language (an amount, a token, and a recipient — an address, a .nad domain, or a saved payee), and confirm it. A PayAI Wallet asks for your passkey; an external wallet shows its own confirmation.",
       "PayAI runs every request through compliance and risk checks before it settles, and every settled payment gets a real transaction hash you can verify on Monad's block explorer.",
     ],
   },
@@ -236,6 +236,15 @@ const ARTICLES: Article[] = [
     question: "Does PayAI ever hold my funds?",
     answer: [
       "Not by default. Wallet Automation never takes custody at all — funds stay in your wallet until the exact moment of execution. Reserved Funds does hold a deposit, but only in an on-chain vault contract that can only ever pay your intended recipient or refund back to you — never anywhere else, by contract design.",
+    ],
+  },
+  {
+    id: "sec-passkey",
+    category: "security",
+    question: "Can anything move money from my PayAI Wallet without me?",
+    answer: [
+      "No. Every transaction and every signature needs a fresh passkey check on your device — the same fingerprint, face, or device PIN you used to create the wallet. Unlocking the wallet does not authorise anything on its own; it only lets you see it.",
+      "That means an unlocked tab left open, a shared computer, or a script that got into the page still cannot send a payment: the key used to sign is derived for that one transaction and erased immediately afterwards, and PayAI's servers never hold anything that could sign for you.",
     ],
   },
   {
