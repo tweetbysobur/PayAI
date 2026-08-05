@@ -81,6 +81,14 @@ export interface WalletServiceState extends ExternalWalletState {
    *  reload or a new tab). One passkey check restores it — the wallet is
    *  locked, not lost. */
   isLocked: boolean;
+  /**
+   * The connected address, or the last one this device unlocked while the
+   * wallet is locked. `address` stays null when locked — signing genuinely
+   * isn't possible — but read-only surfaces (balances, history, deposit
+   * alerts) shouldn't go blind just because the key was cleared. An address
+   * is public, so nothing is exposed by remembering it.
+   */
+  readAddress: string | null;
   /** Re-derives the raw private key for export. Always costs a fresh passkey
    *  check. The caller must show it and drop it — never persist it. */
   exportEmbeddedKey: () => Promise<`0x${string}`>;
@@ -107,6 +115,7 @@ function useWalletServiceState(): WalletServiceState {
   const [authMethods, setAuthMethods] = useState<AuthMethodAvailability>(emptyAuthMethods);
   const [embeddedSupported, setEmbeddedSupported] = useState(false);
   const [hasEmbeddedCredential, setHasEmbeddedCredential] = useState(false);
+  const [lastKnownAddress, setLastKnownAddress] = useState<string | null>(null);
   const [embeddedBusy, setEmbeddedBusy] = useState(false);
   const [embeddedError, setEmbeddedError] = useState<string | null>(null);
 
@@ -115,6 +124,7 @@ function useWalletServiceState(): WalletServiceState {
   useEffect(() => {
     setEmbeddedSupported(provider.isSupported());
     setHasEmbeddedCredential(provider.hasLocalCredential());
+    setLastKnownAddress(provider.lastKnownAddress());
   }, [provider]);
 
   // Restore the account session (identity only). The wallet itself is NOT
@@ -353,6 +363,7 @@ function useWalletServiceState(): WalletServiceState {
     signOutEmbedded,
     exportEmbeddedKey,
     isLocked,
+    readAddress: address ?? (isLocked ? lastKnownAddress : null),
   };
 }
 

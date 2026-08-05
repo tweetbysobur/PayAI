@@ -19,7 +19,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const wallet = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const { notifications, markSeen } = useNotifications(wallet.address, wallet.providerId);
+  // readAddress, not address: a locked wallet still has history and can still
+  // receive money — the feed shouldn't go blind just because the key is gone.
+  const { notifications, markSeen } = useNotifications(wallet.readAddress, wallet.providerId);
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
@@ -37,7 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <OnboardingFlow />
       {/* Money arriving is the one event worth interrupting for — it gets its
           own alert rather than a quiet row under the bell. */}
-      <DepositAlert notifications={notifications} address={wallet.address} />
+      <DepositAlert notifications={notifications} address={wallet.readAddress} />
     </div>
   );
 }

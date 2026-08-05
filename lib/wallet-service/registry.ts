@@ -24,6 +24,7 @@ const meraProvider: EmbeddedWalletProvider = {
   isAvailable: () => mera.isMeraSupported(),
   isSupported: () => mera.isMeraSupported(),
   hasLocalCredential: () => mera.storedCredential() !== null,
+  lastKnownAddress: () => mera.storedAddress(),
   friendlyError: (e) => mera.friendlyMeraError(e),
   forget: () => mera.forgetCredential(),
   exportPrivateKey: () => mera.exportPrivateKey(),

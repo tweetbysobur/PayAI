@@ -55,6 +55,10 @@ import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS } from "@/lib/monad/pu
  *  into a single biometric prompt instead of an authenticator picker. It is
  *  a public identifier, not a secret — losing it only costs a picker. */
 const CREDENTIAL_KEY = "payai_mera_credential";
+/** The wallet's address, remembered so balances, history and deposit alerts
+ *  keep working while the wallet is LOCKED. An address is public — this is
+ *  not key material, and nothing here can sign. */
+const ADDRESS_KEY = "payai_mera_address";
 
 export interface MeraWallet {
   address: `0x${string}`;
@@ -107,8 +111,20 @@ function rememberCredential(credential: PasskeyCredentialMetadata): void {
 export function forgetCredential(): void {
   try {
     localStorage.removeItem(CREDENTIAL_KEY);
+    localStorage.removeItem(ADDRESS_KEY);
   } catch {
     /* nothing to clean up */
+  }
+}
+
+/** The address of the wallet this device last unlocked, if any. */
+export function storedAddress(): `0x${string}` | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const a = localStorage.getItem(ADDRESS_KEY);
+    return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? (a as `0x${string}`) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -116,8 +132,10 @@ export function forgetCredential(): void {
  *  the secp256k1 scalar, exactly as Mera intends. */
 function walletFrom(prfOutput: Uint8Array, credentialId: string): MeraWallet {
   const session = createSecp256k1SigningSession({ privateKey: prfOutput });
+  const address = getEvmAddress(session.publicKey);
+  try { localStorage.setItem(ADDRESS_KEY, address); } catch { /* private mode */ }
   return {
-    address: getEvmAddress(session.publicKey),
+    address,
     credentialId,
     account: toViemAccount(session),
     session,

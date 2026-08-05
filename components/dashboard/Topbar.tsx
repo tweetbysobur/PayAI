@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
+import { useUsername } from "@/lib/hooks/useUsername";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import { timeAgo } from "@/lib/hooks/useAgentConsole";
 import type { NotifItem } from "@/lib/hooks/useNotifications";
@@ -59,8 +60,15 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
 export function Topbar({ health, notifications = [], onOpenNotifications, onMenuClick }: { health: Health | null; notifications?: NotifItem[]; onOpenNotifications?: () => void; onMenuClick?: () => void }) {
   const wallet = useWallet();
   const router = useRouter();
-  const balances = useWalletBalances(wallet.address);
-  const identity = useIdentity(wallet.address);
+  // readAddress throughout, not address: a locked wallet still has an owner,
+  // an identity and a balance. Only signing is gone, so only signing-shaped
+  // actions disappear — who you are must not.
+  const balances = useWalletBalances(wallet.readAddress);
+  const identity = useIdentity(wallet.readAddress);
+  // Prefer the PayAI username, then a .nad domain, then a SHORT address. The
+  // full 42-character address never belongs in a top bar — on a phone it
+  // squeezed out everything else.
+  const handle = useUsername(wallet.readAddress);
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
@@ -141,17 +149,20 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           </div>
         )}
 
-        {wallet.address && (
+        {wallet.readAddress && (
           <div className="relative">
             <button
               onClick={() => setShowWalletMenu((v) => !v)}
               className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              title="Wallet menu"
+              title={wallet.isLocked ? "Wallet menu — locked" : "Wallet menu"}
               aria-label="Open wallet menu"
               aria-expanded={showWalletMenu}
             >
-              <Identicon address={wallet.address} size={20} />
-              {wallet.kind === "embedded" ? wallet.label : identity.display}
+              <Identicon address={wallet.readAddress} size={20} />
+              {handle.hasUsername ? handle.display : identity.display}
+              {/* A locked wallet is still yours — say so quietly rather than
+                  making your own identity vanish from the bar. */}
+              {wallet.isLocked && <Lock size={11} className="text-muted-foreground" aria-label="Locked" />}
               <ChevronDown size={12} className={`text-muted-foreground transition-transform ${showWalletMenu ? "rotate-180" : ""}`} />
             </button>
             <AnimatePresence>
@@ -166,14 +177,14 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                     className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
                   >
                     <div className="border-b border-border px-4 py-3">
-                      <p className="font-mono text-sm text-foreground">{identity.display}</p>
+                      <p className="font-mono text-sm text-foreground">{handle.hasUsername ? handle.display : identity.display}</p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {balances.loading ? "Loading balances…" : [balances.mon && `${Number(balances.mon).toFixed(2)} MON`, balances.usdc && `$${Number(balances.usdc).toFixed(2)} USDC`].filter(Boolean).join(" · ") || "—"}
                       </p>
                     </div>
                     <button
                       onClick={() => {
-                        navigator.clipboard.writeText(wallet.address!).then(() => setCopied(true)).catch(() => {});
+                        navigator.clipboard.writeText(wallet.readAddress!).then(() => setCopied(true)).catch(() => {});
                         setTimeout(() => setCopied(false), 1500);
                       }}
                       className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
@@ -181,18 +192,37 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                       <Copy size={13} className="text-muted-foreground" /> {copied ? "Copied!" : "Copy address"}
                     </button>
                     <a
-                      href={`${MONAD_EXPLORER}/address/${wallet.address}`}
+                      href={`${MONAD_EXPLORER}/address/${wallet.readAddress}`}
                       target="_blank" rel="noreferrer"
                       className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
                     >
                       <ExternalLink size={13} className="text-muted-foreground" /> View on explorer
                     </a>
-                    <button
-                      onClick={() => { setShowWalletMenu(false); wallet.disconnect(); toast("Wallet disconnected", "info"); }}
-                      className="flex w-full items-center gap-2.5 border-t border-border px-4 py-2.5 text-left text-xs text-danger transition hover:bg-danger/10"
-                    >
-                      <LogOut size={13} /> Disconnect
-                    </button>
+                    {/* Locked has its own action. Offering "Disconnect" to
+                        someone whose wallet is merely locked answers a
+                        question they didn't ask — what they want is back in. */}
+                    {wallet.isLocked ? (
+                      <button
+                        onClick={() => {
+                          setShowWalletMenu(false);
+                          setBusy(true);
+                          wallet.setUpEmbeddedWallet({ create: false })
+                            .then(() => toast("Wallet unlocked"))
+                            .catch(() => toast(wallet.error ?? "Couldn't unlock your wallet.", "error"))
+                            .finally(() => setBusy(false));
+                        }}
+                        className="flex w-full items-center gap-2.5 border-t border-border px-4 py-2.5 text-left text-xs text-primary-ink transition hover:bg-primary/10"
+                      >
+                        <Lock size={13} /> Unlock wallet
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setShowWalletMenu(false); wallet.disconnect(); toast("Wallet disconnected", "info"); }}
+                        className="flex w-full items-center gap-2.5 border-t border-border px-4 py-2.5 text-left text-xs text-danger transition hover:bg-danger/10"
+                      >
+                        <LogOut size={13} /> Disconnect
+                      </button>
+                    )}
                   </motion.div>
                 </>
               )}
@@ -200,7 +230,9 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           </div>
         )}
 
-        {wallet.address && (
+        {/* Receiving needs no key — a locked wallet can still be paid into,
+            which is exactly when someone reaches for this. */}
+        {wallet.readAddress && (
           <button
             onClick={() => setReceiveOpen(true)}
             title="Receive"
