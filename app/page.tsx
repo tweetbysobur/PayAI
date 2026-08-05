@@ -4,12 +4,16 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
-  Zap, Wallet as WalletIcon, ChevronDown, Sparkles, Vault,
-  Clock, X, CheckCircle2, Users,
+  Wallet as WalletIcon, ChevronDown, Sparkles, PlayCircle,
+  Clock, X, CheckCircle2, Users, Repeat, ArrowLeftRight, BarChart3,
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
-import { WhyMonadSection } from "@/components/landing/MarketingSections";
+import { WhyMonadSection, SecuritySection } from "@/components/landing/MarketingSections";
+import {
+  ProductOverviewSection, HowPayAIWorksSection, PaymentOperationsSection,
+  AIOperatorSection, EmbeddedWalletSection, SmartSwapsSection, AnalyticsSection,
+} from "@/components/landing/PlatformOverview";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
@@ -81,24 +85,34 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Automate Every Payment on Monad.
+              Everything You Need to Manage Payments on Monad.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
-              Create intelligent payment workflows that execute automatically. Schedule transfers,
-              run payroll, distribute rewards, automate treasury operations, and manage recurring
-              payments while keeping full control of your wallet.
+              PayAI combines embedded wallets, payment workflows, smart swaps, bulk distributions
+              and payment automation into one platform built for Monad.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
               </Link>
+              {/* Secondary action points at the walkthrough, not a video: there
+                  is no recording to play, and a button promising one that
+                  opens a text page is a promise broken on the first click.
+                  Relabel it the day a demo exists. */}
+              <Link href="/how-it-works" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input">
+                <PlayCircle size={15} className="text-primary-ink" /> See how it works
+              </Link>
             </div>
+            {/* The platform in six words each — what a visitor is choosing
+                between products on, not a feature list of one of them. */}
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
-                { icon: WalletIcon, label: "Wallet Automation" },
-                { icon: Vault, label: "Reserved Funds" },
-                { icon: Users, label: "Bulk Payments" },
-                { icon: Zap, label: "Real-time Execution" },
+                { icon: Sparkles, label: "AI Payment Operator" },
+                { icon: Repeat, label: "Payment Automation" },
+                { icon: ArrowLeftRight, label: "Smart Swaps" },
+                { icon: Users, label: "Bulk Distribution" },
+                { icon: WalletIcon, label: "Embedded Wallet" },
+                { icon: BarChart3, label: "Analytics & Activity" },
               ].map((b) => (
                 <span key={b.label} className="flex items-center gap-1.5">
                   <b.icon size={13} className="text-primary-ink" /> {b.label}
@@ -119,6 +133,22 @@ export default function LandingPage() {
           </motion.div>
         </div>
       </section>
+
+      {/* What the platform is, before anything else. A visitor who reads only
+          this far should already know PayAI is six products, not one. */}
+      <ProductOverviewSection />
+
+      {/* The three that are hardest to picture from a card: the operator, the
+          swap, and the wallet. Each shows the real interface. */}
+      <AIOperatorSection />
+      <SmartSwapsSection />
+      <EmbeddedWalletSection />
+
+      {/* Then the mechanics, then the catalogue of workflows with their real
+          status, then what you get back once things are running. */}
+      <HowPayAIWorksSection />
+      <PaymentOperationsSection />
+      <AnalyticsSection />
 
       {/* Why PayAI — manual vs automated */}
       <section id="why" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
@@ -154,6 +184,11 @@ export default function LandingPage() {
           depth, so it belongs at the front door. */}
       <PlatformStatistics />
 
+      {/* Security sits between the proof and the FAQ: by this point a visitor
+          has seen what PayAI can move, and the next question is always what
+          stops it moving something they didn't intend. */}
+      <SecuritySection />
+
       {/* Why Monad, immediately before the FAQ. Also rendered on
           /how-it-works: the chain choice is both a landing-page trust signal
           and part of the mechanical explanation, and it's a pure-presentation
@@ -174,19 +209,18 @@ export default function LandingPage() {
       {/* Final CTA */}
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
-          {/* "Start moving money in seconds" sold speed — the thing PayAI is
-              NOT differentiated on. The close should name the product's actual
-              job, and the button should describe the next action rather than
-              repeating the nav's generic "Launch App". */}
+          {/* The close names the job, not the feature. "Build your first
+              automation" asked for a commitment to one product; the platform
+              is what the page has just spent its length arguing for. */}
           <h2 className="text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
-            Build your first automation.
+            Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Connect your wallet, pick a template or start from scratch, and approve once. PayAI handles every run after that.
+            Everything you need to send, swap, automate and manage payments on Monad — from one platform.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
             <Link href="/auth" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              Start automating payments
+              Launch PayAI
             </Link>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
