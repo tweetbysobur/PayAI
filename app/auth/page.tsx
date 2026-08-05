@@ -30,12 +30,14 @@ const TRUST_POINTS = [
 ];
 
 /** Item 5 — the collapsible "why", for people who want the detail before
- *  committing. Collapsed by default so it never slows down anyone who doesn't. */
-const WHY_POINTS = [
+ *  committing. Collapsed by default so it never slows down anyone who doesn't.
+ *  The alternate-sign-in point is generated, not written by hand — naming
+ *  "Google, Apple, X or Email" on a deployment with none of them configured
+ *  would be the same false offer the buttons themselves no longer make. */
+const WHY_POINTS_BASE = [
   "No browser wallet required",
   "Secure embedded wallet",
   "Built for automation",
-  "Sign in with Google, Apple, X or Email",
   "Full ownership of your assets",
   "Works across every PayAI workflow",
 ];
@@ -113,12 +115,28 @@ function AuthFlow() {
     }
   }
 
-  const social: { method: "google" | "apple" | "x"; label: string; available: boolean }[] = [
-    { method: "google", label: "Google", available: wallet.authMethods.google },
-    { method: "apple", label: "Apple", available: wallet.authMethods.apple },
-    { method: "x", label: "X", available: wallet.authMethods.x },
-  ];
+  // Unconfigured methods are left off entirely rather than shown disabled
+  // with a "Soon" badge. A greyed-out button is still an offer — it just
+  // moves the disappointment to the moment someone clicks it. Each one
+  // reappears on its own the day this deployment gets real credentials;
+  // nothing here needs to change to add it back.
+  const social = (
+    [
+      { method: "google", label: "Google" },
+      { method: "apple", label: "Apple" },
+      { method: "x", label: "X" },
+    ] as const
+  ).filter((s) => wallet.authMethods[s.method]);
+  const emailAvailable = wallet.authMethods.email;
+  const hasAlternateSignIn = social.length > 0 || emailAvailable;
   const returning = wallet.hasEmbeddedCredential;
+
+  // Same principle as the sign-in row above: name only what this deployment
+  // can actually complete, in whatever order those methods are configured.
+  const alternateNames = [...social.map((s) => s.label), ...(emailAvailable ? ["Email"] : [])];
+  const whyPoints = alternateNames.length > 0
+    ? [...WHY_POINTS_BASE.slice(0, 3), `Sign in with ${alternateNames.join(", ").replace(/, ([^,]*)$/, " or $1")}`, ...WHY_POINTS_BASE.slice(3)]
+    : WHY_POINTS_BASE;
 
   return (
     <main className="flex min-h-screen flex-col bg-background">
@@ -188,49 +206,55 @@ function AuthFlow() {
                       )}
                     </div>
 
-                    {/* Social + email. Item 3 — nothing reads "Not set up". */}
-                    <div className="my-5 flex items-center gap-3">
-                      <div className="h-px flex-1 bg-border" />
-                      <span className="text-[11px] text-muted-foreground">or continue with</span>
-                      <div className="h-px flex-1 bg-border" />
-                    </div>
+                    {/* Social + email — only methods this deployment can
+                        actually complete. Nothing reads "Not set up", and
+                        nothing renders disabled with a "Soon" badge either:
+                        an unconfigured method is left off the page entirely,
+                        the same way the landing page now handles this list. */}
+                    {hasAlternateSignIn && (
+                      <>
+                        <div className="my-5 flex items-center gap-3">
+                          <div className="h-px flex-1 bg-border" />
+                          <span className="text-[11px] text-muted-foreground">or continue with</span>
+                          <div className="h-px flex-1 bg-border" />
+                        </div>
 
-                    <div className="grid grid-cols-3 gap-2">
-                      {social.map((s) => (
-                        <button
-                          key={s.method}
-                          disabled={!s.available || !agreed}
-                          onClick={() => wallet.connectEmbeddedOAuth(s.method)}
-                          title={s.available ? `Continue with ${s.label}` : `${s.label} sign-in is coming soon`}
-                          className="relative flex flex-col items-center gap-1.5 rounded-xl border border-border px-2 py-3 text-xs font-medium text-foreground transition-all duration-150 enabled:hover:-translate-y-0.5 enabled:hover:border-primary/40 enabled:hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          <BrandIcon name={s.method} size={17} />
-                          {s.label}
-                          {!s.available && (
-                            <span className="text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Soon</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                        {social.length > 0 && (
+                          <div className={`grid gap-2 ${social.length === 1 ? "grid-cols-1" : social.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                            {social.map((s) => (
+                              <button
+                                key={s.method}
+                                disabled={!agreed}
+                                onClick={() => wallet.connectEmbeddedOAuth(s.method)}
+                                title={`Continue with ${s.label}`}
+                                className="relative flex flex-col items-center gap-1.5 rounded-xl border border-border px-2 py-3 text-xs font-medium text-foreground transition-all duration-150 enabled:hover:-translate-y-0.5 enabled:hover:border-primary/40 enabled:hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                <BrandIcon name={s.method} size={17} />
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
 
-                    <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-input/40 px-3 py-2.5">
-                      <Mail size={14} className="shrink-0 text-muted-foreground" />
-                      <input
-                        type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com" disabled={!wallet.authMethods.email || !agreed}
-                        className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-                      />
-                      {!wallet.authMethods.email && (
-                        <span className="shrink-0 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">Soon</span>
-                      )}
-                    </div>
-                    {wallet.authMethods.email && (
-                      <button
-                        onClick={sendCode} disabled={!email.includes("@") || pending === "email" || !agreed}
-                        className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {pending === "email" ? <Loader2 size={15} className="animate-spin" /> : <>Continue with Email <ArrowRight size={14} /></>}
-                      </button>
+                        {emailAvailable && (
+                          <>
+                            <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-input/40 px-3 py-2.5">
+                              <Mail size={14} className="shrink-0 text-muted-foreground" />
+                              <input
+                                type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                                placeholder="you@example.com" disabled={!agreed}
+                                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                              />
+                            </div>
+                            <button
+                              onClick={sendCode} disabled={!email.includes("@") || pending === "email" || !agreed}
+                              className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {pending === "email" ? <Loader2 size={15} className="animate-spin" /> : <>Continue with Email <ArrowRight size={14} /></>}
+                            </button>
+                          </>
+                        )}
+                      </>
                     )}
 
                     {/* Item 10 — external wallet, clearly secondary. */}
@@ -293,7 +317,7 @@ function AuthFlow() {
                           className="overflow-hidden"
                         >
                           <div className="mt-2.5 grid gap-1.5">
-                            {WHY_POINTS.map((w) => (
+                            {whyPoints.map((w) => (
                               <li key={w} className="flex items-start gap-2 text-[11px] text-muted-foreground">
                                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary-ink" />
                                 {w}

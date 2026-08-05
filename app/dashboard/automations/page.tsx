@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { encodeFunctionData, keccak256, parseUnits, stringToHex, type Hex } from "viem";
 import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
-import { TokenLogo } from "@/components/TokenLogo";
+import { TokenLogo, VolumeStack } from "@/components/TokenLogo";
 import { useToast } from "@/components/Toast";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import type { WalletState } from "@/lib/wallet/useWallet";
@@ -661,7 +661,7 @@ export default function AutomationsPage() {
   const upcoming = active.slice().sort((a, b) => a.nextRun - b.nextRun).slice(0, 5);
   const runs = visibleAutomations.flatMap((a) => a.runs.map((run) => ({ ...run, automation: a }))).sort((a, b) => b.at - a.at);
   // Never blend MON and USDC into one number — same convention as
-  // components/TokenLogo.tsx's VolumeInline (which this now reuses). A
+  // components/TokenLogo.tsx's VolumeStack (which this now reuses). A
   // single summed "totalVolume" across tokens was previously meaningless
   // (1 MON + 1 USDC read as "2") and, on mobile, the resulting long/odd
   // number was the actual cause of the perceived "lag" — the tile reflowed
@@ -976,25 +976,11 @@ function Metric({ title, value, icon: Icon }: { title: string; value: ReactNode;
 }
 
 /** Real per-token totals only — never blended into one meaningless number
- *  across MON and USDC (same convention as components/TokenLogo.tsx's
- *  VolumeInline). Stacked one token per row so mobile never has to squeeze
- *  two currencies onto one line. */
+ *  across MON and USDC. One row per token, from the shared VolumeStack, so
+ *  every volume metric in the product shrinks the same way instead of each
+ *  surface re-deriving it (and one of them getting it wrong). */
 function VolumeMetricValue({ byToken }: { byToken: Record<string, number> }) {
-  const parts = Object.entries(byToken).filter(([, v]) => v > 0);
-  if (!parts.length) return <span className="text-2xl font-semibold tracking-tight text-foreground">—</span>;
-  return (
-    <div className="space-y-1">
-      {parts.map(([token, v]) => (
-        <div key={token} className="flex items-center gap-1.5">
-          <TokenLogo token={token} size={15} className="shrink-0" />
-          <span className="truncate text-xl font-semibold tabular-nums tracking-tight text-foreground">
-            {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-          </span>
-          <span className="shrink-0 text-[11px] font-medium text-muted-foreground">{token}</span>
-        </div>
-      ))}
-    </div>
-  );
+  return <VolumeStack byToken={byToken} size={15} valueClassName="text-xl font-semibold" />;
 }
 
 /** Daily executions (last 14 days), stacked executed/failed — real counts
