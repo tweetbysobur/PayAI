@@ -13,8 +13,8 @@ import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 
 /**
- * The repositioning sections: PayAI as a payment operations platform, not a
- * single automation feature.
+ * The repositioning sections: the payment automation layer on Monad is a
+ * platform of six products, not one scheduling feature.
  *
  * Only the six-product overview belongs on the landing page. The rest of
  * these are the second-order questions — how it works mechanically, what the
