@@ -8,6 +8,7 @@
  * Server-only.
  */
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { getRedis } from "./kv";
 
 export interface Merchant {
@@ -27,10 +28,29 @@ const mem = (g.__veripayMerchants ??= new Map());
 /** Stable default tenant so the public demo works with no signup. */
 export const DEMO_TENANT = "demo";
 
+/**
+ * Cryptographically random lowercase-alphanumeric string.
+ *
+ * This produces the merchant apiKey, which is the ONLY credential that
+ * selects a tenant — so it has to be unguessable. `Math.random()` is not:
+ * V8's generator is seeded and unseeded-recoverable, so an attacker who
+ * collects a few outputs can predict the rest, and it makes no promises about
+ * unpredictability even without that. `randomBytes` does.
+ *
+ * Rejection sampling on the byte range keeps the alphabet uniform — masking
+ * or a plain modulo would quietly bias the first few characters.
+ */
 function rand(n: number): string {
   const a = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const limit = 256 - (256 % a.length); // largest multiple of 36 under 256
   let s = "";
-  for (let i = 0; i < n; i++) s += a[Math.floor(Math.random() * a.length)];
+  while (s.length < n) {
+    for (const b of randomBytes(n * 2)) {
+      if (b >= limit) continue; // would bias the distribution — draw again
+      s += a[b % a.length];
+      if (s.length === n) break;
+    }
+  }
   return s;
 }
 function slug(name: string): string {

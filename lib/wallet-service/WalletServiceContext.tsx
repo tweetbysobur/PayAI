@@ -81,10 +81,28 @@ export interface WalletServiceState extends ExternalWalletState {
    *  reload or a new tab). One passkey check restores it — the wallet is
    *  locked, not lost. */
   isLocked: boolean;
+  /**
+   * The connected address, or the last one this device unlocked while the
+   * wallet is locked. `address` stays null when locked — signing genuinely
+   * isn't possible — but read-only surfaces (balances, history, deposit
+   * alerts) shouldn't go blind just because the key was cleared. An address
+   * is public, so nothing is exposed by remembering it.
+   */
+  readAddress: string | null;
   /** Re-derives the raw private key for export. Always costs a fresh passkey
    *  check. The caller must show it and drop it — never persist it. */
   exportEmbeddedKey: () => Promise<`0x${string}`>;
 }
+
+/**
+ * How long an unlocked embedded wallet stays unlocked without interaction.
+ *
+ * The key lives in memory, so an abandoned tab is a live signing key on an
+ * unattended screen. Fifteen minutes matches what banking apps do, and costs
+ * a returning user one biometric tap rather than anything they'd notice.
+ * External wallets are untouched — their own app owns that decision.
+ */
+const IDLE_LOCK_MS = 15 * 60 * 1000;
 
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
 
@@ -97,6 +115,7 @@ function useWalletServiceState(): WalletServiceState {
   const [authMethods, setAuthMethods] = useState<AuthMethodAvailability>(emptyAuthMethods);
   const [embeddedSupported, setEmbeddedSupported] = useState(false);
   const [hasEmbeddedCredential, setHasEmbeddedCredential] = useState(false);
+  const [lastKnownAddress, setLastKnownAddress] = useState<string | null>(null);
   const [embeddedBusy, setEmbeddedBusy] = useState(false);
   const [embeddedError, setEmbeddedError] = useState<string | null>(null);
 
@@ -105,6 +124,7 @@ function useWalletServiceState(): WalletServiceState {
   useEffect(() => {
     setEmbeddedSupported(provider.isSupported());
     setHasEmbeddedCredential(provider.hasLocalCredential());
+    setLastKnownAddress(provider.lastKnownAddress());
   }, [provider]);
 
   // Restore the account session (identity only). The wallet itself is NOT
@@ -134,6 +154,31 @@ function useWalletServiceState(): WalletServiceState {
 
   const usingEmbedded = !external.address && !!wallet;
 
+  // Idle auto-lock. Zeroes the in-memory key after a period of no
+  // interaction; the wallet then reads as "locked" and one passkey check
+  // brings it back. Nothing is signed out — the account session survives.
+  useEffect(() => {
+    if (!wallet) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const lock = () => {
+      wallet.end();
+      setWallet(null);
+    };
+    const restart = () => {
+      clearTimeout(timer);
+      timer = setTimeout(lock, IDLE_LOCK_MS);
+    };
+    // Deliberately cheap, passive listeners: this must not cost anything on
+    // scroll-heavy pages.
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "focus"];
+    for (const e of events) window.addEventListener(e, restart, { passive: true });
+    restart();
+    return () => {
+      clearTimeout(timer);
+      for (const e of events) window.removeEventListener(e, restart);
+    };
+  }, [wallet]);
+
   // Fire-and-forget wallet_connected/wallet_disconnected notifications for
   // the external provider. The embedded side reports its own events from
   // setUpEmbeddedWallet, where "created" and "recovered" are distinguishable.
@@ -147,13 +192,13 @@ function useWalletServiceState(): WalletServiceState {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: cur, type: "wallet_connected", title: "External wallet connected", detail: "Connected an external wallet to PayAI." }),
+        body: JSON.stringify({ sender: cur, type: "wallet_connected", providerId: "injected" }),
       }).catch(() => {});
     } else if (!cur && prev) {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: prev, type: "wallet_disconnected", title: "External wallet disconnected", detail: "Disconnected your external wallet from PayAI." }),
+        body: JSON.stringify({ sender: prev, type: "wallet_disconnected", providerId: "injected" }),
       }).catch(() => {});
     }
   }, [external.address]);
@@ -214,14 +259,12 @@ function useWalletServiceState(): WalletServiceState {
         fetch("/api/wallet-events", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          // Wording is the server's, not ours — a caller that could choose it
+          // could put any words into a PayAI notification. See the route.
           body: JSON.stringify({
             sender: handle.address,
             providerId: provider.id,
             type: shouldCreate ? "wallet_created" : "wallet_connected",
-            title: shouldCreate ? "Wallet created" : "Wallet unlocked",
-            detail: shouldCreate
-              ? "Your PayAI Wallet was created and secured with your passkey."
-              : "You unlocked your PayAI Wallet with your passkey.",
           }),
         }).catch(() => {});
 
@@ -250,7 +293,7 @@ function useWalletServiceState(): WalletServiceState {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected", title: "Wallet locked", detail: "You signed out of your PayAI Wallet." }),
+        body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected" }),
       }).catch(() => {});
     }
   }, [wallet, provider.id]);
@@ -318,6 +361,7 @@ function useWalletServiceState(): WalletServiceState {
     signOutEmbedded,
     exportEmbeddedKey,
     isLocked,
+    readAddress: address ?? (isLocked ? lastKnownAddress : null),
   };
 }
 

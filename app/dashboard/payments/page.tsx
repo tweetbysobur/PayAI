@@ -5,11 +5,12 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
   ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
-  ReceiptText, Copy, Check, Share2,
+  ReceiptText, Copy, Check, Share2, Fingerprint,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
+import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
@@ -31,6 +32,26 @@ const STATUS_ICON: Record<string, typeof CheckCircle2> = {
   refused: XCircle,
   error: AlertTriangle,
 };
+
+/**
+ * The most this wallet can actually send.
+ *
+ * "Max" used to fill in the entire MON balance, which is the one amount a
+ * native send can never succeed with — the fee has to come from somewhere, so
+ * the request was always refused ("you need X plus ~0.01 for gas"). A button
+ * whose only outcome is an error is worse than no button. Leaves the same
+ * reserve the server checks against (lib/monad/balance.ts), so pressing Max
+ * and sending works. ERC-20 sends spend no balance on gas, so they keep the
+ * full amount.
+ */
+const GAS_RESERVE_MON = 0.01;
+function maxSendable(available: string | null, token: "MON" | "USDC"): string {
+  const balance = Number(available ?? 0);
+  if (!Number.isFinite(balance) || balance <= 0) return "0";
+  if (token !== "MON") return String(balance);
+  const spendable = balance - GAS_RESERVE_MON;
+  return spendable > 0 ? String(Number(spendable.toFixed(6))) : "0";
+}
 
 const STATUS_COLOR: Record<string, string> = {
   executed: "text-success bg-success/12",
@@ -172,7 +193,7 @@ export default function Payments() {
             <span>Balance: {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}</span>
             <button
               type="button"
-              onClick={() => setAmount(String(available))}
+              onClick={() => setAmount(maxSendable(available, token))}
               className="rounded-full border border-border px-2 py-0.5 font-medium text-primary-ink transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Max
@@ -255,21 +276,7 @@ export default function Payments() {
               <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
             </div>
           </div>
-          <dl className="space-y-1.5 rounded-lg border border-border bg-panel px-3.5 py-3 text-sm">
-            {[
-              ["Recipient", c.pendingConfirm.domain || short(c.pendingConfirm.recipient)],
-              ["Token", c.pendingConfirm.token],
-              ["Amount", c.pendingConfirm.amount != null ? `${c.pendingConfirm.amount} ${c.pendingConfirm.token}` : "—"],
-              ["Schedule", "Once — immediately"],
-              ["Execution Mode", "Non-custodial — signed from your wallet"],
-              ["Estimated Fees", "Shown by your wallet at signing"],
-            ].map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between gap-3">
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="truncate text-right font-medium text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <ConfirmDetails pending={c.pendingConfirm} kind={wallet.kind} />
           <div className="mt-3.5 flex gap-2">
             <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-input/40">
               Edit
@@ -277,9 +284,30 @@ export default function Payments() {
             <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger">
               Cancel
             </button>
-            <button onClick={c.confirmSign} className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-              Confirm
+            <button onClick={c.confirmSign} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+              {wallet.kind === "embedded" && <Fingerprint size={14} />} Confirm
             </button>
+          </div>
+        </Card>
+      )}
+
+      {/* The passkey prompt is a system dialog PayAI can't style, so the page
+          says what it's waiting for — otherwise a dismissed prompt leaves a
+          screen that looks like it froze. */}
+      {c.walletBusy && !c.pendingConfirm && (
+        <Card className="border-primary/30 bg-primary/[0.04]">
+          <div className="flex items-start gap-3">
+            <Fingerprint size={17} className="mt-0.5 shrink-0 animate-pulse text-primary-ink" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                {wallet.kind === "embedded" ? "Approve with your passkey" : "Confirm in your wallet"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {wallet.kind === "embedded"
+                  ? "Your device is asking you to verify. Nothing is signed or sent until you do."
+                  : "Your wallet is asking you to confirm. Nothing is sent until you do."}
+              </p>
+            </div>
           </div>
         </Card>
       )}
@@ -311,7 +339,13 @@ export default function Payments() {
                   {(c.res.intent.domain || c.res.intent.recipient) && (
                     <div>
                       <p className="text-muted-foreground">To</p>
-                      <p className="mt-0.5 font-mono text-foreground">{c.res.intent.domain ?? short(c.res.intent.recipient)}</p>
+                      {/* The name and the address it resolved to — a receipt
+                          for a .nad payment has to record which account was
+                          actually paid, not just the name that was typed. */}
+                      {c.res.intent.domain && <p className="mt-0.5 font-medium text-foreground">{c.res.intent.domain}</p>}
+                      <p className={`mt-0.5 font-mono ${c.res.intent.domain ? "text-[11px] text-muted-foreground" : "text-foreground"}`} title={c.res.intent.recipient ?? undefined}>
+                        {short(c.res.intent.recipient)}
+                      </p>
                     </div>
                   )}
                   {c.res.transaction?.blockTimestamp != null && (

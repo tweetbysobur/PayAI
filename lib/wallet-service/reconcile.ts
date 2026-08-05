@@ -17,15 +17,19 @@
  *     cheap alternative and is deliberately NOT used: it can attribute no
  *     txHash and would read a gas refund as income.)
  *
- * Every notification therefore corresponds to a real transaction. Nothing is
- * inferred from balance changes.
+ * Every notification corresponds to real, verified on-chain movement. Most
+ * carry the transaction that caused them; the one exception is an internal
+ * native transfer on an RPC without tracing, where the amount is exact but no
+ * transaction can be attributed — reported as such rather than guessed at.
  *
  * Known gaps, reported rather than papered over (same convention as
  * lib/monad/wallet-intel.ts):
- *   - **Native sends from inside a contract** (a DEX paying out MON, say)
- *     move value without a top-level transaction, so they need trace APIs
- *     that public RPCs don't expose. Direct transfers — what "someone sent
- *     me MON" actually is — are caught.
+ *   - **Native sends from inside a contract** ARE detected — by tracing where
+ *     the RPC supports it, otherwise by exact balance reconciliation, which
+ *     yields the right amount but a block range instead of a txHash. What
+ *     remains undetectable is an internal transfer in a window too wide to
+ *     scan (below), since the reconciliation needs the top-level movements
+ *     from that same window to subtract.
  *   - **A window wider than MAX_NATIVE_SCAN_BLOCKS** skips native detection
  *     for that window (ERC-20 still scans, being range-independent), rather
  *     than issuing tens of thousands of block reads. Surfaced as
@@ -67,6 +71,14 @@ const MAX_NATIVE_SCAN_BLOCKS = 1_500n;
 /** Parallel block reads. High enough that a 150-block window is ~12 rounds,
  *  low enough not to look like an attack to the RPC. */
 const NATIVE_SCAN_CONCURRENCY = 12;
+/** Tracing is far dearer per block than reading one, so it gets its own,
+ *  much tighter window — comfortably more than a normal 60s catch-up, and
+ *  small enough to finish inside the scan budget. A wider window skips
+ *  tracing and reconciles by balance instead. */
+const MAX_TRACE_BLOCKS = 300n;
+/** Kept below the plain block-read concurrency: these are heavy calls and a
+ *  burst of them is the fastest way to get rate-limited off an RPC. */
+const TRACE_CONCURRENCY = 6;
 /** This runs inline on the notification poll, so a slow or unreachable RPC
  *  must never hold the feed open. Past this, the scan is abandoned and
  *  reported as "not scanned" — the checkpoint is left where it was, so the
@@ -132,6 +144,10 @@ interface Detected {
   /** ERC-20 contract address, or null for the chain's native asset. */
   token: `0x${string}` | null;
   value: bigint;
+  /** Native value that arrived from inside a contract rather than as a
+   *  top-level transfer. When detected by balance reconciliation there is no
+   *  transaction to point at, so `txHash` is a synthetic block-range marker. */
+  internal?: boolean;
 }
 
 /** One direction of ERC-20 Transfer logs for this address. Deliberately not
@@ -155,6 +171,169 @@ async function pullTransfers(
     // window, not a stuck one.
     return [];
   }
+}
+
+/* ── Internal (contract-originated) native transfers ──────────────────────
+ *
+ * MON paid out from inside a contract — a DEX settling a swap, unwrapping
+ * WMON, a refund — moves value without a top-level transaction, so block
+ * bodies cannot see it. Two ways to catch it, tried in order:
+ *
+ *   1. `debug_traceBlockByNumber` with callTracer, when the RPC exposes it.
+ *      Gives the real txHash and exact amount. Capability is probed once and
+ *      remembered, so an RPC without it costs one failed call per process.
+ *
+ *   2. Otherwise, exact balance reconciliation. The native balance at each end
+ *      of the window is compared, and everything already accounted for —
+ *      top-level value in, value out, and gas this wallet actually paid — is
+ *      subtracted. Whatever remains arrived from inside a contract. This is
+ *      arithmetic on real on-chain values, not an estimate: the balance moved,
+ *      and every other explanation for the movement has been subtracted. What
+ *      it cannot give is a txHash, so such a deposit is reported against the
+ *      block range instead of a transaction, and says so.
+ */
+
+/** Remembered per process: undefined = not probed, false = RPC lacks tracing. */
+let traceSupported: boolean | undefined;
+
+interface TraceCall {
+  from?: string;
+  to?: string;
+  value?: string;
+  calls?: TraceCall[];
+}
+
+/** Walks a callTracer tree for value-bearing calls into `address`, skipping
+ *  the outermost call (that is the top-level transfer, already counted). */
+function collectInternal(node: TraceCall, address: string, out: bigint[], depth = 0): void {
+  if (depth > 0 && node.to?.toLowerCase() === address && node.value) {
+    try {
+      const v = BigInt(node.value);
+      if (v > 0n) out.push(v);
+    } catch {
+      /* malformed value — ignore rather than guess */
+    }
+  }
+  for (const child of node.calls ?? []) collectInternal(child, address, out, depth + 1);
+}
+
+async function traceInternalTransfers(
+  address: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<Detected[] | null> {
+  if (traceSupported === false) return null;
+  // Tracing a block is by far the most expensive read in this file. Issued one
+  // block at a time across a window that can legitimately be 1,500 blocks
+  // wide, it could never finish inside the scan's 8s budget on an RPC that
+  // actually supports the method — so this path only appeared to work because
+  // most RPCs reject it on the first call. Cap the window and read it in
+  // parallel; anything wider falls through to balance reconciliation, which is
+  // range-independent.
+  if (toBlock - fromBlock + 1n > MAX_TRACE_BLOCKS) return null;
+
+  const pub = getPublicClient();
+  const numbers: bigint[] = [];
+  for (let b = fromBlock; b <= toBlock; b++) numbers.push(b);
+
+  const traceBlock = async (b: bigint) =>
+    (await (pub as unknown as {
+      request: (a: { method: string; params: unknown[] }) => Promise<unknown>;
+    }).request({
+      method: "debug_traceBlockByNumber",
+      params: [`0x${b.toString(16)}`, { tracer: "callTracer" }],
+    })) as { txHash?: string; result?: TraceCall }[];
+
+  const harvest = (traces: { txHash?: string; result?: TraceCall }[], into: Detected[]) => {
+    for (const entry of traces) {
+      if (!entry?.result || !entry.txHash) continue;
+      const amounts: bigint[] = [];
+      collectInternal(entry.result, address, amounts);
+      for (const value of amounts) {
+        into.push({ txHash: entry.txHash.toLowerCase(), direction: "in", token: null, value, internal: true });
+      }
+    }
+  };
+
+  const found: Detected[] = [];
+
+  // Probe once, serially: an RPC without the method must cost one failed call,
+  // not a burst of them.
+  if (traceSupported === undefined) {
+    try {
+      const probe = await traceBlock(numbers[0]);
+      if (!Array.isArray(probe)) { traceSupported = false; return null; }
+      traceSupported = true;
+      harvest(probe, found);
+    } catch {
+      traceSupported = false;
+      return null;
+    }
+    numbers.shift();
+  }
+
+  for (let i = 0; i < numbers.length; i += TRACE_CONCURRENCY) {
+    const batch = await Promise.all(
+      numbers.slice(i, i + TRACE_CONCURRENCY).map((b) => traceBlock(b).catch(() => null)),
+    );
+    for (const traces of batch) {
+      // One refused block is a gap in the window, not a reason to throw the
+      // whole scan away. A shape we don't recognise is different: it means the
+      // method isn't what we think it is, so stop trusting it entirely.
+      if (traces === null) continue;
+      if (!Array.isArray(traces)) { traceSupported = false; return null; }
+      harvest(traces, found);
+    }
+  }
+  return found;
+}
+
+/**
+ * Exact residual native inflow across the window: whatever the balance gained
+ * that top-level transfers and gas cannot explain.
+ */
+async function reconcileNativeByBalance(
+  address: `0x${string}`,
+  fromBlock: bigint,
+  toBlock: bigint,
+  topLevel: Detected[],
+): Promise<bigint> {
+  const pub = getPublicClient();
+  let before: bigint;
+  let after: bigint;
+  try {
+    [before, after] = await Promise.all([
+      pub.getBalance({ address, blockNumber: fromBlock - 1n }),
+      pub.getBalance({ address, blockNumber: toBlock }),
+    ]);
+  } catch {
+    return 0n; // archive state unavailable — report nothing rather than guess
+  }
+
+  let accounted = 0n;
+  const ourTxs: string[] = [];
+  for (const t of topLevel) {
+    if (t.token !== null) continue; // ERC-20 moves don't touch the native balance
+    if (t.direction === "in") accounted += t.value;
+    else { accounted -= t.value; ourTxs.push(t.txHash); }
+  }
+
+  // Gas this wallet actually burned on its own transactions in the window.
+  for (const hash of ourTxs) {
+    try {
+      const r = await pub.getTransactionReceipt({ hash: hash as `0x${string}` });
+      const used = r.gasUsed ?? 0n;
+      const price = (r as unknown as { effectiveGasPrice?: bigint }).effectiveGasPrice ?? 0n;
+      accounted -= used * price;
+    } catch {
+      // Without the receipt the gas is unknown; treating it as zero would
+      // inflate the residual and invent a deposit, so abandon instead.
+      return 0n;
+    }
+  }
+
+  const residual = after - before - accounted;
+  return residual > 0n ? residual : 0n;
 }
 
 /**
@@ -244,7 +423,14 @@ export async function reconcileWalletTransfers(input: {
   // no range is ever skipped as a result.
   await writeCheckpoint(input.merchantId, address, { lastBlock: cp?.lastBlock ?? "", lastScanAt: now });
 
-  return withTimeout(scan(input, address, cp, now), SCAN_TIMEOUT_MS, {
+  // The scan is abandoned on timeout, not cancelled — so it can still reject
+  // long after nobody is awaiting it. An unawaited rejection is an unhandled
+  // promise rejection in the server process, which is a far worse outcome
+  // than the missed scan it would be reporting. Swallow it at the source.
+  const running = scan(input, address, cp, now).catch(
+    (): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }),
+  );
+  return withTimeout(running, SCAN_TIMEOUT_MS, {
     scanned: false,
     deposits: 0,
     withdrawals: 0,
@@ -284,6 +470,31 @@ async function scan(
     pullNativeTransfers(address, fromBlock, latest),
   ]);
 
+  // MON paid out from inside a contract is invisible to all three of the
+  // above. Prefer tracing (gives a real txHash); fall back to reconciling the
+  // balance, which gives an exact amount but only a block range.
+  let internal: Detected[] = [];
+  if (native.complete) {
+    const traced = await traceInternalTransfers(address, fromBlock, latest);
+    if (traced) {
+      internal = traced;
+    } else {
+      const residual = await reconcileNativeByBalance(address, fromBlock, latest, native.transfers);
+      if (residual > 0n) {
+        internal = [{
+          // Not a transaction hash — a marker for the window the funds arrived
+          // in, so the event de-dupes correctly and never links to a tx that
+          // doesn't exist.
+          txHash: `internal:${fromBlock}-${latest}`,
+          direction: "in",
+          token: null,
+          value: residual,
+          internal: true,
+        }];
+      }
+    }
+  }
+
   const detected: Detected[] = [
     ...incoming.map((l): Detected => ({
       txHash: (l.transactionHash ?? "").toLowerCase(),
@@ -298,6 +509,7 @@ async function scan(
       value: l.args?.value ?? 0n,
     })),
     ...native.transfers,
+    ...internal,
     // A self-transfer shows up in both log directions; drop it before it can
     // be counted as either a deposit or a withdrawal.
   ].filter((d) => d.txHash && d.value > 0n);
@@ -360,12 +572,14 @@ async function scan(
       title: d.direction === "in" ? "Deposit received" : "Withdrawal completed",
       detail:
         d.direction === "in"
-          ? `${pretty} arrived in your wallet.`
+          ? d.internal
+            ? `${pretty} arrived in your wallet from a contract.`
+            : `${pretty} arrived in your wallet.`
           : `${pretty} left your wallet in a transaction not made through PayAI.`,
       amount,
       token: symbol,
       txHash: d.txHash,
-      explorerUrl: explorerTx(d.txHash),
+      explorerUrl: d.txHash.startsWith("internal:") ? undefined : explorerTx(d.txHash),
     }).catch(() => {});
     if (d.direction === "in") deposits++;
     else withdrawals++;

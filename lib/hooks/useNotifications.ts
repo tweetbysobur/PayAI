@@ -8,7 +8,10 @@ interface AutomationEventRow {
   id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string;
 }
 interface SupportTicketRow { id: string; category: string; description: string; createdAt: number }
-interface WalletEventRow { id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string }
+interface WalletEventRow {
+  id: string; type: string; at: number; title: string; detail: string;
+  txHash?: string; explorerUrl?: string; amount?: number | null; token?: string | null;
+}
 
 export interface NotifItem {
   id: string;
@@ -22,6 +25,10 @@ export interface NotifItem {
   /** True once the user has opened the bell after this arrived. Read items
    *  stay visible (dimmed) for 24h so nothing vanishes the instant it's seen. */
   read: boolean;
+  /** Present on wallet money movements, so a deposit can be announced with
+   *  the figure that actually landed rather than a generic message. */
+  amount?: number | null;
+  token?: string | null;
 }
 
 const SEEN_KEY = "veripay_notifs_seen_at";
@@ -131,6 +138,8 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
               at: e.at,
               explorerUrl: e.explorerUrl,
               href: "/dashboard/wallets",
+              amount: e.amount,
+              token: e.token,
             }));
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
