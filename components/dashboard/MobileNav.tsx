@@ -90,7 +90,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
                 }
                 return item.external
                   ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" onClick={onClose} className={cls}>{content}</a>
-                  : <Link key={item.label} href={item.href} onClick={onClose} className={cls}>{content}</Link>;
+                  : <Link key={item.label} href={item.href ?? "#"} onClick={onClose} className={cls}>{content}</Link>;
               })}
             </nav>
           </motion.aside>

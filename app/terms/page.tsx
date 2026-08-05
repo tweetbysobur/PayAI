@@ -46,7 +46,7 @@ export default function Terms() {
         </div>
 
         <p className="mt-8 text-xs text-muted-foreground">
-          Questions? <a href="mailto:buharisobur22@gmail.com" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
+          Questions? <a href="mailto:support@usepayai.xyz" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
           <Link href="/privacy" className="text-primary-ink hover:underline">Privacy</Link> and{" "}
           <Link href="/security" className="text-primary-ink hover:underline">Security</Link> pages.
         </p>

@@ -46,7 +46,7 @@ export default function Privacy() {
         </div>
 
         <p className="mt-8 text-xs text-muted-foreground">
-          Questions? <a href="mailto:buharisobur22@gmail.com" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
+          Questions? <a href="mailto:privacy@usepayai.xyz" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
           <Link href="/terms" className="text-primary-ink hover:underline">Terms</Link> and{" "}
           <Link href="/security" className="text-primary-ink hover:underline">Security</Link> pages.
         </p>

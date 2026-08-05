@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-If you find a security issue, please email **buharisobur22@gmail.com** with details
+If you find a security issue, please email **security@usepayai.xyz** with details
 and steps to reproduce. Do not open a public issue for anything exploitable.
 We aim to acknowledge within 48 hours.
 
