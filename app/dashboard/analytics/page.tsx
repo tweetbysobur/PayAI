@@ -6,7 +6,7 @@ import { Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { TokenLogo } from "@/components/TokenLogo";
 
-interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
+interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; byToken?: Record<string, number>; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
 interface Insight { id: string; severity: string; title: string; detail: string; suggestion?: string }
 interface TopCustomer { address: string; name?: string; totalPaid: number; paymentCount: number }
@@ -39,6 +39,19 @@ export default function AnalyticsPage() {
     <div className="mx-auto max-w-6xl">
       <h1 className="mb-1 text-2xl font-semibold text-foreground">Analytics</h1>
       <p className="mb-6 text-sm text-muted-foreground">Payment volume, settlement activity, and revenue trends.</p>
+
+      {/* Headline figures are one asset's worth — amounts in different tokens
+          cannot be added up. Anything settled outside that asset is listed
+          here rather than folded into the number above it. */}
+      {!loading && a && a.revenue.byToken && Object.keys(a.revenue.byToken).filter((t) => t !== a.revenue.currency).length > 0 && (
+        <p className="mb-3 text-xs text-muted-foreground">
+          Also settled:{" "}
+          {Object.entries(a.revenue.byToken)
+            .filter(([t]) => t !== a.revenue.currency)
+            .map(([t, v]) => `${v.toFixed(v < 1 ? 4 : 2)} ${t}`)
+            .join(" · ")}
+        </p>
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[

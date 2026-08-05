@@ -22,33 +22,80 @@ const DAY = 86_400_000;
 const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 function isSettled(t: TxLogEntry): boolean {
-  return t.decision === "executed" && (t.amount ?? 0) > 0;
+  // A swap moves your own money between two tokens you already hold. Counting
+  // it as settled payment volume double-counts funds that never left, and
+  // inflates "revenue" with an amount nobody paid anybody.
+  return t.decision === "executed" && t.action !== "swap" && (t.amount ?? 0) > 0;
 }
 function isFailed(t: TxLogEntry): boolean {
   return t.decision === "blocked" || t.decision === "refused" || t.decision === "error";
 }
 
+/**
+ * Settled amounts, summed separately per token.
+ *
+ * Amounts in different assets cannot be added together. 5 MON plus 5 USDC is
+ * not 10 of anything, and presenting it as one figure invents a number that
+ * no transaction supports. (lib/platform/analytics.ts already refuses to do
+ * this for platform-wide activity — see PlatformActivity.volumeByToken; the
+ * per-merchant view simply never got the same treatment.)
+ */
+export function sumByToken(txs: TxLogEntry[], since = 0): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of txs) {
+    if (!isSettled(t) || t.at < since) continue;
+    const token = t.token || "USDC";
+    out[token] = (out[token] ?? 0) + (t.amount ?? 0);
+  }
+  return out;
+}
+
+/** The token the headline figures are denominated in: whichever asset this
+ *  merchant has actually settled the most payments in. Falls back to USDC so
+ *  an empty dashboard still has something to label its zeroes with. */
+export function headlineCurrency(txs: TxLogEntry[]): string {
+  const counts = new Map<string, number>();
+  for (const t of txs) {
+    if (!isSettled(t)) continue;
+    const token = t.token || "USDC";
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  let best = "USDC";
+  let bestCount = 0;
+  for (const [token, count] of counts) {
+    if (count > bestCount) { best = token; bestCount = count; }
+  }
+  return best;
+}
+
 export function computeRevenue(txs: TxLogEntry[]): RevenueOverview {
   const now = Date.now();
+  const currency = headlineCurrency(txs);
   const settled = txs.filter(isSettled);
+  // Headline figures are ONE token's worth. They used to add every settled
+  // amount together and label the result USDC, so a 5 MON payment showed up as
+  // 5 USDC of revenue. Everything else is still reported, per token, in
+  // `byToken` — under-reporting one headline is recoverable, a fabricated
+  // total is not.
+  const inCurrency = settled.filter((t) => (t.token || "USDC") === currency);
   const sum = (since: number) =>
-    settled.filter((t) => t.at >= since).reduce((s, t) => s + (t.amount ?? 0), 0);
+    inCurrency.filter((t) => t.at >= since).reduce((s, t) => s + (t.amount ?? 0), 0);
   const failedCount = txs.filter(isFailed).length;
-  const total = settled.reduce((s, t) => s + (t.amount ?? 0), 0);
   const considered = settled.length + failedCount;
   return {
-    total,
+    total: inCurrency.reduce((s, t) => s + (t.amount ?? 0), 0),
     today: sum(now - DAY),
     thisWeek: sum(now - 7 * DAY),
     thisMonth: sum(now - 30 * DAY),
-    currency: "USDC",
+    currency,
+    byToken: sumByToken(txs),
     settledCount: settled.length,
     failedCount,
     successRate: considered ? settled.length / considered : 1,
   };
 }
 
-export function computeTrend(txs: TxLogEntry[], days = 7): TrendPoint[] {
+export function computeTrend(txs: TxLogEntry[], days = 7, currency = headlineCurrency(txs)): TrendPoint[] {
   const now = Date.now();
   const buckets = new Map<string, TrendPoint>();
   for (let i = days - 1; i >= 0; i--) {
@@ -56,7 +103,9 @@ export function computeTrend(txs: TxLogEntry[], days = 7): TrendPoint[] {
     buckets.set(k, { date: k, revenue: 0, count: 0 });
   }
   for (const t of txs) {
-    if (!isSettled(t)) continue;
+    // Same rule as the headline: one currency per chart, so a bar's height
+    // means something. `count` still counts every settled payment.
+    if (!isSettled(t) || (t.token || "USDC") !== currency) continue;
     const k = dayKey(t.at);
     const b = buckets.get(k);
     if (b) {
@@ -67,10 +116,17 @@ export function computeTrend(txs: TxLogEntry[], days = 7): TrendPoint[] {
   return [...buckets.values()];
 }
 
-export function deriveCustomers(txs: TxLogEntry[], names: Record<string, string> = {}): Customer[] {
+export function deriveCustomers(
+  txs: TxLogEntry[],
+  names: Record<string, string> = {},
+  currency = headlineCurrency(txs),
+): Customer[] {
   const map = new Map<string, Customer>();
   for (const t of txs) {
-    if (!isSettled(t) || !t.recipient) continue;
+    // `totalPaid` is rendered next to the headline currency, so it has to be
+    // that currency alone — otherwise the top-customer list ranks people by a
+    // sum of unlike amounts.
+    if (!isSettled(t) || !t.recipient || (t.token || "USDC") !== currency) continue;
     const key = t.recipient.toLowerCase();
     const c =
       map.get(key) ??
@@ -226,9 +282,9 @@ export async function getAnalytics(merchantId: string, opts?: { sender?: string 
   const revenue = computeRevenue(txs);
   return {
     revenue,
-    trend: computeTrend(txs),
+    trend: computeTrend(txs, 7, revenue.currency),
     volume: { count: revenue.settledCount, total: revenue.total },
-    topCustomers: deriveCustomers(txs, names).slice(0, 5),
+    topCustomers: deriveCustomers(txs, names, revenue.currency).slice(0, 5),
     compliance: computeCompliance(txs),
     insights: detectInsights(txs),
   };

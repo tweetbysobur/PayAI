@@ -192,13 +192,13 @@ function useWalletServiceState(): WalletServiceState {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: cur, type: "wallet_connected", title: "External wallet connected", detail: "Connected an external wallet to PayAI." }),
+        body: JSON.stringify({ sender: cur, type: "wallet_connected", providerId: "injected" }),
       }).catch(() => {});
     } else if (!cur && prev) {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: prev, type: "wallet_disconnected", title: "External wallet disconnected", detail: "Disconnected your external wallet from PayAI." }),
+        body: JSON.stringify({ sender: prev, type: "wallet_disconnected", providerId: "injected" }),
       }).catch(() => {});
     }
   }, [external.address]);
@@ -259,14 +259,12 @@ function useWalletServiceState(): WalletServiceState {
         fetch("/api/wallet-events", {
           method: "POST",
           headers: { "content-type": "application/json" },
+          // Wording is the server's, not ours — a caller that could choose it
+          // could put any words into a PayAI notification. See the route.
           body: JSON.stringify({
             sender: handle.address,
             providerId: provider.id,
             type: shouldCreate ? "wallet_created" : "wallet_connected",
-            title: shouldCreate ? "Wallet created" : "Wallet unlocked",
-            detail: shouldCreate
-              ? "Your PayAI Wallet was created and secured with your passkey."
-              : "You unlocked your PayAI Wallet with your passkey.",
           }),
         }).catch(() => {});
 
@@ -295,7 +293,7 @@ function useWalletServiceState(): WalletServiceState {
       fetch("/api/wallet-events", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected", title: "Wallet locked", detail: "You signed out of your PayAI Wallet." }),
+        body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected" }),
       }).catch(() => {});
     }
   }, [wallet, provider.id]);

@@ -330,11 +330,19 @@ export interface PaymentLink {
 }
 
 export interface RevenueOverview {
+  /** All figures below are denominated in `currency` and count only payments
+   *  settled in it. Amounts in different assets are never added together —
+   *  see `byToken` for the full picture. */
   total: number;
   today: number;
   thisWeek: number;
   thisMonth: number;
+  /** The asset the headline figures are in: whichever one this merchant has
+   *  settled the most payments in. */
   currency: string;
+  /** Settled amount per token, so activity outside the headline currency is
+   *  reported rather than dropped — or, worse, blended into it. */
+  byToken: Record<string, number>;
   settledCount: number;
   failedCount: number;
   successRate: number; // 0..1

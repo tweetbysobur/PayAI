@@ -62,11 +62,25 @@ export async function claimRequest<T>(
 ): Promise<{ claimed: true } | { claimed: false; status: IdempotencyStatus; result?: T }> {
   const r = await getRedis();
   if (r) {
+    // SET NX, not GET-then-SET. A read followed by a write is two round trips
+    // with a gap between them, and two requests that arrive in that gap both
+    // see "no record" and both claim — which is precisely the collision this
+    // module exists to prevent, and it happens most readily under the load
+    // that makes double-submits likely in the first place. NX decides the
+    // winner inside Redis, in one atomic step; the loser reads the record
+    // afterwards to find out whether to replay a result or report a 409.
+    const claimed = await r.set(
+      key(requestId),
+      { status: "in_progress", createdAt: Date.now() } as IdempotencyRecord<T>,
+      { nx: true, ex: TTL_SECONDS },
+    );
+    if (claimed) return { claimed: true };
     const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
-    if (existing) return { claimed: false, status: existing.status, result: existing.result };
-    await r.set(key(requestId), { status: "in_progress", createdAt: Date.now() } as IdempotencyRecord<T>);
-    await r.expire(key(requestId), TTL_SECONDS);
-    return { claimed: true };
+    // Lost the race, but the record vanished between the two calls (TTL expiry
+    // on a 24h-old key). Nothing is in flight and nothing was recorded, so
+    // treat it as free rather than stalling a caller behind a ghost.
+    if (!existing) return { claimed: true };
+    return { claimed: false, status: existing.status, result: existing.result };
   }
 
   pruneMem();
@@ -98,8 +112,10 @@ export async function completeRequest<T>(requestId: string, result: T): Promise<
   const record: IdempotencyRecord<T> = { status: "done", result, createdAt: Date.now() };
   const r = await getRedis();
   if (r) {
-    await r.set(key(requestId), record);
-    await r.expire(key(requestId), TTL_SECONDS);
+    // TTL in the same command. Setting it separately leaves a window where a
+    // failed EXPIRE strands the record forever, which would permanently block
+    // that requestId from ever being usable again.
+    await r.set(key(requestId), record, { ex: TTL_SECONDS });
     return;
   }
   mem.set(requestId, record);
@@ -109,7 +125,10 @@ export async function completeRequest<T>(requestId: string, result: T): Promise<
 export async function releaseRequest(requestId: string): Promise<void> {
   const r = await getRedis();
   if (r) {
-    await r.set(key(requestId), null);
+    // DEL, not SET null. Writing a null value leaves a key behind with no TTL
+    // (SET clears the old expiry), so a released claim would sit in Redis
+    // forever — invisible to `get`, but never reclaimed.
+    await r.del(key(requestId));
     return;
   }
   mem.delete(requestId);

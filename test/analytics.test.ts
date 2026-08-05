@@ -102,3 +102,80 @@ describe("detectInsights", () => {
     expect(insights.some((i) => i.id === "fail_rate")).toBe(true);
   });
 });
+
+/**
+ * Amounts in different assets are not addable.
+ *
+ * The dashboard renders "Total revenue" as `${total} ${currency}` beside that
+ * currency's logo. Summing every settled amount regardless of token and
+ * labelling the result USDC reported a figure no transaction supports — a
+ * 5 MON payment showed up as 5 USDC of revenue. The platform-wide view already
+ * refused to do this (PlatformActivity.volumeByToken); the per-merchant view
+ * did not.
+ */
+describe("computeRevenue — one currency at a time", () => {
+  it("never adds amounts denominated in different tokens", () => {
+    const r = computeRevenue([
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 5, token: "MON" }),
+    ]);
+    expect(r.currency).toBe("USDC");
+    expect(r.total, "the MON payment must not be counted as USDC").toBe(200);
+  });
+
+  it("reports every token's settled amount separately", () => {
+    const r = computeRevenue([
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 5, token: "MON" }),
+      tx({ amount: 2, token: "MON" }),
+    ]);
+    expect(r.byToken).toEqual({ USDC: 100, MON: 7 });
+  });
+
+  it("headlines the token the merchant actually settles in", () => {
+    // A MON-only user must not be shown "0.00 USDC" and told that's their
+    // revenue — the number is right and the label makes it a lie.
+    const r = computeRevenue([
+      tx({ amount: 3, token: "MON" }),
+      tx({ amount: 4, token: "MON" }),
+    ]);
+    expect(r.currency).toBe("MON");
+    expect(r.total).toBe(7);
+  });
+
+  it("excludes swaps, which move your own money rather than paying anyone", () => {
+    const r = computeRevenue([
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 500, token: "USDC", action: "swap", summary: "Swap 500 USDC → MON" }),
+    ]);
+    expect(r.total).toBe(100);
+    expect(r.settledCount).toBe(1);
+  });
+
+  it("keeps the trend chart in a single currency", () => {
+    const trend = computeTrend(
+      [tx({ amount: 100, token: "USDC" }), tx({ amount: 5, token: "MON" })],
+      7,
+      "USDC",
+    );
+    expect(trend.reduce((s, p) => s + p.revenue, 0)).toBe(100);
+  });
+
+  it("ranks top customers within one currency", () => {
+    const big = "0xaaaa000000000000000000000000000000000001";
+    const small = "0xbbbb000000000000000000000000000000000002";
+    const customers = deriveCustomers(
+      [
+        tx({ amount: 50, token: "USDC", recipient: big }),
+        tx({ amount: 900, token: "MON", recipient: small }),
+        tx({ amount: 10, token: "USDC", recipient: small }),
+      ],
+      {},
+      "USDC",
+    );
+    expect(customers[0].address).toBe(big);
+    expect(customers[0].totalPaid).toBe(50);
+    expect(customers.find((c) => c.address === small)?.totalPaid).toBe(10);
+  });
+});
