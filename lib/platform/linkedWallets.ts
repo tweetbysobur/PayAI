@@ -38,12 +38,39 @@ export interface LinkedWallet {
   /** What the user calls it. Their words, length-capped, never interpreted. */
   label: string;
   linkedAt: number;
+  /** When this wallet was last seen connected. Lets the manager show "2 days
+   *  ago" instead of implying every linked wallet is present right now — the
+   *  link is a record, not a live connection. */
+  lastConnectedAt?: number;
+}
+
+/**
+ * Which wallet a given kind of work should use by default.
+ *
+ * PayAI must never silently switch the wallet a payment or an automation
+ * spends from — the whole point of holding two is knowing which one is
+ * moving. These are the user's stated defaults, stored per account, and the
+ * automation form reads them rather than guessing from whatever happens to be
+ * active when the form is opened.
+ */
+export interface WalletDefaults {
+  /** Address to pay from, or null to follow whichever wallet is active. */
+  payment: string | null;
+  /** Address automations execute from. Deliberately separate: a recurring
+   *  payment runs while nobody is watching, so it should not inherit a choice
+   *  someone made for a one-off send weeks ago. */
+  automation: string | null;
 }
 
 const key = (account: string) => `payai:linked:${account.toLowerCase()}`;
+const defaultsKey = (account: string) => `payai:wallet-defaults:${account.toLowerCase()}`;
 
-const g = globalThis as unknown as { __payaiLinkedWallets?: Map<string, LinkedWallet[]> };
+const g = globalThis as unknown as {
+  __payaiLinkedWallets?: Map<string, LinkedWallet[]>;
+  __payaiWalletDefaults?: Map<string, WalletDefaults>;
+};
 const mem = (g.__payaiLinkedWallets ??= new Map());
+const memDefaults = (g.__payaiWalletDefaults ??= new Map());
 
 async function read(account: string): Promise<LinkedWallet[]> {
   const r = await getRedis();
@@ -105,4 +132,71 @@ export async function unlinkWallet(account: string, external: string): Promise<L
   const list = (await read(account)).filter((w) => w.address.toLowerCase() !== address);
   await write(account, list);
   return list;
+}
+
+/** Renames a linked wallet. The label is the user's own words — stored
+ *  length-capped and never interpreted, only displayed. */
+export async function renameLinkedWallet(
+  account: string,
+  external: string,
+  label: string,
+): Promise<LinkedWallet[] | null> {
+  const address = external.toLowerCase();
+  const list = await read(account);
+  const row = list.find((w) => w.address.toLowerCase() === address);
+  if (!row) return null;
+  row.label = label;
+  await write(account, list);
+  return list;
+}
+
+/** Records that a linked wallet was seen connected just now. */
+export async function touchLinkedWallet(account: string, external: string): Promise<void> {
+  const address = external.toLowerCase();
+  const list = await read(account);
+  const row = list.find((w) => w.address.toLowerCase() === address);
+  if (!row) return;
+  row.lastConnectedAt = Date.now();
+  await write(account, list);
+}
+
+export async function getWalletDefaults(account: string): Promise<WalletDefaults> {
+  const r = await getRedis();
+  const raw = r ? await r.get(defaultsKey(account)) : memDefaults.get(defaultsKey(account));
+  if (!raw) return { payment: null, automation: null };
+  try {
+    const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as Partial<WalletDefaults>;
+    return { payment: parsed.payment ?? null, automation: parsed.automation ?? null };
+  } catch {
+    return { payment: null, automation: null };
+  }
+}
+
+/**
+ * Sets a default. Only an address this account actually owns or has linked may
+ * be named — otherwise a default could point at a wallet the account cannot
+ * sign with, and every payment would fail at the last step with no explanation.
+ */
+export async function setWalletDefaults(
+  account: string,
+  next: Partial<WalletDefaults>,
+): Promise<WalletDefaults | { error: string }> {
+  const allowed = new Set<string>([account.toLowerCase()]);
+  for (const w of await read(account)) allowed.add(w.address.toLowerCase());
+
+  for (const [field, value] of Object.entries(next)) {
+    if (value != null && !allowed.has(String(value).toLowerCase())) {
+      return { error: `That wallet isn't linked to this account, so it can't be your default ${field} wallet.` };
+    }
+  }
+
+  const current = await getWalletDefaults(account);
+  const merged: WalletDefaults = {
+    payment: next.payment !== undefined ? next.payment : current.payment,
+    automation: next.automation !== undefined ? next.automation : current.automation,
+  };
+  const r = await getRedis();
+  if (r) await r.set(defaultsKey(account), JSON.stringify(merged));
+  else memDefaults.set(defaultsKey(account), merged);
+  return merged;
 }
