@@ -130,6 +130,12 @@ export const WALLET_EVENT_TYPES = [
   "automation_signed",
   "automation_executed",
   "refund_completed",
+  // A swap moves a user's money and can fail, which makes it exactly the kind
+  // of thing the bell exists for — it produced a transaction-log row and no
+  // notification at all, so a swap that reverted while the user was on another
+  // page told them nothing.
+  "swap_completed",
+  "swap_failed",
 ] as const;
 export type WalletEventType = (typeof WALLET_EVENT_TYPES)[number];
 

@@ -21,6 +21,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useWallet as useExternalWallet, type WalletState as ExternalWalletState } from "@/lib/wallet/useWallet";
 import { MONAD_CHAIN_ID } from "@/lib/monad/public";
 import { getEmbeddedProvider } from "./registry";
+import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
 
@@ -92,6 +93,56 @@ export interface WalletServiceState extends ExternalWalletState {
   /** Re-derives the raw private key for export. Always costs a fresh passkey
    *  check. The caller must show it and drop it — never persist it. */
   exportEmbeddedKey: () => Promise<`0x${string}`>;
+
+  /* ── Two wallets at once ───────────────────────────────────────────────── */
+  /**
+   * Which wallet is currently acting — signing, paying, being shown as "you".
+   *
+   * Connecting an external wallet used to take over: the PayAI Wallet simply
+   * stopped being the one in use, with no way back short of disconnecting.
+   * That is backwards. The PayAI Wallet is the account; an external wallet is
+   * something the account has. Both stay connected and the user chooses.
+   */
+  activeKind: WalletProviderKind | null;
+  /** The PayAI Wallet's address whenever this device has one unlocked or
+   *  remembered, whether or not it is the active wallet. */
+  accountAddress: string | null;
+  /** The connected external wallet's address, whether or not it is active. */
+  externalAddress: string | null;
+  /** True when both a PayAI Wallet and an external wallet are available, i.e.
+   *  when switching is a thing the user can do. */
+  canSwitchWallets: boolean;
+  /** Make a wallet the acting one. Persisted per device, so coming back lands
+   *  where you left off. */
+  switchWallet: (kind: WalletProviderKind) => void;
+
+  /* ── Linked wallets ────────────────────────────────────────────────────── */
+  /** External wallets attached to this account. Public addresses; the link
+   *  grants nothing on its own. */
+  linkedWallets: LinkedWalletView[];
+  linkedLoading: boolean;
+  /** Attaches the connected external wallet to this account. Costs two
+   *  approvals — the external wallet's and the passkey's — because both ends
+   *  have to prove themselves. Returns the updated list. */
+  linkExternalWallet: (label?: string) => Promise<LinkedWalletView[]>;
+  /** Detaches a wallet. Only the account approves: someone who has lost
+   *  access to an external wallet still needs to be able to remove it. */
+  unlinkWallet: (address: string) => Promise<LinkedWalletView[]>;
+  /**
+   * Sends from a specific wallet rather than whichever is active — what
+   * moving funds from a connected wallet into the PayAI Wallet needs, since
+   * the destination is the wallet you would otherwise be sending as.
+   */
+  sendTransactionFrom: (
+    kind: WalletProviderKind,
+    tx: { to: string; data?: string; value?: string },
+  ) => Promise<string>;
+}
+
+export interface LinkedWalletView {
+  address: string;
+  label: string;
+  linkedAt: number;
 }
 
 /**
@@ -103,6 +154,10 @@ export interface WalletServiceState extends ExternalWalletState {
  * External wallets are untouched — their own app owns that decision.
  */
 const IDLE_LOCK_MS = 15 * 60 * 1000;
+
+/** Which wallet the user last chose to act as. Per device, because that is
+ *  where the choice was made and where it should be remembered. */
+const ACTIVE_KIND_KEY = "payai_active_wallet";
 
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
 
@@ -118,6 +173,11 @@ function useWalletServiceState(): WalletServiceState {
   const [lastKnownAddress, setLastKnownAddress] = useState<string | null>(null);
   const [embeddedBusy, setEmbeddedBusy] = useState(false);
   const [embeddedError, setEmbeddedError] = useState<string | null>(null);
+  // Which wallet is acting. Null until the user has expressed a preference,
+  // at which point the default below stops applying.
+  const [chosenKind, setChosenKind] = useState<WalletProviderKind | null>(null);
+  const [linkedWallets, setLinkedWallets] = useState<LinkedWalletView[]>([]);
+  const [linkedLoading, setLinkedLoading] = useState(false);
 
   // Passkey support is a browser capability, so it can only be read on the
   // client — never from the server's config.
@@ -125,6 +185,12 @@ function useWalletServiceState(): WalletServiceState {
     setEmbeddedSupported(provider.isSupported());
     setHasEmbeddedCredential(provider.hasLocalCredential());
     setLastKnownAddress(provider.lastKnownAddress());
+    try {
+      const saved = localStorage.getItem(ACTIVE_KIND_KEY);
+      if (saved === "embedded" || saved === "external") setChosenKind(saved);
+    } catch {
+      /* private mode — the default below applies every load */
+    }
   }, [provider]);
 
   // Restore the account session (identity only). The wallet itself is NOT
@@ -150,9 +216,40 @@ function useWalletServiceState(): WalletServiceState {
    * only is what stops a stolen localStorage dump, or injected script reading
    * storage, from walking away with the wallet.
    */
-  const isLocked = !external.address && !wallet && hasEmbeddedCredential;
+  // Locked describes the ACCOUNT, and nothing else. It used to also require
+  // that no external wallet was connected, which was only ever true because a
+  // connected external wallet replaced the account outright. Now that both
+  // coexist, "my PayAI Wallet is locked" and "I am currently paying with
+  // MetaMask" are separate facts, and conflating them left a locked account
+  // with no visible way back in.
+  const isLocked = !wallet && hasEmbeddedCredential;
 
-  const usingEmbedded = !external.address && !!wallet;
+  /**
+   * The account's own address — the PayAI Wallet — whether or not it is the
+   * one currently acting. Falls back to the remembered address while locked,
+   * so linking and switching still know which account they belong to.
+   */
+  const accountAddress = wallet?.address ?? (hasEmbeddedCredential ? lastKnownAddress : null);
+
+  /**
+   * Which wallet acts.
+   *
+   * The default is the account: connecting MetaMask alongside a PayAI Wallet
+   * should not quietly demote the PayAI Wallet to something you can only get
+   * back to by disconnecting. An explicit choice wins over the default, and a
+   * choice that is no longer possible (the chosen wallet went away) falls back
+   * to whatever is actually there.
+   */
+  const embeddedUsable = !!wallet;
+  const externalUsable = !!external.address;
+  const activeKind: WalletProviderKind | null =
+    chosenKind === "external" && externalUsable ? "external"
+      : chosenKind === "embedded" && embeddedUsable ? "embedded"
+      : embeddedUsable ? "embedded"
+      : externalUsable ? "external"
+      : null;
+
+  const usingEmbedded = activeKind === "embedded" && !!wallet;
 
   // Idle auto-lock. Zeroes the in-memory key after a period of no
   // interaction; the wallet then reads as "locked" and one passkey check
@@ -298,13 +395,25 @@ function useWalletServiceState(): WalletServiceState {
     }
   }, [wallet, provider.id]);
 
+  /** Disconnects the wallet currently acting, leaving the other one alone.
+   *  With both connected, "Disconnect" while using MetaMask means MetaMask —
+   *  it must not also sign you out of your account. */
   const disconnect = useCallback(async () => {
+    if (usingEmbedded) {
+      await signOutEmbedded();
+      return;
+    }
     if (external.address) {
       await external.disconnect();
       return;
     }
     await signOutEmbedded();
-  }, [external, signOutEmbedded]);
+  }, [usingEmbedded, external, signOutEmbedded]);
+
+  const switchWallet = useCallback((next: WalletProviderKind) => {
+    setChosenKind(next);
+    try { localStorage.setItem(ACTIVE_KIND_KEY, next); } catch { /* private mode */ }
+  }, []);
 
   const signMessage = useCallback(
     async (message: string): Promise<string> => {
@@ -322,6 +431,98 @@ function useWalletServiceState(): WalletServiceState {
     [usingEmbedded, wallet, external],
   );
 
+  /**
+   * Sends from a named wallet rather than whichever is active.
+   *
+   * Moving funds from a connected wallet into the PayAI Wallet needs this:
+   * the destination is the account, so the source has to be addressed
+   * explicitly instead of being "whoever is acting".
+   */
+  const sendTransactionFrom = useCallback(
+    async (from: WalletProviderKind, tx: { to: string; data?: string; value?: string }): Promise<string> => {
+      if (from === "embedded") {
+        if (!wallet) throw new Error("Unlock your PayAI Wallet to send from it.");
+        return wallet.sendTransaction(tx);
+      }
+      if (!external.address) throw new Error("Connect an external wallet to send from it.");
+      return external.sendTransaction(tx);
+    },
+    [wallet, external],
+  );
+
+  const refreshLinked = useCallback(async (accountFor: string | null) => {
+    if (!accountFor) { setLinkedWallets([]); return; }
+    setLinkedLoading(true);
+    try {
+      const r = await fetch(`/api/linked-wallets?account=${accountFor}`);
+      const j = await r.json();
+      setLinkedWallets(Array.isArray(j?.wallets) ? j.wallets : []);
+    } catch {
+      setLinkedWallets([]);
+    } finally {
+      setLinkedLoading(false);
+    }
+  }, []);
+
+  /**
+   * Attaches the connected external wallet to this account.
+   *
+   * Two approvals, in this order: the external wallet first (it is the one
+   * being vouched for, and the cheaper prompt to abandon), then the passkey.
+   * Both are required server-side — see lib/platform/linkedWallets.ts.
+   */
+  const linkExternalWallet = useCallback(
+    async (label?: string): Promise<LinkedWalletView[]> => {
+      const accountFor = wallet?.address;
+      if (!accountFor) throw new Error("Unlock your PayAI Wallet to link a wallet to it.");
+      if (!external.address) throw new Error("Connect the wallet you want to link first.");
+      if (external.address.toLowerCase() === accountFor.toLowerCase()) {
+        throw new Error("That's this account's own wallet — there's nothing to link.");
+      }
+
+      const message = linkMessage(accountFor, external.address);
+      const externalSignature = await external.signMessage(message);
+      const accountSignature = await wallet.signMessage(message);
+
+      const r = await fetch("/api/linked-wallets", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          account: accountFor,
+          external: external.address,
+          label: label ?? "",
+          accountSignature,
+          externalSignature,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "Could not link that wallet.");
+      const list = Array.isArray(j?.wallets) ? j.wallets : [];
+      setLinkedWallets(list);
+      return list;
+    },
+    [wallet, external],
+  );
+
+  const unlinkWalletFn = useCallback(
+    async (target: string): Promise<LinkedWalletView[]> => {
+      const accountFor = wallet?.address;
+      if (!accountFor) throw new Error("Unlock your PayAI Wallet to change its linked wallets.");
+      const accountSignature = await wallet.signMessage(unlinkMessage(accountFor, target));
+      const r = await fetch("/api/linked-wallets", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ account: accountFor, external: target, accountSignature }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "Could not remove that wallet.");
+      const list = Array.isArray(j?.wallets) ? j.wallets : [];
+      setLinkedWallets(list);
+      return list;
+    },
+    [wallet],
+  );
+
   const switchNetwork = useCallback(async () => {
     // An embedded wallet signs for whichever chain PayAI is configured for —
     // there is no wrong network to switch away from.
@@ -329,9 +530,13 @@ function useWalletServiceState(): WalletServiceState {
     return external.switchNetwork();
   }, [usingEmbedded, external]);
 
-  const address = external.address ?? wallet?.address ?? null;
-  const providerId: WalletProviderId | null = external.address ? "injected" : wallet ? provider.id : null;
-  const kind: WalletProviderKind | null = external.address ? "external" : wallet ? "embedded" : null;
+  useEffect(() => {
+    void refreshLinked(accountAddress);
+  }, [accountAddress, refreshLinked]);
+
+  const address = usingEmbedded ? wallet?.address ?? null : external.address ?? wallet?.address ?? null;
+  const providerId: WalletProviderId | null = usingEmbedded ? provider.id : external.address ? "injected" : wallet ? provider.id : null;
+  const kind: WalletProviderKind | null = activeKind;
 
   return {
     ...external,
@@ -361,7 +566,19 @@ function useWalletServiceState(): WalletServiceState {
     signOutEmbedded,
     exportEmbeddedKey,
     isLocked,
+    // The address of whatever is acting; when nothing is, the account's last
+    // known one so read-only surfaces keep working while it is locked.
     readAddress: address ?? (isLocked ? lastKnownAddress : null),
+    activeKind,
+    accountAddress,
+    externalAddress: external.address ?? null,
+    canSwitchWallets: !!accountAddress && externalUsable,
+    switchWallet,
+    linkedWallets,
+    linkedLoading,
+    linkExternalWallet,
+    unlinkWallet: unlinkWalletFn,
+    sendTransactionFrom,
   };
 }
 

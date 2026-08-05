@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
@@ -21,6 +21,8 @@ import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServic
 import { WelcomeCard } from "@/components/dashboard/WelcomeCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
+import { useSyncRefresher } from "@/lib/hooks/useSync";
+import { SyncButton } from "@/components/dashboard/SyncButton";
 
 interface Revenue { total: number; today: number; thisWeek: number; thisMonth: number; currency: string; settledCount: number; failedCount: number; successRate: number }
 interface TrendPoint { date: string; revenue: number; count: number }
@@ -57,24 +59,23 @@ export default function Overview() {
     // /api/analytics + /api/agent show_history). Without a wallet, there's no
     // identity to scope to, so these come back empty by design.
     const walletHeaders = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
-    fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {});
-    fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {});
-    fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
-    fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {});
-    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
-      .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {});
+    // Returned so the global sync can wait for all of it — a spinner that
+    // stops before the data lands is worse than no spinner.
+    return Promise.all([
+      fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {}),
+      fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {}),
+      fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {}),
+      fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {}),
+      fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
+        .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {}),
+    ]);
   }, [wallet.address]);
 
-  useEffect(() => {
-    refresh();
-    // Only poll while the tab is actually visible — background polling drains
-    // the battery and churns the UI on mobile for nothing. Refresh immediately
-    // when the user returns so the data is fresh on focus.
-    const t = setInterval(() => { if (!document.hidden) refresh(); }, 20000);
-    const onVisible = () => { if (!document.hidden) refresh(); };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
-  }, [refresh]);
+  // The page no longer runs its own timer. It joins the dashboard's single
+  // sync — which keeps the same visibility-aware cadence, but means the
+  // Refresh button, a completed swap and the background heartbeat all update
+  // this page through exactly one path instead of three.
+  useSyncRefresher(refresh);
 
   const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
   const totalMon = balances.mon ? Number(balances.mon) : null;
@@ -136,9 +137,14 @@ export default function Overview() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
+        </div>
+        {/* Refreshes the whole dashboard, not just this page — see
+            lib/hooks/useSync.tsx for what is registered. */}
+        <SyncButton className="shrink-0 pt-1" />
       </motion.div>
 
       {/* A brand-new wallet lands on a dashboard with nothing in it, which

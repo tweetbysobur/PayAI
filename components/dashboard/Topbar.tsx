@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
+import { WalletSwitcher } from "@/components/dashboard/WalletSwitcher";
 import { useToast } from "@/components/Toast";
 import dynamic from "next/dynamic";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
@@ -54,6 +55,8 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   withdrawal_completed: { icon: ArrowDownLeft, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
   automation_signed: { icon: CheckCircle2, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
   refund_completed: { icon: CheckCircle2, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  swap_completed: { icon: ArrowLeftRight, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  swap_failed: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */
@@ -182,6 +185,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                         {balances.loading ? "Loading balances…" : [balances.mon && `${Number(balances.mon).toFixed(2)} MON`, balances.usdc && `$${Number(balances.usdc).toFixed(2)} USDC`].filter(Boolean).join(" · ") || "—"}
                       </p>
                     </div>
+
+                    {/* Both wallets, always reachable — the account is never
+                        more than one tap away once something else is active. */}
+                    <WalletSwitcher onSwitched={() => setShowWalletMenu(false)} />
+
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(wallet.readAddress!).then(() => setCopied(true)).catch(() => {});
@@ -201,7 +209,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                     {/* Locked has its own action. Offering "Disconnect" to
                         someone whose wallet is merely locked answers a
                         question they didn't ask — what they want is back in. */}
-                    {wallet.isLocked ? (
+                    {/* Unlock only when nothing else is acting. With an
+                        external wallet active, this button belongs to that
+                        wallet — the locked account is reached through the
+                        switcher above. */}
+                    {wallet.isLocked && wallet.activeKind !== "external" ? (
                       <button
                         onClick={() => {
                           setShowWalletMenu(false);

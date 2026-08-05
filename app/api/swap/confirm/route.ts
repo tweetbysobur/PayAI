@@ -1,5 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAddress } from "@/lib/payees/directory";
+import type { WalletEventType } from "@/lib/wallet-service/types";
+
+/** Records a swap outcome in the wallet's notification feed. Best-effort: a
+ *  failure to notify must never change what the swap itself reports. */
+async function notifySwap(
+  req: NextRequest,
+  sender: string,
+  event: { type: WalletEventType; title: string; detail: string; txHash: string; explorerUrl: string; amount?: number | null; token?: string | null },
+): Promise<void> {
+  const { resolveTenantId } = await import("@/lib/platform/tenant");
+  const { recordWalletEvent } = await import("@/lib/platform/walletEvents");
+  await recordWalletEvent({
+    merchantId: await resolveTenantId(req),
+    sender,
+    providerId: "injected",
+    ...event,
+  });
+}
 
 /**
  * POST /api/swap/confirm — after the user signs the swap, verify the
@@ -71,6 +89,14 @@ export async function POST(req: NextRequest) {
     // for THIS hash, so it's completed rather than released: a re-ask replays
     // the same answer instead of re-reading the chain.
     const revertBody = { decision: "swap_error", error: "The swap transaction reverted on-chain. No tokens were swapped. You can safely try again.", reverted: true, txHash, explorerUrl, success: false };
+    // Tell the user, not just the caller: a swap that reverted while they were
+    // looking at another page is precisely what the bell is for.
+    await notifySwap(req, walletAddress, {
+      type: "swap_failed",
+      title: "Swap failed",
+      detail: `${summary} reverted on-chain. No tokens were swapped.`,
+      txHash, explorerUrl,
+    }).catch(() => {});
     await completeRequest(settleKey, revertBody);
     return NextResponse.json(revertBody, { status: 502 });
   }
@@ -95,6 +121,15 @@ export async function POST(req: NextRequest) {
     explorerUrl,
     summary,
   });
+
+  await notifySwap(req, walletAddress, {
+    type: "swap_completed",
+    title: "Swap completed",
+    detail: summary,
+    txHash, explorerUrl,
+    amount: amountOut ?? null,
+    token: toToken ?? null,
+  }).catch(() => {});
 
   const okBody = { decision: "swap_executed", success: true, txHash, explorerUrl, summary };
   await completeRequest(settleKey, okBody);

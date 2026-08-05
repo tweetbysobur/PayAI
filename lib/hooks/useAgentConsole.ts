@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { savePendingSettlement, getPendingSettlement, clearPendingSettlement, type PendingSettlement } from "@/lib/hooks/pendingSettlement";
+import { useSync } from "@/lib/hooks/useSync";
 
 /* Client-side mirror of the API result shapes — identical contract used by
    every command-center layout, so all three variants stay functionally real
@@ -106,14 +107,48 @@ export interface SwapQuoteView {
   amountOut: number; minAmountOut: number; feeTier: number; slippage: number; rate: number;
 }
 export interface SwapPlanView { quote: SwapQuoteView; steps: SwapStep[]; summary: string }
+/**
+ * Where a swap actually is.
+ *
+ * "signing" covered everything from building the transaction to waiting for a
+ * block, which meant a user watching a spinner had no idea whether their
+ * wallet was about to ask them something, whether money had moved, or whether
+ * it was safe to walk away. Each of these is a distinct thing to be waiting
+ * for, and they fail differently.
+ */
+export type SwapPhase =
+  | "ready"       // quoted, nothing signed
+  | "preparing"   // building the transaction
+  | "awaiting"    // the wallet is asking; nothing has moved
+  | "submitting"  // signed and being broadcast
+  | "confirming"  // on-chain, waiting for a block
+  | "done"
+  | "error";
+
+export const SWAP_PHASE_LABEL: Record<SwapPhase, string> = {
+  ready: "Review swap",
+  preparing: "Preparing swap",
+  awaiting: "Awaiting signature",
+  submitting: "Submitting",
+  confirming: "Confirming",
+  done: "Completed",
+  error: "Failed",
+};
+
+/** The ordered stages a swap passes through, for a progress readout. */
+export const SWAP_STAGES: SwapPhase[] = ["preparing", "awaiting", "submitting", "confirming", "done"];
+
 export interface SwapState {
-  phase: "ready" | "signing" | "done" | "error";
+  phase: SwapPhase;
   plan: SwapPlanView;
   provider?: string;
   stepIndex: number;
   txHash?: string;
   explorerUrl?: string;
   error?: string;
+  /** True once a transaction has broadcast. A failure after this point is NOT
+   *  safe to blindly retry — the swap may already have settled. */
+  broadcast?: boolean;
 }
 
 export const STAGE_LABEL: Record<string, string> = {
@@ -188,6 +223,7 @@ export function friendlyError(message: string): string {
 export function useAgentConsole() {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
+  const { sync } = useSync();
   const [walletBusy, setWalletBusy] = useState(false);
   const [intent, setIntent] = useState("");
   const [loading, setLoading] = useState(false);
@@ -355,7 +391,7 @@ export function useAgentConsole() {
       setRes(json);
       pushHistory(json);
       loadOnchain();
-      balances.refresh();
+      void sync();
       return "settled";
     } catch (e) {
       if (broadcastHash) {
@@ -383,12 +419,16 @@ export function useAgentConsole() {
   /** Sign the swap's steps in order (approval first when present), verify the
    *  final tx on-chain, then refresh balances. Non-custodial — the wallet signs. */
   async function executeSwap(plan: SwapPlanView, provider?: string) {
-    setSwap({ phase: "signing", plan, provider, stepIndex: 0 });
+    setSwap({ phase: "preparing", plan, provider, stepIndex: 0 });
     let lastHash = "";
     try {
       for (let i = 0; i < plan.steps.length; i++) {
-        setSwap((s) => (s ? { ...s, stepIndex: i } : s));
+        // "Awaiting signature" is its own stage because it is the only one
+        // where the user has something to do, and the only one where nothing
+        // has happened yet if they walk away.
+        setSwap((s) => (s ? { ...s, stepIndex: i, phase: "awaiting" } : s));
         lastHash = await wallet.sendTransaction(plan.steps[i].tx);
+        setSwap((s) => (s ? { ...s, phase: "submitting", txHash: lastHash, broadcast: true } : s));
         // Persist after EVERY broadcast step, not just the last: an approval
         // step broadcasting then the swap step failing still leaves the swap
         // itself unswapped, but if the final swap tx broadcasts and only the
@@ -402,6 +442,7 @@ export function useAgentConsole() {
           savePendingSettlement(pending);
           setPendingRecovery(pending);
         }
+        setSwap((s) => (s ? { ...s, phase: "confirming" } : s));
         await wallet.waitForReceipt(lastHash);
       }
       const r = await fetch("/api/swap/confirm", {
@@ -432,13 +473,31 @@ export function useAgentConsole() {
       setPendingRecovery(null);
       setSwap((s) => (s ? { ...s, phase: "done", txHash: lastHash, explorerUrl: cj.explorerUrl } : s));
       loadOnchain();
-      balances.refresh();
+      // The whole dashboard, not just this hook's balances: a swap changes the
+      // portfolio, the activity feed and the notification bell too, and the
+      // user should never have to reload to see any of it. Everything that
+      // registered a refresher updates itself — see lib/hooks/useSync.tsx.
+      void sync();
     } catch (e) {
       const msg = lastHash
         ? `Your swap transaction was sent (${lastHash.slice(0, 10)}…) but we couldn't confirm it yet. Do not resend — we'll keep checking, or tap Retry.`
         : friendlyError(e instanceof Error ? e.message : "Swap failed.");
       setSwap((s) => (s ? { ...s, phase: "error", error: msg } : s));
     }
+  }
+
+  /**
+   * Re-run a swap that never reached the chain. Deliberately refuses once a
+   * transaction has broadcast: at that point the swap may already have
+   * settled, and re-signing is how someone swaps twice.
+   */
+  function retrySwap() {
+    // Read from state directly. Reaching for the current value inside a
+    // setState updater looks tidier, but an updater must be pure: React calls
+    // it twice under Strict Mode, which would have fired a second swap from a
+    // single tap on Retry.
+    if (!swap || swap.broadcast) return;
+    void executeSwap(swap.plan, swap.provider);
   }
 
   /** Clear everything back to the idle prompt — used after a command finishes
@@ -575,5 +634,6 @@ export function useAgentConsole() {
     pendingRecovery, recovering, retryPendingConfirm,
     // AI Confirmation screen — see PendingConfirmation above.
     pendingConfirm, confirmSign, cancelConfirm,
+    retrySwap,
   };
 }
