@@ -8,7 +8,7 @@ import { TokenLogo } from "@/components/TokenLogo";
 import { formatUsd } from "@/lib/hooks/useTokenPrices";
 import { usePortfolio, viewHoldings, type SortKey } from "@/lib/hooks/usePortfolio";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
-import { useToast } from "@/components/Toast";
+import { useCopy } from "@/lib/hooks/useCopy";
 
 /**
  * Everything this wallet holds, not just the two assets the dashboard was
@@ -40,25 +40,16 @@ function amount(n: number | null): string {
 
 export function PortfolioCard({ address }: { address: string | null }) {
   const { holdings, loading, totalUsd } = usePortfolio(address);
-  const { toast } = useToast();
+  const { copy, copied } = useCopy();
   const [hideZero, setHideZero] = useState(true);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("value");
-  const [copied, setCopied] = useState<string | null>(null);
 
   const rows = useMemo(
     () => viewHoldings(holdings, { hideZero, query, sort }),
     [holdings, hideZero, query, sort],
   );
   const hiddenCount = holdings.length - viewHoldings(holdings, { hideZero, sort }).length;
-
-  function copyAddress(addr: string) {
-    navigator.clipboard?.writeText(addr).then(() => {
-      setCopied(addr);
-      toast("Contract address copied");
-      setTimeout(() => setCopied((c) => (c === addr ? null : c)), 1600);
-    }).catch(() => {});
-  }
 
   return (
     <Card>
@@ -184,7 +175,7 @@ export function PortfolioCard({ address }: { address: string | null }) {
                 {!h.native && (
                   <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 sm:opacity-0">
                     <button
-                      onClick={() => copyAddress(h.address)}
+                      onClick={() => void copy(h.address, "Contract address copied")}
                       aria-label={`Copy ${h.symbol} contract address`}
                       className="rounded-md p-1.5 text-muted-foreground transition hover:bg-input hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >

@@ -12,6 +12,7 @@ import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useToast } from "@/components/Toast";
+import { useCopy } from "@/lib/hooks/useCopy";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -27,7 +28,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
   const identity = useIdentity(wallet.readAddress);
   const { toast } = useToast();
   useModalA11y(open, onClose);
-  const [copied, setCopied] = useState(false);
+  const { copy: doCopy, copied: copiedValue } = useCopy();
   const [showAmount, setShowAmount] = useState(false);
   const [token, setToken] = useState<"MON" | "USDC">("MON");
   const [amount, setAmount] = useState("");
@@ -58,11 +59,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
 
   function copy() {
     if (!address) return;
-    navigator.clipboard?.writeText(address).then(() => {
-      setCopied(true);
-      toast("Address copied");
-      setTimeout(() => setCopied(false), 1600);
-    });
+    void doCopy(address, "Address copied");
   }
 
   function download() {
@@ -139,7 +136,7 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
                   {identity.domain && <p className="text-sm font-semibold text-primary-ink">{identity.domain}</p>}
                   <button onClick={copy} className="mt-1 inline-flex items-center gap-2 rounded-lg border border-border bg-input/40 px-3 py-2 font-mono text-xs text-foreground transition hover:border-primary/40">
                     {short(address)}
-                    {copied ? <Check size={13} className="text-success" /> : <Copy size={13} className="text-muted-foreground" />}
+                    {copiedValue === address ? <Check size={13} className="text-success" /> : <Copy size={13} className="text-muted-foreground" />}
                   </button>
                 </div>
 

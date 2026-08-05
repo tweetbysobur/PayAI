@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { LinkedWalletsCard } from "@/components/dashboard/LinkedWalletsCard";
+import { WalletManager } from "@/components/dashboard/WalletManager";
 import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -157,6 +158,12 @@ export default function Wallets() {
       {wallet.readAddress && (
         <div className="mb-4">
           <PortfolioCard address={wallet.readAddress} />
+        </div>
+      )}
+
+      {wallet.accountAddress && (
+        <div className="mb-4">
+          <WalletManager />
         </div>
       )}
 

@@ -128,6 +128,9 @@ export interface WalletServiceState extends ExternalWalletState {
   /** Detaches a wallet. Only the account approves: someone who has lost
    *  access to an external wallet still needs to be able to remove it. */
   unlinkWallet: (address: string) => Promise<LinkedWalletView[]>;
+  /** Re-read the linked list — after a rename, or any change made outside
+   *  this context. */
+  refreshLinkedWallets: () => Promise<void>;
   /**
    * Sends from a specific wallet rather than whichever is active — what
    * moving funds from a connected wallet into the PayAI Wallet needs, since
@@ -143,6 +146,8 @@ export interface LinkedWalletView {
   address: string;
   label: string;
   linkedAt: number;
+  /** When this wallet was last seen connected, if ever. */
+  lastConnectedAt?: number;
 }
 
 /**
@@ -578,6 +583,7 @@ function useWalletServiceState(): WalletServiceState {
     linkedLoading,
     linkExternalWallet,
     unlinkWallet: unlinkWalletFn,
+    refreshLinkedWallets: () => refreshLinked(accountAddress),
     sendTransactionFrom,
   };
 }

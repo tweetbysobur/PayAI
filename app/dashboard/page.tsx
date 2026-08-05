@@ -14,7 +14,7 @@ import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 import dynamic from "next/dynamic";
-import { useToast } from "@/components/Toast";
+import { useCopy } from "@/lib/hooks/useCopy";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -44,13 +44,12 @@ export default function Overview() {
   const wallet = useWallet();
   const balances = useWalletBalances(wallet.address);
   const identity = useIdentity(wallet.address);
-  const { toast } = useToast();
   const [a, setA] = useState<Analytics | null>(null);
   const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopy();
   const [receiveOpen, setReceiveOpen] = useState(false);
 
   const refresh = useCallback(() => {
@@ -129,10 +128,7 @@ export default function Overview() {
 
   function copyAddr() {
     if (!wallet.address) return;
-    navigator.clipboard?.writeText(wallet.address);
-    setCopied(true);
-    toast("Address copied");
-    setTimeout(() => setCopied(false), 1500);
+    void copy(wallet.address, "Address copied");
   }
 
   return (
@@ -171,7 +167,7 @@ export default function Overview() {
                   )}
                   {wallet.address && (
                     <button onClick={copyAddr} className="text-muted-foreground transition hover:text-foreground" title="Copy address">
-                      {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                      {copied === wallet.address ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                     </button>
                   )}
                 </div>
