@@ -5,10 +5,8 @@ import Link from "next/link";
 import { ShieldCheck, Lock, Eye, KeyRound, FileCheck2, ExternalLink, Repeat, Gauge, Signature, Ban } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
-import { GitHubMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 
-const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
 const short = (s: string) => `${s.slice(0, 10)}…${s.slice(-8)}`;
 
 interface Onchain { contracts?: { paymentExecutor: string; executorExplorer: string } }
@@ -116,14 +114,10 @@ export default function Security() {
                 <span className="flex items-center gap-1.5 font-mono text-xs text-primary-ink">{short(contract.paymentExecutor)} <ExternalLink size={12} /></span>
               </a>
             )}
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
-              <span className="flex items-center gap-2"><GitHubMark className="h-4 w-4 text-foreground" /> Open-source code</span>
-              <ExternalLink size={14} className="text-muted-foreground" />
-            </a>
-            <a href={`${GITHUB_URL}/tree/main/contracts`} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
-              <span className="flex items-center gap-2"><FileCheck2 size={15} className="text-primary-ink" /> Smart contracts</span>
-              <ExternalLink size={14} className="text-muted-foreground" />
-            </a>
+            {/* The source repository is private, so it is not linked here.
+                Claiming "open-source code" behind a 404 would be worse than
+                claiming nothing — what a visitor CAN verify is the deployed
+                contract and every transaction, both linked on this page. */}
             <a href={MONAD_EXPLORER} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-lg border border-border bg-panel px-4 py-3 text-sm text-foreground transition hover:border-primary/40">
               <span className="flex items-center gap-2"><Eye size={15} className="text-primary-ink" /> Monad block explorer</span>
               <ExternalLink size={14} className="text-muted-foreground" />
@@ -153,8 +147,8 @@ export default function Security() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <a href="mailto:buharisobur22@gmail.com" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90">Email us</a>
-            <a href={`${GITHUB_URL}/blob/main/SECURITY.md`} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">Security policy</a>
+            <a href="mailto:security@usepayai.xyz" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90">Email us</a>
+            <Link href="/dashboard/support" className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">Contact support</Link>
           </div>
         </section>
       </div>

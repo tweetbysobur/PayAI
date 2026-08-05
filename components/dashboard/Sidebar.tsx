@@ -10,13 +10,11 @@ import {
 import { Logo } from "@/components/Logo";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 
-const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
-
-export const LEARN_LINKS = [
+export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding"; external?: boolean }[] = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
   { label: "Wallet Security", icon: Lock, href: "/security" },
   { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
-  { label: "GitHub Issues", icon: LifeBuoy, href: `${GITHUB_URL}/issues`, external: true },
+  { label: "Contact Support", icon: LifeBuoy, href: "/dashboard/support" },
 ];
 
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
@@ -100,7 +98,7 @@ export function Sidebar() {
           }
           return item.external
             ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" className={cls}>{content}</a>
-            : <Link key={item.label} href={item.href} className={cls}>{content}</Link>;
+            : <Link key={item.label} href={item.href ?? "#"} className={cls}>{content}</Link>;
         })}
       </div>
     </aside>

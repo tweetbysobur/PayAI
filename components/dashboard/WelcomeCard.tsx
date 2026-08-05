@@ -28,7 +28,7 @@ const ACTIONS = [
 ];
 
 export function WelcomeCard({ address, show }: { address?: string | null; show: boolean }) {
-  const { display } = useUsername(address);
+  const { username } = useUsername(address);
   if (!show) return null;
 
   return (
@@ -38,7 +38,9 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
       className="mb-5 overflow-hidden rounded-2xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-6"
     >
       <h2 className="text-xl font-semibold tracking-tight text-foreground">
-        Welcome to PayAI{display ? `, ${display}` : ""}.
+        {/* Greet by name only when they've chosen one — greeting someone by
+            their wallet address is worse than not greeting them at all. */}
+        Welcome to PayAI{username ? `, @${username}` : ""}.
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
         Your wallet is ready. What would you like to automate today?

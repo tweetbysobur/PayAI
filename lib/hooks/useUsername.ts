@@ -1,47 +1,38 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { defaultUsername, formatUsername } from "@/lib/platform/username";
+import { formatUsername, shortAddress } from "@/lib/platform/username";
 
 /**
- * A wallet's PayAI username.
+ * A wallet's PayAI username, or null when its owner hasn't chosen one.
  *
- * Resolves optimistically: the address-derived default is available
- * immediately with no network call, and a stored override (if the owner has
- * set one) replaces it when the fetch returns. That means a handle is never
- * blank and never flashes a placeholder — the default IS a real, permanent
- * identity, not a loading state.
+ * There is deliberately no generated fallback identity: `display` shows the
+ * shortened address until a real handle exists, which is honest about the
+ * fact that the user hasn't named themselves yet. `hasUsername` lets callers
+ * invite them to pick one.
  */
 export function useUsername(address?: string | null) {
   const [username, setUsername] = useState<string | null>(null);
-  const [isDefault, setIsDefault] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const load = useCallback(() => {
     if (!address) { setUsername(null); return; }
-    // Show the derived handle straight away, then reconcile.
-    setUsername(defaultUsername(address));
-    setIsDefault(true);
+    setLoading(true);
     fetch(`/api/username?address=${address}`)
       .then((r) => r.json())
-      .then((j) => {
-        if (typeof j?.username === "string") {
-          setUsername(j.username);
-          setIsDefault(!!j.isDefault);
-        }
-      })
-      .catch(() => {
-        // Offline or KV down — the derived default is still correct and
-        // usable, so there is nothing to report to the user.
-      });
+      .then((j) => setUsername(typeof j?.username === "string" ? j.username : null))
+      .catch(() => setUsername(null))
+      .finally(() => setLoading(false));
   }, [address]);
 
   useEffect(() => { load(); }, [load]);
 
   return {
     username,
-    isDefault,
-    /** Display form, with the @. Empty string when there's no wallet. */
-    display: username ? formatUsername(username) : "",
+    hasUsername: !!username,
+    loading,
+    /** What to show for this wallet: its handle, or its short address. */
+    display: username ? formatUsername(username) : address ? shortAddress(address) : "",
     refresh: load,
   };
 }

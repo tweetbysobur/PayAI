@@ -8,6 +8,7 @@ import {
   Building2, Rocket, Landmark, Gift, Sparkles, Wallet as WalletIcon,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
+import { ChooseUsername } from "@/components/onboarding/ChooseUsername";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import dynamic from "next/dynamic";
 
@@ -104,9 +105,13 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
               </a>
             </div>
 
+            <div className="mt-4">
+              <ChooseUsername address={address} />
+            </div>
+
             <button
               onClick={() => setStep(2)}
-              className="group mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+              className="group mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
             >
               Continue <ArrowRight size={15} className="transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>

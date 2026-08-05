@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AtSign, Check, Loader2, Pencil, X } from "lucide-react";
 import { Card } from "@/components/ui";
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
@@ -12,24 +12,44 @@ import { useToast } from "@/components/Toast";
  * Your PayAI username — the readable identity that stands in for a 42-character
  * address across the product.
  *
- * Every wallet already has one (derived from its address), so this is an edit
- * screen, never a setup step. Changing it requires a wallet signature: the
- * server has no other way to know the request came from the wallet's owner,
- * and letting anyone rename any wallet would be an open impersonation door.
+ * Usernames are chosen, never assigned — until someone picks one, PayAI shows
+ * their short address. Claiming requires a wallet signature (the server has no
+ * other way to know the request came from the owner) and is first come, first
+ * served: a name in use is unavailable to everyone else, which is the whole
+ * point of a name in a payments product.
  */
 export function UsernameCard() {
   const wallet = useWalletService();
-  const { username, isDefault, display, refresh } = useUsername(wallet.address);
+  const { username, hasUsername, display, refresh } = useUsername(wallet.address);
   const { toast } = useToast();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Live "is this free?" feedback, so nobody types a name, signs for it, and
+  // only then learns it was taken.
+  const [taken, setTaken] = useState<{ available: boolean; reason?: string } | null>(null);
+
+  // Debounced availability probe while typing.
+  useEffect(() => {
+    if (!editing) return;
+    const next = normalizeUsername(draft);
+    if (!validateUsername(next).ok) { setTaken(null); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      fetch(`/api/username?available=${encodeURIComponent(next)}&address=${wallet.address ?? ""}`)
+        .then((r) => r.json())
+        .then((j) => { if (!cancelled) setTaken({ available: !!j.available, reason: j.reason }); })
+        .catch(() => {});
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [draft, editing, wallet.address]);
 
   if (!wallet.address) return null;
 
   function startEditing() {
     setDraft(username ?? "");
+    setTaken(null);
     setError(null);
     setEditing(true);
   }
@@ -71,7 +91,9 @@ export function UsernameCard() {
             <div>
               <p className="font-mono text-sm text-foreground">{display || "—"}</p>
               <p className="text-xs text-muted-foreground">
-                {isDefault ? "Auto-generated — you can change it any time." : "Your custom username."}
+                {hasUsername
+                  ? "Your username. Yours alone — no one else can claim it."
+                  : "You haven't chosen a username yet. Pick one so people can pay you by name."}
               </p>
             </div>
           </div>
@@ -79,7 +101,7 @@ export function UsernameCard() {
             onClick={startEditing}
             className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40"
           >
-            <Pencil size={12} /> Edit
+            <Pencil size={12} /> {hasUsername ? "Edit" : "Choose"}
           </button>
         </div>
       ) : (
@@ -95,8 +117,13 @@ export function UsernameCard() {
             />
           </div>
           <p className="mt-1.5 text-[11px] text-muted-foreground">
-            3–20 characters. Lowercase letters, numbers and hyphens.
+            3–20 characters. Lowercase letters, numbers, hyphens and underscores.
           </p>
+          {taken && (
+            <p className={`mt-1.5 flex items-center gap-1.5 text-[11px] ${taken.available ? "text-success" : "text-danger"}`}>
+              {taken.available ? <><Check size={11} /> @{normalizeUsername(draft)} is available</> : taken.reason}
+            </p>
+          )}
           {error && <p className="mt-1.5 text-xs text-danger">{error}</p>}
           <div className="mt-3 flex gap-2">
             <button
@@ -106,7 +133,7 @@ export function UsernameCard() {
               <X size={12} /> Cancel
             </button>
             <button
-              onClick={save} disabled={busy || !draft.trim()}
+              onClick={save} disabled={busy || !draft.trim() || taken?.available === false}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
             >
               {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
