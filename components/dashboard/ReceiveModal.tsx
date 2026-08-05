@@ -24,7 +24,7 @@ const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
  */
 export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const wallet = useWallet();
-  const identity = useIdentity(wallet.address);
+  const identity = useIdentity(wallet.readAddress);
   const { toast } = useToast();
   useModalA11y(open, onClose);
   const [copied, setCopied] = useState(false);
@@ -33,7 +33,9 @@ export function ReceiveModal({ open, onClose }: { open: boolean; onClose: () => 
   const [amount, setAmount] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
 
-  const address = wallet.address ?? "";
+  // readAddress: an address is public and receiving needs no key, so a locked
+  // wallet must still be able to show its QR. Nothing here can sign.
+  const address = wallet.readAddress ?? "";
 
   // Plain address by default; a valid amount produces an EIP-681 request URI so
   // the scanning wallet pre-fills token + amount. USDC needs its token address.

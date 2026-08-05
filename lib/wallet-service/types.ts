@@ -86,6 +86,10 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   /** Whether this device has a remembered credential, i.e. whether the
    *  natural next action is "recover" rather than "create". */
   hasLocalCredential(): boolean;
+  /** The address this device last unlocked, if known. Public information —
+   *  it lets read-only surfaces (balances, history, deposit alerts) keep
+   *  working while the wallet is locked, without any ability to sign. */
+  lastKnownAddress(): `0x${string}` | null;
   /** Ends the in-memory session and zeroes key material. */
   forget(): void;
   /** Re-derives the raw private key so the user can move their funds
