@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { viewHoldings, type Holding } from "@/lib/hooks/usePortfolio";
+import { viewHoldings, resolveTokenMeta, type Holding } from "@/lib/hooks/usePortfolio";
 import { syncAgo } from "@/lib/hooks/useSync";
 
 function h(over: Partial<Holding> = {}): Holding {
@@ -140,5 +140,70 @@ describe("portfolio — an unreadable balance", () => {
     ]);
     expect(rows[0].symbol).toBe("REAL");
     expect(rows[1].valueUsd).toBeNull();
+  });
+});
+
+/**
+ * One slow token must not hold up the whole portfolio.
+ *
+ * Metadata comes from a chain read and the list waits on every row before
+ * rendering any of them, so a single unresponsive contract left the user
+ * staring at "Reading your balances…" with nothing on screen — indefinitely,
+ * because nothing in the chain of promises had a deadline.
+ */
+describe("portfolio — token metadata is bounded", () => {
+  const fallback = {
+    symbol: "?", name: "Unknown token", decimals: 18, logoURI: null, verified: false,
+  };
+
+  it("uses the real metadata when it arrives in time", async () => {
+    const meta = await resolveTokenMeta("0xabc", fallback, {
+      timeoutMs: 500,
+      fetcher: async () => ({ token: { symbol: "aUSDC", name: "Aave USDC", decimals: 6, logoURI: null, verified: true } }),
+    });
+    expect(meta.symbol).toBe("aUSDC");
+    expect(meta.decimals).toBe(6);
+  });
+
+  it("gives up on a contract that never answers, rather than waiting forever", async () => {
+    const started = Date.now();
+    const meta = await resolveTokenMeta("0xslow", fallback, {
+      timeoutMs: 60,
+      fetcher: () => new Promise(() => {}), // never settles, like a dead contract
+    });
+    expect(meta).toEqual(fallback);
+    expect(Date.now() - started, "must not have waited on the hung request").toBeLessThan(2000);
+  });
+
+  it("falls back when the lookup fails outright", async () => {
+    const meta = await resolveTokenMeta("0xbad", fallback, {
+      timeoutMs: 500,
+      fetcher: async () => { throw new Error("network down"); },
+    });
+    expect(meta).toEqual(fallback);
+  });
+
+  it("falls back when the response carries no token", async () => {
+    const meta = await resolveTokenMeta("0xempty", fallback, {
+      timeoutMs: 500,
+      fetcher: async () => ({ success: false }),
+    });
+    expect(meta).toEqual(fallback);
+  });
+
+  it("resolves each token independently, so one slow row cannot block the others", async () => {
+    // The actual failure mode: the portfolio awaits all rows together, so a
+    // list is only as fast as its worst token unless every lookup is bounded.
+    const started = Date.now();
+    const [fast, slow] = await Promise.all([
+      resolveTokenMeta("0xfast", fallback, {
+        timeoutMs: 60,
+        fetcher: async () => ({ token: { ...fallback, symbol: "FAST" } }),
+      }),
+      resolveTokenMeta("0xslow", fallback, { timeoutMs: 60, fetcher: () => new Promise(() => {}) }),
+    ]);
+    expect(fast.symbol).toBe("FAST");
+    expect(slow).toEqual(fallback);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });
