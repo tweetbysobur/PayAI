@@ -14,6 +14,15 @@ export const MONAD_USDC_DECIMALS = Number(process.env.NEXT_PUBLIC_MONAD_USDC_DEC
 export const MONAD_CHAIN_ID_HEX = `0x${MONAD_CHAIN_ID.toString(16)}`;
 
 /**
+ * The sentinel that stands in for the chain's own asset, which has no
+ * contract address. Lives here rather than in tokenRegistry because the
+ * browser needs it too, and tokenRegistry reaches for a server-side RPC
+ * client — importing it from a client hook drags the whole server module into
+ * the bundle. tokenRegistry re-exports this so the two can never disagree.
+ */
+export const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+/**
  * Every configured RPC URL (primary + optional comma-separated backups) — the
  * browser-side wallet bar and checkout flow pass the full list into
  * wallet_addEthereumChain and into the read-only client used to await receipts,

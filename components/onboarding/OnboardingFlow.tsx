@@ -23,7 +23,12 @@ export function OnboardingFlow() {
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
   const router = useRouter();
-  const { open, complete } = useOnboarding(wallet.address);
+  // Keyed on the ACCOUNT, not whichever wallet is currently acting. Onboarding
+  // introduces PayAI to a person, and they only need that once — keying it on
+  // the active address replayed the whole first-run tour the moment someone
+  // attached a second wallet, which is precisely when they have proven they
+  // already know their way around.
+  const { open, complete } = useOnboarding(wallet.accountAddress ?? wallet.address);
   const [step, setStep] = useState(1);
 
   if (!wallet.address) return null;

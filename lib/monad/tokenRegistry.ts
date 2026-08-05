@@ -21,7 +21,11 @@ import { getPublicClient } from "./wallet";
 import { getNetwork, getChain, getStablecoin } from "./config";
 
 /** Sentinel used throughout the app (and by PaymentExecutor on-chain) to mean "the chain's native asset," never a real ERC-20. */
-export const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+// Defined in the browser-safe config so client code can use it without
+// pulling this server-side module in; re-exported so existing imports keep
+// working and the two can never drift.
+import { NATIVE_TOKEN_ADDRESS } from "./public";
+export { NATIVE_TOKEN_ADDRESS };
 
 export interface TokenInfo {
   address: string;

@@ -8,6 +8,7 @@ import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { DepositAlert } from "@/components/dashboard/DepositAlert";
 import { useNotifications } from "@/lib/hooks/useNotifications";
+import { SyncProvider } from "@/lib/hooks/useSync";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface Health {
@@ -15,7 +16,17 @@ interface Health {
   wallet: { network: string; chainId: number } | null;
 }
 
+/** Wraps the dashboard so every surface below shares one refresh — see
+ *  lib/hooks/useSync.tsx. */
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <SyncProvider>
+      <DashboardChrome>{children}</DashboardChrome>
+    </SyncProvider>
+  );
+}
+
+function DashboardChrome({ children }: { children: React.ReactNode }) {
   const wallet = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);

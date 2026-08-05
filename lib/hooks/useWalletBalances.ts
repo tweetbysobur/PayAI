@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
+import { useSyncRefresher } from "@/lib/hooks/useSync";
 
 export interface WalletBalances {
   mon: string | null;
@@ -27,6 +28,11 @@ export function useWalletBalances(address: string | null): WalletBalances {
   const [nonce, setNonce] = useState(0);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
+
+  // Part of the dashboard's one refresh, so a balance is never the stale thing
+  // on an otherwise fresh screen — and so a completed swap updates it without
+  // the swap flow needing to know balances exist.
+  useSyncRefresher(refresh);
 
   useEffect(() => {
     if (!address) { setMon(null); setUsdc(null); return; }

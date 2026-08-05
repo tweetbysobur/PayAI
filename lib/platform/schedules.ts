@@ -304,6 +304,19 @@ export async function setScheduleStatus(
       amount: row.amount, token: row.token,
     });
   } else if (status === "cancelled") {
+    // A cancelled automation will never run again, so its Reserved Funds
+    // deposit has nothing left to pay for — hand it straight back, exactly as
+    // cancelSchedule() does.
+    //
+    // This was missing, and it was the path the dashboard's Cancel button
+    // actually took. The money was not lost, but it was stranded with no way
+    // out that a user could find: the retry sweeper only looks at rows marked
+    // "pending", which this path never set, and the UI only offers refund
+    // recovery on that same marker. So the deposit sat in the vault, no
+    // automatic attempt was ever made, and nothing on screen said so.
+    // Idempotent and lock-guarded (see refundReservedIfAny), so a row
+    // cancelled twice, or cancelled through both routes, refunds once.
+    await refundReservedIfAny(row, "the automation was cancelled");
     await recordAutomationEvent({
       merchantId, automationId: row.id, sender: row.sender, type: "cancelled",
       title: "Automation cancelled", detail: `${label(row)} will no longer run.`,
@@ -612,6 +625,14 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
     row.reservedLowWarnedForRun = null;
   }
   await persist(row);
+  // Skipping the LAST occurrence completes the automation, which makes this a
+  // terminal state like any other — and terminal means the reservation has
+  // nothing left to pay for. Missing here for the same reason it was missing
+  // from the cancel path: the refund lived with the obvious exits and not with
+  // every route that can reach one.
+  if (row.status === "completed") {
+    await refundReservedIfAny(row, "the automation finished its schedule");
+  }
   await recordAutomationEvent({
     merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "skipped",
     title: "Execution skipped", detail: `${label(row)}'s next scheduled run was skipped — no payment was sent.`,

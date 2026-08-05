@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
   ShieldCheck, BarChart3, Wallet, Settings, Repeat,
-  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy,
+  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy, Activity,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
@@ -22,6 +22,7 @@ export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; s
   { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
+  { href: "/dashboard/activity", label: "Activity", icon: Activity, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
   { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments" },
   { href: "/dashboard/compliance", label: "Compliance", icon: ShieldCheck, section: "Compliance" },
