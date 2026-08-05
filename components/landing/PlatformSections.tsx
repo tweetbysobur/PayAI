@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { ShieldCheck, Blocks, AtSign, Wallet, Database, Code2, ArrowUpRight, Layers } from "lucide-react";
-import { TokenLogo, VolumeInline } from "@/components/TokenLogo";
+import { ShieldCheck, Blocks, AtSign, Wallet, Database, Code2 } from "lucide-react";
+import { TokenLogo } from "@/components/TokenLogo";
 import { MonadMark } from "@/components/MonadMark";
 
 /**

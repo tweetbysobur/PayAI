@@ -64,23 +64,78 @@ export function TokenLogo({ token, size = 14, className = "", logoURI }: { token
 }
 
 /**
- * Renders a per-token volume map as real coin logos + amounts:
- * "◆ 108.1 MON · $ 143 USDC". Every nonzero asset shown separately — never
- * blended into one misleading number. Empty map renders an em dash.
+ * Full precision up to five figures, then compact.
+ *
+ * A metric card is a fixed width and volume only ever grows, so a number
+ * formatted to please today's total eventually runs out of room. Past 10,000
+ * the extra digits stop being information anyone reads at a glance and start
+ * being the thing that breaks the layout, so they collapse to "12.4K". Below
+ * that nothing is abbreviated — early totals are small, and rounding them
+ * would make the platform look emptier than it is.
  */
-export function VolumeInline({ byToken, size = 13, className = "" }: { byToken: Record<string, number>; size?: number; className?: string }) {
+export function formatVolumeAmount(v: number): string {
+  if (v >= 10_000) return v.toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+/**
+ * The same per-token volume, one token per row.
+ *
+ * Every nonzero asset shown separately — never blended into one misleading
+ * number, since 1 MON + 1 USDC is not 2 of anything.
+ *
+ * Built for metric cards, where the container is narrow and fixed: the logo
+ * and symbol hold their size, the number gives way first, and the row can
+ * shrink to nothing without any of it escaping the card. This replaced an
+ * inline one-line variant that could not do that — its token groups had no
+ * `min-width: 0`, so two currencies in a one-third column rendered straight
+ * over whatever sat beside them, which is exactly what the landing page's
+ * dashboard preview was doing.
+ *
+ * `max` caps the visible rows and states how many are left rather than
+ * dropping them silently, so a wallet holding six assets does not stretch a
+ * card built for two.
+ */
+export function VolumeStack({
+  byToken,
+  size = 14,
+  max,
+  valueClassName = "text-sm font-semibold",
+  className = "",
+}: {
+  byToken: Record<string, number>;
+  size?: number;
+  max?: number;
+  valueClassName?: string;
+  className?: string;
+}) {
   const parts = Object.entries(byToken).filter(([, v]) => v > 0);
-  if (!parts.length) return <span className={className}>—</span>;
+  // Inherits the surrounding metric's type — the dash is the metric, so it
+  // should be set at whatever size that metric is, not at the row size.
+  if (!parts.length) return <span>—</span>;
+
+  const shown = max ? parts.slice(0, max) : parts;
+  const hidden = parts.length - shown.length;
+
   return (
-    <span className={`inline-flex flex-wrap items-center gap-x-2 gap-y-1 ${className}`}>
-      {parts.map(([token, v], i) => (
-        <span key={token} className="inline-flex items-center gap-1">
-          <TokenLogo token={token} size={size} />
-          <span className="font-mono">{v.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-          <span className="text-muted-foreground">{token}</span>
-          {i < parts.length - 1 && <span className="text-muted-foreground/40">·</span>}
-        </span>
+    <div className={`min-w-0 space-y-1 ${className}`}>
+      {shown.map(([token, v]) => (
+        <div key={token} className="flex min-w-0 items-center gap-1.5">
+          <TokenLogo token={token} size={size} className="shrink-0" />
+          {/* title carries the exact figure, since the visible one may be
+              compacted or truncated. */}
+          <span
+            title={`${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${token}`}
+            className={`truncate tabular-nums tracking-tight text-foreground ${valueClassName}`}
+          >
+            {formatVolumeAmount(v)}
+          </span>
+          <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{token}</span>
+        </div>
       ))}
-    </span>
+      {hidden > 0 && (
+        <p className="text-[10px] text-muted-foreground">+{hidden} more {hidden === 1 ? "asset" : "assets"}</p>
+      )}
+    </div>
   );
 }
