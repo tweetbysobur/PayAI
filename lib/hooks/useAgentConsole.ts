@@ -492,11 +492,12 @@ export function useAgentConsole() {
    * settled, and re-signing is how someone swaps twice.
    */
   function retrySwap() {
-    setSwap((s) => {
-      if (!s || s.broadcast) return s;
-      void executeSwap(s.plan, s.provider);
-      return s;
-    });
+    // Read from state directly. Reaching for the current value inside a
+    // setState updater looks tidier, but an updater must be pure: React calls
+    // it twice under Strict Mode, which would have fired a second swap from a
+    // single tap on Retry.
+    if (!swap || swap.broadcast) return;
+    void executeSwap(swap.plan, swap.provider);
   }
 
   /** Clear everything back to the idle prompt — used after a command finishes

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -55,6 +55,8 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   withdrawal_completed: { icon: ArrowDownLeft, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
   automation_signed: { icon: CheckCircle2, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
   refund_completed: { icon: CheckCircle2, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  swap_completed: { icon: ArrowLeftRight, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
+  swap_failed: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
 };
 
 /** Real top navigation — network status from /api/health, the user's own connected wallet (read-only on-chain balances), notifications. */
