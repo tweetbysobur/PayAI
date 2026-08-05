@@ -15,6 +15,7 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
+import { WalletSwitcher } from "@/components/dashboard/WalletSwitcher";
 import { useToast } from "@/components/Toast";
 import dynamic from "next/dynamic";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
@@ -182,6 +183,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                         {balances.loading ? "Loading balances…" : [balances.mon && `${Number(balances.mon).toFixed(2)} MON`, balances.usdc && `$${Number(balances.usdc).toFixed(2)} USDC`].filter(Boolean).join(" · ") || "—"}
                       </p>
                     </div>
+
+                    {/* Both wallets, always reachable — the account is never
+                        more than one tap away once something else is active. */}
+                    <WalletSwitcher onSwitched={() => setShowWalletMenu(false)} />
+
                     <button
                       onClick={() => {
                         navigator.clipboard.writeText(wallet.readAddress!).then(() => setCopied(true)).catch(() => {});
@@ -201,7 +207,11 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                     {/* Locked has its own action. Offering "Disconnect" to
                         someone whose wallet is merely locked answers a
                         question they didn't ask — what they want is back in. */}
-                    {wallet.isLocked ? (
+                    {/* Unlock only when nothing else is acting. With an
+                        external wallet active, this button belongs to that
+                        wallet — the locked account is reached through the
+                        switcher above. */}
+                    {wallet.isLocked && wallet.activeKind !== "external" ? (
                       <button
                         onClick={() => {
                           setShowWalletMenu(false);

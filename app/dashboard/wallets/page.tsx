@@ -6,6 +6,7 @@ import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, Tren
 import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
+import { LinkedWalletsCard } from "@/components/dashboard/LinkedWalletsCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
@@ -152,6 +153,12 @@ export default function Wallets() {
         </Card>
       </div>
 
+      {wallet.accountAddress && (
+        <div className="mb-4">
+          <LinkedWalletsCard />
+        </div>
+      )}
+
       {wallet.address && (
         <div className="mb-4 grid gap-4 lg:grid-cols-2">
           <Card title="Connected Wallets">
@@ -165,14 +172,20 @@ export default function Wallets() {
               </div>
               <Badge tone="success">Active</Badge>
             </div>
+            {/* Both wallets can be connected at once now, so this no longer
+                describes connecting as a swap you have to undo. */}
             <p className="mt-3 text-xs text-muted-foreground">
-              {wallet.kind === "embedded"
-                ? "Want to use a browser wallet instead? Connecting one switches your active wallet — your automations keep working, funded from whichever wallet is active."
-                : "Prefer not to manage a browser wallet? Switch to an embedded PayAI Wallet — your automations keep working either way."}
+              {wallet.canSwitchWallets
+                ? "Your PayAI Wallet and your external wallet are both connected. Switch between them from the wallet menu in the top bar — whichever is active is the one that pays."
+                : wallet.kind === "embedded"
+                  ? "You can connect an external wallet alongside this one. Both stay available, and you choose which pays."
+                  : "You can add a PayAI Wallet alongside this one — a passkey wallet with no seed phrase. Both stay available."}
             </p>
-            <Link href={wallet.kind === "embedded" ? "/connect" : "/auth"} className="mt-2 inline-block text-xs font-medium text-primary-ink hover:underline">
-              {wallet.kind === "embedded" ? "Connect an external wallet →" : "Switch to PayAI Wallet (Embedded) →"}
-            </Link>
+            {!wallet.canSwitchWallets && (
+              <Link href={wallet.kind === "embedded" ? "/connect" : "/auth"} className="mt-2 inline-block text-xs font-medium text-primary-ink hover:underline">
+                {wallet.kind === "embedded" ? "Connect an external wallet →" : "Add a PayAI Wallet →"}
+              </Link>
+            )}
           </Card>
 
           <Card title="Recovery Status">
