@@ -9,11 +9,8 @@ import {
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
-import { WhyMonadSection, SecuritySection } from "@/components/landing/MarketingSections";
-import {
-  ProductOverviewSection, HowPayAIWorksSection, PaymentOperationsSection,
-  AIOperatorSection, EmbeddedWalletSection, SmartSwapsSection, AnalyticsSection,
-} from "@/components/landing/PlatformOverview";
+import { WhyMonadSection } from "@/components/landing/MarketingSections";
+import { ProductOverviewSection } from "@/components/landing/PlatformOverview";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
@@ -135,20 +132,15 @@ export default function LandingPage() {
       </section>
 
       {/* What the platform is, before anything else. A visitor who reads only
-          this far should already know PayAI is six products, not one. */}
+          this far should already know PayAI is six products, not one.
+
+          This is the ONLY repositioning section on the landing page. The
+          operator, the swap, the wallet, the mechanics, the workflows and the
+          analytics all answer a second-order question, and they live on
+          /product and /how-it-works — the same split this page was slimmed
+          down to once before. Each card here links into the product itself,
+          and the nav carries the two deeper pages. */}
       <ProductOverviewSection />
-
-      {/* The three that are hardest to picture from a card: the operator, the
-          swap, and the wallet. Each shows the real interface. */}
-      <AIOperatorSection />
-      <SmartSwapsSection />
-      <EmbeddedWalletSection />
-
-      {/* Then the mechanics, then the catalogue of workflows with their real
-          status, then what you get back once things are running. */}
-      <HowPayAIWorksSection />
-      <PaymentOperationsSection />
-      <AnalyticsSection />
 
       {/* Why PayAI — manual vs automated */}
       <section id="why" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
@@ -183,11 +175,6 @@ export default function LandingPage() {
           the landing page deliberately: it is evidence, not capability
           depth, so it belongs at the front door. */}
       <PlatformStatistics />
-
-      {/* Security sits between the proof and the FAQ: by this point a visitor
-          has seen what PayAI can move, and the next question is always what
-          stops it moving something they didn't intend. */}
-      <SecuritySection />
 
       {/* Why Monad, immediately before the FAQ. Also rendered on
           /how-it-works: the chain choice is both a landing-page trust signal

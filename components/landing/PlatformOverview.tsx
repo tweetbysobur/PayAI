@@ -7,8 +7,8 @@ import {
   Sparkles, Repeat, ArrowLeftRight, Users, Wallet, BarChart3,
   ArrowRight, Fingerprint, Coins, CheckCircle2, Send, ShieldCheck,
   Mail, Bell, Clock, Activity, PieChart, ListChecks,
+  Building2, Landmark, Repeat2, Store, Gift, Megaphone, Rocket, Home,
 } from "lucide-react";
-import { TEMPLATES, TEMPLATE_CATEGORIES, WORKFLOW_STATUS_META, type WorkflowStatus } from "@/lib/automation/templates";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 
@@ -16,13 +16,19 @@ import { TokenLogo } from "@/components/TokenLogo";
  * The repositioning sections: PayAI as a payment operations platform, not a
  * single automation feature.
  *
- * Everything here answers "what is this product" for someone who has been on
- * the page five seconds. It is deliberately built from the SAME sources the
- * app uses — the automation template registry decides which workflows say
- * "Coming Soon", and the deployment's own status endpoint decides which
- * sign-in methods are offered. A marketing page that hardcodes either one
- * starts lying the day the product changes, and the person it lies to is a
- * visitor deciding whether to trust it with money.
+ * Only the six-product overview belongs on the landing page. The rest of
+ * these are the second-order questions — how it works mechanically, what the
+ * operator does, what the wallet can do — and they live on /product and
+ * /how-it-works, which is where someone goes once the front door has done its
+ * job. Putting all of them on the landing page buries the pitch under the
+ * detail, which is the exact mistake the page was slimmed down to fix once
+ * already.
+ *
+ * Nothing here states a capability the deployment cannot back. The sign-in
+ * list is read from the deployment's own status endpoint rather than typed
+ * out, because a marketing page that hardcodes it starts lying the day the
+ * configuration changes — and the person it lies to is a visitor deciding
+ * whether to trust it with money.
  */
 
 const H2 = "text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground";
@@ -277,107 +283,70 @@ export function HowPayAIWorksSection() {
 /* ── 3. Payment operations ──────────────────────────────────────────────── */
 
 /**
- * Every workflow, with the status the app itself reports.
+ * What people actually use PayAI for.
  *
- * Read straight from lib/automation/templates.ts — the same registry the
- * in-app template picker renders — so a workflow that is still being built
- * says "Coming Soon" here for exactly as long as it says so in the product,
- * and stops saying it the moment that changes. Nothing to keep in sync.
+ * This deliberately does NOT enumerate the 28 automation templates with a
+ * readiness badge on each. That version was accurate and unreadable: most
+ * templates are still being polished, so the section became a wall of
+ * not-yet labels and argued against the product harder than any competitor
+ * could. It also measured the wrong thing — a curated template is a shortcut,
+ * not the capability. Every operation below can be built today from the
+ * automation builder or the bulk creator, template or no template.
+ *
+ * Where a ready-made template does exist, the card links straight to it;
+ * otherwise it opens the builder. Neither case promises anything that is not
+ * there when you arrive.
  */
-const OPERATIONS_ORDER = ["personal", "business", "bulk", "dao", "launchpad", "creator", "nft"] as const;
-
-function statusTone(status: WorkflowStatus): string {
-  return WORKFLOW_STATUS_META[status].tone;
-}
+const OPERATIONS: { title: string; body: string; icon: typeof Wallet; template?: string }[] = [
+  { title: "Payroll", body: "Salaries on a fixed cycle, to one person or a whole team.", icon: Building2 },
+  { title: "Treasury", body: "Scheduled transfers and payouts from a reserved balance.", icon: Landmark },
+  { title: "Subscriptions", body: "Recurring dues and memberships that never miss a date.", icon: Repeat2 },
+  { title: "Vendor payments", body: "Suppliers and contractors paid on their own schedule.", icon: Store },
+  { title: "Community rewards", body: "Distribute a reward across many wallets in one run.", icon: Gift },
+  { title: "Airdrops", body: "A one-time token distribution to a list of addresses.", icon: Coins },
+  { title: "Creator payouts", body: "Revenue splits, affiliate commissions and sponsorships.", icon: Megaphone },
+  { title: "Launchpad distribution", body: "Allocations and vested releases, on schedule.", icon: Rocket },
+  { title: "Rent and personal", body: "Rent, allowances and savings that send themselves.", icon: Home, template: "personal-monthly-rent" },
+];
 
 export function PaymentOperationsSection() {
-  const groups = OPERATIONS_ORDER.map((id) => ({
-    meta: TEMPLATE_CATEGORIES.find((c) => c.id === id)!,
-    items: TEMPLATES.filter((t) => t.category === id),
-  })).filter((g) => g.items.length > 0);
-
-  const liveCount = TEMPLATES.filter((t) => (t.status ?? "available") === "available").length;
-
   return (
     <section id="workflows" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
           eyebrow="Payment operations"
           title="One platform. Every payment workflow."
-          body="Each of these is a real workflow in the product. The ones still being finished say so — you will never find out after you have already committed funds to one."
+          body="One automation engine underneath, and enough control on top of it to run payroll, a treasury, a distribution or your own rent."
         />
 
-        {/*
-          One card per operation area, workflows as chips inside it.
-
-          The first build of this rendered all 28 workflows as full cards, and
-          because most are still being finished the section read as a wall of
-          "Coming Soon" — an honest layout that told a more pessimistic story
-          than the truth. Grouped, the same information says what it should:
-          seven areas of payment operations, with the specific workflows that
-          are live today marked as such.
-        */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {groups.map((g, gi) => {
-            const live = g.items.filter((t) => (t.status ?? "available") === "available");
-            return (
-              <motion.div
-                key={g.meta.id}
-                initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-50px" }}
-                transition={{ delay: (gi % 3) * 0.05, duration: 0.35 }}
-                className="flex h-full flex-col rounded-2xl border border-border bg-panel p-5 ring-1 ring-inset ring-white/[0.02]"
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {OPERATIONS.map((o, i) => (
+            <motion.div
+              key={o.title}
+              initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-50px" }}
+              transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
+            >
+              <Link
+                href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
+                className="group flex h-full flex-col rounded-xl border border-border bg-panel p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <div className="mb-4 flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold tracking-tight text-foreground">{g.meta.label}</h3>
-                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                    {live.length}/{g.items.length} live
-                  </span>
-                </div>
-
-                <div className="flex flex-1 flex-wrap content-start gap-1.5">
-                  {g.items.map((t) => {
-                    const status = (t.status ?? "available") as WorkflowStatus;
-                    const ready = status !== "coming_soon";
-
-                    // A workflow that cannot run yet is not a link. Sending
-                    // someone into the app to find that out for themselves is
-                    // the kind of small dishonesty that costs more than it
-                    // saves.
-                    return ready ? (
-                      <Link
-                        key={t.id}
-                        href={`/dashboard/automations?template=${t.id}`}
-                        className="group inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/[0.07] px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-primary/12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <t.icon size={12} className="text-primary-ink" />
-                        {t.name}
-                        <ArrowRight size={10} className="text-primary-ink transition-transform duration-200 group-hover:translate-x-0.5" />
-                      </Link>
-                    ) : (
-                      <span
-                        key={t.id}
-                        title={t.statusNote ?? undefined}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground"
-                      >
-                        <t.icon size={12} className="opacity-60" />
-                        {t.name}
-                        <span className={`ml-0.5 rounded-full border px-1.5 py-px text-[8px] font-medium uppercase tracking-wide ${statusTone(status)}`}>
-                          Soon
-                        </span>
-                      </span>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            );
-          })}
+                <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
+                  <o.icon size={18} />
+                </span>
+                <h3 className="text-sm font-semibold text-foreground">{o.title}</h3>
+                <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground">{o.body}</p>
+                <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-primary-ink">
+                  {o.template ? "Use the workflow" : "Build it"}
+                  <ArrowRight size={11} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                </span>
+              </Link>
+            </motion.div>
+          ))}
         </div>
 
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          {liveCount} of {TEMPLATES.length} workflows run today. The rest are marked Coming Soon because they still need their
-          own review and approval steps before they move real money — this list is read from the product, so it changes when
-          the product does.
+          Ready-made workflows for the most common of these are in the app, and more are added as they are finished.
         </p>
       </div>
     </section>
@@ -516,27 +485,22 @@ export function EmbeddedWalletSection() {
               </div>
             </div>
 
-            {social.map((s) => {
-              // null = still loading; render as neutral rather than guessing
-              // either way, since guessing "available" is the harmful guess.
-              const ready = methods?.[s.key] === true;
-              return (
-                <div
-                  key={s.key}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-input/30 px-4 py-3"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    {s.key === "email" ? <Mail size={15} className="shrink-0 text-muted-foreground" /> : <Wallet size={15} className="shrink-0 text-muted-foreground" />}
-                    <span className="truncate text-sm text-foreground">{s.label}</span>
-                  </span>
-                  {methods !== null && !ready && (
-                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                      Coming soon
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+            {/* Only methods this deployment can actually complete. A method
+                that is not configured is left off rather than listed with a
+                caveat: a caveat is still an offer, and the person reading it
+                has to work out that the thing in front of them does nothing.
+                Nothing renders until the answer arrives, so a configured
+                method never flickers in late as though it were an
+                afterthought. */}
+            {social.filter((s) => methods?.[s.key] === true).map((s) => (
+              <div
+                key={s.key}
+                className="flex items-center gap-2.5 rounded-xl border border-border bg-input/30 px-4 py-3"
+              >
+                {s.key === "email" ? <Mail size={15} className="shrink-0 text-muted-foreground" /> : <Wallet size={15} className="shrink-0 text-muted-foreground" />}
+                <span className="truncate text-sm text-foreground">{s.label}</span>
+              </div>
+            ))}
 
             <div className="flex items-center gap-2.5 rounded-xl border border-border bg-input/30 px-4 py-3">
               <Wallet size={15} className="shrink-0 text-muted-foreground" />

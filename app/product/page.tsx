@@ -5,7 +5,10 @@ import { motion } from "motion/react";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
-import { FeatureGroupsSection, UseCasesSection } from "@/components/landing/MarketingSections";
+import { FeatureGroupsSection } from "@/components/landing/MarketingSections";
+import {
+  SmartSwapsSection, EmbeddedWalletSection, PaymentOperationsSection, AnalyticsSection,
+} from "@/components/landing/PlatformOverview";
 import { TemplateShowcase } from "@/components/landing/TemplateShowcase";
 import { SupportedTokens } from "@/components/landing/PlatformSections";
 
@@ -36,11 +39,11 @@ export default function ProductPage() {
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
           <p className="text-xs font-semibold uppercase tracking-wider text-primary-ink">Product</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
-            Everything PayAI automates
+            Everything PayAI does
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            One automation engine, every payment shape: recurring transfers, payroll, treasury
-            distributions, and bulk payouts to hundreds of wallets — in any token on Monad.
+            Payments, swaps, automations, bulk distributions and the wallets behind them — the whole
+            platform, in the depth the landing page deliberately leaves out.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -53,18 +56,24 @@ export default function ProductPage() {
         </motion.div>
       </section>
 
+      {/* The depth pages carry the capability detail; the landing page keeps
+          only the pitch. UseCasesSection is gone from here — PaymentOperations
+          says the same thing with links into the product. */}
       <FeatureGroupsSection />
+      <PaymentOperationsSection />
+      <SmartSwapsSection />
+      <EmbeddedWalletSection />
+      <AnalyticsSection />
       <TemplateShowcase />
       <SupportedTokens />
-      <UseCasesSection />
 
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           <h2 className="text-3xl font-semibold tracking-tighter text-foreground sm:text-4xl">
-            Build your first automation.
+            Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Pick a template or start from scratch, approve once, and PayAI handles every run after that.
+            Everything you need to send, swap, automate and manage payments on Monad — from one platform.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">

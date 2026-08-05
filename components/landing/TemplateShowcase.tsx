@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { TEMPLATE_CATEGORIES, TEMPLATES, WORKFLOW_STATUS_META, workflowStatus, type TemplateCategory } from "@/lib/automation/templates";
+import { TEMPLATE_CATEGORIES, TEMPLATES, workflowStatus, type TemplateCategory } from "@/lib/automation/templates";
 
 /**
  * Automation Templates, on the landing page.
@@ -17,20 +17,23 @@ import { TEMPLATE_CATEGORIES, TEMPLATES, WORKFLOW_STATUS_META, workflowStatus, t
  * place and it appears here automatically.
  *
  * "Custom" is filtered out: it isn't a template, it's the escape hatch for
- * building from scratch, and it has no entries to show.
+ * building from scratch, and it has no entries to show. So is anything not
+ * finished — this section offers starting points, and an offer you cannot
+ * take is not one. Breadth is the job of the payment-operations section
+ * above, which describes what can be BUILT rather than what is pre-filled;
+ * this one lists only what opens when you click it.
  *
  * The question this section answers: "can PayAI do MY thing?" So it leads
  * with categories a visitor can self-identify with, and the copy stays out
  * of the way — the template names are the content.
  */
 export function TemplateShowcase() {
+  const ready = TEMPLATES.filter((t) => workflowStatus(t) !== "coming_soon");
   const categories = TEMPLATE_CATEGORIES.filter(
-    (c) => c.id !== "custom" && TEMPLATES.some((t) => t.category === c.id),
+    (c) => c.id !== "custom" && ready.some((t) => t.category === c.id),
   );
   const [active, setActive] = useState<TemplateCategory>(categories[0]?.id ?? "personal");
-  const shown = TEMPLATES.filter((t) => t.category === active);
-  const liveCount = TEMPLATES.filter((t) => workflowStatus(t) !== "coming_soon").length;
-  const comingCount = TEMPLATES.length - liveCount;
+  const shown = ready.filter((t) => t.category === active);
 
   return (
     <section id="templates" className="border-t border-border py-24 sm:py-28">
@@ -44,17 +47,17 @@ export function TemplateShowcase() {
             Start from a template
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            {/* Counts are derived, never written by hand: the moment a workflow
-                flips to available its badge disappears here AND this sentence
-                updates, so the page can't claim more than the app delivers. */}
-            {liveCount} ready to use today{comingCount > 0 ? `, ${comingCount} more in active development` : ""}. Each
-            template pre-fills sensible defaults — cadence, funding mode, purpose — and every field stays editable
-            before you activate it.
+            {/* Counted, never written by hand — the page cannot claim more
+                than the registry actually offers. */}
+            {ready.length} ready to use today. Each one pre-fills sensible defaults — cadence, funding mode,
+            purpose — and every field stays editable before you activate it.
           </p>
         </motion.div>
 
-        {/* Category selector. Real labels and emoji straight from the registry. */}
-        <div className="mb-8 flex flex-wrap items-center justify-center gap-2">
+        {/* Category selector. Real labels and emoji straight from the registry.
+            Hidden when there is only one category with ready templates — a
+            single tab is a control that does nothing. */}
+        <div className={`mb-8 flex-wrap items-center justify-center gap-2 ${categories.length > 1 ? "flex" : "hidden"}`}>
           {categories.map((c) => (
             <button
               key={c.id}
@@ -98,11 +101,7 @@ export function TemplateShowcase() {
             {shown.map((t) => (
               <div
                 key={t.id}
-                className={`group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 ${
-                  workflowStatus(t) === "coming_soon"
-                    ? "opacity-70"
-                    : "hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
-                }`}
+                className="group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                   <t.icon size={16} />
@@ -110,14 +109,6 @@ export function TemplateShowcase() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <p className="text-sm font-semibold tracking-tight text-foreground">{t.name}</p>
-                    {/* The landing page must not advertise a workflow the app
-                        then refuses to open. Same status source as the picker,
-                        so the two can't drift. */}
-                    {WORKFLOW_STATUS_META[workflowStatus(t)].badge && (
-                      <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${WORKFLOW_STATUS_META[workflowStatus(t)].tone}`}>
-                        {WORKFLOW_STATUS_META[workflowStatus(t)].badge}
-                      </span>
-                    )}
                   </div>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t.description}</p>
                 </div>
