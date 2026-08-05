@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Rocket, BookOpen, ShieldCheck, FileCheck2, Blocks, ScrollText,
-  ExternalLink, LifeBuoy, Lock, BadgeCheck, Layers, Route, Mail,
+  Rocket, ShieldCheck, ScrollText, ExternalLink, LifeBuoy, Lock,
+  BadgeCheck, Layers, Route, Mail,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
@@ -19,9 +19,13 @@ import pkg from "../../package.json";
  * consumer of that data on a marketing page, and threading it down from three
  * separate pages would mean three copies of the same fetch + state.
  *
- * Every link points at something that actually exists — a real route in this
- * app or a real URL on the GitHub repo. No placeholder destinations, and no
- * "Docs"/"Status"/"Roadmap" entries until those pages exist.
+ * Every link points at a real route in this app. No placeholder destinations,
+ * nothing that 404s, and no entry that merely repeats another one — a footer
+ * column that restates the column beside it is noise, not navigation.
+ *
+ * Nothing here discloses more than a visitor needs: no source repository (it
+ * is private, so every such link 404s and the URL names a personal account),
+ * and a role address rather than anyone's personal inbox.
  */
 
 /* The source repository is private, so it is deliberately NOT linked from any
@@ -35,19 +39,11 @@ const FOOTER_COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "Launch App", href: "/connect", icon: Rocket, internal: true },
-      // The two new marketing pages, so the footer mirrors the header nav.
+      // Onboarding is /auth now; /connect is the secondary external-wallet
+      // path, so sending new visitors there skipped the primary experience.
+      { label: "Launch App", href: "/auth", icon: Rocket, internal: true },
       { label: "Product", href: "/product", icon: Layers, internal: true },
       { label: "How it works", href: "/how-it-works", icon: Route, internal: true },
-      { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
-      { label: "Compliance", href: "/dashboard/compliance", icon: FileCheck2, internal: true },
-    ],
-  },
-  {
-    title: "Developers",
-    links: [
-      { label: "How it works", href: "/how-it-works", icon: BookOpen, internal: true },
-      { label: "Smart Contracts", href: "/security", icon: Blocks, internal: true },
       { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
     ],
   },
