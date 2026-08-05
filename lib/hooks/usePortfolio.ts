@@ -65,6 +65,54 @@ function baseTokens(): { address: string; decimals: number }[] {
 
 export type SortKey = "value" | "balance" | "symbol";
 
+export interface TokenMeta {
+  symbol: string;
+  name: string;
+  decimals: number;
+  logoURI: string | null;
+  verified: boolean;
+}
+
+/**
+ * A token's metadata, or what we already knew, whichever arrives first.
+ *
+ * Metadata comes from a chain read, and the portfolio waits on every row
+ * before rendering any of them. So one unresponsive token contract used to
+ * hold up the ENTIRE list — a user with a single bad token in their history
+ * saw "Reading your balances…" and nothing else, indefinitely.
+ *
+ * Bounded, and never fatal: past the deadline, or on any error, the row
+ * renders with the fallback descriptor. A real balance beside a placeholder
+ * symbol is far more useful than a screen that never resolves.
+ *
+ * Extracted from the hook so the deadline is testable without a browser.
+ */
+export async function resolveTokenMeta(
+  address: string,
+  fallback: TokenMeta,
+  opts: { timeoutMs?: number; fetcher?: (address: string) => Promise<unknown> } = {},
+): Promise<TokenMeta> {
+  const timeoutMs = opts.timeoutMs ?? META_TIMEOUT_MS;
+  const fetcher =
+    opts.fetcher ?? ((a: string) => fetch(`/api/tokens?address=${a}`).then((r) => r.json()));
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fetcher(address)
+        .then((j) => (j as { token?: TokenMeta } | null)?.token ?? fallback)
+        .catch(() => fallback),
+      new Promise<TokenMeta>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    // The loser of the race must not keep a timer alive — a portfolio with
+    // twenty tokens would otherwise hold twenty pending timeouts per refresh.
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export function usePortfolio(address: string | null) {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
@@ -127,22 +175,13 @@ export function usePortfolio(address: string | null) {
             if (!native) return null;
           }
 
-          const unknown = {
+          const meta = await resolveTokenMeta(t.address, {
             symbol: native ? "MON" : "?",
             name: native ? "Monad" : "Unknown token",
             decimals: t.decimals,
             logoURI: null,
             verified: native,
-          };
-          // Bounded, and never fatal. A row with a real balance and a
-          // placeholder symbol beats no row at all.
-          const meta = await Promise.race([
-            fetch(`/api/tokens?address=${t.address}`)
-              .then((r) => r.json())
-              .then((j) => j?.token ?? unknown)
-              .catch(() => unknown),
-            new Promise<typeof unknown>((resolve) => setTimeout(() => resolve(unknown), META_TIMEOUT_MS)),
-          ]);
+          });
 
           const balance = raw == null ? null : Number(formatUnits(raw, meta.decimals ?? t.decimals));
           return {
