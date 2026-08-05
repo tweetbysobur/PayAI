@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
   ExternalLink, CornerDownLeft, ArrowUpRight, FileText, ListChecks,
-  ArrowLeftRight, Loader2, Wallet,
+  ArrowLeftRight, Loader2, Wallet, Fingerprint,
 } from "lucide-react";
 import { PipelineStepper } from "@/components/PipelineStepper";
+import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
 import { useAgentConsole, DECISION, short, phraseSummary } from "@/lib/hooks/useAgentConsole";
 
 const EXAMPLES = [
@@ -297,21 +298,7 @@ export function CommandBar() {
                         <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
                       </div>
                     </div>
-                    <dl className="space-y-1.5 rounded-lg border border-border bg-panel px-3.5 py-3 text-sm">
-                      {[
-                        ["Recipient", c.pendingConfirm.domain || short(c.pendingConfirm.recipient)],
-                        ["Token", c.pendingConfirm.token],
-                        ["Amount", c.pendingConfirm.amount != null ? `${c.pendingConfirm.amount} ${c.pendingConfirm.token}` : "—"],
-                        ["Schedule", "Once — immediately"],
-                        ["Execution Mode", "Non-custodial — signed from your wallet"],
-                        ["Estimated Fees", "Shown by your wallet at signing"],
-                      ].map(([label, value]) => (
-                        <div key={label} className="flex items-center justify-between gap-3">
-                          <dt className="text-xs text-muted-foreground">{label}</dt>
-                          <dd className="truncate text-right font-medium text-foreground">{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
+                    <ConfirmDetails pending={c.pendingConfirm} kind={c.wallet.kind} />
                     <div className="mt-3.5 flex gap-2">
                       <button
                         onClick={() => { const raw = c.pendingConfirm!.confirmRawText; c.cancelConfirm(); c.setIntent(raw); inputRef.current?.focus(); }}
@@ -322,11 +309,26 @@ export function CommandBar() {
                       <button onClick={c.cancelConfirm} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger">
                         Cancel
                       </button>
-                      <button onClick={c.confirmSign} className="flex-1 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                        Confirm
+                      <button onClick={c.confirmSign} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+                        {c.wallet.kind === "embedded" && <Fingerprint size={14} />} Confirm
                       </button>
                     </div>
                   </motion.div>
+                )}
+
+                {/* The passkey prompt is a system dialog PayAI can't style, so
+                    the bar says what it's waiting for — otherwise a dismissed
+                    prompt leaves a panel that looks stuck. */}
+                {c.walletBusy && !c.pendingConfirm && (
+                  <div className="flex items-start gap-2.5 rounded-xl border border-primary/30 bg-primary/[0.04] p-4">
+                    <Fingerprint size={16} className="mt-0.5 shrink-0 animate-pulse text-primary-ink" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {c.wallet.kind === "embedded" ? "Approve with your passkey" : "Confirm in your wallet"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">Nothing is signed or sent until you do.</p>
+                    </div>
+                  </div>
                 )}
 
                 {res && !c.loading && !c.pendingConfirm && (

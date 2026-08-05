@@ -102,7 +102,17 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   friendlyError(e: unknown): string;
 }
 
-/** A live embedded wallet: an address plus the ability to sign with it. */
+/**
+ * A live embedded wallet: an address plus the ability to sign with it.
+ *
+ * **Every signature must re-verify the user.** An external wallet shows a
+ * confirmation pop-up for each transaction; an embedded wallet that signs
+ * silently after one unlock would be the weaker of the two, which is
+ * backwards for the option PayAI recommends to newcomers. Implementations
+ * must therefore obtain a fresh user approval (a passkey/biometric check, for
+ * Mera) inside `signMessage` and `sendTransaction` — not merely at unlock —
+ * and must not reuse long-lived key material to sign.
+ */
 export interface EmbeddedWalletHandle {
   address: `0x${string}`;
   signMessage(message: string): Promise<string>;

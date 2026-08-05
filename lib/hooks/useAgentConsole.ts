@@ -308,7 +308,18 @@ export function useAgentConsole() {
     }, ...h].slice(0, 10));
   }
 
-  async function signAndConfirm(unsignedTx: { to: string; data: string; value?: string; from: string }, confirmRawText: string, requestId?: string) {
+  /**
+   * Signs and settles. The return value says how far it got, which matters
+   * because the two failure modes are opposites: a signature that was never
+   * given (declined passkey, not enough gas) is safe to offer again, while
+   * one that broadcast must never be re-offered — that is how someone pays
+   * twice.
+   */
+  async function signAndConfirm(
+    unsignedTx: { to: string; data: string; value?: string; from: string },
+    confirmRawText: string,
+    requestId?: string,
+  ): Promise<"settled" | "broadcast" | "not-sent"> {
     setWalletBusy(true);
     let broadcastHash: string | null = null;
     try {
@@ -335,7 +346,7 @@ export function useAgentConsole() {
           clearPendingSettlement();
           setPendingRecovery(null);
           setErr(json.error || "This payment failed on-chain. No funds were transferred.");
-          return;
+          return "broadcast";
         }
         throw new Error(json.error || "Could not confirm the payment.");
       }
@@ -345,15 +356,17 @@ export function useAgentConsole() {
       pushHistory(json);
       loadOnchain();
       balances.refresh();
+      return "settled";
     } catch (e) {
       if (broadcastHash) {
         // The transaction was signed and broadcast — funds may already have
         // moved. Never say "failed" here: that invites a user to resend and
         // genuinely pay twice. The pending record survives for auto-recovery.
         setErr(`Your payment was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Do not resend — we'll keep checking, or tap Retry.`);
-      } else {
-        setErr(e instanceof Error ? e.message : "Wallet payment failed.");
+        return "broadcast";
       }
+      setErr(e instanceof Error ? e.message : "Wallet payment failed.");
+      return "not-sent";
     } finally {
       setWalletBusy(false);
     }
@@ -441,13 +454,22 @@ export function useAgentConsole() {
     setRes(null);
   }
 
-  /** "Confirm" on the AI Confirmation screen — the ONLY path that reaches
-   *  signAndConfirm(), i.e. the only place a signature is ever requested. */
+  /**
+   * "Confirm" on the AI Confirmation screen — the ONLY path that reaches
+   * signAndConfirm(), i.e. the only place a signature is ever requested.
+   *
+   * A PayAI Wallet asks for a passkey at this point, and declining it is a
+   * normal thing to do. If nothing was sent, the confirmation comes back so
+   * the user can approve again instead of retyping the whole payment. It is
+   * deliberately NOT restored once a transaction has broadcast — re-offering
+   * Confirm there is how someone ends up paying twice.
+   */
   async function confirmSign() {
     if (!pendingConfirm) return;
-    const { unsignedTx, confirmRawText, requestId } = pendingConfirm;
+    const pending = pendingConfirm;
     setPendingConfirm(null);
-    await signAndConfirm(unsignedTx, confirmRawText, requestId);
+    const outcome = await signAndConfirm(pending.unsignedTx, pending.confirmRawText, pending.requestId);
+    if (outcome === "not-sent") setPendingConfirm(pending);
   }
 
   async function run(text: string) {
