@@ -82,7 +82,7 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Everything You Need to Manage Payments on Monad.
+              Automate Every Payment on Monad.
             </h1>
             <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
               PayAI combines embedded wallets, payment workflows, smart swaps, bulk distributions

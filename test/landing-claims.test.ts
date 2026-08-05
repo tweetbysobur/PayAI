@@ -112,8 +112,11 @@ describe("nothing offers a route that leads nowhere", () => {
 });
 
 describe("the hero states the platform, not one feature", () => {
-  it("leads with the full product", () => {
-    expect(page).toMatch(/Everything You Need to Manage Payments on Monad/);
+  it("leads with the headline, backed by the full platform in the subheadline", () => {
+    // The H1 is the product's chosen tagline; the breadth claim — six
+    // products, not one — lives in the line right under it, so a visitor
+    // gets both within the same glance.
+    expect(page).toMatch(/Automate Every Payment on Monad/);
     expect(page).toMatch(/embedded wallets, payment workflows, smart swaps, bulk distributions/);
   });
 
