@@ -10,6 +10,7 @@ import { Card } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { shortAddress } from "@/lib/platform/username";
 import { useToast } from "@/components/Toast";
+import { useCopy } from "@/lib/hooks/useCopy";
 import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 import dynamic from "next/dynamic";
 
@@ -49,7 +50,7 @@ export function WalletManager() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
-  const [copied, setCopied] = useState<string | null>(null);
+  const { copy, copied } = useCopy();
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [defaults, setDefaults] = useState<{ payment: string | null; automation: string | null }>({
     payment: null, automation: null,
@@ -144,14 +145,6 @@ export function WalletManager() {
     setBusy(null);
   }
 
-  function copy(address: string) {
-    navigator.clipboard?.writeText(address).then(() => {
-      setCopied(address);
-      toast("Address copied");
-      setTimeout(() => setCopied((c) => (c === address ? null : c)), 1600);
-    }).catch(() => {});
-  }
-
   if (!account) return null;
 
   return (
@@ -233,7 +226,7 @@ export function WalletManager() {
                   </div>
 
                   <div className="flex shrink-0 items-center gap-0.5">
-                    <button onClick={() => copy(row.address)} aria-label="Copy address" className="rounded-md p-1.5 text-muted-foreground transition hover:bg-input hover:text-foreground">
+                    <button onClick={() => void copy(row.address, "Address copied")} aria-label="Copy address" className="rounded-md p-1.5 text-muted-foreground transition hover:bg-input hover:text-foreground">
                       {copied === row.address ? <Check size={12} className="text-success" /> : <Copy size={12} />}
                     </button>
                     <a

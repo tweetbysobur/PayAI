@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
+import { MotionPreference } from "@/components/MotionPreference";
 import { WalletServiceProvider } from "@/lib/wallet-service/WalletServiceContext";
 import { ToastProvider } from "@/components/Toast";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
@@ -46,11 +47,15 @@ export default function RootLayout({
   return (
     <html lang="en" className={jakarta.variable}>
       <body className="antialiased">
-        <WalletProvider>
-          <WalletServiceProvider>
-            <ToastProvider>{children}</ToastProvider>
-          </WalletServiceProvider>
-        </WalletProvider>
+        {/* Wraps everything: the CSS reduced-motion rule cannot reach Framer,
+            which is where most of this product's movement lives. */}
+        <MotionPreference>
+          <WalletProvider>
+            <WalletServiceProvider>
+              <ToastProvider>{children}</ToastProvider>
+            </WalletServiceProvider>
+          </WalletProvider>
+        </MotionPreference>
         <GoogleAnalytics />
       </body>
     </html>

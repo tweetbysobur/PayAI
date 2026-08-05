@@ -13,7 +13,7 @@ import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
-import { useToast } from "@/components/Toast";
+import { useCopy } from "@/lib/hooks/useCopy";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 import { buildReceipt } from "@/lib/payment/feeEngine";
@@ -63,12 +63,11 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function Payments() {
   const c = useAgentConsole();
-  const { toast } = useToast();
   const [amount, setAmount] = useState("");
   const [token, setToken] = useState<"MON" | "USDC">("MON");
   const [recipient, setRecipient] = useState("");
   const [showChecks, setShowChecks] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopy();
   const [switching, setSwitching] = useState(false);
   const [switchErr, setSwitchErr] = useState<string | null>(null);
 
@@ -92,15 +91,10 @@ export default function Payments() {
   function submit() {
     if (!canSubmit) return;
     setShowChecks(false);
-    setCopied(false);
     c.run(`Send ${amount} ${token} to ${recipient}`);
   }
   function copyHash(hash: string) {
-    navigator.clipboard?.writeText(hash).then(() => {
-      setCopied(true);
-      toast("Transaction hash copied");
-      setTimeout(() => setCopied(false), 1800);
-    }).catch(() => {});
+    void copy(hash, "Transaction hash copied");
   }
   async function shareReceipt() {
     const res = c.res;
@@ -113,8 +107,10 @@ export default function Payments() {
       try { await navigator.share({ title: "PayAI receipt", text: lines }); }
       catch { /* user cancelled */ }
     } else {
-      await navigator.clipboard?.writeText(lines).catch(() => {});
-      toast("Receipt copied");
+      // Same rule as everywhere else: confirm what happened, not what was
+      // attempted. Swallowing the failure and claiming success sends the user
+      // off to paste something that isn't there.
+      await copy(lines, "Receipt copied");
     }
   }
   const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
@@ -431,7 +427,7 @@ export default function Payments() {
                         aria-label="Copy transaction hash"
                         className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary-ink"
                       >
-                        {copied ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                        {copied === c.res!.transaction!.txHash ? <Check size={13} className="text-success" /> : <Copy size={13} />}
                       </button>
                     </div>
                   </div>
