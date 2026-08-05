@@ -86,6 +86,16 @@ export interface WalletServiceState extends ExternalWalletState {
   exportEmbeddedKey: () => Promise<`0x${string}`>;
 }
 
+/**
+ * How long an unlocked embedded wallet stays unlocked without interaction.
+ *
+ * The key lives in memory, so an abandoned tab is a live signing key on an
+ * unattended screen. Fifteen minutes matches what banking apps do, and costs
+ * a returning user one biometric tap rather than anything they'd notice.
+ * External wallets are untouched — their own app owns that decision.
+ */
+const IDLE_LOCK_MS = 15 * 60 * 1000;
+
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
 
 function useWalletServiceState(): WalletServiceState {
@@ -133,6 +143,31 @@ function useWalletServiceState(): WalletServiceState {
   const isLocked = !external.address && !wallet && hasEmbeddedCredential;
 
   const usingEmbedded = !external.address && !!wallet;
+
+  // Idle auto-lock. Zeroes the in-memory key after a period of no
+  // interaction; the wallet then reads as "locked" and one passkey check
+  // brings it back. Nothing is signed out — the account session survives.
+  useEffect(() => {
+    if (!wallet) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const lock = () => {
+      wallet.end();
+      setWallet(null);
+    };
+    const restart = () => {
+      clearTimeout(timer);
+      timer = setTimeout(lock, IDLE_LOCK_MS);
+    };
+    // Deliberately cheap, passive listeners: this must not cost anything on
+    // scroll-heavy pages.
+    const events: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart", "focus"];
+    for (const e of events) window.addEventListener(e, restart, { passive: true });
+    restart();
+    return () => {
+      clearTimeout(timer);
+      for (const e of events) window.removeEventListener(e, restart);
+    };
+  }, [wallet]);
 
   // Fire-and-forget wallet_connected/wallet_disconnected notifications for
   // the external provider. The embedded side reports its own events from
