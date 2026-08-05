@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { LinkedWalletsCard } from "@/components/dashboard/LinkedWalletsCard";
+import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
@@ -152,6 +153,12 @@ export default function Wallets() {
           {wallet.address && <Button variant="ghost" onClick={wallet.disconnect} className="mt-3 text-xs hover:text-danger">Disconnect</Button>}
         </Card>
       </div>
+
+      {wallet.readAddress && (
+        <div className="mb-4">
+          <PortfolioCard address={wallet.readAddress} />
+        </div>
+      )}
 
       {wallet.accountAddress && (
         <div className="mb-4">
