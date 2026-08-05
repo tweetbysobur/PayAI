@@ -33,6 +33,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (link.status !== "active") return NextResponse.json({ ok: false, error: `Link is ${link.status}.` }, { status: 409 });
   if (!link.recipient) return NextResponse.json({ ok: false, error: "This link has no payout wallet configured." }, { status: 409 });
 
+  // One transaction settles one invoice. The receipt check below only asks
+  // "did at least `amount` reach `recipient` in this tx" — which a single
+  // large payment to a merchant satisfies for every small invoice they have
+  // open, so without this a customer could clear ten 10-USDC invoices with
+  // one 100-USDC transfer. Claiming the hash globally binds it to the first
+  // invoice it settles; a second link presenting the same hash is refused.
+  // It doubles as the concurrency guard on the recordTx below, so two
+  // simultaneous confirms of the same payment can't book the revenue twice.
+  const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
+  const settleKey = `link-settle:${txHash.toLowerCase()}`;
+  const claim = await claimRequest<{ ok: boolean; linkId: string }>(settleKey);
+  if (!claim.claimed) {
+    if (claim.status === "done" && claim.result?.linkId === id) {
+      return NextResponse.json({ ok: true, link });
+    }
+    return NextResponse.json(
+      { ok: false, error: "That transaction has already been used to pay an invoice." },
+      { status: 409 },
+    );
+  }
+
   const { getChain, getTransport } = await import("@/lib/monad/config");
   const { createPublicClient } = await import("viem");
   const client = createPublicClient({ chain: getChain(), transport: getTransport() });
@@ -43,11 +64,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (e) {
     const notMinedYet = e instanceof Error && /could not be found|not found/i.test(e.message);
     if (!notMinedYet) {
+      await releaseRequest(settleKey);
       return NextResponse.json({ ok: false, error: "Could not reach the Monad network to verify this transaction. Please retry." }, { status: 503 });
     }
     receipt = null;
   }
   if (!receipt || receipt.status !== "success") {
+    // Not mined yet is a "come back shortly", not a verdict — release so the
+    // retry isn't blocked by its own earlier attempt.
+    await releaseRequest(settleKey);
     return NextResponse.json({ ok: false, error: "Transaction not found or not successful yet." }, { status: 409 });
   }
 
@@ -61,6 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const matched = hasErc20TransferTo(receipt.logs, stablecoin.address, link.recipient, wanted);
 
   if (!matched) {
+    await releaseRequest(settleKey);
     return NextResponse.json({ ok: false, error: "Transaction does not match this invoice (wrong token, recipient, or amount)." }, { status: 409 });
   }
 
@@ -76,7 +102,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     action: "invoice_payment",
     amount: link.amount,
     token: link.token,
-    recipient: receipt.from,
+    // The invoice's payout wallet is who received the money; `receipt.from` is
+    // the customer who paid it. Recording the payer as the recipient made the
+    // dashboard's "To" column name the wrong party.
+    recipient: link.recipient,
+    // Scoped to whoever created the link. Every wallet-scoped read
+    // (history, analytics, top customers) filters on `sender`, so a row
+    // without one is invisible to the person whose invoice was just paid —
+    // the money arrived and their dashboard showed nothing.
+    sender: link.sender ?? null,
     riskScore: null,
     compliance: "approved",
     txHash,
@@ -84,5 +118,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     summary: `Customer paid invoice ${id} (${link.amount} ${link.token}) via wallet-connect.`,
   });
 
+  await completeRequest(settleKey, { ok: true, linkId: id });
   return NextResponse.json({ ok: true, link: updated });
 }

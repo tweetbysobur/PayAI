@@ -71,6 +71,14 @@ const MAX_NATIVE_SCAN_BLOCKS = 1_500n;
 /** Parallel block reads. High enough that a 150-block window is ~12 rounds,
  *  low enough not to look like an attack to the RPC. */
 const NATIVE_SCAN_CONCURRENCY = 12;
+/** Tracing is far dearer per block than reading one, so it gets its own,
+ *  much tighter window — comfortably more than a normal 60s catch-up, and
+ *  small enough to finish inside the scan budget. A wider window skips
+ *  tracing and reconciles by balance instead. */
+const MAX_TRACE_BLOCKS = 300n;
+/** Kept below the plain block-read concurrency: these are heavy calls and a
+ *  burst of them is the fastest way to get rate-limited off an RPC. */
+const TRACE_CONCURRENCY = 6;
 /** This runs inline on the notification poll, so a slow or unreachable RPC
  *  must never hold the feed open. Past this, the scan is abandoned and
  *  reported as "not scanned" — the checkpoint is left where it was, so the
@@ -215,33 +223,66 @@ async function traceInternalTransfers(
   toBlock: bigint,
 ): Promise<Detected[] | null> {
   if (traceSupported === false) return null;
+  // Tracing a block is by far the most expensive read in this file. Issued one
+  // block at a time across a window that can legitimately be 1,500 blocks
+  // wide, it could never finish inside the scan's 8s budget on an RPC that
+  // actually supports the method — so this path only appeared to work because
+  // most RPCs reject it on the first call. Cap the window and read it in
+  // parallel; anything wider falls through to balance reconciliation, which is
+  // range-independent.
+  if (toBlock - fromBlock + 1n > MAX_TRACE_BLOCKS) return null;
+
   const pub = getPublicClient();
-  const found: Detected[] = [];
+  const numbers: bigint[] = [];
+  for (let b = fromBlock; b <= toBlock; b++) numbers.push(b);
 
-  for (let b = fromBlock; b <= toBlock; b++) {
-    let traces: { txHash?: string; result?: TraceCall }[];
-    try {
-      traces = (await (pub as unknown as {
-        request: (a: { method: string; params: unknown[] }) => Promise<unknown>;
-      }).request({
-        method: "debug_traceBlockByNumber",
-        params: [`0x${b.toString(16)}`, { tracer: "callTracer" }],
-      })) as { txHash?: string; result?: TraceCall }[];
-      traceSupported = true;
-    } catch {
-      // Method missing, or the node refused. Either way this path is unusable.
-      if (traceSupported === undefined) traceSupported = false;
-      return null;
-    }
-    if (!Array.isArray(traces)) { traceSupported = false; return null; }
+  const traceBlock = async (b: bigint) =>
+    (await (pub as unknown as {
+      request: (a: { method: string; params: unknown[] }) => Promise<unknown>;
+    }).request({
+      method: "debug_traceBlockByNumber",
+      params: [`0x${b.toString(16)}`, { tracer: "callTracer" }],
+    })) as { txHash?: string; result?: TraceCall }[];
 
+  const harvest = (traces: { txHash?: string; result?: TraceCall }[], into: Detected[]) => {
     for (const entry of traces) {
       if (!entry?.result || !entry.txHash) continue;
       const amounts: bigint[] = [];
       collectInternal(entry.result, address, amounts);
       for (const value of amounts) {
-        found.push({ txHash: entry.txHash.toLowerCase(), direction: "in", token: null, value, internal: true });
+        into.push({ txHash: entry.txHash.toLowerCase(), direction: "in", token: null, value, internal: true });
       }
+    }
+  };
+
+  const found: Detected[] = [];
+
+  // Probe once, serially: an RPC without the method must cost one failed call,
+  // not a burst of them.
+  if (traceSupported === undefined) {
+    try {
+      const probe = await traceBlock(numbers[0]);
+      if (!Array.isArray(probe)) { traceSupported = false; return null; }
+      traceSupported = true;
+      harvest(probe, found);
+    } catch {
+      traceSupported = false;
+      return null;
+    }
+    numbers.shift();
+  }
+
+  for (let i = 0; i < numbers.length; i += TRACE_CONCURRENCY) {
+    const batch = await Promise.all(
+      numbers.slice(i, i + TRACE_CONCURRENCY).map((b) => traceBlock(b).catch(() => null)),
+    );
+    for (const traces of batch) {
+      // One refused block is a gap in the window, not a reason to throw the
+      // whole scan away. A shape we don't recognise is different: it means the
+      // method isn't what we think it is, so stop trusting it entirely.
+      if (traces === null) continue;
+      if (!Array.isArray(traces)) { traceSupported = false; return null; }
+      harvest(traces, found);
     }
   }
   return found;
@@ -382,7 +423,14 @@ export async function reconcileWalletTransfers(input: {
   // no range is ever skipped as a result.
   await writeCheckpoint(input.merchantId, address, { lastBlock: cp?.lastBlock ?? "", lastScanAt: now });
 
-  return withTimeout(scan(input, address, cp, now), SCAN_TIMEOUT_MS, {
+  // The scan is abandoned on timeout, not cancelled — so it can still reject
+  // long after nobody is awaiting it. An unawaited rejection is an unhandled
+  // promise rejection in the server process, which is a far worse outcome
+  // than the missed scan it would be reporting. Swallow it at the source.
+  const running = scan(input, address, cp, now).catch(
+    (): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }),
+  );
+  return withTimeout(running, SCAN_TIMEOUT_MS, {
     scanned: false,
     deposits: 0,
     withdrawals: 0,

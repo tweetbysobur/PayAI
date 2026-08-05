@@ -33,6 +33,26 @@ const STATUS_ICON: Record<string, typeof CheckCircle2> = {
   error: AlertTriangle,
 };
 
+/**
+ * The most this wallet can actually send.
+ *
+ * "Max" used to fill in the entire MON balance, which is the one amount a
+ * native send can never succeed with — the fee has to come from somewhere, so
+ * the request was always refused ("you need X plus ~0.01 for gas"). A button
+ * whose only outcome is an error is worse than no button. Leaves the same
+ * reserve the server checks against (lib/monad/balance.ts), so pressing Max
+ * and sending works. ERC-20 sends spend no balance on gas, so they keep the
+ * full amount.
+ */
+const GAS_RESERVE_MON = 0.01;
+function maxSendable(available: string | null, token: "MON" | "USDC"): string {
+  const balance = Number(available ?? 0);
+  if (!Number.isFinite(balance) || balance <= 0) return "0";
+  if (token !== "MON") return String(balance);
+  const spendable = balance - GAS_RESERVE_MON;
+  return spendable > 0 ? String(Number(spendable.toFixed(6))) : "0";
+}
+
 const STATUS_COLOR: Record<string, string> = {
   executed: "text-success bg-success/12",
   needs_review: "text-warning bg-warning/12",
@@ -173,7 +193,7 @@ export default function Payments() {
             <span>Balance: {Number(available).toFixed(token === "MON" ? 4 : 2)} {token}</span>
             <button
               type="button"
-              onClick={() => setAmount(String(available))}
+              onClick={() => setAmount(maxSendable(available, token))}
               className="rounded-full border border-border px-2 py-0.5 font-medium text-primary-ink transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Max

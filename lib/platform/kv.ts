@@ -21,8 +21,12 @@ export interface RedisLike {
   get(key: string): Promise<unknown>;
   /** `opts.nx` sets only if the key is absent, returning null when it already
    *  exists. That atomicity is what makes a username claim safe: two people
-   *  submitting the same handle at the same moment cannot both win. */
-  set(key: string, value: unknown, opts?: { nx?: boolean }): Promise<unknown>;
+   *  submitting the same handle at the same moment cannot both win — and what
+   *  makes an idempotency claim safe, for the same reason.
+   *  `opts.ex` sets the TTL in the same round trip, so a claim can never be
+   *  written without its expiry (a separate EXPIRE can fail in between and
+   *  leave the key immortal). */
+  set(key: string, value: unknown, opts?: { nx?: boolean; ex?: number }): Promise<unknown>;
   del(key: string): Promise<unknown>;
   // Sorted-set ops — used to index automations by nextRun so the cron's
   // due-check is a bounded range query instead of a full-table scan.

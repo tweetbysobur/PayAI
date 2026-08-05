@@ -197,6 +197,15 @@ export async function POST(req: NextRequest) {
 
   const block = await client.getBlock({ blockNumber: receipt.blockNumber });
   const explorerUrl = explorerTx(txHash);
+
+  // The gas this payment actually cost, straight off the receipt. It was
+  // being reported as null, so the receipt card silently dropped its "Gas
+  // fee" line and the total read as the payment amount alone — understating
+  // what the payment cost the user, on the one screen meant to account for it.
+  const { formatEther } = await import("viem");
+  const gasUnits = receipt.gasUsed ?? 0n;
+  const gasPrice = (receipt as { effectiveGasPrice?: bigint }).effectiveGasPrice ?? 0n;
+  const gasFee = gasUnits > 0n && gasPrice > 0n ? formatEther(gasUnits * gasPrice) : null;
   const { recordTx } = await import("@/lib/platform/store");
   await recordTx(merchantId, {
     decision: "executed",
@@ -232,6 +241,7 @@ export async function POST(req: NextRequest) {
       blockNumber: Number(receipt.blockNumber),
       blockTimestamp: Number(block.timestamp) * 1000,
       sender: receipt.from,
+      gasFee: gasFee ?? undefined,
       detail: "Sent directly from your connected wallet.",
     },
   };
@@ -241,7 +251,7 @@ export async function POST(req: NextRequest) {
     success: true,
     transactionHash: txHash,
     explorerUrl,
-    gasFee: null,
+    gasFee,
     blockNumber: Number(receipt.blockNumber),
     blockTimestamp: Number(block.timestamp) * 1000,
     sender: receipt.from,
