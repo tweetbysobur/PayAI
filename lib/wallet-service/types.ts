@@ -86,6 +86,10 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   /** Whether this device has a remembered credential, i.e. whether the
    *  natural next action is "recover" rather than "create". */
   hasLocalCredential(): boolean;
+  /** The address this device last unlocked, if known. Public information —
+   *  it lets read-only surfaces (balances, history, deposit alerts) keep
+   *  working while the wallet is locked, without any ability to sign. */
+  lastKnownAddress(): `0x${string}` | null;
   /** Ends the in-memory session and zeroes key material. */
   forget(): void;
   /** Re-derives the raw private key so the user can move their funds
@@ -98,7 +102,17 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   friendlyError(e: unknown): string;
 }
 
-/** A live embedded wallet: an address plus the ability to sign with it. */
+/**
+ * A live embedded wallet: an address plus the ability to sign with it.
+ *
+ * **Every signature must re-verify the user.** An external wallet shows a
+ * confirmation pop-up for each transaction; an embedded wallet that signs
+ * silently after one unlock would be the weaker of the two, which is
+ * backwards for the option PayAI recommends to newcomers. Implementations
+ * must therefore obtain a fresh user approval (a passkey/biometric check, for
+ * Mera) inside `signMessage` and `sendTransaction` — not merely at unlock —
+ * and must not reuse long-lived key material to sign.
+ */
 export interface EmbeddedWalletHandle {
   address: `0x${string}`;
   signMessage(message: string): Promise<string>;

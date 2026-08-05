@@ -87,11 +87,49 @@ describe("Session cookie codec", () => {
   it("carries no wallet address — the server never learns one", async () => {
     const { encodeSession, decodeSession } = await import("@/lib/auth/session");
     const decoded = decodeSession(
-      encodeSession({ userId: "email:a@b.com", authMethod: "email", label: "a@b.com", createdAt: 1 }),
+      encodeSession({ userId: "email:a@b.com", authMethod: "email", label: "a@b.com", createdAt: Date.now() }),
     );
     // The wallet is derived from a passkey in the browser. If an address ever
     // appears in this cookie, key handling has moved server-side and the
     // security model has silently changed.
     expect(decoded).not.toHaveProperty("address");
+  });
+
+  /**
+   * A session cookie is a bearer credential. The browser dropping it after 30
+   * days protects nobody — a value copied out of a shared machine, a backup or
+   * a log can be replayed by hand, and the signature over the payload never
+   * stops verifying on its own. Age has to be enforced where the cookie is
+   * read.
+   */
+  it("refuses a session older than its maximum age, however valid its signature", async () => {
+    const { encodeSession, decodeSession } = await import("@/lib/auth/session");
+    const THIRTY_ONE_DAYS = 31 * 24 * 60 * 60 * 1000;
+    const cookie = encodeSession({
+      userId: "email:a@b.com", authMethod: "email", label: "a@b.com",
+      createdAt: Date.now() - THIRTY_ONE_DAYS,
+    });
+    expect(decodeSession(cookie)).toBeNull();
+  });
+
+  it("accepts a session inside its maximum age", async () => {
+    const { encodeSession, decodeSession } = await import("@/lib/auth/session");
+    const TWENTY_NINE_DAYS = 29 * 24 * 60 * 60 * 1000;
+    const cookie = encodeSession({
+      userId: "email:a@b.com", authMethod: "email", label: "a@b.com",
+      createdAt: Date.now() - TWENTY_NINE_DAYS,
+    });
+    expect(decodeSession(cookie)?.userId).toBe("email:a@b.com");
+  });
+
+  it("refuses a session with no timestamp, rather than treating it as brand new", async () => {
+    // A payload without createdAt is either malformed or crafted; either way
+    // there is no age to check, and "unknown age" must not mean "fresh".
+    const { decodeSession } = await import("@/lib/auth/session");
+    const { createHmac } = await import("node:crypto");
+    const payload = Buffer.from(JSON.stringify({ userId: "x", authMethod: "email", label: "x" }), "utf8").toString("base64url");
+    const sig = createHmac("sha256", process.env.AUTH_SESSION_SECRET || "dev-only-insecure-session-secret")
+      .update(payload).digest("base64url");
+    expect(decodeSession(`${payload}.${sig}`)).toBeNull();
   });
 });

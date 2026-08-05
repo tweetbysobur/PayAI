@@ -55,6 +55,10 @@ import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS } from "@/lib/monad/pu
  *  into a single biometric prompt instead of an authenticator picker. It is
  *  a public identifier, not a secret — losing it only costs a picker. */
 const CREDENTIAL_KEY = "payai_mera_credential";
+/** The wallet's address, remembered so balances, history and deposit alerts
+ *  keep working while the wallet is LOCKED. An address is public — this is
+ *  not key material, and nothing here can sign. */
+const ADDRESS_KEY = "payai_mera_address";
 
 export interface MeraWallet {
   address: `0x${string}`;
@@ -107,13 +111,27 @@ function rememberCredential(credential: PasskeyCredentialMetadata): void {
 export function forgetCredential(): void {
   try {
     localStorage.removeItem(CREDENTIAL_KEY);
+    localStorage.removeItem(ADDRESS_KEY);
   } catch {
     /* nothing to clean up */
   }
 }
 
+/** The address of the wallet this device last unlocked, if any. */
+export function storedAddress(): `0x${string}` | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const a = localStorage.getItem(ADDRESS_KEY);
+    return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? (a as `0x${string}`) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** PRF output is 32 bytes of authenticator-bound entropy — used directly as
- *  the secp256k1 scalar, exactly as Mera intends. */
+ *  the secp256k1 scalar, exactly as Mera intends. Deliberately persists
+ *  nothing: the callers below decide whether a derivation is one this device
+ *  should remember. */
 function walletFrom(prfOutput: Uint8Array, credentialId: string): MeraWallet {
   const session = createSecp256k1SigningSession({ privateKey: prfOutput });
   return {
@@ -122,6 +140,17 @@ function walletFrom(prfOutput: Uint8Array, credentialId: string): MeraWallet {
     account: toViemAccount(session),
     session,
   };
+}
+
+/** Records what this device just unlocked. Both values are public — a
+ *  credential id and an address — and neither can sign anything. */
+function remember(wallet: MeraWallet, transports?: PasskeyCredentialMetadata["transports"]): void {
+  rememberCredential({ credentialId: wallet.credentialId, ...(transports ? { transports } : {}) });
+  try {
+    localStorage.setItem(ADDRESS_KEY, wallet.address);
+  } catch {
+    /* private mode — balances just won't survive a lock */
+  }
 }
 
 /**
@@ -134,8 +163,9 @@ export async function createWallet(label: string): Promise<MeraWallet> {
     rp: { id: relyingPartyId(), name: "PayAI" },
     user: { name: label, displayName: label },
   });
-  rememberCredential({ credentialId: result.credentialId, transports: result.transports });
-  return walletFrom(result.prfOutput, result.credentialId);
+  const wallet = walletFrom(result.prfOutput, result.credentialId);
+  remember(wallet, result.transports);
+  return wallet;
 }
 
 /**
@@ -145,15 +175,50 @@ export async function createWallet(label: string): Promise<MeraWallet> {
  * wallet.
  */
 export async function recoverWallet(): Promise<MeraWallet> {
-  const known = storedCredential();
   const result = await getPasskeyPrfOutput({
     rpId: relyingPartyId(),
     // Omitted on a fresh device so the browser offers whatever passkeys the
     // user has synced for this domain.
-    ...(known ? { credential: known } : {}),
+    ...(storedCredential() ? { credential: storedCredential()! } : {}),
   });
-  rememberCredential({ credentialId: result.credentialId });
-  return walletFrom(result.prfOutput, result.credentialId);
+  const wallet = walletFrom(result.prfOutput, result.credentialId);
+  remember(wallet);
+  return wallet;
+}
+
+/**
+ * Re-authenticates the user and returns a wallet good for ONE operation.
+ *
+ * This is what puts a biometric check in front of every transaction. The
+ * session created at unlock is never what signs: each signature runs its own
+ * passkey ceremony and derives fresh key material, which is used once and
+ * zeroed. So an unlocked tab left open, or a script that got hold of the page,
+ * still cannot move money — every signature costs a deliberate human approval
+ * on the device that owns the passkey.
+ *
+ * It is the passkey equivalent of MetaMask's confirmation pop-up, and it costs
+ * the user a fingerprint instead of a window.
+ *
+ * `expected` is the address the caller believes it is signing for. A user with
+ * several passkeys for this domain can pick the wrong one at the prompt, which
+ * would derive a different (perfectly valid) wallet — signing from it would
+ * silently spend from the wrong account, so a mismatch is refused and the
+ * derived key discarded immediately.
+ */
+export async function authorizeWallet(expected: `0x${string}`): Promise<MeraWallet> {
+  const result = await getPasskeyPrfOutput({
+    rpId: relyingPartyId(),
+    ...(storedCredential() ? { credential: storedCredential()! } : {}),
+  });
+  const wallet = walletFrom(result.prfOutput, result.credentialId);
+  if (wallet.address.toLowerCase() !== expected.toLowerCase()) {
+    wallet.session.end();
+    throw new Error(
+      `That passkey unlocks a different wallet (${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}). Approve with the passkey for ${expected.slice(0, 6)}…${expected.slice(-4)} to continue. Nothing was signed.`,
+    );
+  }
+  remember(wallet);
+  return wallet;
 }
 
 /**
@@ -181,8 +246,8 @@ export async function exportPrivateKey(): Promise<`0x${string}`> {
 }
 
 /** A viem wallet client bound to this session's account, for broadcasting.
- *  Signing happens locally and shows no passkey prompt — the session already
- *  holds the key, which is what keeps the send flow to a single approval. */
+ *  Callers pass the short-lived wallet returned by `authorizeWallet()`, so the
+ *  key this signs with is one the user approved moments ago. */
 export async function walletClientFor(wallet: MeraWallet) {
   const { createWalletClient, fallback, http } = await import("viem");
   return createWalletClient({
@@ -221,4 +286,24 @@ export function friendlyMeraError(e: unknown): string {
     }
   }
   return e instanceof Error ? e.message : "Something went wrong setting up your wallet.";
+}
+
+/**
+ * The same mapping, phrased for the approval that gates a signature rather
+ * than for signing in. A cancelled prompt here means the user changed their
+ * mind about a transaction — it must read as "nothing happened", never as a
+ * failure the user might respond to by trying to pay again.
+ */
+export function friendlyApprovalError(e: unknown): string {
+  if (isMeraError(e)) {
+    switch (e.code) {
+      case "PASSKEY_OPERATION_FAILED":
+        return "Not approved — the passkey check was cancelled or didn't finish. Nothing was signed and no funds moved.";
+      case "SESSION_ENDED":
+        return "Your wallet session ended before this could be signed. Unlock your wallet and try again — nothing was sent.";
+      default:
+        return friendlyMeraError(e);
+    }
+  }
+  return friendlyMeraError(e);
 }

@@ -48,6 +48,12 @@ export function encodeSession(session: AuthSession): string {
  * in", which is exactly what an unauthenticated visitor already is. Letting
  * it throw instead would turn a stale cookie into a 500 on every request
  * that reads the session, including the public capability probe.
+ *
+ * Age is checked HERE, not left to the cookie's own maxAge. The browser
+ * dropping a cookie after 30 days protects nobody: a session copied out of
+ * one (from a shared machine, a backup, a logged request) can be replayed by
+ * hand forever, because the signature over the payload never stops being
+ * valid. The signed `createdAt` is what actually bounds a session's life.
  */
 export function decodeSession(cookieValue: string | undefined | null): AuthSession | null {
   if (!cookieValue) return null;
@@ -58,7 +64,13 @@ export function decodeSession(cookieValue: string | undefined | null): AuthSessi
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-    return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AuthSession;
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as AuthSession;
+    const createdAt = Number(session?.createdAt);
+    // A missing or future-dated createdAt is not a session worth honouring:
+    // it is either malformed or forged against a clock we don't share.
+    if (!Number.isFinite(createdAt) || createdAt > Date.now() + 60_000) return null;
+    if (Date.now() - createdAt > MAX_AGE_SECONDS * 1000) return null;
+    return session;
   } catch {
     return null;
   }

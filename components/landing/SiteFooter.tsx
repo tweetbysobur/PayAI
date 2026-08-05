@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Rocket, BookOpen, ShieldCheck, FileCheck2, Code2, Blocks, ScrollText,
-  Compass, ExternalLink, LifeBuoy, Lock, BadgeCheck, Layers, Route,
+  Rocket, ShieldCheck, ScrollText, ExternalLink, LifeBuoy, Lock,
+  BadgeCheck, Layers, Route, Mail,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
-import { GitHubMark, XMark } from "@/components/BrandIcons";
+import { XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../../package.json";
 
@@ -19,41 +19,39 @@ import pkg from "../../package.json";
  * consumer of that data on a marketing page, and threading it down from three
  * separate pages would mean three copies of the same fetch + state.
  *
- * Every link points at something that actually exists — a real route in this
- * app or a real URL on the GitHub repo. No placeholder destinations, and no
- * "Docs"/"Status"/"Roadmap" entries until those pages exist.
+ * Every link points at a real route in this app. No placeholder destinations,
+ * nothing that 404s, and no entry that merely repeats another one — a footer
+ * column that restates the column beside it is noise, not navigation.
+ *
+ * Nothing here discloses more than a visitor needs: no source repository (it
+ * is private, so every such link 404s and the URL names a personal account),
+ * and a role address rather than anyone's personal inbox.
  */
 
-const GITHUB_URL = "https://github.com/tweetbysobur/PayAI";
+/* The source repository is private, so it is deliberately NOT linked from any
+   public surface: every such link 404s for a visitor, and the URL also
+   discloses the owner's personal account. Support runs through the in-app
+   Support Center and a role address instead. */
+const SUPPORT_EMAIL = "support@usepayai.xyz";
 const X_URL = "https://x.com/usepayAI";
 
 const FOOTER_COLUMNS = [
   {
     title: "Product",
     links: [
-      { label: "Launch App", href: "/connect", icon: Rocket, internal: true },
-      // The two new marketing pages, so the footer mirrors the header nav.
+      // Onboarding is /auth now; /connect is the secondary external-wallet
+      // path, so sending new visitors there skipped the primary experience.
+      { label: "Launch App", href: "/auth", icon: Rocket, internal: true },
       { label: "Product", href: "/product", icon: Layers, internal: true },
       { label: "How it works", href: "/how-it-works", icon: Route, internal: true },
       { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
-      { label: "Compliance", href: "/dashboard/compliance", icon: FileCheck2, internal: true },
-    ],
-  },
-  {
-    title: "Developers",
-    links: [
-      { label: "GitHub", href: GITHUB_URL, icon: Code2, internal: false },
-      { label: "Documentation", href: `${GITHUB_URL}#readme`, icon: BookOpen, internal: false },
-      { label: "Smart Contracts", href: `${GITHUB_URL}/tree/main/contracts`, icon: Blocks, internal: false },
-      { label: "API Reference", href: `${GITHUB_URL}/tree/main/app/api`, icon: ScrollText, internal: false },
-      { label: "Changelog", href: `${GITHUB_URL}/blob/main/CHANGELOG.md`, icon: Compass, internal: false },
     ],
   },
   {
     title: "Resources",
     links: [
       { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
-      { label: "Support", href: `${GITHUB_URL}/issues`, icon: LifeBuoy, internal: false },
+      { label: "Support", href: "/dashboard/support", icon: LifeBuoy, internal: true },
       { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
       { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
     ],
@@ -117,10 +115,10 @@ export function SiteFooter() {
 
         <div className="mt-12 flex items-center gap-3 border-t border-border pt-8">
           <a
-            href={GITHUB_URL} target="_blank" rel="noreferrer" aria-label="PayAI on GitHub"
+            href={`mailto:${SUPPORT_EMAIL}`} aria-label="Email PayAI support"
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <GitHubMark size={16} />
+            <Mail size={16} />
           </a>
           <a
             href={X_URL} target="_blank" rel="noreferrer" aria-label="PayAI on X"
