@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
-import { useAgentConsole, DECISION, short, phraseSummary } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, short, phraseSummary, SWAP_PHASE_LABEL, SWAP_STAGES } from "@/lib/hooks/useAgentConsole";
 
 const EXAMPLES = [
   { label: "Swap 1 MON to USDC", icon: ArrowLeftRight },
@@ -210,11 +210,11 @@ export function CommandBar() {
                   >
                     <div className="flex items-center gap-3">
                       <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${c.swap.phase === "done" ? "bg-success/12 text-success" : c.swap.phase === "error" ? "bg-danger/12 text-danger" : "bg-primary/12 text-primary-ink"}`}>
-                        {c.swap.phase === "signing" ? <Loader2 size={18} className="animate-spin" /> : c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} /> : <ArrowLeftRight size={18} />}
+                        {c.swap.phase === "done" ? <CheckCircle2 size={18} /> : c.swap.phase === "error" ? <XCircle size={18} /> : c.swap.phase === "ready" ? <ArrowLeftRight size={18} /> : <Loader2 size={18} className="animate-spin" />}
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-foreground">
-                          {c.swap.phase === "signing" ? "Swapping…" : c.swap.phase === "done" ? "Swap complete" : c.swap.phase === "error" ? "Swap failed" : "Review swap"}
+                          {SWAP_PHASE_LABEL[c.swap.phase]}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           via {c.swap.provider ?? "Uniswap v3"} · {c.swap.plan.quote.feeTier / 10000}% pool · {(c.swap.plan.quote.slippage * 100).toFixed(2)}% max slippage
@@ -236,18 +236,66 @@ export function CommandBar() {
                       </div>
                     </div>
 
-                    {c.swap.phase === "signing" && c.swap.plan.steps.length > 1 && (
-                      <p className="mt-2.5 text-xs text-muted-foreground">
+                    {/* Every stage, so "what is it doing?" and "has my money
+                        moved?" are answerable at a glance rather than from one
+                        undifferentiated spinner. */}
+                    {c.swap.phase !== "ready" && c.swap.phase !== "error" && (
+                      <ol className="mt-3 flex items-center gap-1.5">
+                        {SWAP_STAGES.map((stage) => {
+                          const idx = SWAP_STAGES.indexOf(stage);
+                          const at = SWAP_STAGES.indexOf(c.swap!.phase);
+                          const state = at > idx ? "done" : at === idx ? "active" : "pending";
+                          return (
+                            <li key={stage} className="flex-1" title={SWAP_PHASE_LABEL[stage]}>
+                              <span className={`block h-1 rounded-full transition-colors duration-300 ${
+                                state === "done" ? "bg-success" : state === "active" ? "bg-primary" : "bg-border"
+                              }`} />
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    )}
+                    {c.swap.phase !== "ready" && c.swap.phase !== "error" && c.swap.plan.steps.length > 1 && (
+                      <p className="mt-2 text-xs text-muted-foreground">
                         Step {c.swap.stepIndex + 1} of {c.swap.plan.steps.length}: {c.swap.plan.steps[c.swap.stepIndex]?.label}
                       </p>
                     )}
-                    {c.swap.phase === "signing" && (
+                    {c.swap.phase === "awaiting" && (
                       <p className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Wallet size={12} /> Approve in your wallet. Settles on Monad in seconds.
+                        <Wallet size={12} /> Approve in your wallet. Nothing has moved yet.
                       </p>
                     )}
                     {c.swap.phase === "error" && c.swap.error && (
-                      <p className="mt-2.5 text-xs text-danger">{c.swap.error}</p>
+                      <>
+                        <p className="mt-2.5 text-xs text-danger">{c.swap.error}</p>
+                        <div className="mt-2.5 flex items-center gap-2">
+                          {/* Retry is offered only when nothing broadcast. After
+                              a transaction is on the wire, "try again" is how
+                              someone swaps twice. */}
+                          {!c.swap.broadcast && (
+                            <button
+                              onClick={() => c.retrySwap()}
+                              className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40"
+                            >
+                              Retry
+                            </button>
+                          )}
+                          <a
+                            href="/dashboard/support"
+                            className="rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                          >
+                            Get help
+                          </a>
+                          {c.swap.txHash && c.swap.explorerUrl && (
+                            <a
+                              href={c.swap.explorerUrl} target="_blank" rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+                            >
+                              Explorer <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
+                      </>
                     )}
                     {c.swap.phase === "done" && c.swap.explorerUrl && (
                       <a

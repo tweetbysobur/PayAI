@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
+import { useSyncRefresher } from "@/lib/hooks/useSync";
 
 interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 interface AutomationEventRow {
@@ -51,6 +52,10 @@ const LABEL: Record<string, string> = {
 export function useNotifications(walletAddress?: string | null, providerId?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
   const [unread, setUnread] = useState(0);
+  // Held so the global refresh can trigger the same load the interval does,
+  // without this hook needing to know what triggered it.
+  const loadRef = useRef<() => void>(() => {});
+  useSyncRefresher(() => loadRef.current());
 
   useEffect(() => {
     // Notifications are the user's OWN activity — scope every fetch to the
@@ -153,9 +158,12 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
         setUnread(all.filter((n) => n.at > seenAt).length);
       });
     }
+    loadRef.current = load;
     load();
+    // The interval stays as a floor: notifications are the one surface that
+    // should keep arriving even on a page that registers nothing else.
     const t = setInterval(load, 20000);
-    return () => { cancelled = true; clearInterval(t); };
+    return () => { cancelled = true; clearInterval(t); loadRef.current = () => {}; };
   }, [walletAddress, providerId]);
 
   // Opening the bell marks everything currently shown as read — but keeps it
