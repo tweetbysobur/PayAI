@@ -4,31 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
-  ExternalLink, CornerDownLeft, ArrowUpRight, FileText, ListChecks,
+  ExternalLink, CornerDownLeft, ArrowUpRight,
   ArrowLeftRight, Loader2, Wallet, Fingerprint,
 } from "lucide-react";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
 import { useAgentConsole, DECISION, short, phraseSummary, SWAP_PHASE_LABEL, SWAP_STAGES } from "@/lib/hooks/useAgentConsole";
-
-const EXAMPLES = [
-  { label: "Swap 1 MON to USDC", icon: ArrowLeftRight },
-  { label: "What's my balance", icon: Wallet },
-  { label: "Create invoice for 50 USDC", icon: FileText },
-  { label: "Show today's transactions", icon: ListChecks },
-];
-
-/** What Ask PayAI can do — surfaced so the bar advertises its full range.
- *  Send/Automate are prefill templates (they stop where you type the
- *  recipient), so the bar never shows a fake example name. */
-const CAPABILITIES: { verb: string; example: string }[] = [
-  { verb: "Swap", example: "swap 1 MON to USDC" },
-  { verb: "Send", example: "send 5 MON to " },
-  { verb: "Automate", example: "automate 10 USDC to " },
-  { verb: "Invoice", example: "create invoice for 50 USDC" },
-  { verb: "Balance", example: "what's my balance" },
-  { verb: "History", example: "show today's transactions" },
-];
+import { AssistantBriefing, useAssistantContext } from "@/components/dashboard/AssistantBriefing";
 
 const STATUS_ICON: Record<string, typeof CheckCircle2> = {
   executed: CheckCircle2,
@@ -54,8 +36,9 @@ const STATUS_RING: Record<string, string> = {
  */
 export function CommandBar() {
   const [open, setOpen] = useState(false);
-  const [sel, setSel] = useState(0);
   const c = useAgentConsole();
+  // What the assistant already knows when it opens — see AssistantBriefing.
+  const { ctx, loading: ctxLoading } = useAssistantContext();
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -71,7 +54,7 @@ export function CommandBar() {
   }, []);
 
   useEffect(() => {
-    if (open) { setSel(0); setTimeout(() => inputRef.current?.focus(), 50); }
+    if (open) { setTimeout(() => inputRef.current?.focus(), 50); }
     // Closing always returns the bar to its idle start state — reopening should
     // never show a stale result or the previous prompt.
     else c.reset();
@@ -80,22 +63,11 @@ export function CommandBar() {
 
   function startOver() {
     c.reset();
-    setSel(0);
     setTimeout(() => inputRef.current?.focus(), 10);
   }
 
-  // Arrow-key navigation over the example suggestions, shown only while idle.
+  /** Idle: nothing has been asked yet, so the briefing is what's on screen. */
   const showExamples = !c.res && !c.info && !c.swap && !c.loading && !c.err;
-
-  function onInputKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (showExamples && !c.intent) {
-      if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => (s + 1) % EXAMPLES.length); return; }
-      if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => (s - 1 + EXAMPLES.length) % EXAMPLES.length); return; }
-      if (e.key === "Enter") { e.preventDefault(); const ex = EXAMPLES[sel].label; c.setIntent(ex); c.run(ex); return; }
-    }
-    // A typed command is submitted by the surrounding <form> (Enter / the phone
-    // keyboard's send key / the send button) — handled there, not here.
-  }
 
   const res = c.res;
   const StatusIcon = res ? STATUS_ICON[res.decision] ?? AlertTriangle : null;
@@ -119,6 +91,12 @@ export function CommandBar() {
             onClick={() => setOpen(false)}
           >
             <motion.div
+              // A modal overlay with no dialog role is invisible to a screen
+              // reader as a modal — it reads as more page content, with no
+              // signal that the rest is now inert.
+              role="dialog"
+              aria-modal="true"
+              aria-label="Ask PayAI"
               initial={{ opacity: 0, y: -16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.98 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
               onClick={(e) => e.stopPropagation()}
@@ -135,9 +113,8 @@ export function CommandBar() {
                 <input
                   ref={inputRef}
                   value={c.intent} onChange={(e) => c.setIntent(e.target.value)}
-                  onKeyDown={onInputKey}
                   enterKeyHint="send"
-                  placeholder="Ask PayAI to send, swap, or prefill an automation..."
+                  placeholder="Tell me what to pay, swap, or automate…"
                   className="flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground/70"
                 />
                 {c.intent.trim() ? (
@@ -155,46 +132,21 @@ export function CommandBar() {
               </form>
 
               <div className="flex-1 overflow-y-auto p-4 sm:max-h-[52vh] sm:flex-none">
-                {/* Idle — suggestions */}
+                {/* Idle — the operator's briefing, not a blank prompt. */}
                 {showExamples && (
-                  <div>
-                    <p className="mb-2.5 px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">Try</p>
-                    <div className="space-y-1.5">
-                      {EXAMPLES.map((ex, i) => (
-                        <button
-                          key={ex.label}
-                          onMouseEnter={() => setSel(i)}
-                          onClick={() => { c.setIntent(ex.label); c.run(ex.label); }}
-                          className={`group flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition ${
-                            sel === i && !c.intent
-                              ? "border-primary/40 bg-input text-foreground"
-                              : "border-transparent text-foreground hover:border-border hover:bg-input"
-                          }`}
-                        >
-                          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-input transition ${sel === i && !c.intent ? "text-primary-ink" : "text-muted-foreground group-hover:text-primary-ink"}`}>
-                            <ex.icon size={14} />
-                          </span>
-                          <span className="flex-1">{ex.label}</span>
-                          {sel === i && !c.intent && (
-                            <CornerDownLeft size={13} className="shrink-0 text-muted-foreground" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-1.5 border-t border-border pt-3">
-                      {CAPABILITIES.map((cap) => (
-                        <button
-                          key={cap.verb}
-                          onClick={() => { c.setIntent(cap.example); inputRef.current?.focus(); }}
-                          className="rounded-full border border-border px-2.5 py-1 text-[11px] text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-                          title={cap.example}
-                        >
-                          {cap.verb}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <AssistantBriefing
+                    ctx={ctx}
+                    loading={ctxLoading}
+                    onPrompt={(p) => {
+                      c.setIntent(p);
+                      // A complete instruction runs; a prefix (like "send ")
+                      // waits for the part only the user can supply.
+                      if (p.trim() && !p.endsWith(" ")) c.run(p);
+                      inputRef.current?.focus();
+                    }}
+                  />
                 )}
+
 
                 {c.loading && (
                   <div className="py-2">

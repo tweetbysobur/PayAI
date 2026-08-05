@@ -14,8 +14,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimited } from "@/lib/platform/ratelimit";
 import {
-  linkMessage, linkWallet, listLinkedWallets, unlinkMessage, unlinkWallet,
+  getWalletDefaults, linkMessage, linkWallet, listLinkedWallets, renameLinkedWallet,
+  setWalletDefaults, touchLinkedWallet, unlinkMessage, unlinkWallet,
 } from "@/lib/platform/linkedWallets";
+import { walletSettingsMessage } from "@/lib/platform/linkMessages";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const MAX_LABEL = 32;
@@ -38,8 +40,17 @@ export async function GET(req: NextRequest) {
   if (!ADDR_RE.test(account)) {
     return NextResponse.json({ error: "A valid account address is required." }, { status: 400 });
   }
-  const wallets = await listLinkedWallets(account).catch(() => []);
-  return NextResponse.json({ account: account.toLowerCase(), wallets });
+  // A connected wallet reported on the read is how "last connected" stays
+  // truthful without a heartbeat — the link is a record, not a live session.
+  const connected = req.nextUrl.searchParams.get("connected");
+  if (connected && ADDR_RE.test(connected)) {
+    await touchLinkedWallet(account, connected).catch(() => {});
+  }
+  const [wallets, defaults] = await Promise.all([
+    listLinkedWallets(account).catch(() => []),
+    getWalletDefaults(account).catch(() => ({ payment: null, automation: null })),
+  ]);
+  return NextResponse.json({ account: account.toLowerCase(), wallets, defaults });
 }
 
 export async function PUT(req: NextRequest) {
@@ -111,4 +122,61 @@ export async function DELETE(req: NextRequest) {
 
   const wallets = await unlinkWallet(account, external);
   return NextResponse.json({ account: account.toLowerCase(), wallets });
+}
+
+/**
+ * PATCH — rename a linked wallet, or choose the default payment/automation
+ * wallet.
+ *
+ * Both are account settings, so both need the account's signature. Without it
+ * anyone knowing a public address could rename a stranger's wallets, or point
+ * their default automation wallet somewhere they don't control — which would
+ * turn every scheduled payment into a silent failure.
+ */
+export async function PATCH(req: NextRequest) {
+  const limited = await rateLimited(req, "link-wallet", { max: 20, windowSec: 300 });
+  if (limited) return limited;
+
+  const body = await req.json().catch(() => null);
+  const account = typeof body?.account === "string" ? body.account.trim() : "";
+  const accountSignature = typeof body?.accountSignature === "string" ? body.accountSignature : "";
+  if (!ADDR_RE.test(account)) {
+    return NextResponse.json({ error: "A valid account address is required." }, { status: 400 });
+  }
+
+  const rename = body?.rename as { external?: string; label?: string } | undefined;
+  const defaults = body?.defaults as { payment?: string | null; automation?: string | null } | undefined;
+  if (!rename && !defaults) {
+    return NextResponse.json({ error: "Nothing to change." }, { status: 400 });
+  }
+
+  // One message covering the whole change, so a signature captured for one
+  // edit cannot be replayed to make a different one.
+  const intent = walletSettingsMessage(account, body);
+  if (!(await signedBy(account, intent, accountSignature))) {
+    return NextResponse.json({ error: "Approve this with your PayAI Wallet passkey." }, { status: 401 });
+  }
+
+  if (rename) {
+    const external = typeof rename.external === "string" ? rename.external.trim() : "";
+    const label = (typeof rename.label === "string" ? rename.label : "").trim().slice(0, MAX_LABEL);
+    if (!ADDR_RE.test(external)) {
+      return NextResponse.json({ error: "A valid wallet address is required." }, { status: 400 });
+    }
+    if (!label) {
+      return NextResponse.json({ error: "Give the wallet a name." }, { status: 400 });
+    }
+    const updated = await renameLinkedWallet(account, external, label);
+    if (!updated) {
+      return NextResponse.json({ error: "That wallet isn't linked to this account." }, { status: 404 });
+    }
+  }
+
+  if (defaults) {
+    const result = await setWalletDefaults(account, defaults);
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: 409 });
+  }
+
+  const [wallets, current] = await Promise.all([listLinkedWallets(account), getWalletDefaults(account)]);
+  return NextResponse.json({ account: account.toLowerCase(), wallets, defaults: current });
 }
