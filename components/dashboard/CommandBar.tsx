@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion, AnimatePresence, useMotionValue } from "motion/react";
 import {
   Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
   ExternalLink, CornerDownLeft, ArrowUpRight,
@@ -29,6 +29,20 @@ const STATUS_RING: Record<string, string> = {
   ready_to_sign: "bg-warning/12 text-warning",
 };
 
+/** Screen edges the button can never be dragged past, so it can't be dropped
+ *  under the sidebar/topbar or off-screen where it becomes unreachable. */
+const EDGE_MARGIN = 16;
+const POS_KEY = "payai_ask_button_pos";
+
+/** Fits a saved/measured position back inside the current viewport — the
+ *  window may have resized or rotated since the position was saved. */
+function clamp(pos: { x: number; y: number }, w: number, h: number) {
+  return {
+    x: Math.min(Math.max(pos.x, EDGE_MARGIN), window.innerWidth - w - EDGE_MARGIN),
+    y: Math.min(Math.max(pos.y, EDGE_MARGIN), window.innerHeight - h - EDGE_MARGIN),
+  };
+}
+
 /**
  * AI Command Bar — Cmd+K (or the floating button) opens a focused overlay that
  * runs ONE command through the real agent pipeline and shows the result inline.
@@ -40,6 +54,70 @@ export function CommandBar() {
   // What the assistant already knows when it opens — see AssistantBriefing.
   const { ctx, loading: ctxLoading } = useAssistantContext();
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Draggable trigger — it used to sit permanently in the bottom-right
+  // corner, which on a shorter page (or a phone) sat directly on top of
+  // whatever content ended up there. x/y are absolute screen coordinates for
+  // a top:0/left:0 element, so dragging it just means moving these.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const [positioned, setPositioned] = useState(false);
+  // Only ever set inside effects, so it stays null through the server
+  // render — `dragConstraints` reads `window` through this, never directly
+  // in the render body, which is what keeps this component SSR-safe.
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  // Set on drag start/move, read (and reset) in onClick so a drag that
+  // actually moved the button doesn't also open it — the two gestures start
+  // identically (a pointer going down on the button) and only diverge once
+  // movement happens.
+  const draggedRef = useRef(false);
+
+  useEffect(() => {
+    const btn = triggerRef.current;
+    if (!btn) return;
+    const { width, height } = btn.getBoundingClientRect();
+    setSize({ w: width, h: height });
+    // Its ORIGINAL resting spot — bottom-6 right-6, i.e. 24px from each edge —
+    // is the fallback so nothing jumps on first paint for someone who has
+    // never dragged it.
+    const fallback = { x: window.innerWidth - width - 24, y: window.innerHeight - height - 24 };
+    let pos = fallback;
+    try {
+      const saved = localStorage.getItem(POS_KEY);
+      if (saved) pos = clamp(JSON.parse(saved), width, height);
+    } catch {
+      /* corrupt/blocked storage — use the default corner */
+    }
+    x.set(pos.x);
+    y.set(pos.y);
+    setPositioned(true);
+
+    // A resize (rotating a phone, un-maximizing a window) can leave a saved
+    // position outside the new viewport entirely.
+    function onResize() {
+      if (!btn) return;
+      const { width: w, height: h } = btn.getBoundingClientRect();
+      setSize({ w, h });
+      const next = clamp({ x: x.get(), y: y.get() }, w, h);
+      x.set(next.x);
+      y.set(next.y);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Inert {0,0,0,0} until `size` is measured client-side — that keeps this
+  // expression free of `window` during the server render, and a drag can't
+  // happen before the button has painted with a real position anyway.
+  const dragConstraints = size
+    ? {
+        left: EDGE_MARGIN, top: EDGE_MARGIN,
+        right: Math.max(EDGE_MARGIN, window.innerWidth - size.w - EDGE_MARGIN),
+        bottom: Math.max(EDGE_MARGIN, window.innerHeight - size.h - EDGE_MARGIN),
+      }
+    : { left: 0, top: 0, right: 0, bottom: 0 };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -74,14 +152,31 @@ export function CommandBar() {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      <motion.button
+        ref={triggerRef}
+        drag
+        dragMomentum={false}
+        dragElastic={0}
+        dragConstraints={dragConstraints}
+        whileDrag={{ scale: 1.06 }}
+        onDragStart={() => { draggedRef.current = true; }}
+        onDragEnd={() => {
+          try { localStorage.setItem(POS_KEY, JSON.stringify({ x: x.get(), y: y.get() })); } catch { /* private browsing */ }
+          // The pointerup that ends a drag also fires a click in some
+          // browsers; clear the flag just after so a REAL next tap still
+          // opens the bar. requestAnimationFrame is one frame — long enough
+          // to outlast that synthetic click, short enough nobody notices.
+          requestAnimationFrame(() => { draggedRef.current = false; });
+        }}
+        onClick={() => { if (draggedRef.current) return; setOpen(true); }}
+        style={{ x, y, opacity: positioned ? 1 : 0 }}
+        className={`fixed left-0 top-0 z-40 flex cursor-grab items-center gap-2 touch-none rounded-full bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 transition-opacity hover:opacity-90 active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${positioned ? "" : "pointer-events-none"}`}
+        title="Ask PayAI — drag to move"
       >
         <Sparkles size={16} />
         Ask PayAI
         <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1.5 py-0.5 text-[10px] opacity-80 sm:inline-block">⌘K</kbd>
-      </button>
+      </motion.button>
 
       <AnimatePresence>
         {open && (
