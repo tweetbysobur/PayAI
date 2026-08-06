@@ -189,8 +189,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA */}
-      <section className="mx-auto max-w-3xl px-6 py-24 text-center">
+      {/* Final CTA. max-w-4xl, not -3xl — the -3xl column left this heading
+          only 720px to work with, forcing "Start Managing Payments, Not
+          Transactions." across three ragged lines once it went uppercase
+          Montserrat (a wider face than the site's default). The paragraph
+          under it keeps its own max-w-xl regardless, so only the heading
+          gets the extra room. */}
+      <section className="mx-auto max-w-4xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           {/* The close names the job, not the feature. "Build your first
               automation" asked for a commitment to one product; the platform
