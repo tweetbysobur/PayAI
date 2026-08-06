@@ -69,7 +69,7 @@ export default function ProductPage() {
 
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
-          <h2 className="text-3xl font-semibold tracking-tighter text-foreground sm:text-4xl">
+          <h2 className="font-montserrat text-3xl font-semibold uppercase tracking-tighter text-foreground sm:text-4xl">
             Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
