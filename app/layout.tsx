@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans, Montserrat } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
 import { MotionPreference } from "@/components/MotionPreference";
@@ -14,6 +14,16 @@ const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
   display: "swap",
   weight: ["400", "500", "600", "700", "800"],
+});
+
+// Reserved for specific headings that call for it (see `font-montserrat` in
+// globals.css) — not the site's default type. Self-hosted the same way as
+// Jakarta so it never triggers a layout-shifting external font request.
+const montserrat = Montserrat({
+  subsets: ["latin"],
+  variable: "--font-montserrat",
+  display: "swap",
+  weight: ["600", "700", "800"],
 });
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
@@ -45,7 +55,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={jakarta.variable}>
+    <html lang="en" className={`${jakarta.variable} ${montserrat.variable}`}>
       <body className="antialiased">
         {/* Wraps everything: the CSS reduced-motion rule cannot reach Framer,
             which is where most of this product's movement lives. */}

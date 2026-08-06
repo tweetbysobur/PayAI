@@ -51,6 +51,9 @@
 
 @theme inline {
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Opt-in only, via `font-montserrat` — the site's default type stays
+     Jakarta. Reserved for specific display headings called out in review. */
+  --font-montserrat: var(--font-montserrat), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 
   --color-background: hsl(var(--background));
   --color-panel: hsl(var(--panel));
