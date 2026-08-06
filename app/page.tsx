@@ -84,10 +84,6 @@ export default function LandingPage() {
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
               Automate Every Payment on Monad.
             </h1>
-            <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
-              PayAI combines embedded wallets, payment workflows, smart swaps, bulk distributions
-              and payment automation into one platform built for Monad.
-            </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
@@ -193,13 +189,18 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA */}
-      <section className="mx-auto max-w-3xl px-6 py-24 text-center">
+      {/* Final CTA. max-w-4xl, not -3xl — the -3xl column left this heading
+          only 720px to work with, forcing "Start Managing Payments, Not
+          Transactions." across three ragged lines once it went uppercase
+          Montserrat (a wider face than the site's default). The paragraph
+          under it keeps its own max-w-xl regardless, so only the heading
+          gets the extra room. */}
+      <section className="mx-auto max-w-4xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           {/* The close names the job, not the feature. "Build your first
               automation" asked for a commitment to one product; the platform
               is what the page has just spent its length arguing for. */}
-          <h2 className="text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
+          <h2 className="font-montserrat text-4xl font-semibold uppercase tracking-tighter text-foreground sm:text-5xl">
             Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
