@@ -84,10 +84,6 @@ export default function LandingPage() {
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
               Automate Every Payment on Monad.
             </h1>
-            <p className="mt-5 max-w-lg text-base leading-relaxed text-muted-foreground">
-              PayAI combines embedded wallets, payment workflows, smart swaps, bulk distributions
-              and payment automation into one platform built for Monad.
-            </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
                 <Sparkles size={15} /> Launch App
