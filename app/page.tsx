@@ -195,7 +195,7 @@ export default function LandingPage() {
           {/* The close names the job, not the feature. "Build your first
               automation" asked for a commitment to one product; the platform
               is what the page has just spent its length arguing for. */}
-          <h2 className="text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
+          <h2 className="font-montserrat text-4xl font-semibold uppercase tracking-tighter text-foreground sm:text-5xl">
             Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
