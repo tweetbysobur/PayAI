@@ -112,12 +112,11 @@ describe("nothing offers a route that leads nowhere", () => {
 });
 
 describe("the hero states the platform, not one feature", () => {
-  it("leads with the headline, backed by the full platform in the subheadline", () => {
-    // The H1 is the product's chosen tagline; the breadth claim — six
-    // products, not one — lives in the line right under it, so a visitor
-    // gets both within the same glance.
+  it("leads with the headline", () => {
+    // No subheadline paragraph under the H1 — removed on request. The
+    // breadth claim — six products, not one — lives in the chip row below
+    // the CTAs instead (covered by the next test).
     expect(page).toMatch(/Automate Every Payment on Monad/);
-    expect(page).toMatch(/embedded wallets, payment workflows, smart swaps, bulk distributions/);
   });
 
   it("names all six products in the hero", () => {
