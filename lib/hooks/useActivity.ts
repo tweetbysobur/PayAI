@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
+import { walletEventHref, type WalletEventType } from "@/lib/wallet-service/types";
 
 export type ActivityKind = "payment" | "automation" | "swap" | "refund" | "wallet" | "support";
 
@@ -126,7 +127,11 @@ export function useActivity(address: string | null, providerId?: string | null) 
           token: e.token,
           txHash: e.txHash,
           explorerUrl: e.explorerUrl,
-          href: "/dashboard/wallets",
+          // Same rule as the bell (useNotifications.ts): only wallet-identity
+          // events actually belong on the Wallets page, which renders a
+          // different data source (on-chain PaymentExecutor history) and has
+          // never shown a deposit, swap, refund, or automation signature.
+          href: walletEventHref(e.type as WalletEventType),
         })),
       )
       .catch(() => [] as ActivityItem[]);
