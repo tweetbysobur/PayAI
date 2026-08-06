@@ -6,13 +6,17 @@ import { readFileSync } from "node:fs";
  * as its primary label whenever no username or .nad domain was set, which is
  * the common case. In a flex row with no floor width reserved for the kind
  * badge, that pushed the badge's own text into a sliver so narrow it wrapped
- * onto three lines ("PayAI / Wallet / (Embedded)"), and shoved the balance
- * column into an awkward, disconnected position beside it — reported as the
- * card "lagging" with the balance "not well placed".
+ * onto three lines ("PayAI / Wallet / (Embedded)"), and shoved a MON/USDC
+ * balance column into an awkward, disconnected position beside it — reported
+ * as the card "lagging" with the balance "not well placed".
  *
- * These hold the fix: a shortened/resolved identity as the primary label,
- * a badge that can't be squeezed, and a balance block that is always its own
- * clearly bounded region rather than whatever space is left over.
+ * The balance column was then reported a second time: it duplicated
+ * Portfolio, rendered directly below, which already reads every holding —
+ * MON and USDC included — from the chain with USD values. Repeating two of
+ * those figures here wasn't a layout bug, it was two sources of the same
+ * numbers on one screen. The fix removes the balance block from this card
+ * entirely rather than re-laying it out; the card's job is identity, and
+ * Portfolio's job is balance.
  */
 
 const src = readFileSync(new URL("../app/dashboard/wallets/page.tsx", import.meta.url), "utf8");
@@ -33,13 +37,28 @@ describe("the kind badge cannot be squeezed into wrapping", () => {
   });
 });
 
-describe("identity and balance are two clearly separated regions", () => {
-  it("gives the identity column min-w-0 so it truncates instead of overflowing", () => {
+describe("identity column truncates instead of overflowing", () => {
+  it("has min-w-0 so a long value can't force the row wider than its container", () => {
     expect(src).toMatch(/flex min-w-0 items-center gap-3\.5/);
   });
+});
 
-  it("gives the balance its own shrink-0 block, not squeezed leftover space", () => {
-    expect(src).toMatch(/flex shrink-0 items-center gap-4 border-t border-border/);
+describe("the hero card no longer duplicates Portfolio's balance", () => {
+  it("renders no MON/USDC balance figures of its own", () => {
+    // Portfolio, rendered directly below this card, is the one place on the
+    // page that shows what the wallet holds. TokenLogo was only ever
+    // imported here to build that duplicate balance row.
+    expect(src).not.toMatch(/import \{ TokenLogo \} from/);
+    expect(src).not.toMatch(/balances\.mon \? Number\(balances\.mon\)/);
+    expect(src).not.toMatch(/balances\.usdc \? Number\(balances\.usdc\)/);
+  });
+
+  it("still uses balances for the Asset allocation chart further down the page", () => {
+    // Confirms the fix removed the DUPLICATE display, not the underlying
+    // hook — useWalletBalances still backs the donut chart in the Wallet
+    // Intelligence section.
+    expect(src).toMatch(/const balances = useWalletBalances\(wallet\.address\)/);
+    expect(src).toMatch(/const mon = Number\(balances\.mon \?\? 0\)/);
   });
 });
 

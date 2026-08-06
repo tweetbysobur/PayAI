@@ -16,7 +16,6 @@ import { useCopy } from "@/lib/hooks/useCopy";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
-import { TokenLogo } from "@/components/TokenLogo";
 import dynamic from "next/dynamic";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
@@ -146,63 +145,50 @@ export default function Wallets() {
               {/* Hairline top edge — the premium-surface tell used elsewhere
                   (platform metrics, dashboard showcase). */}
               <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-              <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:p-6">
-                {/* Identity — min-w-0 so the long address truncates instead
-                    of shoving the badge into a sliver of width. */}
-                <div className="flex min-w-0 items-center gap-3.5">
-                  <Identicon address={wallet.address} size={44} className="shrink-0 rounded-full ring-1 ring-border" />
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-base font-semibold text-foreground">
-                        {handle.hasUsername ? handle.display : identity.display}
-                      </p>
-                      {/* shrink-0 + whitespace-nowrap: this is the exact fix
-                          for the badge that wrapped "PayAI / Wallet /
-                          (Embedded)" onto three lines — it was never given a
-                          floor width, so it shrank along with everything
-                          else competing for the row. */}
-                      <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium ${wallet.kind === "embedded" ? "border-primary/30 bg-primary/10 text-primary-ink" : "border-border bg-input text-muted-foreground"}`}>
-                        {wallet.kind === "embedded" ? "PayAI Wallet" : "External wallet"}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
-                      <button
-                        onClick={() => copy(wallet.address!, "Address copied")}
-                        className="inline-flex items-center gap-1 font-mono transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                        title="Copy full address"
-                      >
-                        {short(wallet.address)}
-                        {copied === wallet.address ? <Check size={11} className="text-success" /> : <Copy size={11} />}
-                      </button>
-                      <span className="text-border">·</span>
-                      <span className="inline-flex items-center gap-1">
-                        <MonadMark size={11} /> {wallet.chainId === MONAD_CHAIN_ID ? MONAD_CHAIN_NAME : `Chain ${wallet.chainId ?? "—"}`}
-                      </span>
-                      <span className="text-border">·</span>
-                      <a
-                        href={`${MONAD_EXPLORER}/address/${wallet.address}`} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-primary-ink hover:underline"
-                      >
-                        Explorer <ExternalLink size={10} />
-                      </a>
-                    </div>
+              {/* Identity only — no balance here. Portfolio (right below)
+                  already reads every holding, MON and USDC included, straight
+                  from the chain with USD values; repeating two of those
+                  numbers up here was the same figures twice on one screen,
+                  and worse, sitting in a spot that read as if it were
+                  competing with Portfolio rather than introducing it. This
+                  card's job is identity — whose wallet this is, and which
+                  kind — not a second, partial balance. */}
+              <div className="flex min-w-0 items-center gap-3.5 p-5 sm:p-6">
+                <Identicon address={wallet.address} size={44} className="shrink-0 rounded-full ring-1 ring-border" />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-base font-semibold text-foreground">
+                      {handle.hasUsername ? handle.display : identity.display}
+                    </p>
+                    {/* shrink-0 + whitespace-nowrap: this is the exact fix
+                        for the badge that wrapped "PayAI / Wallet /
+                        (Embedded)" onto three lines — it was never given a
+                        floor width, so it shrank along with everything
+                        else competing for the row. */}
+                    <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium ${wallet.kind === "embedded" ? "border-primary/30 bg-primary/10 text-primary-ink" : "border-border bg-input text-muted-foreground"}`}>
+                      {wallet.kind === "embedded" ? "PayAI Wallet" : "External wallet"}
+                    </span>
                   </div>
-                </div>
-
-                {/* Balance — its own clearly bounded block, never squeezed
-                    against the identity column. shrink-0 keeps it from
-                    collapsing on a narrow viewport; it drops to its own row
-                    below the identity block instead (flex-col on mobile). */}
-                <div className="flex shrink-0 items-center gap-4 border-t border-border pt-4 sm:gap-1.5 sm:border-t-0 sm:border-l sm:pl-6 sm:pt-0">
-                  <div className="flex-1 sm:flex-none sm:text-right">
-                    <p className="flex items-center gap-1.5 text-xl font-semibold tabular-nums tracking-tight text-foreground sm:justify-end">
-                      <TokenLogo token="MON" size={16} />
-                      {balances.mon ? Number(balances.mon).toFixed(4) : "0.0000"}
-                    </p>
-                    <p className="mt-1 flex items-center gap-1.5 text-sm tabular-nums text-muted-foreground sm:justify-end">
-                      <TokenLogo token="USDC" size={13} />
-                      {balances.usdc ? Number(balances.usdc).toFixed(2) : "0.00"}
-                    </p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+                    <button
+                      onClick={() => copy(wallet.address!, "Address copied")}
+                      className="inline-flex items-center gap-1 font-mono transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      title="Copy full address"
+                    >
+                      {short(wallet.address)}
+                      {copied === wallet.address ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+                    </button>
+                    <span className="text-border">·</span>
+                    <span className="inline-flex items-center gap-1">
+                      <MonadMark size={11} /> {wallet.chainId === MONAD_CHAIN_ID ? MONAD_CHAIN_NAME : `Chain ${wallet.chainId ?? "—"}`}
+                    </span>
+                    <span className="text-border">·</span>
+                    <a
+                      href={`${MONAD_EXPLORER}/address/${wallet.address}`} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary-ink hover:underline"
+                    >
+                      Explorer <ExternalLink size={10} />
+                    </a>
                   </div>
                 </div>
               </div>
