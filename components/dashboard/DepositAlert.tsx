@@ -124,10 +124,14 @@ export function DepositAlert({
 
                 <div className="mt-2.5 flex items-center gap-3">
                   <button
-                    onClick={() => { setShown(null); router.push("/dashboard/wallets"); }}
+                    // shown.href, not a hardcoded /dashboard/wallets: a
+                    // deposit is detected on-chain and only ever rendered in
+                    // the Activity Center (see walletEventHref), so "wallet"
+                    // was a page that had never shown this deposit at all.
+                    onClick={() => { setShown(null); router.push(shown.href); }}
                     className="text-xs font-medium text-primary-ink transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                   >
-                    View wallet
+                    View
                   </button>
                   {shown.explorerUrl && (
                     <a
