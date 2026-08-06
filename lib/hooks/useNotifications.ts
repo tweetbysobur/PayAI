@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
+import { walletEventHref, type WalletEventType } from "@/lib/wallet-service/types";
 
 interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 interface AutomationEventRow {
@@ -142,7 +143,10 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
               detail: e.detail,
               at: e.at,
               explorerUrl: e.explorerUrl,
-              href: "/dashboard/wallets",
+              // Not always Wallets — a swap, a refund, or an automation
+              // signature belongs on the page that actually shows it. See
+              // walletEventHref's own doc for why each type lands where it does.
+              href: walletEventHref(e.type as WalletEventType),
               amount: e.amount,
               token: e.token,
             }));

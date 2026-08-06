@@ -139,6 +139,36 @@ export const WALLET_EVENT_TYPES = [
 ] as const;
 export type WalletEventType = (typeof WALLET_EVENT_TYPES)[number];
 
+/**
+ * Where "View" on a wallet event should land — not always /dashboard/wallets.
+ *
+ * Every wallet event used to point there regardless of type, which was wrong
+ * for most of them: the Wallets page renders on-chain PaymentExecutor history,
+ * a completely different data source, so a swap, a refund, or an automation
+ * signature notification sent someone to a page that had never heard of the
+ * thing they clicked through to see.
+ *
+ * - A swap settles into the same transaction log a payment does (see
+ *   POST /api/swap/confirm's recordTx call) — /dashboard/transactions.
+ * - An automation signature belongs with the automation it authorized —
+ *   /dashboard/automations.
+ * - A refund is a money movement with no dedicated page of its own; the
+ *   transaction log is the closest fit.
+ * - A deposit or withdrawal is detected on-chain and exists ONLY in the
+ *   wallet-events feed — the one place that actually renders it is the
+ *   merged Activity Center, not the Wallets page.
+ * - wallet_created / _connected / _disconnected are genuinely about the
+ *   wallet itself, with nothing to view anywhere else — these keep
+ *   /dashboard/wallets.
+ */
+export function walletEventHref(type: WalletEventType): string {
+  if (type === "swap_completed" || type === "swap_failed") return "/dashboard/transactions";
+  if (type === "automation_signed" || type === "automation_executed") return "/dashboard/automations";
+  if (type === "refund_completed") return "/dashboard/transactions";
+  if (type === "deposit_received" || type === "withdrawal_completed") return "/dashboard/activity";
+  return "/dashboard/wallets";
+}
+
 export interface WalletNotification {
   id: string;
   merchantId: string;
