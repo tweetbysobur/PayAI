@@ -8,8 +8,10 @@ import {
   sumByToken,
   sumActivityByToken,
   computeMonthlyVolumeByFeature,
+  usdToMon,
 } from "@/lib/platform/analytics";
 import type { TxLogEntry } from "@/lib/platform/types";
+import type { TokenInfo } from "@/lib/monad/tokenRegistry";
 
 let idc = 0;
 function tx(overrides: Partial<TxLogEntry> = {}): TxLogEntry {
@@ -282,5 +284,40 @@ describe("computeMonthlyVolumeByFeature", () => {
     ]);
     const current = buckets[buckets.length - 1];
     expect(current.byFeature.automation).toEqual({ USDC: 10, MON: 2 });
+  });
+});
+
+/**
+ * usdToMon is the "show one number, in MON, plus its $ worth" conversion —
+ * the platform metric shows a per-token list nowhere anymore; every headline
+ * figure is USD-summed then expressed in MON. It must fail closed: no MON
+ * price, no USD amount, no MON figure — never a fabricated "≈ 0 MON".
+ */
+function tokenInfo(overrides: Partial<TokenInfo> = {}): TokenInfo {
+  return { address: "0xaaaa000000000000000000000000000000000001", symbol: "MON", name: "Monad", decimals: 18, verified: true, ...overrides };
+}
+
+describe("usdToMon", () => {
+  it("converts a USD amount to MON using MON's live price", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": 2 }; // $2/MON
+    expect(usdToMon(100, bySymbol, prices)).toBe(50);
+  });
+
+  it("returns null when the USD amount itself is null", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": 2 };
+    expect(usdToMon(null, bySymbol, prices)).toBeNull();
+  });
+
+  it("returns null, never $0-worth-of-MON, when MON has no known price", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": null };
+    expect(usdToMon(100, bySymbol, prices)).toBeNull();
+  });
+
+  it("returns null when MON isn't in the price map at all", () => {
+    const bySymbol = new Map<string, TokenInfo>();
+    expect(usdToMon(100, bySymbol, {})).toBeNull();
   });
 });
