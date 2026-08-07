@@ -123,12 +123,24 @@ interface MonthlyFeatureUsd {
 interface Stats {
   totalPayments: number;
   volumeByToken: Record<string, number>;
+  settledVolumeUsd: number | null;
+  settledVolumeMon: number | null;
+  unpricedSettledTokens: string[];
   activityVolumeByToken: Record<string, number>;
   activityVolumeUsd: number | null;
+  activityVolumeMon: number | null;
   unpricedTokens: string[];
   monthlyVolumeUsd: MonthlyFeatureUsd[];
   compliance: { approvalRate: number };
   trend?: { date: string; revenue: number; count: number }[];
+}
+
+/** Formats a MON amount the same way everywhere it's shown: more precision
+ *  under 1 MON (so a small real amount doesn't collapse to "0.00"), fewer
+ *  decimals above it, matching the existing formatUsd convention. */
+function formatMon(v: number | null): string | null {
+  if (v == null || !Number.isFinite(v)) return null;
+  return v.toLocaleString(undefined, { maximumFractionDigits: v > 0 && v < 1 ? 4 : 2 });
 }
 
 /**
@@ -195,8 +207,8 @@ export function PlatformStatistics() {
   if (failed || empty) return null;
 
   const approval = s ? Math.round(s.compliance.approvalRate * 100) : null;
-  const tokens = s ? Object.entries(s.volumeByToken).filter(([, v]) => v > 0) : [];
-  const activityTokens = s ? Object.entries(s.activityVolumeByToken).filter(([, v]) => v > 0) : [];
+  const hasSettledRaw = s ? Object.values(s.volumeByToken).some((v) => v > 0) : false;
+  const hasActivityRaw = s ? Object.values(s.activityVolumeByToken).some((v) => v > 0) : false;
   const trend = s?.trend ?? [];
   const peak = Math.max(1, ...trend.map((d) => d.count));
 
@@ -253,106 +265,45 @@ export function PlatformStatistics() {
             </Cell>
           </div>
 
-          {/* Volume band — one cell per token, never blended into one number. */}
-          <div className="border-t border-border/70 bg-background/40 px-6 py-5 sm:px-7">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Total volume settled
-            </p>
-            <div className="mt-3 flex flex-wrap items-baseline gap-x-10 gap-y-4">
-              {!s
-                ? Array.from({ length: 2 }).map((_, i) => (
-                    <span key={i} className="h-8 w-32 animate-pulse rounded bg-border/70" />
-                  ))
-                : tokens.length === 0
-                  ? <span className="text-sm text-muted-foreground">No settled volume yet.</span>
-                  : tokens.map(([token, v]) => (
-                      <div key={token} className="flex items-center gap-2.5">
-                        <TokenLogo token={token} size={22} />
-                        <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground sm:text-3xl">
-                          {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                        </span>
-                        <span className="text-xs font-medium text-muted-foreground">{token}</span>
-                      </div>
-                    ))}
-            </div>
-          </div>
+          {/* Volume bands — ONE number in MON plus its $ worth, not a
+              per-token list. Converting each asset to USD first and summing
+              THAT is a real common unit; the old per-token cells existed
+              because adding raw MON + raw USDC directly would have been the
+              fabrication this codebase refuses elsewhere (5 MON + 5 USDC is
+              not 10 of anything). Live-quoted off the same DEX the swap
+              engine prices against (lib/monad/prices.ts) — approximate, and
+              any token that can't be confidently priced is excluded and
+              named, never guessed into the total. */}
+          <VolumeBand
+            label="Total volume settled"
+            mon={s?.settledVolumeMon ?? null}
+            usd={s?.settledVolumeUsd ?? null}
+            unpriced={s?.unpricedSettledTokens ?? []}
+            loading={!s}
+            hasRaw={hasSettledRaw}
+            emptyText="No settled volume yet."
+          />
 
           {/* A second, separate band — NOT added to the one above. "Total
               volume settled" is money paid to someone (revenue); a swap
               moves a user's own funds between tokens they already hold, so
               it can't be folded into that figure without misrepresenting it.
               This band is every completed transaction on every feature —
-              payments, swaps, automations, bulk distributions — so it only
-              appears once there's swap/automation activity beyond what's
-              already counted above. */}
-          {activityTokens.length > 0 && (
-            <div className="border-t border-border/70 bg-background/40 px-6 py-5 sm:px-7">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Total activity volume · every feature, incl. swaps
-              </p>
-              <div className="mt-3 flex flex-wrap items-baseline gap-x-10 gap-y-4">
-                {activityTokens.map(([token, v]) => (
-                  <div key={token} className="flex items-center gap-2.5">
-                    <TokenLogo token={token} size={22} />
-                    <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground sm:text-3xl">
-                      {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-xs font-medium text-muted-foreground">{token}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </motion.div>
+              payments, swaps, automations, bulk distributions. */}
+          <VolumeBand
+            label="Total activity volume · every feature, incl. swaps"
+            mon={s?.activityVolumeMon ?? null}
+            usd={s?.activityVolumeUsd ?? null}
+            unpriced={s?.unpricedTokens ?? []}
+            loading={!s}
+            hasRaw={hasActivityRaw}
+            emptyText="No activity yet."
+          />
 
-        <p className="mt-5 text-center text-xs text-muted-foreground">
-          Aggregate and anonymized — counts and volume only, never a wallet address or an individual&apos;s history.
-          MON and USDC are shown separately because a blended total would be meaningless. Activity volume includes
-          swaps; volume settled does not, since a swap isn&apos;t money paid to anyone else.
-        </p>
-
-        {/*
-          A second panel: the one genuinely blended figure on this page.
-          Summing MON + USDC directly is the fabrication the panel above
-          refuses to do — but converting each to USD first and summing THAT
-          is a real, common unit, not an invented one. Live-quoted off the
-          same DEX the swap engine prices against (lib/monad/prices.ts), so
-          it's approximate and says so, and any token PayAI can't confidently
-          price is left out and named, never guessed into the total.
-        */}
-        {hasMonthly && (
-          <motion.div
-            initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, ease: "easeOut", delay: 0.08 }}
-            className="mt-6 overflow-hidden rounded-2xl border border-border bg-panel/60 shadow-2xl shadow-black/20"
-          >
-            <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-            <div className="px-6 py-7 sm:px-7">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Total activity volume · every feature, in $
-              </p>
-              <div className="mt-3 flex items-baseline gap-2">
-                {!s ? (
-                  <span className="h-11 w-48 animate-pulse rounded bg-border/70" />
-                ) : s.activityVolumeUsd != null ? (
-                  <span className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
-                    {formatUsd(s.activityVolumeUsd)}
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Not enough priced activity yet.</span>
-                )}
-                {s && s.activityVolumeUsd != null && (
-                  <span className="text-xs text-muted-foreground">≈ current market rate</span>
-                )}
-              </div>
-              {s && s.unpricedTokens.length > 0 && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Excludes {s.unpricedTokens.join(", ")} — not confidently priceable right now.
-                </p>
-              )}
-            </div>
-
+          {/* Monthly breakdown — same activity total as the band above, over
+              time and split by feature, so it lives in the same panel
+              rather than repeating the headline number in a second card. */}
+          {hasMonthly && (
             <div className="border-t border-border/70 bg-background/40 px-6 py-6 sm:px-7">
               <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -423,10 +374,54 @@ export function PlatformStatistics() {
                 })}
               </div>
             </div>
-          </motion.div>
-        )}
+          )}
+        </motion.div>
+
+        <p className="mt-5 text-center text-xs text-muted-foreground">
+          Aggregate and anonymized — counts and volume only, never a wallet address or an individual&apos;s history.
+          Volume is shown in MON with its dollar value alongside, live-quoted off the same DEX the swap engine
+          prices against — approximate, and any token PayAI can&apos;t confidently price is excluded and named
+          rather than guessed into the total. Activity volume includes swaps; volume settled does not, since a
+          swap isn&apos;t money paid to anyone else.
+        </p>
       </div>
     </section>
+  );
+}
+
+function VolumeBand({
+  label, mon, usd, unpriced, loading, hasRaw, emptyText,
+}: {
+  label: string; mon: number | null; usd: number | null; unpriced: string[];
+  loading: boolean; hasRaw: boolean; emptyText: string;
+}) {
+  return (
+    <div className="border-t border-border/70 bg-background/40 px-6 py-5 sm:px-7">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <div className="mt-3 flex flex-wrap items-baseline gap-3">
+        {loading ? (
+          <span className="h-8 w-40 animate-pulse rounded bg-border/70" />
+        ) : mon == null ? (
+          <span className="text-sm text-muted-foreground">{hasRaw ? "Not enough priced activity yet." : emptyText}</span>
+        ) : (
+          <>
+            <div className="flex items-center gap-2.5">
+              <TokenLogo token="MON" size={22} />
+              <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground sm:text-3xl">
+                {formatMon(mon)}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">MON</span>
+            </div>
+            {usd != null && <span className="text-sm text-muted-foreground">≈ {formatUsd(usd)}</span>}
+          </>
+        )}
+      </div>
+      {!loading && unpriced.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Excludes {unpriced.join(", ")} — not confidently priceable right now.
+        </p>
+      )}
+    </div>
   );
 }
 

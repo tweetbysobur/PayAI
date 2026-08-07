@@ -31,8 +31,12 @@ export async function GET() {
     return NextResponse.json({
       totalPayments: 0,
       volumeByToken: {},
+      settledVolumeUsd: null,
+      settledVolumeMon: null,
+      unpricedSettledTokens: [],
       activityVolumeByToken: {},
       activityVolumeUsd: null,
+      activityVolumeMon: null,
       unpricedTokens: [],
       monthlyVolumeUsd: [],
       compliance: { approved: 0, rejected: 0, review: 0, blocked: 0, approvalRate: 0 },

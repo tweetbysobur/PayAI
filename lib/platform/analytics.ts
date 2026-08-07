@@ -163,6 +163,24 @@ function usdTotal(
   return { totalUsd: anyPriced ? total : null, unpriced };
 }
 
+/** A USD amount converted to its MON-equivalent using an already-loaded
+ *  price map (see loadUsdPrices) — MON is the platform's native asset, so
+ *  the platform-wide headline figures are denominated in it, with the $
+ *  value shown alongside rather than instead of it. `null` when either the
+ *  USD amount or MON's own live price is unavailable — never shown as
+ *  "≈ 0 MON", which would misrepresent "can't convert" as "worth nothing". */
+export function usdToMon(
+  usd: number | null,
+  bySymbol: Map<string, TokenInfo>,
+  prices: Record<string, number | null>,
+): number | null {
+  if (usd == null) return null;
+  const mon = bySymbol.get("MON");
+  const monPrice = mon ? prices[mon.address.toLowerCase()] : null;
+  if (!monPrice) return null;
+  return usd / monPrice;
+}
+
 /** The token the headline figures are denominated in: whichever asset this
  *  merchant has actually settled the most payments in. Falls back to USDC so
  *  an empty dashboard still has something to label its zeroes with. */
@@ -357,19 +375,32 @@ export interface PlatformActivity {
   /** Settled volume, summed separately per token — never blended into one
    *  number across different assets, which would misrepresent the amount. */
   volumeByToken: Record<string, number>;
+  /** volumeByToken converted to a single USD figure, then to its
+   *  MON-equivalent — the headline "X MON (≈ $Y)" figure, replacing a
+   *  per-token list (which reads as clutter once every asset can be
+   *  expressed in one real unit). Converting-then-summing is not the
+   *  cross-asset blending sumByToken refuses to do (5 MON + 5 USDC is not
+   *  10 of anything; 5 MON worth of USD + 5 USDC worth of USD is a real
+   *  $10). `null` when nothing could be priced — see unpricedSettledTokens. */
+  settledVolumeUsd: number | null;
+  settledVolumeMon: number | null;
+  /** Token symbols in volumeByToken that could NOT be priced (unverified,
+   *  no pool, or an untrustworthy quote) — so settledVolumeUsd/Mon are
+   *  never presented as more complete than they are. */
+  unpricedSettledTokens: string[];
   /** Volume of every COMPLETED transaction across every feature — payments,
    *  swaps, automations, bulk distributions — summed separately per token.
    *  Unlike volumeByToken, this includes swaps: it's total platform
    *  activity, kept separate from (not blended into) settled payment
    *  volume/revenue above. See sumActivityByToken. */
   activityVolumeByToken: Record<string, number>;
-  /** activityVolumeByToken converted to a single USD figure — the one
-   *  number "$ total activity" needs, since $ is a real common unit and
-   *  summing it is not the cross-asset fabrication sumByToken/
-   *  activityVolumeByToken refuse to do. Live-quoted, approximate, and
+  /** activityVolumeByToken converted to a single USD figure, then to its
+   *  MON-equivalent — same "one number, not a per-token list" treatment as
+   *  settledVolumeUsd/Mon above, for the swap-inclusive activity total.
    *  `null` when nothing in activityVolumeByToken could be priced. See
    *  unpricedTokens for what (if anything) is excluded from it. */
   activityVolumeUsd: number | null;
+  activityVolumeMon: number | null;
   /** Token symbols present in activityVolumeByToken that could NOT be
    *  priced (unverified, no pool, or an untrustworthy quote) — so
    *  activityVolumeUsd is never presented as more complete than it is. */
@@ -409,19 +440,32 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
   const monthly = computeMonthlyVolumeByFeature(allTxs, 6);
 
   // One price fetch for every token this response could possibly need,
-  // shared across the overall total and all 6 months × 4 features — not one
-  // fetch per bucket.
-  const allTokens = new Set<string>(Object.keys(activityVolumeByToken));
+  // shared across both headline totals and all 6 months × 4 features — not
+  // one fetch per figure. "MON" is always included: the headline figures
+  // are denominated in it even on a request with zero native-token activity.
+  const allTokens = new Set<string>(["MON", ...Object.keys(activityVolumeByToken)]);
   for (const m of monthly) for (const f of FEATURES) for (const tok of Object.keys(m.byFeature[f])) allTokens.add(tok);
 
+  let settledVolumeUsd: number | null = null;
+  let settledVolumeMon: number | null = null;
+  let unpricedSettledTokens: string[] = [];
   let activityVolumeUsd: number | null = null;
+  let activityVolumeMon: number | null = null;
   let unpricedTokens: string[] = [];
   let monthlyVolumeUsd: MonthlyFeatureUsd[];
   try {
     const { bySymbol, prices } = await loadUsdPrices([...allTokens]);
-    const overall = usdTotal(activityVolumeByToken, bySymbol, prices);
-    activityVolumeUsd = overall.totalUsd;
-    unpricedTokens = overall.unpriced;
+
+    const settledOverall = usdTotal(volumeByToken, bySymbol, prices);
+    settledVolumeUsd = settledOverall.totalUsd;
+    unpricedSettledTokens = settledOverall.unpriced;
+    settledVolumeMon = usdToMon(settledVolumeUsd, bySymbol, prices);
+
+    const activityOverall = usdTotal(activityVolumeByToken, bySymbol, prices);
+    activityVolumeUsd = activityOverall.totalUsd;
+    unpricedTokens = activityOverall.unpriced;
+    activityVolumeMon = usdToMon(activityVolumeUsd, bySymbol, prices);
+
     monthlyVolumeUsd = monthly.map((m) => {
       const byFeature = {} as Record<PlatformFeature, number | null>;
       let total: number | null = null;
@@ -436,6 +480,7 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
     // Pricing is best-effort (live on-chain quotes) — a failure here must
     // never take down the whole platform-stats response, just leave the USD
     // figures unavailable.
+    unpricedSettledTokens = Object.keys(volumeByToken);
     unpricedTokens = [...allTokens];
     monthlyVolumeUsd = monthly.map((m) => ({
       month: m.month,
@@ -448,8 +493,12 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
   return {
     totalPayments: settled.length,
     volumeByToken,
+    settledVolumeUsd,
+    settledVolumeMon,
+    unpricedSettledTokens,
     activityVolumeByToken,
     activityVolumeUsd,
+    activityVolumeMon,
     unpricedTokens,
     monthlyVolumeUsd,
     compliance: computeCompliance(allTxs),
