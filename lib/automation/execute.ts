@@ -35,6 +35,10 @@ async function executeOnePayment(input: {
   recipient: string; domain?: string | null;
   purpose?: string | null; memo?: string | null; fundingMode?: "wallet" | "reserved";
   executorAddress?: string | null; vaultAddress?: string | null;
+  /** "automation" for a single-recipient run, "bulk" when this call is one
+   *  recipient of a Bulk Payment occurrence — same pipeline either way, only
+   *  the platform-metrics attribution differs. */
+  feature: "automation" | "bulk";
 }): Promise<ScheduleExecutionResult> {
   const { runValidation, assessRisk, execute } = await import("@/lib/payment/engine");
   const { recordTx } = await import("@/lib/platform/store");
@@ -64,7 +68,7 @@ async function executeOnePayment(input: {
   if (compliance.status === "rejected" || risk.level === "high") {
     const decision = compliance.status === "rejected" ? "blocked" : "needs_review";
     await recordTx(input.merchantId, {
-      decision: decision as "blocked" | "needs_review", action: "send_payment", amount: input.amount, token: input.token,
+      decision: decision as "blocked" | "needs_review", action: "send_payment", feature: input.feature, amount: input.amount, token: input.token,
       recipient: input.recipient, domain: input.domain ?? null, riskScore: risk.score, compliance: compliance.status,
       sender: input.sender,
       summary: `Automation: ${input.amount} ${input.token} → ${input.domain ?? input.recipient}`,
@@ -76,7 +80,7 @@ async function executeOnePayment(input: {
   const ok = tx.status === "settled";
   const outcome: ScheduleExecutionResult["outcome"] = ok ? "executed" : "error";
   await recordTx(input.merchantId, {
-    decision: outcome, action: "send_payment", amount: input.amount, token: input.token,
+    decision: outcome, action: "send_payment", feature: input.feature, amount: input.amount, token: input.token,
     recipient: input.recipient, domain: input.domain ?? null, riskScore: risk.score, compliance: compliance.status,
     txHash: tx.txHash, explorerUrl: tx.explorerUrl,
     sender: input.sender,
@@ -97,6 +101,7 @@ export async function executeScheduleNow(s: ScheduledPayment, requestId: string)
     recipient: s.recipient, domain: s.domain,
     purpose: s.purpose, memo: s.memo, fundingMode: s.fundingMode,
     executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
+    feature: "automation",
   });
 }
 
@@ -132,6 +137,7 @@ export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId:
       recipient: r.address, domain: r.domain,
       purpose: s.purpose, memo: r.note ?? s.memo, fundingMode: s.fundingMode,
       executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
+      feature: "bulk",
     });
     results.push({
       address: r.address, domain: r.domain, amount: r.amount,
