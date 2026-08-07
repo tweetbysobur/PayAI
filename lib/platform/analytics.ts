@@ -13,10 +13,21 @@ import type {
   Customer,
   ComplianceMetrics,
   Insight,
+  PlatformFeature,
   RevenueOverview,
   TrendPoint,
   TxLogEntry,
 } from "./types";
+import type { TokenInfo } from "../monad/tokenRegistry";
+
+const FEATURES: PlatformFeature[] = ["payment", "swap", "automation", "bulk"];
+
+/** Which feature produced a tx. Falls back to inferring from `action` for
+ *  entries recorded before TxLogEntry.feature existed. */
+function featureOf(t: TxLogEntry): PlatformFeature {
+  if (t.feature) return t.feature;
+  return t.action === "swap" ? "swap" : "payment";
+}
 
 const DAY = 86_400_000;
 const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -48,6 +59,126 @@ export function sumByToken(txs: TxLogEntry[], since = 0): Record<string, number>
     out[token] = (out[token] ?? 0) + (t.amount ?? 0);
   }
   return out;
+}
+
+/**
+ * Volume of every completed transaction across every feature — payments,
+ * swaps, automations, bulk distributions — summed separately per token.
+ *
+ * Deliberately NOT the same as sumByToken/isSettled: this measures total
+ * platform activity, so a swap counts here even though (per isSettled's
+ * comment above) it still isn't money paid to someone else and must stay
+ * out of revenue. Keep the two separate rather than merging swaps into
+ * revenue — this function answers "how much moved through PayAI," not
+ * "how much did anyone get paid."
+ */
+export function sumActivityByToken(txs: TxLogEntry[], since = 0): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of txs) {
+    if (t.decision !== "executed" || (t.amount ?? 0) <= 0 || t.at < since) continue;
+    const token = t.token || "USDC";
+    out[token] = (out[token] ?? 0) + (t.amount ?? 0);
+  }
+  return out;
+}
+
+/**
+ * Every completed transaction across every feature, bucketed by calendar
+ * month and by feature, amounts kept per-token (never blended — same rule as
+ * sumByToken/sumActivityByToken). `months` calendar months ending with the
+ * current one, oldest first; a month with no activity still gets a bucket so
+ * a chart over this data never has a hole.
+ */
+export function computeMonthlyVolumeByFeature(txs: TxLogEntry[], months = 6): MonthlyFeatureVolume[] {
+  const now = new Date();
+  const buckets = new Map<string, MonthlyFeatureVolume>();
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = d.toISOString().slice(0, 7);
+    buckets.set(key, {
+      month: key,
+      byFeature: { payment: {}, swap: {}, automation: {}, bulk: {} },
+    });
+  }
+  for (const t of txs) {
+    if (t.decision !== "executed" || (t.amount ?? 0) <= 0) continue;
+    const key = new Date(t.at).toISOString().slice(0, 7);
+    const bucket = buckets.get(key);
+    if (!bucket) continue; // outside the window
+    const byFeatureToken = bucket.byFeature[featureOf(t)];
+    const token = t.token || "USDC";
+    byFeatureToken[token] = (byFeatureToken[token] ?? 0) + (t.amount ?? 0);
+  }
+  return [...buckets.values()];
+}
+
+/**
+ * Live USD prices for whichever token symbols appear in `tokens`, resolved
+ * against the verified token registry and quoted off the same DEX the swap
+ * engine uses (lib/monad/prices.ts) — current market rate, never a
+ * fabricated or historical-at-tx-time number. A symbol this deployment
+ * can't confidently price (unverified, no pool, or a pool too shallow to
+ * trust) is simply absent from the returned price map.
+ */
+async function loadUsdPrices(tokens: string[]): Promise<{
+  bySymbol: Map<string, TokenInfo>;
+  prices: Record<string, number | null>;
+}> {
+  const { getVerifiedTokens } = await import("../monad/tokenRegistry");
+  const { getUsdPrices } = await import("../monad/prices");
+  const verified = await getVerifiedTokens();
+  const bySymbol = new Map(verified.map((t) => [t.symbol.toUpperCase(), t]));
+  const targets = [...new Set(tokens.map((s) => s.toUpperCase()))]
+    .map((s) => bySymbol.get(s))
+    .filter((t): t is TokenInfo => !!t);
+  const prices = targets.length ? await getUsdPrices(targets) : {};
+  return { bySymbol, prices };
+}
+
+/** Convert one per-token amount map to a USD total using an already-loaded
+ *  price map (see loadUsdPrices) — pure/local, no network of its own, so
+ *  pricing dozens of buckets (months × features) costs one price fetch
+ *  total instead of one per bucket. A token absent from the price map is
+ *  left OUT of the total and named in `unpriced`, rather than guessed at —
+ *  the total is real money moved, only ever under-reported, never invented. */
+function usdTotal(
+  byToken: Record<string, number>,
+  bySymbol: Map<string, TokenInfo>,
+  prices: Record<string, number | null>,
+): { totalUsd: number | null; unpriced: string[] } {
+  let total = 0;
+  let anyPriced = false;
+  const unpriced: string[] = [];
+  for (const [sym, amount] of Object.entries(byToken)) {
+    if (!(amount > 0)) continue;
+    const t = bySymbol.get(sym.toUpperCase());
+    const usd = t ? prices[t.address.toLowerCase()] : null;
+    if (t && usd != null) {
+      total += amount * usd;
+      anyPriced = true;
+    } else {
+      unpriced.push(sym);
+    }
+  }
+  return { totalUsd: anyPriced ? total : null, unpriced };
+}
+
+/** A USD amount converted to its MON-equivalent using an already-loaded
+ *  price map (see loadUsdPrices) — MON is the platform's native asset, so
+ *  the platform-wide headline figures are denominated in it, with the $
+ *  value shown alongside rather than instead of it. `null` when either the
+ *  USD amount or MON's own live price is unavailable — never shown as
+ *  "≈ 0 MON", which would misrepresent "can't convert" as "worth nothing". */
+export function usdToMon(
+  usd: number | null,
+  bySymbol: Map<string, TokenInfo>,
+  prices: Record<string, number | null>,
+): number | null {
+  if (usd == null) return null;
+  const mon = bySymbol.get("MON");
+  const monPrice = mon ? prices[mon.address.toLowerCase()] : null;
+  if (!monPrice) return null;
+  return usd / monPrice;
 }
 
 /** The token the headline figures are denominated in: whichever asset this
@@ -218,6 +349,23 @@ export function buildSummary(snap: AnalyticsSnapshot): string {
   ].filter(Boolean).join(" ");
 }
 
+/** Raw (per-token, never blended) volume for one calendar month, broken down
+ *  by feature. See computeMonthlyVolumeByFeature. */
+export interface MonthlyFeatureVolume {
+  month: string; // YYYY-MM
+  byFeature: Record<PlatformFeature, Record<string, number>>;
+}
+
+/** One calendar month's volume, in USD, broken down by feature. A `null`
+ *  feature/total means nothing in it could be confidently priced that
+ *  month — shown as "—" in the UI, never as $0 (which would read as "no
+ *  activity" when the truth is "activity we can't price"). */
+export interface MonthlyFeatureUsd {
+  month: string; // YYYY-MM
+  byFeature: Record<PlatformFeature, number | null>;
+  total: number | null;
+}
+
 export interface PlatformActivity {
   /** Settled (executed) payments across every tenant — counts every real
    *  payment PayAI has processed, custodial or wallet-signed, not just the
@@ -227,6 +375,39 @@ export interface PlatformActivity {
   /** Settled volume, summed separately per token — never blended into one
    *  number across different assets, which would misrepresent the amount. */
   volumeByToken: Record<string, number>;
+  /** volumeByToken converted to a single USD figure, then to its
+   *  MON-equivalent — the headline "X MON (≈ $Y)" figure, replacing a
+   *  per-token list (which reads as clutter once every asset can be
+   *  expressed in one real unit). Converting-then-summing is not the
+   *  cross-asset blending sumByToken refuses to do (5 MON + 5 USDC is not
+   *  10 of anything; 5 MON worth of USD + 5 USDC worth of USD is a real
+   *  $10). `null` when nothing could be priced — see unpricedSettledTokens. */
+  settledVolumeUsd: number | null;
+  settledVolumeMon: number | null;
+  /** Token symbols in volumeByToken that could NOT be priced (unverified,
+   *  no pool, or an untrustworthy quote) — so settledVolumeUsd/Mon are
+   *  never presented as more complete than they are. */
+  unpricedSettledTokens: string[];
+  /** Volume of every COMPLETED transaction across every feature — payments,
+   *  swaps, automations, bulk distributions — summed separately per token.
+   *  Unlike volumeByToken, this includes swaps: it's total platform
+   *  activity, kept separate from (not blended into) settled payment
+   *  volume/revenue above. See sumActivityByToken. */
+  activityVolumeByToken: Record<string, number>;
+  /** activityVolumeByToken converted to a single USD figure, then to its
+   *  MON-equivalent — same "one number, not a per-token list" treatment as
+   *  settledVolumeUsd/Mon above, for the swap-inclusive activity total.
+   *  `null` when nothing in activityVolumeByToken could be priced. See
+   *  unpricedTokens for what (if anything) is excluded from it. */
+  activityVolumeUsd: number | null;
+  activityVolumeMon: number | null;
+  /** Token symbols present in activityVolumeByToken that could NOT be
+   *  priced (unverified, no pool, or an untrustworthy quote) — so
+   *  activityVolumeUsd is never presented as more complete than it is. */
+  unpricedTokens: string[];
+  /** Last 6 calendar months, oldest first, activity volume in USD broken
+   *  down by feature — see MonthlyFeatureUsd. */
+  monthlyVolumeUsd: MonthlyFeatureUsd[];
   /** Aggregate compliance outcome across every payment (approval rate etc.). */
   compliance: ComplianceMetrics;
   /** Settled payments per day for the last 7 days — real activity series. */
@@ -255,10 +436,71 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
   for (const t of settled) {
     volumeByToken[t.token] = (volumeByToken[t.token] ?? 0) + (t.amount ?? 0);
   }
+  const activityVolumeByToken = sumActivityByToken(allTxs);
+  const monthly = computeMonthlyVolumeByFeature(allTxs, 6);
+
+  // One price fetch for every token this response could possibly need,
+  // shared across both headline totals and all 6 months × 4 features — not
+  // one fetch per figure. "MON" is always included: the headline figures
+  // are denominated in it even on a request with zero native-token activity.
+  const allTokens = new Set<string>(["MON", ...Object.keys(activityVolumeByToken)]);
+  for (const m of monthly) for (const f of FEATURES) for (const tok of Object.keys(m.byFeature[f])) allTokens.add(tok);
+
+  let settledVolumeUsd: number | null = null;
+  let settledVolumeMon: number | null = null;
+  let unpricedSettledTokens: string[] = [];
+  let activityVolumeUsd: number | null = null;
+  let activityVolumeMon: number | null = null;
+  let unpricedTokens: string[] = [];
+  let monthlyVolumeUsd: MonthlyFeatureUsd[];
+  try {
+    const { bySymbol, prices } = await loadUsdPrices([...allTokens]);
+
+    const settledOverall = usdTotal(volumeByToken, bySymbol, prices);
+    settledVolumeUsd = settledOverall.totalUsd;
+    unpricedSettledTokens = settledOverall.unpriced;
+    settledVolumeMon = usdToMon(settledVolumeUsd, bySymbol, prices);
+
+    const activityOverall = usdTotal(activityVolumeByToken, bySymbol, prices);
+    activityVolumeUsd = activityOverall.totalUsd;
+    unpricedTokens = activityOverall.unpriced;
+    activityVolumeMon = usdToMon(activityVolumeUsd, bySymbol, prices);
+
+    monthlyVolumeUsd = monthly.map((m) => {
+      const byFeature = {} as Record<PlatformFeature, number | null>;
+      let total: number | null = null;
+      for (const feature of FEATURES) {
+        const { totalUsd } = usdTotal(m.byFeature[feature], bySymbol, prices);
+        byFeature[feature] = totalUsd;
+        if (totalUsd != null) total = (total ?? 0) + totalUsd;
+      }
+      return { month: m.month, byFeature, total };
+    });
+  } catch {
+    // Pricing is best-effort (live on-chain quotes) — a failure here must
+    // never take down the whole platform-stats response, just leave the USD
+    // figures unavailable.
+    unpricedSettledTokens = Object.keys(volumeByToken);
+    unpricedTokens = [...allTokens];
+    monthlyVolumeUsd = monthly.map((m) => ({
+      month: m.month,
+      byFeature: { payment: null, swap: null, automation: null, bulk: null },
+      total: null,
+    }));
+  }
+
   const recent = settled.slice(0, 8).map((t) => ({ token: t.token, amount: t.amount ?? 0 }));
   return {
     totalPayments: settled.length,
     volumeByToken,
+    settledVolumeUsd,
+    settledVolumeMon,
+    unpricedSettledTokens,
+    activityVolumeByToken,
+    activityVolumeUsd,
+    activityVolumeMon,
+    unpricedTokens,
+    monthlyVolumeUsd,
     compliance: computeCompliance(allTxs),
     trend: computeTrend(allTxs, 7),
     recent,

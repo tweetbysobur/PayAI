@@ -5,8 +5,13 @@ import {
   computeTrend,
   deriveCustomers,
   detectInsights,
+  sumByToken,
+  sumActivityByToken,
+  computeMonthlyVolumeByFeature,
+  usdToMon,
 } from "@/lib/platform/analytics";
 import type { TxLogEntry } from "@/lib/platform/types";
+import type { TokenInfo } from "@/lib/monad/tokenRegistry";
 
 let idc = 0;
 function tx(overrides: Partial<TxLogEntry> = {}): TxLogEntry {
@@ -177,5 +182,142 @@ describe("computeRevenue — one currency at a time", () => {
     expect(customers[0].address).toBe(big);
     expect(customers[0].totalPaid).toBe(50);
     expect(customers.find((c) => c.address === small)?.totalPaid).toBe(10);
+  });
+});
+
+/**
+ * sumActivityByToken is deliberately a different figure from sumByToken/
+ * revenue: "how much moved through the platform on any feature" rather than
+ * "how much did someone actually get paid." A swap must count here even
+ * though computeRevenue/sumByToken correctly refuse to count it as revenue.
+ */
+describe("sumActivityByToken — every feature, including swaps", () => {
+  it("includes swaps, unlike sumByToken", () => {
+    const txs = [
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 500, token: "USDC", action: "swap", summary: "Swap 500 USDC → MON" }),
+    ];
+    expect(sumByToken(txs)).toEqual({ USDC: 100 });
+    expect(sumActivityByToken(txs)).toEqual({ USDC: 600 });
+  });
+
+  it("includes automation and bulk-distribution transactions the same as a manual send", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 10, token: "USDC", summary: "Sent 10 USDC" }),
+      tx({ amount: 20, token: "USDC", summary: "Automation: payroll run" }),
+      tx({ amount: 5, token: "USDC", summary: "Bulk distribution 1/3" }),
+    ]);
+    expect(activity).toEqual({ USDC: 35 });
+  });
+
+  it("excludes blocked, refused, and error transactions — only completed ones count", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 100, token: "USDC", decision: "executed" }),
+      tx({ amount: 900, token: "USDC", decision: "blocked" }),
+      tx({ amount: 900, token: "USDC", decision: "refused" }),
+      tx({ amount: 900, token: "USDC", decision: "error" }),
+    ]);
+    expect(activity).toEqual({ USDC: 100 });
+  });
+
+  it("keeps tokens separate rather than blending amounts", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 5, token: "MON", action: "swap" }),
+    ]);
+    expect(activity).toEqual({ USDC: 100, MON: 5 });
+  });
+});
+
+/**
+ * computeMonthlyVolumeByFeature buckets by calendar month and attributes
+ * each tx to its feature (payment/swap/automation/bulk) — the raw data the
+ * "$ total, monthly, per feature" platform metric is built from. USD
+ * conversion happens elsewhere (getPlatformActivity, needs live prices);
+ * this function stays pure and network-free so it's fully unit-testable.
+ */
+describe("computeMonthlyVolumeByFeature", () => {
+  const thisMonth = () => new Date().toISOString().slice(0, 7);
+
+  it("returns one bucket per month, oldest first, ending with the current month", () => {
+    const buckets = computeMonthlyVolumeByFeature([], 6);
+    expect(buckets).toHaveLength(6);
+    expect(buckets[5].month).toBe(thisMonth());
+  });
+
+  it("attributes an explicitly-tagged tx to its feature", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC", feature: "automation" }),
+      tx({ amount: 20, token: "USDC", feature: "bulk" }),
+      tx({ amount: 500, token: "USDC", action: "swap", feature: "swap" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.automation).toEqual({ USDC: 10 });
+    expect(current.byFeature.bulk).toEqual({ USDC: 20 });
+    expect(current.byFeature.swap).toEqual({ USDC: 500 });
+    expect(current.byFeature.payment).toEqual({});
+  });
+
+  it("falls back to inferring swap vs payment for legacy entries with no feature tag", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC" }), // no `feature` — pre-migration row
+      tx({ amount: 5, token: "MON", action: "swap" }), // no `feature` either
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.payment).toEqual({ USDC: 10 });
+    expect(current.byFeature.swap).toEqual({ MON: 5 });
+  });
+
+  it("excludes non-executed and zero-amount transactions", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 100, token: "USDC", decision: "blocked", feature: "payment" }),
+      tx({ amount: 0, token: "USDC", feature: "payment" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.payment).toEqual({});
+  });
+
+  it("keeps tokens separate within a feature/month", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC", feature: "automation" }),
+      tx({ amount: 2, token: "MON", feature: "automation" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.automation).toEqual({ USDC: 10, MON: 2 });
+  });
+});
+
+/**
+ * usdToMon is the "show one number, in MON, plus its $ worth" conversion —
+ * the platform metric shows a per-token list nowhere anymore; every headline
+ * figure is USD-summed then expressed in MON. It must fail closed: no MON
+ * price, no USD amount, no MON figure — never a fabricated "≈ 0 MON".
+ */
+function tokenInfo(overrides: Partial<TokenInfo> = {}): TokenInfo {
+  return { address: "0xaaaa000000000000000000000000000000000001", symbol: "MON", name: "Monad", decimals: 18, verified: true, ...overrides };
+}
+
+describe("usdToMon", () => {
+  it("converts a USD amount to MON using MON's live price", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": 2 }; // $2/MON
+    expect(usdToMon(100, bySymbol, prices)).toBe(50);
+  });
+
+  it("returns null when the USD amount itself is null", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": 2 };
+    expect(usdToMon(null, bySymbol, prices)).toBeNull();
+  });
+
+  it("returns null, never $0-worth-of-MON, when MON has no known price", () => {
+    const bySymbol = new Map([["MON", tokenInfo()]]);
+    const prices = { "0xaaaa000000000000000000000000000000000001": null };
+    expect(usdToMon(100, bySymbol, prices)).toBeNull();
+  });
+
+  it("returns null when MON isn't in the price map at all", () => {
+    const bySymbol = new Map<string, TokenInfo>();
+    expect(usdToMon(100, bySymbol, {})).toBeNull();
   });
 });

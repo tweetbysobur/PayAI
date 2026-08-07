@@ -108,6 +108,7 @@ export async function POST(req: NextRequest) {
   await recordTx(merchantId, {
     decision: "executed",
     action: "swap",
+    feature: "swap",
     amount: amountIn ?? null,
     token: fromToken ?? "MON",
     recipient: walletAddress,
