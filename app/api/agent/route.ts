@@ -243,6 +243,7 @@ export async function POST(req: NextRequest) {
     await recordTx(merchantId, {
       decision: result.decision as Exclude<AgentResult["decision"], "info" | "ready_to_sign">,
       action: result.intent.action,
+      feature: "payment",
       amount: result.intent.amount,
       token: result.intent.token,
       recipient: result.intent.recipient,

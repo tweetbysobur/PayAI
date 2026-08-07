@@ -100,6 +100,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   await recordTx(link.merchantId, {
     decision: "executed",
     action: "invoice_payment",
+    feature: "payment",
     amount: link.amount,
     token: link.token,
     // The invoice's payout wallet is who received the money; `receipt.from` is

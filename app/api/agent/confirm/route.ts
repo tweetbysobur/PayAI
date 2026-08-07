@@ -210,6 +210,7 @@ export async function POST(req: NextRequest) {
   await recordTx(merchantId, {
     decision: "executed",
     action: intent.action,
+    feature: "payment",
     amount: intent.amount,
     token: intent.token,
     recipient: intent.recipient,
