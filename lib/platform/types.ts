@@ -5,12 +5,21 @@
  * and AI-assistant answers.
  */
 
+/** Which product surface produced a TxLogEntry — distinct from `action`
+ *  (send_payment/swap/invoice_payment/…), since an automation and a bulk
+ *  distribution both settle through the exact same "send_payment" pipeline
+ *  as a manual send and are otherwise indistinguishable in the log. */
+export type PlatformFeature = "payment" | "swap" | "automation" | "bulk";
+
 /** One recorded agent run (every outcome, not just settled). */
 export interface TxLogEntry {
   id: string;
   at: number; // unix ms
   decision: "executed" | "needs_review" | "blocked" | "refused" | "error";
   action: string;
+  /** Absent on entries recorded before this field existed — callers fall
+   *  back to inferring "swap" vs "payment" from `action` for those. */
+  feature?: PlatformFeature;
   amount: number | null;
   token: string;
   recipient: string | null;

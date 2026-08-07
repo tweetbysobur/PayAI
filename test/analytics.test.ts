@@ -7,6 +7,7 @@ import {
   detectInsights,
   sumByToken,
   sumActivityByToken,
+  computeMonthlyVolumeByFeature,
 } from "@/lib/platform/analytics";
 import type { TxLogEntry } from "@/lib/platform/types";
 
@@ -223,5 +224,63 @@ describe("sumActivityByToken — every feature, including swaps", () => {
       tx({ amount: 5, token: "MON", action: "swap" }),
     ]);
     expect(activity).toEqual({ USDC: 100, MON: 5 });
+  });
+});
+
+/**
+ * computeMonthlyVolumeByFeature buckets by calendar month and attributes
+ * each tx to its feature (payment/swap/automation/bulk) — the raw data the
+ * "$ total, monthly, per feature" platform metric is built from. USD
+ * conversion happens elsewhere (getPlatformActivity, needs live prices);
+ * this function stays pure and network-free so it's fully unit-testable.
+ */
+describe("computeMonthlyVolumeByFeature", () => {
+  const thisMonth = () => new Date().toISOString().slice(0, 7);
+
+  it("returns one bucket per month, oldest first, ending with the current month", () => {
+    const buckets = computeMonthlyVolumeByFeature([], 6);
+    expect(buckets).toHaveLength(6);
+    expect(buckets[5].month).toBe(thisMonth());
+  });
+
+  it("attributes an explicitly-tagged tx to its feature", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC", feature: "automation" }),
+      tx({ amount: 20, token: "USDC", feature: "bulk" }),
+      tx({ amount: 500, token: "USDC", action: "swap", feature: "swap" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.automation).toEqual({ USDC: 10 });
+    expect(current.byFeature.bulk).toEqual({ USDC: 20 });
+    expect(current.byFeature.swap).toEqual({ USDC: 500 });
+    expect(current.byFeature.payment).toEqual({});
+  });
+
+  it("falls back to inferring swap vs payment for legacy entries with no feature tag", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC" }), // no `feature` — pre-migration row
+      tx({ amount: 5, token: "MON", action: "swap" }), // no `feature` either
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.payment).toEqual({ USDC: 10 });
+    expect(current.byFeature.swap).toEqual({ MON: 5 });
+  });
+
+  it("excludes non-executed and zero-amount transactions", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 100, token: "USDC", decision: "blocked", feature: "payment" }),
+      tx({ amount: 0, token: "USDC", feature: "payment" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.payment).toEqual({});
+  });
+
+  it("keeps tokens separate within a feature/month", () => {
+    const buckets = computeMonthlyVolumeByFeature([
+      tx({ amount: 10, token: "USDC", feature: "automation" }),
+      tx({ amount: 2, token: "MON", feature: "automation" }),
+    ]);
+    const current = buckets[buckets.length - 1];
+    expect(current.byFeature.automation).toEqual({ USDC: 10, MON: 2 });
   });
 });

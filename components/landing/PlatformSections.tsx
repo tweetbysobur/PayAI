@@ -5,6 +5,8 @@ import { motion } from "motion/react";
 import { ShieldCheck, Blocks, AtSign, Wallet, Database, Code2 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import { MonadMark } from "@/components/MonadMark";
+import { formatUsd } from "@/lib/hooks/useTokenPrices";
+import type { PlatformFeature } from "@/lib/platform/types";
 
 /**
  * Landing sections that describe the platform with REAL data only.
@@ -112,12 +114,50 @@ export function SupportedTokens() {
 
 /* ── Platform Statistics — live aggregate, never fabricated ─────────────── */
 
+interface MonthlyFeatureUsd {
+  month: string; // YYYY-MM
+  byFeature: Record<PlatformFeature, number | null>;
+  total: number | null;
+}
+
 interface Stats {
   totalPayments: number;
   volumeByToken: Record<string, number>;
   activityVolumeByToken: Record<string, number>;
+  activityVolumeUsd: number | null;
+  unpricedTokens: string[];
+  monthlyVolumeUsd: MonthlyFeatureUsd[];
   compliance: { approvalRate: number };
   trend?: { date: string; revenue: number; count: number }[];
+}
+
+/**
+ * Fixed categorical order + colors for the 4 features a transaction can
+ * come from. These four hex pairs (dark-surface steps) are the validated
+ * default categorical palette's first four slots, in the one order proven
+ * (by running the CVD/contrast validator) to clear every adjacent-pair gate
+ * for a stacked bar on this app's dark surface — not hand-picked. Kept local
+ * to this chart rather than added as global design tokens, since nothing
+ * else in the product needs a 4-way categorical split; every other surface
+ * stays the single-purple brand palette.
+ */
+const FEATURE_ORDER: PlatformFeature[] = ["payment", "swap", "automation", "bulk"];
+const FEATURE_LABEL: Record<PlatformFeature, string> = {
+  payment: "Payments",
+  swap: "Swaps",
+  automation: "Automations",
+  bulk: "Bulk distributions",
+};
+const FEATURE_COLOR: Record<PlatformFeature, string> = {
+  payment: "#3987e5",
+  swap: "#d95926",
+  automation: "#199e70",
+  bulk: "#c98500",
+};
+
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" });
 }
 
 /**
@@ -159,6 +199,16 @@ export function PlatformStatistics() {
   const activityTokens = s ? Object.entries(s.activityVolumeByToken).filter(([, v]) => v > 0) : [];
   const trend = s?.trend ?? [];
   const peak = Math.max(1, ...trend.map((d) => d.count));
+
+  const monthly = s?.monthlyVolumeUsd ?? [];
+  const hasMonthly = monthly.some((m) => (m.total ?? 0) > 0);
+  const maxMonthTotal = Math.max(1, ...monthly.map((m) => m.total ?? 0));
+  const CHART_H = 144; // px — matches h-36; kept as a JS constant so bar/segment
+  // heights are computed as real px numbers rather than nested CSS percentages
+  // (a percentage height on a flex child only resolves against a DIRECT
+  // ancestor with a definite height — see the h-24 comment on the 7-day
+  // sparkline above; computing px in JS sidesteps that constraint entirely).
+  const GAP_PX = 2; // the stacked-segment "surface gap" spec
 
   return (
     <section className={`${SECTION} bg-panel/20`}>
@@ -260,6 +310,121 @@ export function PlatformStatistics() {
           MON and USDC are shown separately because a blended total would be meaningless. Activity volume includes
           swaps; volume settled does not, since a swap isn&apos;t money paid to anyone else.
         </p>
+
+        {/*
+          A second panel: the one genuinely blended figure on this page.
+          Summing MON + USDC directly is the fabrication the panel above
+          refuses to do — but converting each to USD first and summing THAT
+          is a real, common unit, not an invented one. Live-quoted off the
+          same DEX the swap engine prices against (lib/monad/prices.ts), so
+          it's approximate and says so, and any token PayAI can't confidently
+          price is left out and named, never guessed into the total.
+        */}
+        {hasMonthly && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, ease: "easeOut", delay: 0.08 }}
+            className="mt-6 overflow-hidden rounded-2xl border border-border bg-panel/60 shadow-2xl shadow-black/20"
+          >
+            <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+            <div className="px-6 py-7 sm:px-7">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total activity volume · every feature, in $
+              </p>
+              <div className="mt-3 flex items-baseline gap-2">
+                {!s ? (
+                  <span className="h-11 w-48 animate-pulse rounded bg-border/70" />
+                ) : s.activityVolumeUsd != null ? (
+                  <span className="text-4xl font-semibold tracking-tight text-foreground sm:text-5xl">
+                    {formatUsd(s.activityVolumeUsd)}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Not enough priced activity yet.</span>
+                )}
+                {s && s.activityVolumeUsd != null && (
+                  <span className="text-xs text-muted-foreground">≈ current market rate</span>
+                )}
+              </div>
+              {s && s.unpricedTokens.length > 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Excludes {s.unpricedTokens.join(", ")} — not confidently priceable right now.
+                </p>
+              )}
+            </div>
+
+            <div className="border-t border-border/70 bg-background/40 px-6 py-6 sm:px-7">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Monthly volume by feature
+                </p>
+                {/* Legend — the dependable identity channel for 4 series;
+                    never make the reader rely on color-matching alone. */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {FEATURE_ORDER.map((f) => (
+                    <div key={f} className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                      <span aria-hidden className="h-2 w-2 rounded-full" style={{ backgroundColor: FEATURE_COLOR[f] }} />
+                      {FEATURE_LABEL[f]}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                className="flex items-end gap-3 sm:gap-4"
+                role="img"
+                aria-label={`Monthly platform activity volume in USD over the last ${monthly.length} months, by feature: ${monthly
+                  .map((m) => `${monthLabel(m.month)} ${m.total != null ? formatUsd(m.total) : "unavailable"}`)
+                  .join(", ")}`}
+              >
+                {monthly.map((m) => {
+                  const activeFeatures = FEATURE_ORDER.filter((f) => (m.byFeature[f] ?? 0) > 0);
+                  const barHeightPx = m.total ? Math.max(6, (m.total / maxMonthTotal) * CHART_H) : 3;
+                  const totalGapPx = Math.max(0, activeFeatures.length - 1) * GAP_PX;
+                  const usableH = Math.max(0, barHeightPx - totalGapPx);
+                  return (
+                    <div key={m.month} className="flex flex-1 flex-col items-center gap-2">
+                      <div className="flex flex-col items-center justify-end" style={{ height: CHART_H }}>
+                        {m.total != null && m.total > 0 && (
+                          <span className="mb-1 whitespace-nowrap text-[10px] font-medium tabular-nums text-muted-foreground">
+                            {formatUsd(m.total)}
+                          </span>
+                        )}
+                        <div
+                          className="flex w-full flex-col-reverse gap-0.5 rounded-t-md bg-border/20"
+                          style={{ height: barHeightPx }}
+                        >
+                          {/* NOT overflow-hidden: that would also clip the hover
+                              tooltip, which needs to float above this box. Only
+                              the topmost segment (last in flex-col-reverse
+                              order) gets the rounded corner directly, instead
+                              of clipping the whole stack to get it. */}
+                          {activeFeatures.map((f, i) => {
+                            const usd = m.byFeature[f] ?? 0;
+                            const px = (usd / (m.total || 1)) * usableH;
+                            const isTop = i === activeFeatures.length - 1;
+                            return (
+                              <div
+                                key={f}
+                                className={`group/seg relative w-full ${isTop ? "rounded-t-md" : ""}`}
+                                style={{ height: Math.max(1, px), backgroundColor: FEATURE_COLOR[f] }}
+                              >
+                                <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[10px] font-medium text-foreground opacity-0 shadow-lg transition-opacity group-hover/seg:opacity-100">
+                                  {FEATURE_LABEL[f]} · {formatUsd(usd)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <span className="text-[9px] tabular-nums text-muted-foreground">{monthLabel(m.month)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
     </section>
   );
