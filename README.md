@@ -22,6 +22,51 @@ It's also a full dashboard: send, swap, automate, distribute to many recipients 
 and see everything that happened, with a real transaction hash at the end of every settled
 payment.
 
+## The problem
+
+Paying someone on-chain today means holding several things in your head at once: a wallet
+you had to set up first (seed phrase written down somewhere, or an extension installed), the
+exact recipient address copy-pasted correctly, the right token and network, and — if it's a
+payment that repeats — remembering to come back and sign it again next week, on time, every
+time. Miss the date and it doesn't send itself. Need to pay fifty people instead of one, and
+it's fifty manual transactions instead of one workflow. None of that is a smart-contract
+problem; it's friction that sits entirely on the human doing the paying.
+
+## The solution
+
+PayAI collapses that into one non-custodial platform. A wallet is a passkey away — no seed
+phrase to write down, no extension to install — and from there, sending, swapping,
+automating, and paying many recipients at once all live in the same place, described in
+plain English if you'd rather not fill out a form. Every payment is still signed by your own
+wallet; PayAI prepares the transaction and gets out of the way. An automation that has to
+run without you is capped on-chain to exactly what you authorized, never more, and a
+scheduled payment backed by Reserved Funds can't fail for insufficient balance because the
+budget was already set aside — refunded back to you if you cancel before it's used.
+
+## Mission & vision
+
+Make paying someone on Monad take no more expertise than sending a message. That's the
+whole bet: wallet setup, recipient resolution, screening, and repetition are all solvable
+in software, and none of them should be the reason someone doesn't use on-chain payments.
+The near-term roadmap (see [Status](#status)) is about extending that same one-click,
+plain-English standard from personal payments to payroll, treasury, and bulk distributions
+— the same guarantees, at whatever scale the payment actually needs.
+
+## Use cases
+
+- **Personal payments** — rent, an allowance, a recurring gift, moving money into savings —
+  set the schedule once, approve once, done
+- **One-off transfers** — send MON or USDC to an address or a `.nad` domain in one message,
+  no address book required
+- **Swapping between assets** — hold MON but owe someone in USDC (or the other way around)?
+  Swap first, pay second, without leaving PayAI
+- **Paying many people at once** — a reward pool, a small team, a list of addresses from a
+  CSV — validate every recipient and see the full allocation before a single signature
+- **Businesses and DAOs standing up payroll, vendor payments, or treasury distributions** —
+  the underlying engine (Wallet Automation, Reserved Funds, bulk distribution) already
+  supports this; the guided templates for it are still being finished, and the app marks
+  each one's real status rather than pretending otherwise (see [Status](#status))
+
 ## What it does today
 
 - **Parses plain-English payment instructions** into structured transactions — the AI
@@ -83,9 +128,9 @@ risk, execution, and settlement all live in `lib/`.
 
 ## Screenshots
 
-| Landing | Dashboard | Send a payment |
-| --- | --- | --- |
-| ![Landing page](docs/screenshots/landing.png) | ![Dashboard overview](docs/screenshots/dashboard.png) | ![Send payment](docs/screenshots/payments.png) |
+| Landing | Dashboard | Send a payment | Settings |
+| --- | --- | --- | --- |
+| ![Landing page](docs/screenshots/landing.png) | ![Dashboard overview](docs/screenshots/dashboard.png) | ![Send payment](docs/screenshots/payments.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## Non-custodial, and where it isn't
 
