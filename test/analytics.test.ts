@@ -5,6 +5,8 @@ import {
   computeTrend,
   deriveCustomers,
   detectInsights,
+  sumByToken,
+  sumActivityByToken,
 } from "@/lib/platform/analytics";
 import type { TxLogEntry } from "@/lib/platform/types";
 
@@ -177,5 +179,49 @@ describe("computeRevenue — one currency at a time", () => {
     expect(customers[0].address).toBe(big);
     expect(customers[0].totalPaid).toBe(50);
     expect(customers.find((c) => c.address === small)?.totalPaid).toBe(10);
+  });
+});
+
+/**
+ * sumActivityByToken is deliberately a different figure from sumByToken/
+ * revenue: "how much moved through the platform on any feature" rather than
+ * "how much did someone actually get paid." A swap must count here even
+ * though computeRevenue/sumByToken correctly refuse to count it as revenue.
+ */
+describe("sumActivityByToken — every feature, including swaps", () => {
+  it("includes swaps, unlike sumByToken", () => {
+    const txs = [
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 500, token: "USDC", action: "swap", summary: "Swap 500 USDC → MON" }),
+    ];
+    expect(sumByToken(txs)).toEqual({ USDC: 100 });
+    expect(sumActivityByToken(txs)).toEqual({ USDC: 600 });
+  });
+
+  it("includes automation and bulk-distribution transactions the same as a manual send", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 10, token: "USDC", summary: "Sent 10 USDC" }),
+      tx({ amount: 20, token: "USDC", summary: "Automation: payroll run" }),
+      tx({ amount: 5, token: "USDC", summary: "Bulk distribution 1/3" }),
+    ]);
+    expect(activity).toEqual({ USDC: 35 });
+  });
+
+  it("excludes blocked, refused, and error transactions — only completed ones count", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 100, token: "USDC", decision: "executed" }),
+      tx({ amount: 900, token: "USDC", decision: "blocked" }),
+      tx({ amount: 900, token: "USDC", decision: "refused" }),
+      tx({ amount: 900, token: "USDC", decision: "error" }),
+    ]);
+    expect(activity).toEqual({ USDC: 100 });
+  });
+
+  it("keeps tokens separate rather than blending amounts", () => {
+    const activity = sumActivityByToken([
+      tx({ amount: 100, token: "USDC" }),
+      tx({ amount: 5, token: "MON", action: "swap" }),
+    ]);
+    expect(activity).toEqual({ USDC: 100, MON: 5 });
   });
 });

@@ -50,6 +50,27 @@ export function sumByToken(txs: TxLogEntry[], since = 0): Record<string, number>
   return out;
 }
 
+/**
+ * Volume of every completed transaction across every feature — payments,
+ * swaps, automations, bulk distributions — summed separately per token.
+ *
+ * Deliberately NOT the same as sumByToken/isSettled: this measures total
+ * platform activity, so a swap counts here even though (per isSettled's
+ * comment above) it still isn't money paid to someone else and must stay
+ * out of revenue. Keep the two separate rather than merging swaps into
+ * revenue — this function answers "how much moved through PayAI," not
+ * "how much did anyone get paid."
+ */
+export function sumActivityByToken(txs: TxLogEntry[], since = 0): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of txs) {
+    if (t.decision !== "executed" || (t.amount ?? 0) <= 0 || t.at < since) continue;
+    const token = t.token || "USDC";
+    out[token] = (out[token] ?? 0) + (t.amount ?? 0);
+  }
+  return out;
+}
+
 /** The token the headline figures are denominated in: whichever asset this
  *  merchant has actually settled the most payments in. Falls back to USDC so
  *  an empty dashboard still has something to label its zeroes with. */
@@ -227,6 +248,12 @@ export interface PlatformActivity {
   /** Settled volume, summed separately per token — never blended into one
    *  number across different assets, which would misrepresent the amount. */
   volumeByToken: Record<string, number>;
+  /** Volume of every COMPLETED transaction across every feature — payments,
+   *  swaps, automations, bulk distributions — summed separately per token.
+   *  Unlike volumeByToken, this includes swaps: it's total platform
+   *  activity, kept separate from (not blended into) settled payment
+   *  volume/revenue above. See sumActivityByToken. */
+  activityVolumeByToken: Record<string, number>;
   /** Aggregate compliance outcome across every payment (approval rate etc.). */
   compliance: ComplianceMetrics;
   /** Settled payments per day for the last 7 days — real activity series. */
@@ -259,6 +286,7 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
   return {
     totalPayments: settled.length,
     volumeByToken,
+    activityVolumeByToken: sumActivityByToken(allTxs),
     compliance: computeCompliance(allTxs),
     trend: computeTrend(allTxs, 7),
     recent,
