@@ -115,6 +115,7 @@ export function SupportedTokens() {
 interface Stats {
   totalPayments: number;
   volumeByToken: Record<string, number>;
+  activityVolumeByToken: Record<string, number>;
   compliance: { approvalRate: number };
   trend?: { date: string; revenue: number; count: number }[];
 }
@@ -155,6 +156,7 @@ export function PlatformStatistics() {
 
   const approval = s ? Math.round(s.compliance.approvalRate * 100) : null;
   const tokens = s ? Object.entries(s.volumeByToken).filter(([, v]) => v > 0) : [];
+  const activityTokens = s ? Object.entries(s.activityVolumeByToken).filter(([, v]) => v > 0) : [];
   const trend = s?.trend ?? [];
   const peak = Math.max(1, ...trend.map((d) => d.count));
 
@@ -224,11 +226,39 @@ export function PlatformStatistics() {
                     ))}
             </div>
           </div>
+
+          {/* A second, separate band — NOT added to the one above. "Total
+              volume settled" is money paid to someone (revenue); a swap
+              moves a user's own funds between tokens they already hold, so
+              it can't be folded into that figure without misrepresenting it.
+              This band is every completed transaction on every feature —
+              payments, swaps, automations, bulk distributions — so it only
+              appears once there's swap/automation activity beyond what's
+              already counted above. */}
+          {activityTokens.length > 0 && (
+            <div className="border-t border-border/70 bg-background/40 px-6 py-5 sm:px-7">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total activity volume · every feature, incl. swaps
+              </p>
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-10 gap-y-4">
+                {activityTokens.map(([token, v]) => (
+                  <div key={token} className="flex items-center gap-2.5">
+                    <TokenLogo token={token} size={22} />
+                    <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground sm:text-3xl">
+                      {v.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-xs font-medium text-muted-foreground">{token}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </motion.div>
 
         <p className="mt-5 text-center text-xs text-muted-foreground">
           Aggregate and anonymized — counts and volume only, never a wallet address or an individual&apos;s history.
-          MON and USDC are shown separately because a blended total would be meaningless.
+          MON and USDC are shown separately because a blended total would be meaningless. Activity volume includes
+          swaps; volume settled does not, since a swap isn&apos;t money paid to anyone else.
         </p>
       </div>
     </section>

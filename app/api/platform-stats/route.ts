@@ -31,6 +31,7 @@ export async function GET() {
     return NextResponse.json({
       totalPayments: 0,
       volumeByToken: {},
+      activityVolumeByToken: {},
       compliance: { approved: 0, rejected: 0, review: 0, blocked: 0, approvalRate: 0 },
       trend: [],
       recent: [],
