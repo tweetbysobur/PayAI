@@ -30,6 +30,18 @@ const hre = require("hardhat");
  *          identical created -> paid/settled lifecycle as an ERC-20 request,
  *          funding and paying atomically via msg.value since native MON has
  *          no allowance mechanism to pull from later.
+ *   L-02 - MerchantRegistry.registerMerchant was onlyManager, and a prior fix
+ *          correctly revokes the hot agent's manager role at fresh-deploy
+ *          handoff (a compromised hot key must never call setActive or
+ *          self-register for executePaymentFrom abuse). That left the app's
+ *          agent-signed registration route with no live authorization at
+ *          all -- registerMerchant would revert forever post-handoff. Fixed
+ *          by adding a narrower isRegistrar role, checked live on every call
+ *          exactly like isManager (registerMerchant now requires
+ *          isManager[msg.sender] || isRegistrar[msg.sender]), grantable to
+ *          the agent without restoring setActive power. Revoking the role
+ *          blocks the very next call from that same account immediately --
+ *          there is no cached/stale authorization state to fall out of sync.
  *   (non-production outcome) - PaymentExecutor.setAgent could authorize
  *          address(0), inconsistent with addAgent's zero-address guard.
  *   (non-production outcome) - VeriPayRegistry.payAndRecord recorded the
@@ -210,6 +222,55 @@ describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", func
       await expect(
         executor.connect(agent).executePayment(merchant.address, await usdc.getAddress(), 1_000000n, 5, reqId("d2"), reqId("r2"), reqId("standalone-erc20")),
       ).to.emit(executor, "PaymentExecuted");
+    });
+  });
+
+  describe("L-02: MerchantRegistry.isRegistrar lets a manager-revoked agent still register merchants, live-checked", () => {
+    let registry, owner, agent, coldOwner, merchantWallet;
+
+    beforeEach(async () => {
+      [, owner, agent, coldOwner, merchantWallet] = await hre.ethers.getSigners();
+      const Registry = await hre.ethers.getContractFactory("MerchantRegistry");
+      registry = await Registry.deploy(); // deployer (owner) is msg.sender = initial manager/owner
+    });
+
+    it("a registrar-only account (no isManager) can still register a new merchant", async () => {
+      await registry.setRegistrar(agent.address, true);
+      expect(await registry.isManager(agent.address)).to.equal(false);
+      await expect(registry.connect(agent).registerMerchant(merchantWallet.address, "Acme"))
+        .to.emit(registry, "MerchantRegistered");
+      expect(await registry.isRegistered(merchantWallet.address)).to.equal(true);
+    });
+
+    it("a registrar-only account cannot call setActive", async () => {
+      await registry.setRegistrar(agent.address, true);
+      await registry.connect(agent).registerMerchant(merchantWallet.address, "Acme");
+      await expect(registry.connect(agent).setActive(merchantWallet.address, false)).to.be.revertedWith("not manager");
+      expect(await registry.isActive(merchantWallet.address)).to.equal(true);
+    });
+
+    it("revoking the registrar role blocks that SAME account's very next registration attempt (live-checked, not stale)", async () => {
+      await registry.setRegistrar(agent.address, true);
+      await registry.connect(agent).registerMerchant(merchantWallet.address, "Acme");
+
+      await registry.setRegistrar(agent.address, false);
+      const [, , , , , anotherWallet] = await hre.ethers.getSigners();
+      await expect(
+        registry.connect(agent).registerMerchant(anotherWallet.address, "Should Fail"),
+      ).to.be.revertedWith("not authorized to register");
+    });
+
+    it("an account with neither role cannot register", async () => {
+      await expect(
+        registry.connect(agent).registerMerchant(merchantWallet.address, "Nope"),
+      ).to.be.revertedWith("not authorized to register");
+    });
+
+    it("a full manager can still register AND setActive (registrar is a subset of manager, not a replacement)", async () => {
+      await registry.setManager(coldOwner.address, true);
+      await registry.connect(coldOwner).registerMerchant(merchantWallet.address, "Acme");
+      await registry.connect(coldOwner).setActive(merchantWallet.address, false);
+      expect(await registry.isActive(merchantWallet.address)).to.equal(false);
     });
   });
 

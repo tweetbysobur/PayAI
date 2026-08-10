@@ -9,9 +9,20 @@ import {IMerchantRegistry} from "./interfaces/IMerchantRegistry.sol";
  *         authorized PaymentExecutor accrues per-merchant volume as payments
  *         settle. Powers merchant management + analytics in the dashboard.
  *
- * @custom:security-property INVARIANT-MR-1: Manager-Only Registration
- *   `registerMerchant` and `setActive` can ONLY be called by accounts with `isManager == true`.
- *   Unapproved callers MUST revert.
+ * @custom:security-property INVARIANT-MR-1: Live-Checked, Least-Privilege Registration
+ *   `registerMerchant` requires `isManager[msg.sender] || isRegistrar[msg.sender]`;
+ *   `setActive` requires the strictly stronger `isManager[msg.sender]`. Both are
+ *   ordinary storage reads evaluated at call time, on every call -- there is no
+ *   cached or snapshotted authorization state to fall out of sync with a role
+ *   revocation. `isRegistrar` exists because `registerMerchant` is purely additive
+ *   (it can only create a NEW merchant record -- see INVARIANT-MR-3 -- never modify
+ *   or deactivate an existing one), so it is safe to grant to a hot wallet that
+ *   must NOT hold `setActive` power. Added 2026-08 after Ultrafuzz L-02: a prior
+ *   fix correctly revoked the hot agent's full manager role (a compromised hot key
+ *   must never be able to deactivate merchants or self-register for
+ *   `executePaymentFrom` abuse), which left the agent unable to register new
+ *   merchants at all through the app. `isRegistrar` restores that one narrow
+ *   ability without restoring the rest of `isManager`.
  *
  * @custom:security-property INVARIANT-MR-2: Recorder-Only Volume Accrual
  *   `recordVolume` can ONLY be called by accounts with `isRecorder == true` (e.g. PaymentExecutor).
@@ -24,8 +35,13 @@ contract MerchantRegistry is IMerchantRegistry {
     /// @notice Admin owner with manager/recorder permission grant authority.
     address public owner;
 
-    /// @notice Accounts authorized to register merchants and toggle active status.
+    /// @notice Accounts authorized to register merchants AND toggle active status
+    ///         (full trust — includes the ability to deactivate any merchant).
     mapping(address => bool) public isManager;
+
+    /// @notice Accounts authorized to register NEW merchants only -- cannot call
+    ///         setActive. Narrower than isManager; safe to grant a hot wallet.
+    mapping(address => bool) public isRegistrar;
 
     /// @notice Accounts authorized to accrue settlement volume (e.g., PaymentExecutor).
     mapping(address => bool) public isRecorder;
@@ -38,6 +54,7 @@ contract MerchantRegistry is IMerchantRegistry {
 
     /* ── Events ─────────────────────────────────────────────────────────── */
     event ManagerSet(address indexed account, bool allowed);
+    event RegistrarSet(address indexed account, bool allowed);
     event RecorderSet(address indexed account, bool allowed);
     event OwnershipTransferred(address indexed from, address indexed to);
 
@@ -52,6 +69,13 @@ contract MerchantRegistry is IMerchantRegistry {
         _;
     }
 
+    /// @dev Live-checked at every call -- see INVARIANT-MR-1. A manager is
+    ///      implicitly also a registrar (full trust supersedes the narrower grant).
+    modifier onlyRegistrar() {
+        require(isManager[msg.sender] || isRegistrar[msg.sender], "not authorized to register");
+        _;
+    }
+
     constructor() {
         owner = msg.sender;
         isManager[msg.sender] = true;
@@ -61,10 +85,18 @@ contract MerchantRegistry is IMerchantRegistry {
 
     /* ── Admin ──────────────────────────────────────────────────────────── */
 
-    /// @notice Grant or revoke manager privileges.
+    /// @notice Grant or revoke manager privileges (registration + setActive).
     function setManager(address account, bool allowed) external onlyOwner {
         isManager[account] = allowed;
         emit ManagerSet(account, allowed);
+    }
+
+    /// @notice Grant or revoke registrar privileges (registration only, no
+    ///         setActive). Intended for a hot agent wallet that must be able
+    ///         to onboard new merchants but must never deactivate one.
+    function setRegistrar(address account, bool allowed) external onlyOwner {
+        isRegistrar[account] = allowed;
+        emit RegistrarSet(account, allowed);
     }
 
     /// @notice Grant or revoke recorder privileges (e.g. PaymentExecutor address).
@@ -83,7 +115,7 @@ contract MerchantRegistry is IMerchantRegistry {
     /* ── Registry ───────────────────────────────────────────────────────── */
 
     /// @notice Register a new merchant wallet in the directory.
-    function registerMerchant(address wallet, string calldata name) external onlyManager {
+    function registerMerchant(address wallet, string calldata name) external onlyRegistrar {
         require(wallet != address(0), "zero wallet");
         require(_merchants[wallet].registeredAt == 0, "already registered");
         _merchants[wallet] = Merchant({
