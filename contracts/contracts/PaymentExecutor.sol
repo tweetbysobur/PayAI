@@ -206,6 +206,7 @@ contract PaymentExecutor is IPaymentExecutor {
     /// @notice Set agent authorization status (equivalent to addAgent/removeAgent).
     function setAgent(address agent, bool allowed) external onlyOwner {
         require(!allowed || agent != owner, "owner cannot be agent");
+        require(!allowed || agent != address(0), "zero agent");
         isAgent[agent] = allowed;
         emit AgentSet(agent, allowed);
     }
@@ -456,6 +457,12 @@ contract PaymentExecutor is IPaymentExecutor {
     ) external onlyAgent returns (uint256 requestId) {
         require(merchant != address(0), "zero merchant");
         require(amount > 0, "zero amount");
+        // payRequest() only ever settles through the ERC-20 path (it calls
+        // executePayment, never executePaymentNative), so a request created
+        // with the native sentinel address(0) could never transition to paid
+        // -- reject it at creation instead of leaving a permanently-stuck
+        // request on chain. Added 2026-08 after Ultrafuzz L-01.
+        require(token != address(0), "native requests unsupported");
         requestId = _requests.length;
         _requests.push(
             PaymentRequest({

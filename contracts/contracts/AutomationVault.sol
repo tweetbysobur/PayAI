@@ -51,6 +51,16 @@ interface IERC20 {
  *   merely that `transferFrom`/`transfer` returned true. A fee-on-transfer or otherwise
  *   non-standard token delivering less than the stated amount MUST revert the whole
  *   operation, never be booked as if the full amount moved.
+ *
+ * @custom:security-property INVARIANT-AV-8: Outbound Debit Matches Ledger, Not Just Delivery
+ *   `release()` and `refund()` MUST ALSO verify the vault's OWN ERC-20 balance fell by
+ *   EXACTLY `amount` when it calls `transfer()` as sender. INVARIANT-AV-7 alone only
+ *   catches a token shorting the RECIPIENT; it does not catch a token that charges a
+ *   surcharge on the SENDER (the vault) while still delivering the recipient's side in
+ *   full. Without this check, a sender-surcharge token would debit the vault for more
+ *   than `amount`, silently eating into the pooled custody backing OTHER depositors'
+ *   active reservations and breaking INVARIANT-AV-1 for them. Added 2026-08 after
+ *   Ultrafuzz M-01.
  */
 contract AutomationVault {
     /// @notice Cold wallet / multisig owner address with administrative power only.
@@ -224,15 +234,19 @@ contract AutomationVault {
             (bool sent, ) = recipient.call{value: amount}("");
             require(sent, "native send failed");
         } else {
-            // Same actual-delivery check as reserve() -- see INVARIANT-AV-7.
-            // If the recipient's token shorts the transfer, this reverts the
-            // WHOLE release: state is unwound (r.balance/usedRequestId), the
-            // funds stay safely in the vault, and the automation's records
-            // never mark a payment as sent when the recipient received less.
-            uint256 balBefore = IERC20(token).balanceOf(recipient);
+            // Same actual-delivery check as reserve() -- see INVARIANT-AV-7 --
+            // plus the vault-side debit check from INVARIANT-AV-8. If the
+            // recipient's token shorts the transfer OR surcharges the vault's
+            // own balance, this reverts the WHOLE release: state is unwound
+            // (r.balance/usedRequestId), funds stay safely in the vault, and
+            // neither the automation's records nor other depositors' pooled
+            // custody are corrupted.
+            uint256 vaultBalBefore = IERC20(token).balanceOf(address(this));
+            uint256 recipientBalBefore = IERC20(token).balanceOf(recipient);
             bool ok = IERC20(token).transfer(recipient, amount);
             require(ok, "transfer failed");
-            require(IERC20(token).balanceOf(recipient) - balBefore == amount, "token did not deliver full amount");
+            require(IERC20(token).balanceOf(recipient) - recipientBalBefore == amount, "token did not deliver full amount");
+            require(vaultBalBefore - IERC20(token).balanceOf(address(this)) == amount, "token debited more than amount from vault");
         }
         emit Released(automationId, recipient, token, amount, r.balance, requestId);
     }
@@ -260,11 +274,14 @@ contract AutomationVault {
             (bool sent, ) = depositor.call{value: amount}("");
             require(sent, "native refund failed");
         } else {
-            // Same actual-delivery check as reserve()/release() -- see INVARIANT-AV-7.
-            uint256 balBefore = IERC20(token).balanceOf(depositor);
+            // Same actual-delivery + vault-debit checks as release() -- see
+            // INVARIANT-AV-7 and INVARIANT-AV-8.
+            uint256 vaultBalBefore = IERC20(token).balanceOf(address(this));
+            uint256 depositorBalBefore = IERC20(token).balanceOf(depositor);
             bool ok = IERC20(token).transfer(depositor, amount);
             require(ok, "refund failed");
-            require(IERC20(token).balanceOf(depositor) - balBefore == amount, "token did not deliver full amount");
+            require(IERC20(token).balanceOf(depositor) - depositorBalBefore == amount, "token did not deliver full amount");
+            require(vaultBalBefore - IERC20(token).balanceOf(address(this)) == amount, "token debited more than amount from vault");
         }
         emit Refunded(automationId, depositor, token, amount);
     }

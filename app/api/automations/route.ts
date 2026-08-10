@@ -718,8 +718,14 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (body.action) {
+    const ACTION_TO_STATUS: Record<string, "paused" | "active" | "cancelled"> = {
+      pause: "paused",
+      resume: "active",
+      cancel: "cancelled",
+    };
+    const next = ACTION_TO_STATUS[body.action as string];
+    if (!next) return NextResponse.json({ error: "Unknown automation action." }, { status: 400 });
     const { setScheduleStatus } = await import("@/lib/platform/schedules");
-    const next = body.action === "pause" ? "paused" : body.action === "resume" ? "active" : "cancelled";
     const row = await setScheduleStatus(merchantId, id, next, { sender });
     if (!row) return NextResponse.json({ error: "Automation not found or not editable." }, { status: 404 });
     return NextResponse.json({ automation: row, success: true });
