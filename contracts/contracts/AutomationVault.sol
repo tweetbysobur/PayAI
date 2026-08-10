@@ -22,7 +22,14 @@ interface IERC20 {
  *
  * @custom:security-property INVARIANT-AV-1: Reserve Balance Solvency
  *   For any token T, contract balance(T) >= sum(r.balance for all reservations of T).
- *   The vault can never be insolvent for active reservations.
+ *   The vault can never be insolvent for active reservations. This is not just an
+ *   emergent property of well-behaved per-call checks -- `totalReservedByToken[T]`
+ *   tracks the right-hand side explicitly, and `reserve()`/`release()`/`refund()`
+ *   assert the inequality against real `balanceOf`/`address(this).balance` on every
+ *   call. A release, refund, or surcharge against ONE reservation can never silently
+ *   reduce what real custody is available to back any OTHER reservation of the same
+ *   token: if it would, the assertion reverts the whole operation before any other
+ *   reservation's backing is touched. Actively enforced 2026-08 after Ultrafuzz M-01.
  *
  * @custom:security-property INVARIANT-AV-2: Directional Fund Lock
  *   `release()` MUST send funds to `r.recipient` ONLY.
@@ -83,6 +90,13 @@ contract AutomationVault {
 
     /// @notice automationId (schedule hash) => Reservation details
     mapping(bytes32 => Reservation) public reservations;
+
+    /// @notice token (address(0) = native MON) => sum of `balance` across every
+    ///         active reservation of that token. The explicit right-hand side of
+    ///         INVARIANT-AV-1, checked against real custody on every mutation so
+    ///         no reservation's backing can ever be silently eaten by another's
+    ///         release/refund.
+    mapping(address => uint256) public totalReservedByToken;
 
     /// @notice Release idempotency key registry — prevents double-settlement
     mapping(bytes32 => bool) public usedRequestId;
@@ -205,6 +219,8 @@ contract AutomationVault {
         }
 
         r.balance += amount;
+        totalReservedByToken[token] += amount;
+        _assertSolvent(token);
         emit Reserved(automationId, msg.sender, token, recipient, amount, r.balance);
     }
 
@@ -227,6 +243,7 @@ contract AutomationVault {
         // Checks-Effects-Interactions: record request ID and debit balance first
         usedRequestId[requestId] = true;
         r.balance -= amount;
+        totalReservedByToken[r.token] -= amount;
         address recipient = r.recipient;
         address token = r.token;
 
@@ -248,6 +265,11 @@ contract AutomationVault {
             require(IERC20(token).balanceOf(recipient) - recipientBalBefore == amount, "token did not deliver full amount");
             require(vaultBalBefore - IERC20(token).balanceOf(address(this)) == amount, "token debited more than amount from vault");
         }
+        // Belt-and-suspenders: even if some future code path ever broke the
+        // exact-delta checks above, this explicit INVARIANT-AV-1 assertion is
+        // the actual guarantee that OTHER reservations of this token are still
+        // fully backed after this release.
+        _assertSolvent(token);
         emit Released(automationId, recipient, token, amount, r.balance, requestId);
     }
 
@@ -267,6 +289,7 @@ contract AutomationVault {
         require(amount > 0, "nothing to refund");
 
         r.balance = 0;
+        totalReservedByToken[r.token] -= amount;
         address depositor = r.depositor;
         address token = r.token;
 
@@ -283,7 +306,22 @@ contract AutomationVault {
             require(IERC20(token).balanceOf(depositor) - depositorBalBefore == amount, "token did not deliver full amount");
             require(vaultBalBefore - IERC20(token).balanceOf(address(this)) == amount, "token debited more than amount from vault");
         }
+        // See release() -- explicit INVARIANT-AV-1 backstop.
+        _assertSolvent(token);
         emit Refunded(automationId, depositor, token, amount);
+    }
+
+    /* ── Internal ───────────────────────────────────────────────────────── */
+
+    /// @dev Actively enforces INVARIANT-AV-1: real custody for `token` must
+    ///      never fall below the sum of every active reservation's promised
+    ///      balance. Called after every state change that can move `token`
+    ///      custody or `totalReservedByToken[token]`, so a bug or a hostile
+    ///      token can never leave one reservation's release/refund silently
+    ///      eating into what backs another reservation of the same token.
+    function _assertSolvent(address token) private view {
+        uint256 custody = token == address(0) ? address(this).balance : IERC20(token).balanceOf(address(this));
+        require(custody >= totalReservedByToken[token], "vault insolvent for token");
     }
 
     /* ── Views ──────────────────────────────────────────────────────────── */

@@ -12,7 +12,15 @@ const hre = require("hardhat");
  *          the outgoing side, on top of the stated amount) could drain more
  *          than the released reservation's share from the shared pool,
  *          leaving other depositors' still-fully-recorded reservations
- *          under-backed and their refunds reverting.
+ *          under-backed and their refunds reverting. Fixed in two layers:
+ *          (1) an exact-delta check on the vault's own balance around each
+ *          release()/refund() transfer, and (2) an explicit
+ *          `totalReservedByToken` ledger asserted against real custody
+ *          (`balanceOf`/`address(this).balance`) on every reserve/release/
+ *          refund, so INVARIANT-AV-1 is actively enforced rather than an
+ *          emergent property of (1) alone -- no reservation's backing can
+ *          ever be silently reduced by another reservation's release,
+ *          refund, or surcharge.
  *   L-01 - PaymentExecutor.createPaymentRequest accepted the native token
  *          sentinel address(0), but payRequest() only ever settles through
  *          the ERC-20 path -- so a native request could be created and then
@@ -84,6 +92,42 @@ describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", func
 
       await vault.connect(depositor).reserve(refundId, await usdc.getAddress(), recipient.address, AMOUNT);
       await expect(vault.connect(depositor).refund(refundId)).to.emit(vault, "Refunded");
+    });
+
+    it("totalReservedByToken tracks the exact sum of active reservations through reserve/release/refund", async () => {
+      const Mock = await hre.ethers.getContractFactory("MockERC20");
+      const usdc = await Mock.deploy();
+      const [, , , depositor, recipient] = await hre.ethers.getSigners();
+      await usdc.mint(depositor.address, AMOUNT * 2n);
+      await usdc.connect(depositor).approve(await vault.getAddress(), AMOUNT * 2n);
+      const usdcAddr = await usdc.getAddress();
+
+      const relId = hre.ethers.id("ledger-release");
+      const refId = hre.ethers.id("ledger-refund");
+
+      await vault.connect(depositor).reserve(relId, usdcAddr, recipient.address, AMOUNT);
+      expect(await vault.totalReservedByToken(usdcAddr)).to.equal(AMOUNT);
+
+      await vault.connect(depositor).reserve(refId, usdcAddr, recipient.address, AMOUNT);
+      expect(await vault.totalReservedByToken(usdcAddr)).to.equal(AMOUNT * 2n);
+
+      await vault.connect(agent).release(relId, AMOUNT, reqId("ledger-release-req"));
+      expect(await vault.totalReservedByToken(usdcAddr)).to.equal(AMOUNT);
+
+      await vault.connect(depositor).refund(refId);
+      expect(await vault.totalReservedByToken(usdcAddr)).to.equal(0n);
+    });
+
+    it("a reverted release/refund leaves the OTHER reservation's ledger entry and real custody completely untouched", async () => {
+      // The whole point of INVARIANT-AV-1 being actively enforced: even
+      // though this surcharge token makes ANY outbound transfer for THIS
+      // reservation impossible (a token-compatibility limit, not a leak),
+      // the second reservation's promised balance and the vault's real
+      // custody for it are provably unaffected by the failed attempt.
+      await expect(vault.connect(agent).release(firstId, AMOUNT, reqId("ledger-isolation"))).to.be.reverted;
+      expect(await vault.reservedBalance(secondId)).to.equal(AMOUNT);
+      expect(await token.balanceOf(await vault.getAddress())).to.equal(AMOUNT * 2n);
+      expect(await vault.totalReservedByToken(await token.getAddress())).to.equal(await token.balanceOf(await vault.getAddress()));
     });
   });
 
