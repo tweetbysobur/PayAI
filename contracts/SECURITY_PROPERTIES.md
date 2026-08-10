@@ -60,7 +60,7 @@ graph TD
 
 | ID | Invariant Property Name | Formal Rule | Behavioral Guard |
 | :--- | :--- | :--- | :--- |
-| **INVARIANT-MR-1** | Manager Authorization | $\text{msg.sender} \in \text{Managers}$ for `registerMerchant` and `setActive` | Only authorized managers can alter merchant state in the registry. |
+| **INVARIANT-MR-1** | Live-Checked, Least-Privilege Registration | $\text{msg.sender} \in \text{Managers} \cup \text{Registrars}$ for `registerMerchant`; $\text{msg.sender} \in \text{Managers}$ for `setActive` | Both checks are plain storage reads evaluated at call time — there is no cached authorization state to fall out of sync with a revocation. `isRegistrar` (narrower than `isManager`, registration-only, no `setActive`) exists so a hot wallet can be granted the ability to onboard merchants without the ability to deactivate them. Added 2026-08 after Ultrafuzz L-02. |
 | **INVARIANT-MR-2** | Recorder Volume Accrual | $\text{msg.sender} \in \text{Recorders}$ for `recordVolume` | Only authorized recorder contracts (e.g. `PaymentExecutor`) can accrue merchant volume. |
 | **INVARIANT-MR-3** | Unique Registration | $\text{registeredAt}(\text{wallet}) \ne 0 \implies \text{revert on second registration}$ | A wallet address can only be registered once. |
 

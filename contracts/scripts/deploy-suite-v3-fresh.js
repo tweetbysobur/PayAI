@@ -102,9 +102,20 @@ async function main() {
   // momentarily left in the vulnerable state this finding describes.
   tx = await registry.setManager(agentAddr, false, { gasLimit: 100_000 });
   await tx.wait();
+  // Ultrafuzz L-02: revoking full manager (above) correctly stops the hot
+  // agent from ever calling setActive, but it also left the agent with no
+  // live-checked way to register new merchants through the app -- the app's
+  // registration route signs with the agent, and registerMerchant would
+  // revert forever post-handoff. registerMerchant is purely additive (can
+  // only create a NEW merchant, never modify/deactivate an existing one --
+  // see INVARIANT-MR-3), so it's safe to grant the agent this narrower
+  // isRegistrar role without restoring any of isManager's other power.
+  tx = await registry.setRegistrar(agentAddr, true, { gasLimit: 100_000 });
+  await tx.wait();
   tx = await registry.transferOwnership(ownerAddr, { gasLimit: 100_000 });
   await tx.wait();
-  console.log("    done. Hot agent key's MerchantRegistry manager role revoked (Ultrafuzz M-01).");
+  console.log("    done. Hot agent key's MerchantRegistry manager role revoked (Ultrafuzz M-01),");
+  console.log("    scoped registrar role granted instead so merchant onboarding still works (Ultrafuzz L-02).");
 
   console.log("\n✅ Fresh suite deployed and fully wired — no cold-wallet action required.");
   console.log("\nSend me these three addresses and I'll update Vercel + redeploy the app:");
