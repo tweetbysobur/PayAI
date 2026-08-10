@@ -219,7 +219,11 @@ const uniswapV3Provider: SwapProvider = {
 
     const outDecimals = outSide.decimals;
     const amountOut = Number(formatUnits(best.amountOut, outDecimals));
-    const minOutWei = (best.amountOut * BigInt(Math.round((1 - DEFAULT_SLIPPAGE) * 1e6))) / 1_000_000n;
+    // Integer division floors a positive dust quote (e.g. 1 base unit) to a
+    // zero minimum, which would let a signed swap execute with no enforced
+    // floor at all. Never let a positive quote produce a zero minOut.
+    let minOutWei = (best.amountOut * BigInt(Math.round((1 - DEFAULT_SLIPPAGE) * 1e6))) / 1_000_000n;
+    if (minOutWei === 0n && best.amountOut > 0n) minOutWei = 1n;
     return {
       fromToken, toToken, amountIn,
       amountOut,

@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 interface IERC20 {
     function transferFrom(address from, address to, uint256 value) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 /**
@@ -134,8 +135,17 @@ contract VeriPayRegistry {
     ) external onlyAgent returns (uint256 id) {
         require(recipient != address(0), "zero recipient");
         require(amount > 0, "zero amount");
+        // Verify the recipient's balance actually grew by `amount`, not just
+        // that transferFrom returned true -- matches the actual-delivery
+        // check PaymentExecutor and AutomationVault already enforce. Without
+        // it, a fee-on-transfer/non-standard token could deliver less than
+        // `amount` while this audit record still claims the nominal amount
+        // settled. Added 2026-08 after Ultrafuzz's non-production outcome on
+        // this same gap.
+        uint256 balBefore = IERC20(token).balanceOf(recipient);
         bool ok = IERC20(token).transferFrom(msg.sender, recipient, amount);
         require(ok, "transfer failed");
+        require(IERC20(token).balanceOf(recipient) - balBefore == amount, "token did not deliver full amount");
         return _record(recipient, token, amount, riskScore, purposeHash, ref);
     }
 
