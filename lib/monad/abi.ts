@@ -76,7 +76,7 @@ export const PAYMENT_EXECUTOR_ABI = [
     outputs: [{ name: "requestId", type: "uint256" }],
   },
   {
-    type: "function", name: "payRequest", stateMutability: "nonpayable",
+    type: "function", name: "payRequest", stateMutability: "payable",
     inputs: [
       { name: "requestId", type: "uint256" }, { name: "riskScore", type: "uint16" },
       { name: "aiDecisionHash", type: "bytes32" }, { name: "idempotencyRequestId", type: "bytes32" },

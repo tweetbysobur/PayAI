@@ -21,10 +21,15 @@ const hre = require("hardhat");
  *          emergent property of (1) alone -- no reservation's backing can
  *          ever be silently reduced by another reservation's release,
  *          refund, or surcharge.
- *   L-01 - PaymentExecutor.createPaymentRequest accepted the native token
- *          sentinel address(0), but payRequest() only ever settles through
- *          the ERC-20 path -- so a native request could be created and then
- *          never transition to paid. Now rejected at creation.
+ *   L-01 - PaymentExecutor.payRequest() only ever settled through the ERC-20
+ *          path (it called executePayment, never executePaymentNative), so a
+ *          request created with the native address(0) sentinel could never
+ *          transition to paid. Fixed by giving payRequest() a native branch
+ *          that settles through the same _settleNative core
+ *          executePaymentNative uses -- a native request now follows the
+ *          identical created -> paid/settled lifecycle as an ERC-20 request,
+ *          funding and paying atomically via msg.value since native MON has
+ *          no allowance mechanism to pull from later.
  *   (non-production outcome) - PaymentExecutor.setAgent could authorize
  *          address(0), inconsistent with addAgent's zero-address guard.
  *   (non-production outcome) - VeriPayRegistry.payAndRecord recorded the
@@ -131,28 +136,80 @@ describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", func
     });
   });
 
-  describe("L-01: PaymentExecutor rejects native (address(0)) payment requests at creation", () => {
-    let executor, owner, agent, merchant;
+  describe("L-01: native payment requests follow the full created -> paid/settled lifecycle", () => {
+    let executor, registry, owner, agent, merchant;
 
     beforeEach(async () => {
       [, owner, agent, merchant] = await hre.ethers.getSigners();
       const Registry = await hre.ethers.getContractFactory("MerchantRegistry");
-      const registry = await Registry.deploy();
+      registry = await Registry.deploy();
       const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
       executor = await Executor.deploy(await registry.getAddress(), 0, owner.address, agent.address, 0, 0, 0);
+      await registry.setRecorder(await executor.getAddress(), true);
     });
 
-    it("reverts createPaymentRequest with the native sentinel, instead of booking a request that can never be paid", async () => {
+    it("creates a native request, then settles it atomically when payRequest carries the matching msg.value", async () => {
+      const amount = hre.ethers.parseEther("2");
+      await executor.connect(agent).createPaymentRequest(merchant.address, hre.ethers.ZeroAddress, amount, reqId("native-invoice"));
+      const requestId = 0n;
+      expect((await executor.getRequest(requestId)).paid).to.equal(false);
+
+      const before = await hre.ethers.provider.getBalance(merchant.address);
       await expect(
-        executor.connect(agent).createPaymentRequest(merchant.address, hre.ethers.ZeroAddress, 1_000000n, reqId("native-req")),
-      ).to.be.revertedWith("native requests unsupported");
+        executor.connect(agent).payRequest(requestId, 10, reqId("decision"), reqId("native-pay"), { value: amount }),
+      ).to.emit(executor, "RequestPaid");
+      const after = await hre.ethers.provider.getBalance(merchant.address);
+
+      const req = await executor.getRequest(requestId);
+      expect(req.paid).to.equal(true);
+      expect(after - before).to.equal(amount);
+      const payment = await executor.getPayment(req.paymentId);
+      expect(payment.token).to.equal(hre.ethers.ZeroAddress);
+      expect(payment.amount).to.equal(amount);
     });
 
-    it("still accepts an ERC-20 request", async () => {
+    it("reverts payRequest for a native request when msg.value doesn't match the request amount", async () => {
+      const amount = hre.ethers.parseEther("2");
+      await executor.connect(agent).createPaymentRequest(merchant.address, hre.ethers.ZeroAddress, amount, reqId("native-invoice-2"));
+      await expect(
+        executor.connect(agent).payRequest(0n, 10, reqId("decision"), reqId("wrong-value"), { value: hre.ethers.parseEther("1") }),
+      ).to.be.revertedWith("native value must match request amount");
+      expect((await executor.getRequest(0n)).paid).to.equal(false);
+    });
+
+    it("reverts payRequest for an ERC-20 request if native value is attached", async () => {
       const Mock = await hre.ethers.getContractFactory("MockERC20");
       const usdc = await Mock.deploy();
-      await expect(executor.connect(agent).createPaymentRequest(merchant.address, await usdc.getAddress(), 1_000000n, reqId("erc20-req")))
-        .to.emit(executor, "PaymentRequested");
+      await usdc.mint(agent.address, 1_000000n);
+      await usdc.connect(agent).approve(await executor.getAddress(), 1_000000n);
+      await executor.connect(agent).createPaymentRequest(merchant.address, await usdc.getAddress(), 1_000000n, reqId("erc20-invoice"));
+      await expect(
+        executor.connect(agent).payRequest(0n, 10, reqId("decision"), reqId("stray-value"), { value: 1n }),
+      ).to.be.revertedWith("no native value for erc20 request");
+    });
+
+    it("still settles ERC-20 requests normally with no value attached", async () => {
+      const Mock = await hre.ethers.getContractFactory("MockERC20");
+      const usdc = await Mock.deploy();
+      await usdc.mint(agent.address, 1_000000n);
+      await usdc.connect(agent).approve(await executor.getAddress(), 1_000000n);
+      await executor.connect(agent).createPaymentRequest(merchant.address, await usdc.getAddress(), 1_000000n, reqId("erc20-invoice-2"));
+      await expect(executor.connect(agent).payRequest(0n, 10, reqId("decision"), reqId("erc20-pay"))).to.emit(executor, "RequestPaid");
+      expect(await usdc.balanceOf(merchant.address)).to.equal(1_000000n);
+    });
+
+    it("standalone executePaymentNative and executePayment are unaffected by the shared settlement refactor", async () => {
+      await expect(
+        executor.connect(agent).executePaymentNative(merchant.address, 5, reqId("d"), reqId("r"), reqId("standalone-native"), { value: hre.ethers.parseEther("1") }),
+      ).to.emit(executor, "PaymentExecuted");
+
+      const Mock = await hre.ethers.getContractFactory("MockERC20");
+      const usdc = await Mock.deploy();
+      await usdc.mint(agent.address, 1_000000n);
+      await usdc.connect(agent).approve(await executor.getAddress(), 1_000000n);
+      await expect(
+        executor.connect(agent).executePayment(merchant.address, await usdc.getAddress(), 1_000000n, 5, reqId("d2"), reqId("r2"), reqId("standalone-erc20")),
+      ).to.emit(executor, "PaymentExecuted");
     });
   });
 

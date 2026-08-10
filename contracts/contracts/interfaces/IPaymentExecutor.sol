@@ -158,6 +158,11 @@ interface IPaymentExecutor {
     ) external returns (uint256 requestId);
 
     /// @notice Settle an existing payment request.
+    /// @dev For a native-MON request (created with token == address(0)), the
+    ///      caller MUST attach exactly the request's amount as msg.value --
+    ///      native MON has no allowance mechanism, so funding and paying
+    ///      happen atomically in this one call. For an ERC-20 request, no
+    ///      native value may be attached.
     /// @param requestId ID of payment request to settle.
     /// @param riskScore Risk score for the settlement.
     /// @param aiDecisionHash Hash of AI approval log.
@@ -168,7 +173,7 @@ interface IPaymentExecutor {
         uint16 riskScore,
         bytes32 aiDecisionHash,
         bytes32 idempotencyRequestId
-    ) external returns (uint256 id);
+    ) external payable returns (uint256 id);
 
     /// @notice Returns the total count of executed payments.
     function paymentsCount() external view returns (uint256);
