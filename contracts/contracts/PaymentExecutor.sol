@@ -28,8 +28,17 @@ interface IERC20 {
  *   no `requestId` can ever be executed twice. Duplicate resubmissions MUST revert.
  *
  * @custom:security-property INVARIANT-PE-2: Single-Transaction Spend Ceiling
- *   No single payment can exceed `merchantMaxTx[merchant]` (if non-zero) or `maxTxAmount`
- *   (or native MON equivalent). Exceeding transfers MUST revert.
+ *   No single payment can exceed `min(maxTxAmount, merchantMaxTx[merchant])` (or the
+ *   native MON equivalent), where a cap of 0 means "no cap" for that side. A
+ *   merchant-specific cap can only ever NARROW the global ceiling -- it can never
+ *   raise a merchant above what `maxTxAmount` allows every other merchant. If no
+ *   merchant-specific cap is set, the global cap applies. Exceeding transfers MUST
+ *   revert. Enforced once in `_effectiveCap`, used by every entry point that moves
+ *   funds (`executePayment`, `executePaymentFrom`, `executePaymentNative`, and
+ *   `payRequest` via `_settleErc20`/`_settleNative`), so the execution path can never
+ *   bypass it. Corrected 2026-08 -- `merchantMaxTx`/`merchantMaxTxNative` previously
+ *   REPLACED the global cap instead of bounding it, letting a merchant-specific
+ *   setting exceed `maxTxAmount`, contradicting this documented invariant.
  *
  * @custom:security-property INVARIANT-PE-3: Per-Agent Daily Spend Ceiling
  *   The cumulative amount spent by `agent` on UTC day `block.timestamp / 1 days` MUST NOT
@@ -241,6 +250,9 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /// @notice Set merchant-specific ERC-20 single-transaction max amount.
+    /// @dev A narrowing override only -- see INVARIANT-PE-2. The effective cap
+    ///      is min(maxTxAmount, amount); setting this above maxTxAmount has no
+    ///      effect, since the global cap still binds. 0 clears the override.
     function setMerchantMaxTx(address merchant, uint256 amount) external onlyOwner {
         merchantMaxTx[merchant] = amount;
         emit MerchantMaxTxSet(merchant, amount);
@@ -259,6 +271,9 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /// @notice Set merchant-specific native MON single-transaction max amount.
+    /// @dev A narrowing override only -- see INVARIANT-PE-2. The effective cap
+    ///      is min(maxTxAmountNative, amount); setting this above
+    ///      maxTxAmountNative has no effect. 0 clears the override.
     function setMerchantMaxTxNative(address merchant, uint256 amount) external onlyOwner {
         merchantMaxTxNative[merchant] = amount;
         emit MerchantMaxTxNativeSet(merchant, amount);
@@ -273,6 +288,16 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /* ── Limit checks ───────────────────────────────────────────────────── */
+
+    /// @dev INVARIANT-PE-2: min(globalCap, merchantCap), treating 0 as "no cap"
+    ///      on either side independently. A merchant-specific cap can only ever
+    ///      narrow the global ceiling, never raise a merchant above it.
+    function _effectiveCap(uint256 globalCap, uint256 merchantCap) private pure returns (uint256) {
+        if (globalCap == 0) return merchantCap;
+        if (merchantCap == 0) return globalCap;
+        return merchantCap < globalCap ? merchantCap : globalCap;
+    }
+
     /**
      * @dev Internal helper to validate merchant status and enforce per-tx & daily limits.
      * @param agent Executing agent address.
@@ -294,8 +319,8 @@ contract PaymentExecutor is IPaymentExecutor {
         }
 
         uint256 perTxCap = isNative
-            ? (merchantMaxTxNative[merchant] > 0 ? merchantMaxTxNative[merchant] : maxTxAmountNative)
-            : (merchantMaxTx[merchant] > 0 ? merchantMaxTx[merchant] : maxTxAmount);
+            ? _effectiveCap(maxTxAmountNative, merchantMaxTxNative[merchant])
+            : _effectiveCap(maxTxAmount, merchantMaxTx[merchant]);
         if (perTxCap > 0) require(amount <= perTxCap, "exceeds max tx amount");
 
         uint256 cap = isNative ? dailyCapNative : dailyCap;

@@ -47,6 +47,14 @@ const hre = require("hardhat");
  *   (non-production outcome) - VeriPayRegistry.payAndRecord recorded the
  *          nominal amount without verifying the recipient's balance actually
  *          grew by that amount, unlike PaymentExecutor/AutomationVault.
+ *   (non-production outcome, resolved) - Merchant-specific transaction caps
+ *          REPLACED the global cap instead of bounding it, contradicting
+ *          SECURITY_PROPERTIES.md's documented min(global, merchant)
+ *          invariant. Product decision: the global cap is the protocol-wide
+ *          maximum and a merchant-specific cap can only narrow it, never
+ *          raise a merchant above it. Fixed via a single _effectiveCap
+ *          helper used by every fund-moving entry point, so the execution
+ *          path can never bypass the invariant.
  */
 describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", function () {
   const reqId = (l) => hre.ethers.id(l);
@@ -300,6 +308,62 @@ describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", func
         registry.connect(agent).payAndRecord(recipient.address, await shortToken.getAddress(), 1_000000n, 10, reqId("purpose"), reqId("ref")),
       ).to.be.revertedWith("token did not deliver full amount");
       expect(await registry.paymentsCount()).to.equal(0);
+    });
+  });
+
+  describe("non-production outcome (resolved): merchant cap is min(global, merchant), never an override", () => {
+    let executor, registry, owner, agent, merchant;
+    const GLOBAL_CAP = 1_000_000000n; // 1,000 USDC (6dp)
+
+    beforeEach(async () => {
+      [, owner, agent, merchant] = await hre.ethers.getSigners();
+      const Registry = await hre.ethers.getContractFactory("MerchantRegistry");
+      registry = await Registry.deploy();
+      const Executor = await hre.ethers.getContractFactory("PaymentExecutor");
+      executor = await Executor.deploy(await registry.getAddress(), 0, owner.address, agent.address, GLOBAL_CAP, 0, 0);
+      await registry.setRecorder(await executor.getAddress(), true);
+    });
+
+    async function fundedPayment(amount, id) {
+      const Mock = await hre.ethers.getContractFactory("MockERC20");
+      const usdc = await Mock.deploy();
+      await usdc.mint(agent.address, amount);
+      await usdc.connect(agent).approve(await executor.getAddress(), amount);
+      return executor.connect(agent).executePayment(merchant.address, await usdc.getAddress(), amount, 10, reqId(id + "-d"), reqId(id + "-r"), reqId(id));
+    }
+
+    it("1. a merchant cap below the global cap is the effective cap", async () => {
+      await executor.connect(owner).setMerchantMaxTx(merchant.address, 100_000000n); // 100 USDC
+      await expect(fundedPayment(100_000000n, "case1-at")).to.emit(executor, "PaymentExecuted");
+      await expect(fundedPayment(100_000001n, "case1-over")).to.be.revertedWith("exceeds max tx amount");
+    });
+
+    it("2. a merchant cap equal to the global cap works at exactly that amount", async () => {
+      await executor.connect(owner).setMerchantMaxTx(merchant.address, GLOBAL_CAP);
+      await expect(fundedPayment(GLOBAL_CAP, "case2-at")).to.emit(executor, "PaymentExecuted");
+      await expect(fundedPayment(GLOBAL_CAP + 1n, "case2-over")).to.be.revertedWith("exceeds max tx amount");
+    });
+
+    it("3. a merchant cap ABOVE the global cap is bounded by the global cap, never an override", async () => {
+      await executor.connect(owner).setMerchantMaxTx(merchant.address, 5_000_000000n); // 5,000 USDC, way above global
+      await expect(fundedPayment(GLOBAL_CAP, "case3-at-global")).to.emit(executor, "PaymentExecuted");
+      await expect(fundedPayment(1_500_000000n, "case3-over-global")).to.be.revertedWith("exceeds max tx amount");
+    });
+
+    it("4. no merchant-specific cap falls back to the global cap", async () => {
+      expect(await executor.merchantMaxTx(merchant.address)).to.equal(0n);
+      await expect(fundedPayment(GLOBAL_CAP, "case4-at")).to.emit(executor, "PaymentExecuted");
+      await expect(fundedPayment(GLOBAL_CAP + 1n, "case4-over")).to.be.revertedWith("exceeds max tx amount");
+    });
+
+    it("5. PaymentExecutor cannot execute above the effective cap through ANY entry point, including payRequest", async () => {
+      await executor.connect(owner).setMerchantMaxTx(merchant.address, 5_000_000000n); // effective cap still 1,000 (global)
+      const Mock = await hre.ethers.getContractFactory("MockERC20");
+      const usdc = await Mock.deploy();
+      await executor.connect(agent).createPaymentRequest(merchant.address, await usdc.getAddress(), 1_500_000000n, reqId("case5-req"));
+      await expect(
+        executor.connect(agent).payRequest(0n, 10, reqId("case5-d"), reqId("case5-pay")),
+      ).to.be.revertedWith("exceeds max tx amount");
     });
   });
 });
