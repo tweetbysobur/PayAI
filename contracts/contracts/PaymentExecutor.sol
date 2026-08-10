@@ -56,6 +56,17 @@ interface IERC20 {
  *   `transferFrom` returned true. A fee-on-transfer or otherwise non-standard token
  *   delivering less than `amount` MUST revert the whole payment rather than being
  *   recorded as a full settlement.
+ *
+ * @custom:security-property INVARIANT-PE-9: Uniform Request Lifecycle Across Token Types
+ *   A payment request's lifecycle is `created` (createPaymentRequest) -> `paid`/
+ *   `settled` (payRequest, atomically) for EVERY token, including the native MON
+ *   sentinel `address(0)`. `payRequest` MUST settle a native request through the
+ *   same `_settleNative` core `executePaymentNative` uses (limits, idempotency,
+ *   transfer, `_recordPayment`), requiring `msg.value == r.amount` since native MON
+ *   has no allowance to pull later -- never leave a created request permanently
+ *   stuck unpaid because its token happens to be native. Added 2026-08 after
+ *   Ultrafuzz L-01: `payRequest` previously only ever called the ERC-20 path, so a
+ *   request created with `token == address(0)` could never transition to paid.
  */
 contract PaymentExecutor is IPaymentExecutor {
     /// @notice Cold wallet / multisig contract owner address.
@@ -321,6 +332,27 @@ contract PaymentExecutor is IPaymentExecutor {
         bytes32 ref,
         bytes32 requestId
     ) public onlyAgent nonReentrant returns (uint256 id) {
+        id = _settleErc20(merchant, token, amount, riskScore, aiDecisionHash, ref, requestId);
+    }
+
+    /// @dev Shared ERC-20 settlement core for executePayment() and payRequest().
+    ///      `msg.sender` is preserved unchanged from whichever external entry
+    ///      point called this (a private call is a JUMP, not a CALL -- there is
+    ///      no new call frame), so the pull always comes from the actual agent
+    ///      who signed the transaction. Callers are responsible for their own
+    ///      onlyAgent/nonReentrant guard -- this is `private` specifically so
+    ///      it is never externally reachable without one, and so payRequest()
+    ///      can settle through the SAME logic as a direct executePayment()
+    ///      call without re-entering a second nonReentrant lock.
+    function _settleErc20(
+        address merchant,
+        address token,
+        uint256 amount,
+        uint16 riskScore,
+        bytes32 aiDecisionHash,
+        bytes32 ref,
+        bytes32 requestId
+    ) private returns (uint256 id) {
         require(merchant != address(0), "zero merchant");
         require(amount > 0, "zero amount");
         require(riskScore <= 100, "risk>100");
@@ -383,17 +415,37 @@ contract PaymentExecutor is IPaymentExecutor {
         bytes32 ref,
         bytes32 requestId
     ) external payable onlyAgent nonReentrant returns (uint256 id) {
+        id = _settleNative(merchant, msg.value, riskScore, aiDecisionHash, ref, requestId);
+    }
+
+    /// @dev Shared native-MON settlement core for executePaymentNative() and
+    ///      payRequest(). Native MON has no allowance mechanism -- there is no
+    ///      way to "pull" it the way executePayment() pulls an ERC-20 via
+    ///      transferFrom -- so funding and paying happen atomically: the agent
+    ///      attaches `amount` as msg.value in the SAME call that settles it.
+    ///      That is the native equivalent of the ERC-20 path's single pull-
+    ///      and-settle step, not a separate persisted "funded" state. See
+    ///      _settleErc20() for why this is `private` rather than adding a
+    ///      second nonReentrant lock.
+    function _settleNative(
+        address merchant,
+        uint256 amount,
+        uint16 riskScore,
+        bytes32 aiDecisionHash,
+        bytes32 ref,
+        bytes32 requestId
+    ) private returns (uint256 id) {
         require(merchant != address(0), "zero merchant");
-        require(msg.value > 0, "zero amount");
+        require(amount > 0, "zero amount");
         require(riskScore <= 100, "risk>100");
 
         _claimRequestId(requestId);
-        _enforceLimits(msg.sender, merchant, msg.value, true, false);
+        _enforceLimits(msg.sender, merchant, amount, true, false);
 
-        (bool sent, ) = merchant.call{value: msg.value}("");
+        (bool sent, ) = merchant.call{value: amount}("");
         require(sent, "native transfer failed");
 
-        id = _recordPayment(merchant, address(0), msg.value, riskScore, aiDecisionHash, ref, requestId);
+        id = _recordPayment(merchant, address(0), amount, riskScore, aiDecisionHash, ref, requestId);
     }
 
     /// @dev Internal recording helper emitting events and recording merchant volume.
@@ -457,12 +509,10 @@ contract PaymentExecutor is IPaymentExecutor {
     ) external onlyAgent returns (uint256 requestId) {
         require(merchant != address(0), "zero merchant");
         require(amount > 0, "zero amount");
-        // payRequest() only ever settles through the ERC-20 path (it calls
-        // executePayment, never executePaymentNative), so a request created
-        // with the native sentinel address(0) could never transition to paid
-        // -- reject it at creation instead of leaving a permanently-stuck
-        // request on chain. Added 2026-08 after Ultrafuzz L-01.
-        require(token != address(0), "native requests unsupported");
+        // token == address(0) is native MON -- payRequest() settles it through
+        // the same _settleNative() core executePaymentNative() uses, so a
+        // native request follows the identical created -> paid/settled
+        // lifecycle as an ERC-20 request. See payRequest() below.
         requestId = _requests.length;
         _requests.push(
             PaymentRequest({
@@ -479,17 +529,31 @@ contract PaymentExecutor is IPaymentExecutor {
     }
 
     /// @inheritdoc IPaymentExecutor
+    /// @dev Settles through the SAME core logic as a direct executePayment()/
+    ///      executePaymentNative() call (_settleErc20/_settleNative), so a
+    ///      request created with any token -- including the native address(0)
+    ///      sentinel -- follows the identical created -> paid/settled
+    ///      lifecycle. For a native request, the agent must attach exactly
+    ///      `r.amount` as msg.value in this call: native MON has no allowance
+    ///      mechanism to pull from later, so funding and paying are one
+    ///      atomic step, same as executePaymentNative()'s own payable entry.
     function payRequest(
         uint256 requestId,
         uint16 riskScore,
         bytes32 aiDecisionHash,
         bytes32 idempotencyRequestId
-    ) external onlyAgent returns (uint256 id) {
+    ) external payable onlyAgent nonReentrant returns (uint256 id) {
         require(requestId < _requests.length, "bad request");
         PaymentRequest storage r = _requests[requestId];
         require(!r.paid, "already paid");
 
-        id = executePayment(r.merchant, r.token, r.amount, riskScore, aiDecisionHash, r.ref, idempotencyRequestId);
+        if (r.token == address(0)) {
+            require(msg.value == r.amount, "native value must match request amount");
+            id = _settleNative(r.merchant, r.amount, riskScore, aiDecisionHash, r.ref, idempotencyRequestId);
+        } else {
+            require(msg.value == 0, "no native value for erc20 request");
+            id = _settleErc20(r.merchant, r.token, r.amount, riskScore, aiDecisionHash, r.ref, idempotencyRequestId);
+        }
         r.paid = true;
         r.paymentId = id;
         emit RequestPaid(requestId, id);
