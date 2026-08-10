@@ -26,6 +26,18 @@ export type SwapToken = string;
 /** Default slippage tolerance (0.5%) — overridable per request. */
 export const DEFAULT_SLIPPAGE = 0.005;
 
+/** Hard ceiling on slippage tolerance. Beyond this, amountOutMinimum is so
+ *  low it stops being real protection against price movement between quote
+ *  and execution — effectively an unprotected trade. */
+export const MAX_SLIPPAGE = 0.5;
+
+/** Hard ceiling on estimated price impact (how much the trade's OWN size
+ *  moves the pool price, distinct from slippage). Beyond this the pool is
+ *  almost certainly too thin for the requested size, or the quote itself is
+ *  unreliable -- refuse to build a plan rather than let someone sign into a
+ *  trade that's a bad idea regardless of slippage settings. */
+export const MAX_PRICE_IMPACT = 0.15;
+
 /* ── Verified Uniswap v3 deployment on Monad mainnet (chain 143) ──────────────
  * Source: Uniswap official docs — developers.uniswap.org/contracts/v3/reference/
  * deployments/monad-deployments. Each is env-overridable so a corrected address
@@ -121,6 +133,11 @@ export interface SwapQuote {
   slippage: number;
   /** Indicative price: toToken per 1 fromToken. */
   rate: number;
+  /** Estimated fraction (0..1) by which the trade's own size moves the pool
+   *  price. null when it couldn't be estimated (see estimatePriceImpact()).
+   *  A quote is never returned above MAX_PRICE_IMPACT -- rawQuote() throws
+   *  instead -- so this is always a value that was allowed through. */
+  priceImpact: number | null;
 }
 
 export interface UnsignedStep {
@@ -188,6 +205,10 @@ interface RawQuote {
   /** Minimum out after slippage, in base units — what the swap tx enforces
    *  on-chain. Never zero for a positive `amountOutWei` (see minOutWei()). */
   minOutWei: bigint;
+  /** Estimated fraction (0..1) by which the trade's OWN size moves the pool
+   *  price, distinct from slippage. null when it couldn't be estimated
+   *  (e.g. the trade is already too small to have a smaller reference). */
+  priceImpact: number | null;
 }
 
 /** Never let a positive output quote floor to a zero enforced minimum --
@@ -198,8 +219,49 @@ function minOutWei(amountOutWei: bigint, slippage: number): bigint {
   return floored === 0n && amountOutWei > 0n ? 1n : floored;
 }
 
+/**
+ * Estimate how much the trade's own size moves the pool price, as distinct
+ * from slippage (which protects against price moving BETWEEN quote and
+ * execution). Quotes a much smaller reference amount at the SAME fee tier,
+ * scales its rate up to the actual trade's size, and compares the shortfall
+ * against what actually came back.
+ *
+ * Best-effort only: this is a secondary defense-in-depth check on top of the
+ * primary protection (a correctly bounded, always-positive amountOutMinimum
+ * -- see minOutWei()). If the reference quote itself fails for any reason,
+ * this fails open (returns null) rather than blocking a trade over an
+ * unrelated RPC hiccup.
+ */
+async function estimatePriceImpact(
+  pub: ReturnType<typeof getPublicClient>,
+  tokenIn: Address, tokenOut: Address, fee: number,
+  amountInWei: bigint, actualAmountOutWei: bigint,
+): Promise<number | null> {
+  if (amountInWei <= 1000n) return null; // too small to get a meaningfully smaller reference
+  const referenceAmountInWei = amountInWei / 1000n;
+  try {
+    const { result } = await pub.simulateContract({
+      address: UNISWAP_MAINNET.quoterV2,
+      abi: QUOTER_V2_ABI,
+      functionName: "quoteExactInputSingle",
+      args: [{ tokenIn, tokenOut, amountIn: referenceAmountInWei, fee, sqrtPriceLimitX96: 0n }],
+    });
+    const referenceAmountOutWei = (result as readonly bigint[])[0];
+    if (referenceAmountOutWei === 0n) return null;
+    const expectedAtActualSize = (referenceAmountOutWei * amountInWei) / referenceAmountInWei;
+    if (expectedAtActualSize === 0n) return null;
+    const shortfall = expectedAtActualSize > actualAmountOutWei ? expectedAtActualSize - actualAmountOutWei : 0n;
+    return Number(shortfall) / Number(expectedAtActualSize);
+  } catch {
+    return null;
+  }
+}
+
 async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number, slippage: number): Promise<RawQuote> {
   if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
+  if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {
+    throw new Error(`Slippage tolerance must be between 0% and ${(MAX_SLIPPAGE * 100).toFixed(0)}%.`);
+  }
   const pub = getPublicClient();
   // Registry-resolved, so quoting works for any verified token pair.
   const inSide = await resolveSwapSide(fromToken);
@@ -232,11 +294,20 @@ async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: numb
     throw new Error(`No liquidity pool found for ${fromToken} → ${toToken} on Monad. This pair may not be tradable yet.`);
   }
 
+  const priceImpact = await estimatePriceImpact(pub, tokenIn, tokenOut, best.fee, amountInWei, best.amountOut);
+  if (priceImpact !== null && priceImpact > MAX_PRICE_IMPACT) {
+    throw new Error(
+      `This trade would move the pool price by an estimated ${(priceImpact * 100).toFixed(1)}%, ` +
+      `which is too high to execute safely. Try a smaller amount.`,
+    );
+  }
+
   return {
     inSide, outSide, amountInWei,
     fee: best.fee,
     amountOutWei: best.amountOut,
     minOutWei: minOutWei(best.amountOut, slippage),
+    priceImpact,
   };
 }
 
@@ -259,6 +330,7 @@ const uniswapV3Provider: SwapProvider = {
       feeTier: q.fee,
       slippage: DEFAULT_SLIPPAGE,
       rate: amountOut / amountIn,
+      priceImpact: q.priceImpact,
     };
   },
 
@@ -279,6 +351,7 @@ const uniswapV3Provider: SwapProvider = {
       feeTier: raw.fee,
       slippage,
       rate: amountOut / amountIn,
+      priceImpact: raw.priceImpact,
     };
     const pub = getPublicClient();
     const router = UNISWAP_MAINNET.swapRouter02;
