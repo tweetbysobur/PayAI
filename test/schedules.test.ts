@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSchedule, recordRun, getSchedule, updateSchedule, advanceRun } from "@/lib/platform/schedules";
+import { createSchedule, recordRun, getSchedule, updateSchedule, advanceRun, setScheduleStatus } from "@/lib/platform/schedules";
 
 // These exercise the single most important reliability decision in the
 // Payment Automations feature: what happens to the automation after a run,
@@ -143,5 +143,54 @@ describe("updateSchedule", () => {
     expect(edited).toBeNull();
     const stillOriginal = await getSchedule(s.id);
     expect(stillOriginal!.amount).toBe(s.amount);
+  });
+});
+
+// Ultrafuzz L-03: an unrecognized PATCH `action` string must never reach
+// setScheduleStatus at all (see the ACTION_TO_STATUS allow-list in
+// app/api/automations/route.ts, which 400s before calling this function).
+// These tests cover the adjacent state-machine gap one level deeper: even a
+// *valid* action (pause/resume) must not be able to reanimate an automation
+// that is already terminal, since "cancelled" already handed any Reserved
+// Funds deposit back to the depositor.
+describe("setScheduleStatus — cancelled is a terminal state", () => {
+  it("refuses to resume a cancelled automation back to active", async () => {
+    const s = await makeSchedule();
+    await setScheduleStatus("merchant-1", s.id, "cancelled");
+    const result = await setScheduleStatus("merchant-1", s.id, "active");
+    expect(result).toBeNull();
+    expect((await getSchedule(s.id))!.status).toBe("cancelled");
+  });
+
+  it("refuses to pause a cancelled automation", async () => {
+    const s = await makeSchedule();
+    await setScheduleStatus("merchant-1", s.id, "cancelled");
+    const result = await setScheduleStatus("merchant-1", s.id, "paused");
+    expect(result).toBeNull();
+    expect((await getSchedule(s.id))!.status).toBe("cancelled");
+  });
+
+  it("still allows re-cancelling an already-cancelled automation (idempotent)", async () => {
+    const s = await makeSchedule();
+    await setScheduleStatus("merchant-1", s.id, "cancelled");
+    const result = await setScheduleStatus("merchant-1", s.id, "cancelled");
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe("cancelled");
+  });
+
+  it("still allows the normal pause -> resume cycle on a non-terminal automation", async () => {
+    const s = await makeSchedule();
+    const paused = await setScheduleStatus("merchant-1", s.id, "paused");
+    expect(paused!.status).toBe("paused");
+    const resumed = await setScheduleStatus("merchant-1", s.id, "active");
+    expect(resumed!.status).toBe("active");
+  });
+
+  it("still refuses any status change once completed (unchanged prior behavior)", async () => {
+    const s = await makeSchedule({ cadence: "once" });
+    await recordRun(s.id, { at: Date.now(), decision: "executed" });
+    expect((await getSchedule(s.id))!.status).toBe("completed");
+    const result = await setScheduleStatus("merchant-1", s.id, "active");
+    expect(result).toBeNull();
   });
 });

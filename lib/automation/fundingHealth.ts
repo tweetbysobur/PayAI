@@ -32,8 +32,14 @@ export async function checkFundingHealth(s: ScheduledPayment): Promise<FundingHe
   const neededUnits = BigInt(Math.round(needed * 10 ** decimals));
 
   if (s.fundingMode === "reserved") {
+    // A reservation is only ever released/refunded against the vault it was
+    // actually deposited into (see lib/platform/schedules.ts,
+    // lib/automation/execute.ts). If the global vault config has since been
+    // rotated, the CURRENT vault has nothing to do with this reservation --
+    // its health must be read from the pinned vaultAddress, falling back to
+    // the current config only for older rows that predate per-row pinning.
     const { getAutomationVault } = await import("@/lib/monad/config");
-    const vault = getAutomationVault();
+    const vault = (s.vaultAddress as `0x${string}` | undefined) ?? getAutomationVault();
     if (!vault) return null;
     const { getPublicClient } = await import("@/lib/monad/wallet");
     const { requestId32 } = await import("@/lib/monad/contracts");

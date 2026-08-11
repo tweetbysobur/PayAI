@@ -280,6 +280,13 @@ export async function setScheduleStatus(
   const sender = opts?.sender?.trim().toLowerCase();
   if (sender && (row.sender ?? "").toLowerCase() !== sender) return null;
   if (row.status === "completed") return null;
+  // "cancelled" is terminal, same as "completed": cancelling already handed
+  // any Reserved Funds deposit back to the depositor (see below), so
+  // resuming or pausing a cancelled row would re-arm a schedule with nothing
+  // backing it -- for a wallet-funded automation that would let it actually
+  // charge the user again after they'd cancelled it. Re-cancelling an
+  // already-cancelled row stays allowed (idempotent, see refundReservedIfAny).
+  if (row.status === "cancelled" && status !== "cancelled") return null;
   const wasPaused = row.status === "paused" || row.status === "failed";
   row.status = status;
   // Resuming re-arms the automation cleanly: clear the failure trail so it

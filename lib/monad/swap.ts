@@ -26,6 +26,18 @@ export type SwapToken = string;
 /** Default slippage tolerance (0.5%) — overridable per request. */
 export const DEFAULT_SLIPPAGE = 0.005;
 
+/** Hard ceiling on slippage tolerance. Beyond this, amountOutMinimum is so
+ *  low it stops being real protection against price movement between quote
+ *  and execution — effectively an unprotected trade. */
+export const MAX_SLIPPAGE = 0.5;
+
+/** Hard ceiling on estimated price impact (how much the trade's OWN size
+ *  moves the pool price, distinct from slippage). Beyond this the pool is
+ *  almost certainly too thin for the requested size, or the quote itself is
+ *  unreliable -- refuse to build a plan rather than let someone sign into a
+ *  trade that's a bad idea regardless of slippage settings. */
+export const MAX_PRICE_IMPACT = 0.15;
+
 /* ── Verified Uniswap v3 deployment on Monad mainnet (chain 143) ──────────────
  * Source: Uniswap official docs — developers.uniswap.org/contracts/v3/reference/
  * deployments/monad-deployments. Each is env-overridable so a corrected address
@@ -121,6 +133,11 @@ export interface SwapQuote {
   slippage: number;
   /** Indicative price: toToken per 1 fromToken. */
   rate: number;
+  /** Estimated fraction (0..1) by which the trade's own size moves the pool
+   *  price. null when it couldn't be estimated (see estimatePriceImpact()).
+   *  A quote is never returned above MAX_PRICE_IMPACT -- rawQuote() throws
+   *  instead -- so this is always a value that was allowed through. */
+  priceImpact: number | null;
 }
 
 export interface UnsignedStep {
@@ -175,6 +192,125 @@ export async function resolveSwapSide(symbol: string): Promise<ResolvedSwapSide>
   return { symbol: match.symbol, routeAddress: match.address as Address, decimals: match.decimals, isNative: false };
 }
 
+/** BigInt-exact result of quoting every fee tier and picking the best route,
+ *  computed ONCE and shared by quote() and buildPlan() so the value that
+ *  actually reaches on-chain calldata is never reconstructed by round-
+ *  tripping through a lossy floating-point Number. */
+interface RawQuote {
+  inSide: ResolvedSwapSide;
+  outSide: ResolvedSwapSide;
+  amountInWei: bigint;
+  fee: number;
+  amountOutWei: bigint;
+  /** Minimum out after slippage, in base units — what the swap tx enforces
+   *  on-chain. Never zero for a positive `amountOutWei` (see minOutWei()). */
+  minOutWei: bigint;
+  /** Estimated fraction (0..1) by which the trade's OWN size moves the pool
+   *  price, distinct from slippage. null when it couldn't be estimated
+   *  (e.g. the trade is already too small to have a smaller reference). */
+  priceImpact: number | null;
+}
+
+/** Never let a positive output quote floor to a zero enforced minimum --
+ *  that would sign a swap with no real slippage protection at all. */
+function minOutWei(amountOutWei: bigint, slippage: number): bigint {
+  const bps = BigInt(Math.round((1 - slippage) * 1_000_000));
+  const floored = (amountOutWei * bps) / 1_000_000n;
+  return floored === 0n && amountOutWei > 0n ? 1n : floored;
+}
+
+/**
+ * Estimate how much the trade's own size moves the pool price, as distinct
+ * from slippage (which protects against price moving BETWEEN quote and
+ * execution). Quotes a much smaller reference amount at the SAME fee tier,
+ * scales its rate up to the actual trade's size, and compares the shortfall
+ * against what actually came back.
+ *
+ * Best-effort only: this is a secondary defense-in-depth check on top of the
+ * primary protection (a correctly bounded, always-positive amountOutMinimum
+ * -- see minOutWei()). If the reference quote itself fails for any reason,
+ * this fails open (returns null) rather than blocking a trade over an
+ * unrelated RPC hiccup.
+ */
+async function estimatePriceImpact(
+  pub: ReturnType<typeof getPublicClient>,
+  tokenIn: Address, tokenOut: Address, fee: number,
+  amountInWei: bigint, actualAmountOutWei: bigint,
+): Promise<number | null> {
+  if (amountInWei <= 1000n) return null; // too small to get a meaningfully smaller reference
+  const referenceAmountInWei = amountInWei / 1000n;
+  try {
+    const { result } = await pub.simulateContract({
+      address: UNISWAP_MAINNET.quoterV2,
+      abi: QUOTER_V2_ABI,
+      functionName: "quoteExactInputSingle",
+      args: [{ tokenIn, tokenOut, amountIn: referenceAmountInWei, fee, sqrtPriceLimitX96: 0n }],
+    });
+    const referenceAmountOutWei = (result as readonly bigint[])[0];
+    if (referenceAmountOutWei === 0n) return null;
+    const expectedAtActualSize = (referenceAmountOutWei * amountInWei) / referenceAmountInWei;
+    if (expectedAtActualSize === 0n) return null;
+    const shortfall = expectedAtActualSize > actualAmountOutWei ? expectedAtActualSize - actualAmountOutWei : 0n;
+    return Number(shortfall) / Number(expectedAtActualSize);
+  } catch {
+    return null;
+  }
+}
+
+async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number, slippage: number): Promise<RawQuote> {
+  if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
+  if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {
+    throw new Error(`Slippage tolerance must be between 0% and ${(MAX_SLIPPAGE * 100).toFixed(0)}%.`);
+  }
+  const pub = getPublicClient();
+  // Registry-resolved, so quoting works for any verified token pair.
+  const inSide = await resolveSwapSide(fromToken);
+  const outSide = await resolveSwapSide(toToken);
+  const tokenIn = inSide.routeAddress;
+  const tokenOut = outSide.routeAddress;
+  const amountInWei = parseUnits(String(amountIn), inSide.decimals);
+
+  // Quote every fee tier in parallel; pools that don't exist revert and are
+  // simply skipped. The tier with the largest output is the real best route.
+  const results = await Promise.allSettled(
+    FEE_TIERS.map(async (fee) => {
+      const { result } = await pub.simulateContract({
+        address: UNISWAP_MAINNET.quoterV2,
+        abi: QUOTER_V2_ABI,
+        functionName: "quoteExactInputSingle",
+        args: [{ tokenIn, tokenOut, amountIn: amountInWei, fee, sqrtPriceLimitX96: 0n }],
+      });
+      return { fee, amountOut: (result as readonly bigint[])[0] };
+    }),
+  );
+
+  let best: { fee: number; amountOut: bigint } | null = null;
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.amountOut > 0n) {
+      if (!best || r.value.amountOut > best.amountOut) best = r.value;
+    }
+  }
+  if (!best) {
+    throw new Error(`No liquidity pool found for ${fromToken} → ${toToken} on Monad. This pair may not be tradable yet.`);
+  }
+
+  const priceImpact = await estimatePriceImpact(pub, tokenIn, tokenOut, best.fee, amountInWei, best.amountOut);
+  if (priceImpact !== null && priceImpact > MAX_PRICE_IMPACT) {
+    throw new Error(
+      `This trade would move the pool price by an estimated ${(priceImpact * 100).toFixed(1)}%, ` +
+      `which is too high to execute safely. Try a smaller amount.`,
+    );
+  }
+
+  return {
+    inSide, outSide, amountInWei,
+    fee: best.fee,
+    amountOutWei: best.amountOut,
+    minOutWei: minOutWei(best.amountOut, slippage),
+    priceImpact,
+  };
+}
+
 const uniswapV3Provider: SwapProvider = {
   name: "Uniswap v3",
 
@@ -184,64 +320,44 @@ const uniswapV3Provider: SwapProvider = {
   },
 
   async quote(fromToken, toToken, amountIn) {
-    if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
-    const pub = getPublicClient();
-    // Registry-resolved, so quoting works for any verified token pair.
-    const inSide = await resolveSwapSide(fromToken);
-    const outSide = await resolveSwapSide(toToken);
-    const tokenIn = inSide.routeAddress;
-    const tokenOut = outSide.routeAddress;
-    const amountInWei = parseUnits(String(amountIn), inSide.decimals);
-
-    // Quote every fee tier in parallel; pools that don't exist revert and are
-    // simply skipped. The tier with the largest output is the real best route.
-    const results = await Promise.allSettled(
-      FEE_TIERS.map(async (fee) => {
-        const { result } = await pub.simulateContract({
-          address: UNISWAP_MAINNET.quoterV2,
-          abi: QUOTER_V2_ABI,
-          functionName: "quoteExactInputSingle",
-          args: [{ tokenIn, tokenOut, amountIn: amountInWei, fee, sqrtPriceLimitX96: 0n }],
-        });
-        return { fee, amountOut: (result as readonly bigint[])[0] };
-      }),
-    );
-
-    let best: { fee: number; amountOut: bigint } | null = null;
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value.amountOut > 0n) {
-        if (!best || r.value.amountOut > best.amountOut) best = r.value;
-      }
-    }
-    if (!best) {
-      throw new Error(`No liquidity pool found for ${fromToken} → ${toToken} on Monad. This pair may not be tradable yet.`);
-    }
-
-    const outDecimals = outSide.decimals;
-    const amountOut = Number(formatUnits(best.amountOut, outDecimals));
-    const minOutWei = (best.amountOut * BigInt(Math.round((1 - DEFAULT_SLIPPAGE) * 1e6))) / 1_000_000n;
+    const q = await rawQuote(fromToken, toToken, amountIn, DEFAULT_SLIPPAGE);
+    const outDecimals = q.outSide.decimals;
+    const amountOut = Number(formatUnits(q.amountOutWei, outDecimals));
     return {
       fromToken, toToken, amountIn,
       amountOut,
-      minAmountOut: Number(formatUnits(minOutWei, outDecimals)),
-      feeTier: best.fee,
+      minAmountOut: Number(formatUnits(q.minOutWei, outDecimals)),
+      feeTier: q.fee,
       slippage: DEFAULT_SLIPPAGE,
       rate: amountOut / amountIn,
+      priceImpact: q.priceImpact,
     };
   },
 
   async buildPlan(fromToken, toToken, amountIn, wallet, slippage = DEFAULT_SLIPPAGE) {
-    const q = await this.quote(fromToken, toToken, amountIn);
+    // Quoted directly at the caller's own slippage and used as-is below --
+    // NOT derived from quote()'s DEFAULT_SLIPPAGE-based display figures, and
+    // NOT reconstructed from a human-readable Number, so the on-chain
+    // amountOutMinimum is exactly what was computed, never a lossy round-trip
+    // or a value that silently ignored a custom slippage argument.
+    const raw = await rawQuote(fromToken, toToken, amountIn, slippage);
+    const { inSide, outSide, amountInWei } = raw;
+    const outDecimals = outSide.decimals;
+    const amountOut = Number(formatUnits(raw.amountOutWei, outDecimals));
+    const q: SwapQuote = {
+      fromToken, toToken, amountIn,
+      amountOut,
+      minAmountOut: Number(formatUnits(raw.minOutWei, outDecimals)),
+      feeTier: raw.fee,
+      slippage,
+      rate: amountOut / amountIn,
+      priceImpact: raw.priceImpact,
+    };
     const pub = getPublicClient();
     const router = UNISWAP_MAINNET.swapRouter02;
-    // Resolve both sides against the token registry rather than assuming
-    // MON/USDC, so any verified Monad token can be swapped.
-    const inSide = await resolveSwapSide(fromToken);
-    const outSide = await resolveSwapSide(toToken);
     const tokenIn = inSide.routeAddress;
     const tokenOut = outSide.routeAddress;
-    const amountInWei = parseUnits(String(amountIn), inSide.decimals);
-    const minOutWei = parseUnits(q.minAmountOut.toFixed(outSide.decimals), outSide.decimals);
+    const minOutWeiValue = raw.minOutWei;
     const steps: UnsignedStep[] = [];
 
     // An ERC-20 input must be pulled by the router, so it needs an allowance
@@ -272,10 +388,10 @@ const uniswapV3Provider: SwapProvider = {
       // and the user is never left holding WMON they didn't ask for.
       const swapCall = encodeFunctionData({
         abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
-        args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: ADDRESS_THIS, amountIn: amountInWei, amountOutMinimum: minOutWei, sqrtPriceLimitX96: 0n }],
+        args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: ADDRESS_THIS, amountIn: amountInWei, amountOutMinimum: minOutWeiValue, sqrtPriceLimitX96: 0n }],
       });
       const unwrapCall = encodeFunctionData({
-        abi: SWAP_ROUTER_ABI, functionName: "unwrapWETH9", args: [minOutWei, wallet],
+        abi: SWAP_ROUTER_ABI, functionName: "unwrapWETH9", args: [minOutWeiValue, wallet],
       });
       steps.push({
         kind: "swap",
@@ -300,7 +416,7 @@ const uniswapV3Provider: SwapProvider = {
           to: router,
           data: encodeFunctionData({
             abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
-            args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: wallet, amountIn: amountInWei, amountOutMinimum: minOutWei, sqrtPriceLimitX96: 0n }],
+            args: [{ tokenIn, tokenOut, fee: q.feeTier, recipient: wallet, amountIn: amountInWei, amountOutMinimum: minOutWeiValue, sqrtPriceLimitX96: 0n }],
           }),
           value: inSide.isNative ? `0x${amountInWei.toString(16)}` : "0x0",
         },
@@ -308,7 +424,7 @@ const uniswapV3Provider: SwapProvider = {
     }
 
     return {
-      quote: { ...q, slippage },
+      quote: q,
       steps,
       summary: `Swap ${amountIn} ${fromToken} → ${q.amountOut.toFixed(toToken === "USDC" ? 2 : 4)} ${toToken}`,
     };
