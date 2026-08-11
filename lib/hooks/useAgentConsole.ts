@@ -105,6 +105,7 @@ export interface SwapStep { kind: "approve" | "swap"; label: string; tx: { to: s
 export interface SwapQuoteView {
   fromToken: string; toToken: string; amountIn: number;
   amountOut: number; minAmountOut: number; feeTier: number; slippage: number; rate: number;
+  priceImpact: number | null;
 }
 export interface SwapPlanView { quote: SwapQuoteView; steps: SwapStep[]; summary: string }
 /**
@@ -531,6 +532,24 @@ export function useAgentConsole() {
     if (outcome === "not-sent") setPendingConfirm(pending);
   }
 
+  /** "Cancel" on the swap review card — nothing has been signed yet (the
+   *  quote is display-only until this point), so there's nothing to undo. */
+  function cancelSwapConfirm() {
+    setSwap(null);
+  }
+
+  /**
+   * "Confirm" on the swap review card — the ONLY path from a quoted swap
+   * (SwapPhase "ready") into executeSwap(), mirroring confirmSign() for
+   * payments: quote -> slippage/minOut/price-impact already computed and
+   * shown -> explicit user confirmation -> only THEN does a wallet signature
+   * get requested.
+   */
+  function confirmSwap() {
+    if (!swap || swap.phase !== "ready") return;
+    void executeSwap(swap.plan, swap.provider);
+  }
+
   async function run(text: string) {
     // Empty the input the moment a command is dispatched — like a real command
     // bar, the typed prompt shouldn't linger over the result.
@@ -583,7 +602,11 @@ export function useAgentConsole() {
       }
       if (decision === "swap_ready" && json.swap) {
         setLoading(false);
-        await executeSwap(json.swap, json.provider);
+        // Quote, slippage, minimum output and price impact are already
+        // computed and shown here — nothing is signed until the user
+        // explicitly hits Confirm (confirmSwap()), same gate the payment
+        // pipeline uses for pendingConfirm/confirmSign.
+        setSwap({ phase: "ready", plan: json.swap, provider: json.provider, stepIndex: 0 });
         return;
       }
       if (!("intent" in json) || !json.intent) throw new Error(json.error || "Request failed");
@@ -634,6 +657,6 @@ export function useAgentConsole() {
     pendingRecovery, recovering, retryPendingConfirm,
     // AI Confirmation screen — see PendingConfirmation above.
     pendingConfirm, confirmSign, cancelConfirm,
-    retrySwap,
+    retrySwap, confirmSwap, cancelSwapConfirm,
   };
 }
