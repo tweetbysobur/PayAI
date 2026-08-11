@@ -283,6 +283,46 @@ export function CommandBar() {
                       </div>
                     </div>
 
+                    {/* Review before signing — nothing moves until Confirm is
+                        pressed, same gate the payment pipeline uses. Minimum
+                        output and price impact are shown here because this is
+                        the ONLY point they can still be reviewed before a
+                        wallet signature is requested. */}
+                    {c.swap.phase === "ready" && (
+                      <>
+                        <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                          <div className="flex items-center justify-between">
+                            <span>Minimum received</span>
+                            <span className="font-medium text-foreground [font-variant-numeric:tabular-nums]">
+                              {c.swap.plan.quote.minAmountOut.toFixed(c.swap.plan.quote.toToken === "USDC" ? 2 : 4)} {c.swap.plan.quote.toToken}
+                            </span>
+                          </div>
+                          {c.swap.plan.quote.priceImpact !== null && (
+                            <div className="flex items-center justify-between">
+                              <span>Price impact</span>
+                              <span className={`font-medium [font-variant-numeric:tabular-nums] ${c.swap.plan.quote.priceImpact > 0.03 ? "text-warning" : "text-foreground"}`}>
+                                ~{(c.swap.plan.quote.priceImpact * 100).toFixed(2)}%
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-3.5 flex gap-2">
+                          <button
+                            onClick={c.cancelSwapConfirm}
+                            className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={c.confirmSwap}
+                            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+                          >
+                            {c.wallet.kind === "embedded" && <Fingerprint size={14} />} Confirm swap
+                          </button>
+                        </div>
+                      </>
+                    )}
+
                     {/* Every stage, so "what is it doing?" and "has my money
                         moved?" are answerable at a glance rather than from one
                         undifferentiated spinner. */}
