@@ -30,10 +30,25 @@ import {IMerchantRegistry} from "./interfaces/IMerchantRegistry.sol";
  *
  * @custom:security-property INVARIANT-MR-3: Unique Merchant Registration
  *   A merchant wallet can only be registered once. Registering an existing wallet MUST revert.
+ *
+ * @custom:security-property INVARIANT-MR-4: Migration Path Cannot Outlive Its Purpose
+ *   `registerMerchantWithHistory` -- the only function able to set a merchant's
+ *   `volume`/`paymentCount`/`registeredAt` to anything other than 0/0/now -- is
+ *   `onlyOwner` (the cold wallet, never the agent) AND gated by `migrationOpen`,
+ *   which starts true and can only ever be set false, permanently, by
+ *   `closeMigration()`. Once closed, no path exists to reopen it. This exists
+ *   solely so a MerchantRegistry replacement can carry over historical
+ *   volume/paymentCount from a prior registry (see
+ *   contracts/MERCHANT_REGISTRY_MIGRATION.md) without giving the owner a
+ *   standing, permanent ability to fabricate any merchant's historical figures.
  */
 contract MerchantRegistry is IMerchantRegistry {
     /// @notice Admin owner with manager/recorder permission grant authority.
     address public owner;
+
+    /// @notice True until the owner permanently closes the one-time migration
+    ///         path via closeMigration() -- see INVARIANT-MR-4.
+    bool public migrationOpen = true;
 
     /// @notice Accounts authorized to register merchants AND toggle active status
     ///         (full trust — includes the ability to deactivate any merchant).
@@ -57,6 +72,7 @@ contract MerchantRegistry is IMerchantRegistry {
     event RegistrarSet(address indexed account, bool allowed);
     event RecorderSet(address indexed account, bool allowed);
     event OwnershipTransferred(address indexed from, address indexed to);
+    event MigrationClosed();
 
     /* ── Modifiers ──────────────────────────────────────────────────────── */
     modifier onlyOwner() {
@@ -128,6 +144,44 @@ contract MerchantRegistry is IMerchantRegistry {
         });
         _all.push(wallet);
         emit MerchantRegistered(wallet, name);
+    }
+
+    /// @notice Migration-only: register a merchant carrying over its
+    ///         historical volume/paymentCount/registeredAt from a prior
+    ///         MerchantRegistry, instead of starting at 0/0/now like
+    ///         registerMerchant(). Owner-only (never the agent/registrar) and
+    ///         permanently disabled once closeMigration() is called -- see
+    ///         INVARIANT-MR-4. Does not touch or weaken registerMerchant()'s
+    ///         own isRegistrar/isManager gating (L-02) in any way.
+    function registerMerchantWithHistory(
+        address wallet,
+        string calldata name,
+        bool active,
+        uint256 volume,
+        uint256 paymentCount,
+        uint64 registeredAt
+    ) external onlyOwner {
+        require(migrationOpen, "migration closed");
+        require(wallet != address(0), "zero wallet");
+        require(_merchants[wallet].registeredAt == 0, "already registered");
+        require(registeredAt != 0, "zero registeredAt");
+        _merchants[wallet] = Merchant({
+            wallet: wallet,
+            name: name,
+            active: active,
+            volume: volume,
+            paymentCount: paymentCount,
+            registeredAt: registeredAt
+        });
+        _all.push(wallet);
+        emit MerchantRegistered(wallet, name);
+    }
+
+    /// @notice Permanently disable registerMerchantWithHistory(). One-way --
+    ///         there is no function to set migrationOpen back to true.
+    function closeMigration() external onlyOwner {
+        migrationOpen = false;
+        emit MigrationClosed();
     }
 
     /// @notice Toggle active status for an onboarded merchant.
