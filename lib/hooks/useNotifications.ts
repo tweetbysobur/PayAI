@@ -23,7 +23,13 @@ export interface NotifItem {
   read: boolean;
 }
 
-const SEEN_KEY = "veripay_notifs_seen_at";
+/** Scoped per wallet — a global key would leak one wallet's "last seen" time
+ *  into another wallet's read/unread state on a shared browser (wallet B
+ *  connecting after wallet A would see B's own unopened notifications marked
+ *  already-read, just because their timestamps predate A's last visit). */
+function seenKey(walletAddress: string): string {
+  return `veripay_notifs_seen_at:${walletAddress.toLowerCase()}`;
+}
 /** Notifications live in the feed for 24h from when they happened, then age
  *  out on their own — whether or not they were ever opened. */
 const RETENTION_MS = 24 * 60 * 60 * 1000;
@@ -49,10 +55,11 @@ export function useNotifications(walletAddress?: string | null) {
     // connected wallet (the server returns nothing without it, by design), so
     // the bell reflects your activity, not an empty/shared feed.
     if (!walletAddress) { setNotifications([]); setUnread(0); return; }
+    const address = walletAddress; // narrow once — TS won't narrow a param across the nested load() closure
     let cancelled = false;
     function load() {
       if (document.hidden) return;
-      const seenAt = Number(localStorage.getItem(SEEN_KEY) ?? 0);
+      const seenAt = Number(localStorage.getItem(seenKey(address)) ?? 0);
       const cutoff = Date.now() - RETENTION_MS; // keep the last 24h, read or not
 
       const payments = fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress }) })
@@ -130,7 +137,8 @@ export function useNotifications(walletAddress?: string | null) {
   // Opening the bell marks everything currently shown as read — but keeps it
   // visible (dimmed) for the rest of its 24h window rather than clearing it.
   function markSeen() {
-    localStorage.setItem(SEEN_KEY, String(Date.now()));
+    if (!walletAddress) return;
+    localStorage.setItem(seenKey(walletAddress), String(Date.now()));
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnread(0);
   }

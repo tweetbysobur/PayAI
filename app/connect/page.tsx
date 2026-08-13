@@ -56,6 +56,20 @@ export default function ConnectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The mount effect above runs before WalletProvider's own silent-reconnect
+  // effect (an ancestor) has resolved eth_accounts, so a returning,
+  // already-consented user's wallet.address is still null at that point and
+  // the page lands on "wallets" instead of the "status" fast path. Once the
+  // silent reconnect resolves asynchronously, catch up and advance — but
+  // only from "wallets" with consent already on record, so this never
+  // fires mid explicit-connect (those already setStep("status") themselves)
+  // or reopens "status" after an explicit disconnect.
+  useEffect(() => {
+    if (wallet.address && step === "wallets" && localStorage.getItem(CONSENT_KEY) === "1") {
+      setStep("status");
+    }
+  }, [wallet.address, step]);
+
   const hasLegacy = typeof window !== "undefined" && !!window.ethereum;
   const wcAvailable = walletConnectAvailable();
 
