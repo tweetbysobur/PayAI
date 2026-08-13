@@ -11,6 +11,7 @@ import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { calculateFee } from "@/lib/payment/feeEngine";
+import { countOccurrences, annualVolume } from "@/lib/automation/schedule";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import {
@@ -227,6 +228,20 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
       ? { type: "after_count" as const, totalRuns: Math.max(1, Math.floor(Number(endCount) || 1)) }
       : { type: "until_date" as const, untilMs: endUntilMs };
 
+  // How many distribution rounds this schedule will actually run — a
+  // recurring Bulk Payment re-pays every recipient in full on each round, so
+  // the Wallet Automation allowance must cover ALL of them, not just the
+  // first. null = open-ended (no end date), which can't approve an "exact
+  // total"; matches the same bounded/open-ended pattern the single-recipient
+  // AutomationCreator uses (app/dashboard/automations/page.tsx).
+  const occurrences = useMemo(() => countOccurrences({
+    startAt, cadence, intervalCount: Number(intervalCount) || 1, intervalUnit,
+    endMode, endCount: Number(endCount) || 1, endUntilMs,
+  }), [startAt, cadence, intervalCount, intervalUnit, endMode, endCount, endUntilMs]);
+  const approvalAmount = occurrences != null
+    ? totalToPay * occurrences
+    : annualVolume(totalToPay, cadence, Number(intervalCount) || 1, intervalUnit);
+
   function cadenceLabel() {
     if (cadence === "once") return "One time";
     if (cadence === "custom") return `Every ${intervalCount} ${intervalUnit}`;
@@ -240,9 +255,12 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
       const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
       const decimals = tokenInfo.decimals;
+      // The Wallet Automation allowance must cover every round this schedule
+      // will run (approvalAmount), not just this first round's totalToPay —
+      // see the occurrences/approvalAmount comment above.
       const totalWei = (() => {
         try {
-          return BigInt(Math.round(totalToPay * 10 ** decimals));
+          return BigInt(Math.round(approvalAmount * 10 ** decimals));
         } catch { return 0n; }
       })();
 
@@ -542,7 +560,11 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     <div className="mt-4 grid gap-2 sm:grid-cols-2">
                       {[
                         { label: "Total Recipients", value: String(resolvedRows.length) },
-                        { label: "Total Amount", value: `${totalToPay.toLocaleString()} ${tokenInfo?.symbol ?? ""}` },
+                        { label: cadence === "once" ? "Total Amount" : "Amount Per Round", value: `${totalToPay.toLocaleString()} ${tokenInfo?.symbol ?? ""}` },
+                        ...(cadence !== "once" ? [{
+                          label: occurrences != null ? "Total Authorized" : "Authorized (up to ~1yr)",
+                          value: `${approvalAmount.toLocaleString()} ${tokenInfo?.symbol ?? ""}${occurrences != null ? ` (${occurrences} rounds)` : ""}`,
+                        }] : []),
                         { label: "Estimated Network Fees", value: estimateGas },
                         { label: "Platform Fee", value: platformFee.label },
                         { label: "Distribution Method", value: method },

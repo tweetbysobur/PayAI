@@ -17,6 +17,7 @@ import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
+import { stepOnce, countOccurrences, annualVolume as annualVolumeShared } from "@/lib/automation/schedule";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
@@ -198,47 +199,7 @@ function cadenceLabel(a: Pick<Automation, "cadence" | "intervalCount" | "interva
 }
 
 function annualVolume(a: Automation) {
-  const amount = Number(a.amount) || 0;
-  if (a.cadence === "once") return amount;
-  if (a.cadence === "daily") return amount * 365;
-  if (a.cadence === "weekly") return amount * 52;
-  if (a.cadence === "monthly") return amount * 12;
-  const count = Math.max(1, a.intervalCount ?? 1);
-  if (a.intervalUnit === "weeks") return amount * (52 / count);
-  if (a.intervalUnit === "months") return amount * (12 / count);
-  return amount * (365 / count);
-}
-
-/** Advance a timestamp by one cadence step — mirrors the server's advanceRun. */
-function stepOnce(from: number, cadence: Cadence, intervalCount: number, intervalUnit: IntervalUnit): number {
-  const d = new Date(from);
-  const n = Math.max(1, intervalCount);
-  if (cadence === "daily") d.setUTCDate(d.getUTCDate() + 1);
-  else if (cadence === "weekly") d.setUTCDate(d.getUTCDate() + 7);
-  else if (cadence === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
-  else if (cadence === "custom") {
-    if (intervalUnit === "weeks") d.setUTCDate(d.getUTCDate() + n * 7);
-    else if (intervalUnit === "months") d.setUTCMonth(d.getUTCMonth() + n);
-    else d.setUTCDate(d.getUTCDate() + n);
-  }
-  return d.getTime();
-}
-
-/** How many payments this schedule will make. Returns null for open-ended
- *  ("no end date") automations, where the total is genuinely unbounded. */
-function countOccurrences(opts: {
-  startAt: number; cadence: Cadence; intervalCount: number; intervalUnit: IntervalUnit;
-  endMode: EndMode; endCount: number; endUntilMs: number;
-}): number | null {
-  if (opts.cadence === "once") return 1;
-  if (opts.endMode === "after_count") return Math.max(1, Math.floor(opts.endCount) || 1);
-  if (opts.endMode === "until_date") {
-    if (!Number.isFinite(opts.endUntilMs) || opts.endUntilMs < opts.startAt) return 0;
-    let n = 0; let t = opts.startAt; const CAP = 1000;
-    while (t <= opts.endUntilMs && n < CAP) { n++; t = stepOnce(t, opts.cadence, opts.intervalCount, opts.intervalUnit); }
-    return n;
-  }
-  return null; // never — open-ended
+  return annualVolumeShared(Number(a.amount) || 0, a.cadence, a.intervalCount ?? 1, a.intervalUnit ?? "days");
 }
 
 /** Per-automation analytics, computed only from its own real recorded runs
