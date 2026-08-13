@@ -5,21 +5,32 @@ const fs = require("fs");
  * The actual MerchantRegistry migration -- see
  * contracts/MERCHANT_REGISTRY_MIGRATION.md for the full plan this fits into.
  * NOT run by anyone yet. Requires a snapshot from snapshot-merchant-
- * registry.js and product sign-off on the volume/paymentCount question in
- * that plan document before running this for real.
+ * registry.js before running this for real. The volume/paymentCount reset
+ * question that plan document originally flagged is resolved --
+ * registerMerchantWithHistory() (see MerchantRegistry.sol) carries those
+ * figures over directly, no product sign-off on an acceptable-loss tradeoff
+ * needed anymore.
  *
- * Deploys a fresh MerchantRegistry (carrying the L-02 isRegistrar fix) and a
- * fresh PaymentExecutor pointed at it (the registry reference is immutable,
- * so a new registry always means a new executor too -- see
- * PaymentExecutor.sol's `merchantRegistry` field). While the deployer still
- * holds the fresh registry's initial admin rights, this script:
+ * Deploys a fresh MerchantRegistry (carrying the L-02 isRegistrar fix AND
+ * the registerMerchantWithHistory/closeMigration migration path that
+ * preserves each merchant's volume/paymentCount/registeredAt instead of
+ * resetting them -- see MerchantRegistry.sol's INVARIANT-MR-4) and a fresh
+ * PaymentExecutor pointed at it (the registry reference is immutable, so a
+ * new registry always means a new executor too -- see PaymentExecutor.sol's
+ * `merchantRegistry` field). While the deployer still holds the fresh
+ * registry's initial admin rights, this script:
  *   1. Authorizes the new executor as recorder.
  *   2. Grants the agent isRegistrar (the L-02 fix's whole point: the agent
  *      can register new merchants without full manager power).
  *   3. Re-grants every OTHER historical manager from the snapshot (NOT the
  *      agent -- the agent is deliberately registrar-only going forward).
- *   4. Replays every snapshotted merchant via registerMerchant(), then
- *      setActive(false) for any that were inactive.
+ *   4. Replays every snapshotted merchant via registerMerchantWithHistory(),
+ *      carrying over each merchant's real volume/paymentCount/registeredAt/
+ *      active state in the SAME call -- no separate setActive() follow-up
+ *      needed, and no merchant starts back at volume=0/paymentCount=0.
+ *   4b. Calls closeMigration() -- permanently disables
+ *      registerMerchantWithHistory() on the new registry once the replay
+ *      above is verified complete. One-way; there is no reopening it.
  *   5. Grants the real owner (cold wallet) manager rights, revokes the
  *      deployer's own manager grant, and transfers ownership.
  * Every step above is deployer-signed -- because this is a FRESH registry,
@@ -30,11 +41,10 @@ const fs = require("fs");
  * migration itself -- only for the real owner's OWN future admin actions
  * after handoff.
  *
- * volume/paymentCount are NOT backfilled -- every merchant starts at 0/0 on
- * the new registry. That's a deliberate, documented gap (see the migration
- * plan's "What will NOT carry over automatically" section), not an
- * oversight -- do not add ad-hoc backfill logic here without a product
- * decision first.
+ * volume/paymentCount/registeredAt ARE preserved, via
+ * registerMerchantWithHistory() -- carried straight from the snapshot for
+ * every merchant, not reset to 0/0/now like a plain registerMerchant() call
+ * would produce.
  *
  * Required env:
  *   MONAD_AGENT_PRIVATE_KEY   -- deployer/agent key (pays gas, becomes the
@@ -116,21 +126,25 @@ async function main() {
     console.log("    That's the L-02 fix working as intended: registrar only, going forward.");
   }
 
-  console.log(`\n4/6 Replaying ${snapshot.merchants.length} merchant registration(s)…`);
+  console.log(`\n4/6 Replaying ${snapshot.merchants.length} merchant registration(s) with full history…`);
   let registered = 0;
   for (const m of snapshot.merchants) {
-    tx = await registry.registerMerchant(m.wallet, m.name, { gasLimit: 150_000 });
+    tx = await registry.registerMerchantWithHistory(
+      m.wallet, m.name, m.active, BigInt(m.volume), BigInt(m.paymentCount), m.registeredAt,
+      { gasLimit: 250_000 },
+    );
     await tx.wait();
     registered += 1;
-    if (!m.active) {
-      tx = await registry.setActive(m.wallet, false, { gasLimit: 100_000 });
-      await tx.wait();
-    }
     if (registered % 10 === 0) console.log(`    ${registered}/${snapshot.merchants.length}…`);
   }
-  console.log(`    done. ${registered} merchant(s) registered.`);
-  console.log("    NOTE: volume/paymentCount start at 0 for all of them -- see the migration plan's");
-  console.log("    'What will NOT carry over automatically' section. Not backfilled here by design.");
+  console.log(`    done. ${registered} merchant(s) registered, each carrying its real`);
+  console.log("    volume/paymentCount/registeredAt/active state from the snapshot -- none reset to 0.");
+
+  console.log("\n4b/6 Closing the migration path (registerMerchantWithHistory permanently disabled)…");
+  tx = await registry.closeMigration({ gasLimit: 60_000 });
+  await tx.wait();
+  console.log("    done. migrationOpen is now false, permanently -- no further history-preserving");
+  console.log("    registrations are possible on this registry, by anyone, ever again.");
 
   console.log("\n5/6 Handing registry + executor admin to the real owner…");
   tx = await registry.setManager(ownerAddr, true, { gasLimit: 100_000 });
@@ -165,7 +179,9 @@ async function main() {
   console.log(`  1. Update MONAD_MAINNET_MERCHANT_REGISTRY=${registryAddr} and`);
   console.log(`     MONAD_MAINNET_PAYMENT_EXECUTOR=${executorAddr} in Vercel, redeploy the app.`);
   console.log("  2. Grant the new executor a fresh USDC approval from the agent wallet (per-spender allowance).");
-  console.log("  3. Spot-check a handful of migrated merchants' active state and volume=0 is expected/accepted.");
+  console.log("  3. Spot-check a handful of migrated merchants' active state AND volume/paymentCount");
+  console.log("     against the snapshot -- they should match the OLD registry's figures exactly,");
+  console.log("     not be reset to 0.");
 }
 
 main().catch((e) => {
