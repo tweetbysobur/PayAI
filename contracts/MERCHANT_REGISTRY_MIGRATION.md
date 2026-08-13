@@ -71,33 +71,29 @@ and its deploy history:
 3. **Ownership** — the current registry `owner` (cold wallet), who must sign
    the admin calls on the new registry too.
 
-## What will NOT carry over automatically, and needs a decision
+## Resolved: volume/paymentCount are preserved, not reset
 
-`registerMerchant()` always sets `volume: 0, paymentCount: 0,
-registeredAt: block.timestamp` — there is no setter to backfill historical
-figures. Per-merchant volume/payment-count on the dashboard's merchant panel
-(`GET /api/onchain` → `lib/monad/contracts.ts:412-414`) reads this directly
-from the contract with **no independent off-chain backup** (confirmed: the
-app's own off-chain `Merchant` type in `lib/platform/merchants.ts` is a
-tenancy/API-key record with no `volume` field at all — it's a different
-concept entirely, not a mirror of the on-chain registry). Platform-wide
-revenue totals elsewhere in the app are computed from PayAI's own tx log
-(`lib/platform/analytics.ts`), not from `getMerchant().volume`, so those are
-unaffected — this is specifically about the per-merchant numbers on the
-merchant/recipients panel.
+**This was originally an open decision — it's now resolved by a contract
+change.** `MerchantRegistry.sol` gained a new function,
+`registerMerchantWithHistory(wallet, name, active, volume, paymentCount,
+registeredAt)`, plus `closeMigration()` to permanently disable it once the
+migration is verified complete (see `INVARIANT-MR-4` in the contract's
+NatSpec). It's `onlyOwner` — never reachable by the agent or a registrar —
+and one-way: once `closeMigration()` is called, there is no function to
+reopen it, so the owner does not retain a standing ability to fabricate any
+merchant's historical figures after the migration event ends.
 
-**Decision needed before running this migration**: is a visible reset of
-per-merchant on-chain volume/payment-count to 0 acceptable, or does the
-product want a one-time backfill? A backfill isn't clean with the current
-contract shape — `recordVolume` increments `paymentCount` by exactly 1 per
-call and is only reachable by an `isRecorder`-holding contract, so
-"replaying" N historical payments as N synthetic `recordVolume` calls is the
-only way to reconstruct the exact `paymentCount`, and would require either a
-throwaway recorder-granted EOA making N calls (gas cost scales with total
-historical payment count across all merchants) or adding a genuinely new
-admin-only backfill function to the contract (a real code change, out of
-scope for "redeploy with the L-02 fix" — flag to product, don't add
-silently).
+`deploy-and-migrate-merchant-registry.js` now calls this instead of plain
+`registerMerchant()`, so every migrated merchant's `volume`, `paymentCount`,
+and original `registeredAt` carry over from the snapshot exactly — the
+dashboard's per-merchant panel (`GET /api/onchain` →
+`lib/monad/contracts.ts:412-414`, which reads directly from the contract
+with no independent off-chain backup) will show the same figures after
+migration as before it, not a reset to 0.
+
+Regular `registerMerchant()` — the actual L-02 fix's own gating
+(`isManager`/`isRegistrar`) — is completely unaffected by this addition;
+verified explicitly in `contracts/test/MerchantRegistryMigration.test.js`.
 
 ## Sequence (not run — this is the plan, for whoever holds the keys)
 
@@ -105,8 +101,7 @@ silently).
    addresses in Vercel env (don't trust this repo's JSON files alone — see
    above). Run `contracts/scripts/snapshot-merchant-registry.js` (see below)
    against mainnet to capture merchants + reconstructed role history to a
-   timestamped JSON file. Get product sign-off on the volume/paymentCount
-   decision above.
+   timestamped JSON file.
 2. **Deploy** new `MerchantRegistry` + new `PaymentExecutor` (paired, since
    the registry reference is immutable) + new `AutomationVault` if that
    hasn't already happened via the non-registry wave. `contracts/scripts/
@@ -143,13 +138,21 @@ someone's ready, **neither has been run**:
   `getMerchant()` for every merchant, and replays `ManagerSet`/`RecorderSet`
   events from deployment to head to reconstruct current role holders. Writes
   a timestamped JSON snapshot. Safe to run any time, changes nothing on-chain.
+  Respects Monad's mainnet RPC limits (100-block `eth_getLogs` windows,
+  rate-limited well under 50 req/sec) and auto-derives the registry's
+  deployment block from its known deploy timestamp if not given explicitly.
 - `deploy-and-migrate-merchant-registry.js` — the actual migration. Deploys
-  the new registry + executor, replays the snapshot's merchants and
-  deployer-signable role grants, and prints the cold-wallet-only steps
-  (`setRecorder` for the new executor, `setManager` for the real owner if
-  different from the deployer) it cannot sign itself — same division of
-  labor the existing fresh-deploy scripts already use.
+  the new registry + executor, replays the snapshot's merchants via
+  `registerMerchantWithHistory()` (preserving volume/paymentCount/
+  registeredAt, not resetting them), calls `closeMigration()` once the
+  replay is complete, wires deployer-signable role grants, and prints the
+  cold-wallet-only steps (`setRecorder` for the new executor, `setManager`
+  for the real owner if different from the deployer) it cannot sign itself
+  — same division of labor the existing fresh-deploy scripts already use.
 
 Both require `MONAD_AGENT_PRIVATE_KEY` and network access to Monad mainnet,
 neither of which this sandbox has — that's exactly why this stays a plan
-until it's run from an environment that does.
+until it's run from an environment that does. Both dry-run validated
+end-to-end against a local test scenario (fresh registry, merchants with
+real accrued volume, a revoke-then-regrant role history) before being
+handed off — see the commit history for details.
