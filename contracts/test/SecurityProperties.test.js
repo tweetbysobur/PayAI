@@ -449,10 +449,15 @@ describe("PayAI Protocol Invariant & Security Property Tests", function () {
    * 3. MerchantRegistry & VeriPayRegistry Invariants
    * ───────────────────────────────────────────────────────────────────────────── */
   describe("MerchantRegistry & VeriPayRegistry Invariants", function () {
-    it("INVARIANT-MR-1: Non-manager cannot register merchant", async function () {
+    it("INVARIANT-MR-1: An account with neither manager nor registrar role cannot register a merchant", async function () {
+      // Updated for the L-02 fix (isRegistrar): registration now requires
+      // isManager OR isRegistrar, so the revert is "not authorized to
+      // register", not the old manager-only "not manager". See
+      // UltrafuzzFindings2.test.js's dedicated L-02 describe block for the
+      // registrar-can-but-cannot-setActive coverage.
       await expect(
         merchantRegistry.connect(attacker).registerMerchant(recipient.address, "Fake Merchant")
-      ).to.be.revertedWith("not manager");
+      ).to.be.revertedWith("not authorized to register");
     });
 
     it("INVARIANT-MR-2: Non-recorder cannot record volume directly", async function () {

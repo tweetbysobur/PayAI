@@ -295,9 +295,14 @@ describe("Ultrafuzz findings (private-02-r5-20260806-2148) — regression", func
 
   describe("non-production outcome: VeriPayRegistry.payAndRecord requires actual delivery", () => {
     it("reverts when the token delivers less than the requested amount", async () => {
-      const [, agent, recipient] = await hre.ethers.getSigners();
+      const [deployer, agent, recipient] = await hre.ethers.getSigners();
       const Registry = await hre.ethers.getContractFactory("VeriPayRegistry");
       const registry = await Registry.deploy();
+      // VeriPayRegistry's constructor makes the deployer the first agent
+      // (owner = msg.sender; isAgent[msg.sender] = true) -- `agent` here is a
+      // separate signer that needs an explicit grant, or payAndRecord reverts
+      // "not agent" before ever reaching the actual-delivery check under test.
+      await registry.connect(deployer).setAgent(agent.address, true);
 
       const Short = await hre.ethers.getContractFactory("ShortTransferERC20");
       const shortToken = await Short.deploy();
