@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   PartyPopper, Copy, Check, ArrowRight, ArrowDownLeft, LayoutDashboard,
   Building2, Rocket, Landmark, Gift, Sparkles, Wallet as WalletIcon,
+  Send, ArrowLeftRight,
 } from "lucide-react";
 import { useToast } from "@/components/Toast";
 import { ChooseUsername } from "@/components/onboarding/ChooseUsername";
@@ -32,6 +33,15 @@ const STARTERS: { id: string; name: string; blurb: string; icon: typeof Building
   { id: "launchpad", name: "Launchpad Distribution", blurb: "Distribute tokens to contributors.", icon: Rocket, soon: true, href: "/dashboard/automations" },
   { id: "treasury", name: "Treasury", blurb: "Scheduled treasury movements.", icon: Landmark, soon: true, href: "/dashboard/automations" },
   { id: "rewards", name: "Community Rewards", blurb: "Reward many wallets at once.", icon: Gift, soon: true, href: "/dashboard/automations" },
+];
+
+/** Real, usable-right-now actions — not automation templates. Most of what
+ *  this step used to offer was "Coming soon," which left a first-time user
+ *  with almost nothing to actually click. These work today. */
+const QUICK_ACTIONS: { id: string; name: string; blurb: string; icon: typeof Send; href: string }[] = [
+  { id: "send", name: "Send Payment", blurb: "Pay any wallet or .nad name.", icon: Send, href: "/dashboard/payments" },
+  { id: "swap", name: "Swap Tokens", blurb: "MON ↔ USDC instantly.", icon: ArrowLeftRight, href: "/dashboard/payments" },
+  { id: "explore", name: "Explore Dashboard", blurb: "See balances, activity, and more.", icon: LayoutDashboard, href: "/dashboard" },
 ];
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -161,7 +171,7 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
           </motion.div>
         )}
 
-        {/* ── Step 3 — First automation ───────────────────────────────── */}
+        {/* ── Step 3 — First action ───────────────────────────────────── */}
         {step === 3 && (
           <motion.div
             key="s3" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
@@ -172,12 +182,32 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                 <Sparkles size={26} />
               </span>
             </div>
-            <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Create your first automation</h1>
+            <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">What would you like to do first?</h1>
             <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-              PayAI is the payment automation layer on Monad. Pick a starting point, or build your own.
+              Your wallet is funded and ready. Send a payment right now, or set up something recurring — either way takes under a minute.
             </p>
 
-            <div className="mt-5 grid gap-2">
+            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+              {QUICK_ACTIONS.map((a) => {
+                const Icon = a.icon;
+                return (
+                  <Link
+                    key={a.id}
+                    href={a.href}
+                    className="flex flex-col items-start gap-2 rounded-xl border border-border px-3.5 py-3 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Icon size={16} /></span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-foreground">{a.name}</span>
+                      <span className="block text-[11px] text-muted-foreground">{a.blurb}</span>
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+
+            <p className="mb-1.5 mt-6 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Or automate it</p>
+            <div className="grid gap-2">
               {STARTERS.map((t) => {
                 const Icon = t.icon;
                 const row = (
