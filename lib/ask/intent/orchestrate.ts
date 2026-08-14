@@ -273,10 +273,13 @@ async function dispatchAutomations(walletAddress: string | null): Promise<AskMes
   if (!walletAddress) return assistantText("Connect your wallet and I can show your automations.");
   try {
     const r = await fetch(`/api/automations?wallet=${encodeURIComponent(walletAddress)}`);
-    const json = (await r.json()) as { automations?: unknown[]; schedules?: { active?: boolean }[] };
-    const list = json.automations ?? json.schedules ?? [];
+    // /api/automations returns `automations` and `schedules` as the same
+    // array (the latter kept for older callers) — read exactly one of them
+    // for both the count and the active tally so they can never diverge.
+    const json = (await r.json()) as { automations?: { active?: boolean }[] };
+    const list = json.automations ?? [];
     if (list.length === 0) return assistantText("You don't have any Payment Automations set up yet — want me to help start one?");
-    const active = (json.schedules ?? []).filter((a) => a.active !== false).length;
+    const active = list.filter((a) => a.active !== false).length;
     return assistantText(`You have ${list.length} automation${list.length === 1 ? "" : "s"} (${active} active). Manage them from the Automations dashboard for full detail.`);
   } catch {
     return assistantText("Couldn't load your automations right now.");

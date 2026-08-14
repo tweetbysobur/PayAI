@@ -187,9 +187,11 @@ async function understandDeterministic(text: string, pending: Understanding | nu
       const trimmed = text.trim();
       const filled: AskSlots = { ...pending.slots };
       if (key === "amount" && /^\d+(\.\d+)?$/.test(trimmed)) filled.amount = trimmed;
-      else if ((key === "toAsset" || key === "asset") && /^(MON|USDC)$/i.test(trimmed)) (filled as Record<string, unknown>)[key] = trimmed.toUpperCase();
+      else if ((key === "toAsset" || key === "asset" || key === "fromAsset") && /^(MON|USDC)$/i.test(trimmed)) (filled as Record<string, unknown>)[key] = trimmed.toUpperCase();
       else if (key === "recipient" && trimmed) filled.recipient = trimmed;
       else if (key === "frequency" && /^(daily|weekly|monthly)$/i.test(trimmed)) filled.frequency = trimmed.toLowerCase() as "daily" | "weekly" | "monthly";
+      else if (key === "recipientCount" && /^\d+$/.test(trimmed)) filled.recipientCount = Number(trimmed);
+      else if (key === "when" && trimmed) filled.when = trimmed;
       if (filled[key]) {
         const stillMissing = REQUIRED_SLOTS[pending.kind].filter((k) => !filled[k]);
         return stillMissing.length === 0
