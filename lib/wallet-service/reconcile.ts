@@ -62,6 +62,15 @@ const SCAN_THROTTLE_MS = 60_000;
  *  months skips the gap (and says so via the advanced checkpoint) instead of
  *  issuing an unbounded getLogs the RPC will reject anyway. */
 const MAX_SCAN_BLOCKS = 50_000n;
+/** How far the very first scan for a wallet looks back, instead of treating
+ *  everything before "now" as pre-existing history. Without this, a deposit
+ *  that lands moments before (or during) someone's first-ever dashboard
+ *  visit falls inside the untouched pre-baseline range and is silently
+ *  swallowed — the exact "I deposited and got no notification" report this
+ *  fixes. ~2 minutes of Monad's sub-second blocks: enough to catch a deposit
+ *  from right before first sign-in, nowhere near enough to replay a dormant
+ *  wallet's real history and flood a new user with old activity. */
+const BASELINE_LOOKBACK_BLOCKS = 300n;
 /** Native detection costs one block read per block, so it gets a much
  *  tighter cap than the log scan. Monad's sub-second blocks put a normal
  *  60s catch-up at ~150 blocks, so this leaves ~10x headroom for a user who
@@ -451,14 +460,15 @@ async function scan(
   }
 
   // First sight of this wallet (or a previous first attempt that never got a
-  // block number): record where we are and notify nothing.
-  if (!cp?.lastBlock) {
-    await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
-    return { scanned: true, deposits: 0, withdrawals: 0, baseline: true };
-  }
+  // block number): rather than a blank baseline that ignores everything up
+  // to this instant, start the window a short lookback behind "now" so a
+  // deposit from just before this first scan still gets caught below.
+  const baseline = !cp?.lastBlock;
+  const since = baseline
+    ? (latest > BASELINE_LOOKBACK_BLOCKS ? latest - BASELINE_LOOKBACK_BLOCKS : 0n)
+    : BigInt(cp!.lastBlock);
 
-  const since = BigInt(cp.lastBlock);
-  if (latest <= since) {
+  if (!baseline && latest <= since) {
     await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
     return { scanned: true, deposits: 0, withdrawals: 0, nativeComplete: true };
   }
@@ -586,5 +596,5 @@ async function scan(
   }
 
   await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
-  return { scanned: true, deposits, withdrawals, nativeComplete: native.complete };
+  return { scanned: true, deposits, withdrawals, nativeComplete: native.complete, ...(baseline ? { baseline: true } : {}) };
 }
