@@ -169,16 +169,25 @@ export function getAutomationVault(): `0x${string}` | null {
     : pickAddr(process.env.MONAD_TESTNET_AUTOMATION_VAULT, process.env.MONAD_AUTOMATION_VAULT);
 }
 
+// The canonical Wrapped MON token on Monad mainnet — the same address
+// lib/monad/tokenRegistry.ts's CURATED_MAINNET list already trusts as
+// "verified" (sourced from the project's Monad address reference, never
+// hand-guessed). Unlike PaymentExecutor/AutomationVault/MerchantRegistry,
+// this isn't a PayAI deployment that changes per environment — it's a fixed,
+// public, third-party contract — so falling back to it when
+// MONAD_MAINNET_WMON isn't set is safe in a way a PayAI contract fallback
+// would not be.
+const KNOWN_MAINNET_WMON = "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A";
+
 /**
  * Wrapped-native (WMON) token for the active network. Needed for Wallet
  * Automation on MON: native coins have no ERC-20 allowance, so a MON automation
- * in wallet mode pulls WMON instead. Null until MONAD_MAINNET_WMON is set —
- * callers must fall back (steer MON to Reserved Funds) when absent.
+ * in wallet mode pulls WMON instead.
  */
 export function getWrappedNative(): `0x${string}` | null {
   const net = getNetwork();
   return net === "mainnet"
-    ? pickAddr(process.env.MONAD_MAINNET_WMON)
+    ? pickAddr(process.env.MONAD_MAINNET_WMON, KNOWN_MAINNET_WMON)
     : pickAddr(process.env.MONAD_TESTNET_WMON, process.env.MONAD_WMON);
 }
 
