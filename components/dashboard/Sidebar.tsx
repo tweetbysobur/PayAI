@@ -10,11 +10,13 @@ import {
 import { Logo } from "@/components/Logo";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 
+// "Contact Support" used to live here too, pointing at the exact same
+// /dashboard/support page the main nav's own "Support" item already covers —
+// a duplicate destination under a different label, not a second feature.
 export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding"; external?: boolean }[] = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
   { label: "Wallet Security", icon: Lock, href: "/security" },
   { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
-  { label: "Contact Support", icon: LifeBuoy, href: "/dashboard/support" },
 ];
 
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
