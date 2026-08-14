@@ -172,4 +172,35 @@ describe("understand — key-free deterministic fallback", () => {
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.slots.amount).toBe("20");
   });
+
+  // Regression: the single-missing-slot merge only handled amount/asset/
+  // recipient/frequency — fromAsset, when, and recipientCount fell through
+  // silently and the reply was misread as an unrelated new message.
+  it("fills a missing fromAsset from a direct follow-up answer", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = { kind: "swap" as const, outcome: "incomplete" as const, slots: { fromAsset: null, toAsset: "MON", amount: "20" }, question: "Swap from which token?" };
+    const u = await understand("USDC", [], pending);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.fromAsset).toBe("USDC");
+  });
+
+  it("fills a missing 'when' from a direct follow-up answer", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = {
+      kind: "schedule_payment" as const, outcome: "incomplete" as const,
+      slots: { amount: "10", asset: "USDC", recipient: "0x1234567890123456789012345678901234567890", when: null },
+      question: "When should it run?",
+    };
+    const u = await understand("Friday", [], pending);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.when).toBe("Friday");
+  });
+
+  it("fills a missing recipientCount from a direct follow-up answer", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = { kind: "distribution" as const, outcome: "incomplete" as const, slots: { amount: "10", asset: "USDC", recipientCount: null }, question: "How many recipients?" };
+    const u = await understand("50", [], pending);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.recipientCount).toBe(50);
+  });
 });

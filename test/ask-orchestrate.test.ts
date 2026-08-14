@@ -261,13 +261,25 @@ describe("respondToUnderstanding — read-only info intents use real data, never
   it("automation_management lists the real count from /api/automations", async () => {
     const { calls, restore } = mockFetch((url) => {
       expect(url).toContain("/api/automations?wallet=");
-      return { schedules: [{ active: true }, { active: false }] };
+      return { automations: [{ active: true }, { active: false }], schedules: [{ active: true }, { active: false }] };
     });
     try {
       const r = await respondToUnderstanding({ kind: "automation_management", outcome: "complete", slots: {} }, WALLET);
       expect(r.message.content).toContain("2 automations");
       expect(r.message.content).toContain("1 active");
       expect(calls.length).toBe(1);
+    } finally { restore(); }
+  });
+
+  // Regression: the active-count used to read a different field (`schedules`)
+  // than the one the length count read (`automations`) — a response carrying
+  // only one of the two silently reported "0 active" regardless of reality.
+  it("counts correctly even when the response carries only `automations`, not `schedules`", async () => {
+    const { restore } = mockFetch(() => ({ automations: [{ active: true }, { active: true }, { active: false }] }));
+    try {
+      const r = await respondToUnderstanding({ kind: "automation_management", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toContain("3 automations");
+      expect(r.message.content).toContain("2 active");
     } finally { restore(); }
   });
 });

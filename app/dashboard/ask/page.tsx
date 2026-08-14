@@ -142,7 +142,11 @@ function AskPayAIChat() {
       setOp(await executeSendPayment(op, wallet));
       return;
     }
-    if (op.intent.kind === "swap" && op.intent.execution && wallet.address) {
+    if (op.intent.kind === "swap" && op.intent.execution) {
+      if (!wallet.address) {
+        setOp({ ...op, status: "error", error: { message: "Your wallet disconnected — reconnect and try again.", code: "NO_WALLET" } });
+        return;
+      }
       setOp({ ...op, status: "confirming" });
       setOp(await executeSwapIntent(op, wallet, wallet.address));
       return;
@@ -215,7 +219,11 @@ function AskPayAIChat() {
                   walletAddress={wallet.address}
                   onAdvanceOperation={advanceOperation}
                   onCancelOperation={cancelOperation}
-                  onRetryOperation={retryOperation}
+                  // Only offer "Try again" where retrying actually does
+                  // something — a schedule/recurring handoff card (or any
+                  // future kind without a canonical retry text) would
+                  // otherwise show a button that silently does nothing.
+                  onRetryOperation={m.operation && retryTextFor(m.operation) ? retryOperation : undefined}
                 />
               ))}
               {thinking && <ThinkingRow />}
