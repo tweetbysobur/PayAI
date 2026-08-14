@@ -6,8 +6,9 @@ import Link from "next/link";
 import {
   ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus,
   ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles, ArrowRight,
+  CheckCircle2, Clock3, XCircle, AlertTriangle, ExternalLink,
 } from "lucide-react";
-import { Badge, Card, CountUp } from "@/components/ui";
+import { Card, CountUp } from "@/components/ui";
 import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
 import { MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
 import { Identicon } from "@/components/Identicon";
@@ -36,8 +37,20 @@ const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const DAY = 86_400_000;
 
-const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
-  executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "neutral",
+const DECISION_LABEL: Record<string, string> = {
+  executed: "Sent", needs_review: "Needs review", blocked: "Blocked", refused: "Refused", error: "Failed",
+};
+const DECISION_ICON: Record<string, typeof CheckCircle2> = {
+  executed: CheckCircle2, needs_review: Clock3, blocked: XCircle, refused: XCircle, error: AlertTriangle,
+};
+/** Same success/warning/danger/neutral tones as everywhere else, just mapped
+ *  onto the icon chip's bg/text pair instead of a Badge's border+bg. */
+const DECISION_ICON_TONE: Record<string, string> = {
+  executed: "bg-success/12 text-success",
+  needs_review: "bg-warning/12 text-warning",
+  blocked: "bg-danger/12 text-danger",
+  refused: "bg-danger/12 text-danger",
+  error: "bg-input text-muted-foreground",
 };
 
 export default function Overview() {
@@ -186,7 +199,20 @@ export default function Overview() {
                 <p className="mt-0.5 text-xs text-muted-foreground">Network</p>
               </div>
               <div className="text-right">
-                <Badge tone={walletStatus.tone}>{walletStatus.label}</Badge>
+                <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                  { success: "border-success/30 bg-success/10 text-success", warning: "border-warning/30 bg-warning/10 text-warning", neutral: "border-border bg-input text-muted-foreground" }[walletStatus.tone]
+                }`}>
+                  <span className="relative flex h-1.5 w-1.5">
+                    {/* The pulse is what makes "Active" read as a live signal
+                        rather than a static label — reserved for the one
+                        state that's actually live right now. */}
+                    {walletStatus.tone === "success" && (
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75 motion-reduce:hidden" />
+                    )}
+                    <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${{ success: "bg-success", warning: "bg-warning", neutral: "bg-muted-foreground" }[walletStatus.tone]}`} />
+                  </span>
+                  {walletStatus.label}
+                </span>
                 <p className="mt-1 text-xs text-muted-foreground">Status</p>
               </div>
             </div>
@@ -242,25 +268,43 @@ export default function Overview() {
           {history.length === 0 ? (
             <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K), or use the form directly. It settles on Monad in seconds." cta={{ label: "Send Payment", href: "/dashboard/payments" }} />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-                  <tr><th className="py-1.5 pr-3">Recipient</th><th className="pr-3">Asset</th><th className="pr-3">Amount</th><th className="pr-3">Status</th><th className="pr-3">When</th><th>Explorer</th></tr>
-                </thead>
-                <tbody className="text-foreground">
-                  {history.slice(0, 6).map((h, i) => (
-                    <motion.tr key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }} className="border-t border-border">
-                      <td className="py-1.5 pr-3 font-mono text-xs">{h.domain ?? short(h.recipient)}</td>
-                      <td className="pr-3">{h.token}</td>
-                      <td className="pr-3 [font-variant-numeric:tabular-nums]">{h.amount ?? "—"}</td>
-                      <td className="pr-3"><Badge tone={DECISION_TONE[h.decision] ?? "neutral"}>{h.decision}</Badge></td>
-                      <td className="pr-3 text-xs text-muted-foreground">{new Date(h.at).toLocaleDateString()}</td>
-                      <td>{h.txHash && h.explorerUrl ? <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary-ink hover:underline">{short(h.txHash)} ↗</a> : "—"}</td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ul className="divide-y divide-border">
+              {history.slice(0, 6).map((h, i) => {
+                const StatusIcon = DECISION_ICON[h.decision] ?? AlertTriangle;
+                return (
+                  <motion.li
+                    key={i}
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, duration: 0.25 }}
+                    className="flex items-center gap-3 py-3 first:pt-0 last:pb-0"
+                  >
+                    <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${DECISION_ICON_TONE[h.decision] ?? "bg-input text-muted-foreground"}`}>
+                      <StatusIcon size={16} />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{h.domain ?? short(h.recipient)}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {DECISION_LABEL[h.decision] ?? h.decision} · {new Date(h.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      </p>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      <p className="flex items-center justify-end gap-1.5 text-sm font-semibold tabular-nums text-foreground">
+                        <TokenLogo token={h.token} size={13} />
+                        {h.amount ?? "—"} <span className="text-xs font-normal text-muted-foreground">{h.token}</span>
+                      </p>
+                      {h.txHash && h.explorerUrl ? (
+                        <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="mt-0.5 inline-flex items-center gap-0.5 font-mono text-[11px] text-primary-ink hover:underline">
+                          {short(h.txHash)} <ExternalLink size={9} />
+                        </a>
+                      ) : (
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  </motion.li>
+                );
+              })}
+            </ul>
           )}
         </Card>
 
