@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
@@ -93,6 +93,17 @@ export default function Payments() {
     setShowChecks(false);
     c.run(`Send ${amount} ${token} to ${recipient}`);
   }
+
+  // Once a payment actually settles, the composer's job is done — leaving the
+  // just-paid amount/recipient sitting there next to the receipt makes it
+  // look like the same payment is still queued up to send again.
+  useEffect(() => {
+    if (c.res?.decision === "executed") {
+      setAmount("");
+      setRecipient("");
+    }
+  }, [c.res]);
+
   function copyHash(hash: string) {
     void copy(hash, "Transaction hash copied");
   }
