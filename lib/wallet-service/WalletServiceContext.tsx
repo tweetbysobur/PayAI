@@ -74,8 +74,11 @@ export interface WalletServiceState extends ExternalWalletState {
    * Derives the embedded wallet: creates a passkey for a first-time user, or
    * re-derives the existing one for a returning user. Deterministic — a
    * returning user always lands on the same address, never a duplicate.
+   * `created` tells the caller which happened, so first-run onboarding (and
+   * its username prompt) only shows for an actually-new wallet, never a
+   * returning user just unlocking theirs.
    */
-  setUpEmbeddedWallet: (opts?: { create?: boolean }) => Promise<string>;
+  setUpEmbeddedWallet: (opts?: { create?: boolean }) => Promise<{ address: string; created: boolean }>;
   /** Signs out of the embedded wallet and zeroes its in-memory key. */
   signOutEmbedded: () => Promise<void>;
   /** This device has a wallet, but its key isn't in memory right now (after a
@@ -347,7 +350,7 @@ function useWalletServiceState(): WalletServiceState {
    * who already has one.
    */
   const setUpEmbeddedWallet = useCallback(
-    async (opts?: { create?: boolean }): Promise<string> => {
+    async (opts?: { create?: boolean }): Promise<{ address: string; created: boolean }> => {
       setEmbeddedBusy(true);
       setEmbeddedError(null);
       try {
@@ -370,7 +373,7 @@ function useWalletServiceState(): WalletServiceState {
           }),
         }).catch(() => {});
 
-        return handle.address;
+        return { address: handle.address, created: shouldCreate };
       } catch (e) {
         setEmbeddedError(provider.friendlyError(e));
         throw e;

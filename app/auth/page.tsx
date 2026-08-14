@@ -82,9 +82,17 @@ function AuthFlow() {
     rememberConsent();
     setStep("creating");
     try {
-      const address = await wallet.setUpEmbeddedWallet();
-      setNewAddress(address);
-      setStep("first-run");
+      const { address, created } = await wallet.setUpEmbeddedWallet();
+      // The username prompt and the rest of first-run onboarding are for a
+      // brand-new wallet. A returning user unlocking theirs with a passkey
+      // already has one — sending them through this again looks like PayAI
+      // forgot who they are and is asking them to set a username afresh.
+      if (created) {
+        setNewAddress(address);
+        setStep("first-run");
+      } else {
+        router.push("/dashboard");
+      }
     } catch {
       setError(wallet.error ?? "Couldn't create your wallet. Please try again.");
       setStep("start");
