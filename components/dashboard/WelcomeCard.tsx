@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { Repeat, Send, Download, LayoutTemplate, ArrowRight } from "lucide-react";
 import { useUsername } from "@/lib/hooks/useUsername";
+import { NAV } from "@/components/dashboard/Sidebar";
 
 /**
  * The first thing a brand-new wallet sees on the dashboard.
@@ -26,6 +27,36 @@ const ACTIONS = [
   { href: "/connect", title: "Import Existing Wallet", blurb: "Use MetaMask, Rabby or Backpack instead.", icon: Download },
   { href: "/dashboard/automations", title: "Explore Templates", blurb: "Payroll, treasury, rewards and more.", icon: LayoutTemplate },
 ];
+
+/** One-line descriptions for the sidebar's own nav items, keyed by href so
+ *  the tour below can never list a page the sidebar doesn't have (or drift
+ *  out of sync with its labels/icons/grouping) — it reads `NAV` directly. */
+const TOUR_BLURBS: Record<string, string> = {
+  "/dashboard/payments": "Pay any wallet address or .nad name.",
+  "/dashboard/automations": "Set up recurring or scheduled payments.",
+  "/dashboard/transactions": "Every payment you've sent, with receipts.",
+  "/dashboard/activity": "A live feed of what's happening on your wallet.",
+  "/dashboard/recipients": "Save wallets and register on-chain merchants.",
+  "/dashboard/invoices": "Create and share a payment request.",
+  "/dashboard/compliance": "The risk checks every payment goes through.",
+  "/dashboard/analytics": "Spending trends and approval rates over time.",
+  "/dashboard/wallets": "Manage and switch between linked wallets.",
+  "/dashboard/settings": "Your username, preferences, and account.",
+};
+
+/** Grouped exactly the way the sidebar groups them — computed once from the
+ *  same `NAV` list the sidebar renders from, so this tour is a view of the
+ *  real navigation, not a second copy of it that can go stale. */
+const TOUR_SECTIONS: { name: string; items: typeof NAV }[] = (() => {
+  const sections: { name: string; items: typeof NAV }[] = [];
+  for (const item of NAV) {
+    if (!item.section || item.soon || !TOUR_BLURBS[item.href]) continue;
+    let bucket = sections.find((s) => s.name === item.section);
+    if (!bucket) { bucket = { name: item.section, items: [] }; sections.push(bucket); }
+    bucket.items.push(item);
+  }
+  return sections;
+})();
 
 export function WelcomeCard({ address, show }: { address?: string | null; show: boolean }) {
   const { username } = useUsername(address);
@@ -77,6 +108,41 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
             </motion.div>
           );
         })}
+      </div>
+
+      {/* Quick tour — what lives where, so the sidebar isn't a wall of
+          unfamiliar labels on day one. Grouped and linked exactly like the
+          sidebar itself. */}
+      <div className="mt-6 border-t border-border pt-5">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          A quick tour — where to find things
+        </p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {TOUR_SECTIONS.map((section) => (
+            <div key={section.name}>
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{section.name}</p>
+              <ul className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className="group flex items-start gap-2 rounded-lg px-1.5 py-1 transition hover:bg-input/40"
+                      >
+                        <Icon size={13} className="mt-0.5 shrink-0 text-muted-foreground transition group-hover:text-primary-ink" />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-medium text-foreground">{item.label}</span>
+                          <span className="block text-[11px] leading-relaxed text-muted-foreground">{TOUR_BLURBS[item.href]}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
     </motion.section>
   );
