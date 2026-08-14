@@ -8,6 +8,7 @@ import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
 import { mockRespond } from "@/lib/ask/mockAgent";
+import { executeSendPayment, respondToSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import type { AskMessage, Operation, TransactionResult } from "@/lib/ask/types";
 
 /** Ask PayAI's natural-language flow is still in development (real intent
@@ -118,21 +119,51 @@ function AskPayAIChat() {
     setMessages((m) => [...m, userMsg]);
     setInput("");
     setThinking(true);
-    // A believable, varied thinking delay — mocked, but never instant, so the
-    // pipeline-verification framing (this is checking things, not just
-    // echoing) reads true even before real latency exists.
-    await new Promise((r) => setTimeout(r, 550 + Math.random() * 450));
-    const reply = await mockRespond(trimmed);
-    setThinking(false);
-    setMessages((m) => [...m, reply]);
+    try {
+      // send_payment is the only intent this phase runs for real — through
+      // the exact same /api/agent + /api/agent/confirm pipeline the rest of
+      // the dashboard uses. respondToSendPayment returns null for anything
+      // that isn't send-payment-shaped, so every other intent this phase
+      // doesn't implement (swap, schedule, distribute, balance...) still
+      // falls through to the existing mock layer below, unchanged.
+      const real = await respondToSendPayment(trimmed, wallet.address);
+      if (real) {
+        setMessages((m) => [...m, real]);
+        return;
+      }
+      // A believable, varied thinking delay — mocked, but never instant, so
+      // the pipeline-verification framing (this is checking things, not
+      // just echoing) reads true even before real latency exists. Only
+      // applied to the still-mocked intents; the real path above has its
+      // own genuine network latency and doesn't need one added on top.
+      await new Promise((r) => setTimeout(r, 550 + Math.random() * 450));
+      const reply = await mockRespond(trimmed);
+      setMessages((m) => [...m, reply]);
+    } finally {
+      setThinking(false);
+    }
   }
 
-  /** Advances a card exactly one step per click — preview -> ready, or
-   *  ready -> confirming (which then resolves on its own after a beat, the
-   *  one place time passes without a click, standing in for the real
-   *  passkey/wallet round trip). Never skips a step, never both attaches a
-   *  result AND changes status in reaction to anything but this call. */
-  function advanceOperation(operationId: string) {
+  /** Advances a card exactly one step per click. A real send_payment card
+   *  (operation.intent.execution present) skips straight from "ready" —
+   *  set the moment /api/agent already approved it — through the real
+   *  wallet/passkey signature and settlement via executeSendPayment(); every
+   *  other (still-mocked) kind keeps the original preview -> ready ->
+   *  confirming demo behavior untouched. Never skips a step, never both
+   *  attaches a result AND changes status in reaction to anything but a
+   *  real user click. */
+  async function advanceOperation(operationId: string) {
+    const current = messages.find((m) => m.operation?.id === operationId)?.operation;
+    if (current?.intent.kind === "payment" && current.intent.execution) {
+      if (current.status !== "ready") return;
+      setMessages((prev) =>
+        prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: { ...m.operation!, status: "confirming" } } : m)),
+      );
+      const result = await executeSendPayment(current, wallet);
+      setMessages((prev) => prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: result } : m)));
+      return;
+    }
+
     setMessages((prev) =>
       prev.map((m) => {
         if (m.operation?.id !== operationId) return m;
@@ -145,6 +176,17 @@ function AskPayAIChat() {
         return m;
       }),
     );
+  }
+
+  /** Re-runs the original request from scratch through the real pipeline —
+   *  never resubmits a stale signed artifact. Only wired up for real
+   *  send_payment cards (see the OperationCard onRetry prop below); a fresh
+   *  /api/agent call re-validates against current balances/state instead of
+   *  blindly retrying whatever failed. */
+  function retryOperation(operationId: string) {
+    const op = messages.find((m) => m.operation?.id === operationId)?.operation;
+    const rawText = op?.intent.kind === "payment" ? op.intent.execution?.confirmRawText : null;
+    if (rawText) void send(rawText);
   }
 
   /** The demo's stand-in for a real execution failure (compliance block, a
@@ -178,10 +220,20 @@ function AskPayAIChat() {
 
   /** Cancelling a not-yet-confirmed card returns it to review rather than
    *  destroying it — the details the user already reviewed shouldn't
-   *  disappear, only the "I'm ready" step should reset. */
+   *  disappear, only the "I'm ready" step should reset. A real send_payment
+   *  card never had a "preview" step (it starts at "ready", already
+   *  server-approved), so cancelling it ends the card instead — no
+   *  signature was ever requested, so there's nothing to undo. */
   function cancelOperation(operationId: string) {
     setMessages((prev) =>
-      prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: { ...m.operation, status: "preview" } } : m)),
+      prev.map((m) => {
+        if (m.operation?.id !== operationId) return m;
+        const op = m.operation;
+        if (op.intent.kind === "payment" && op.intent.execution) {
+          return { ...m, operation: { ...op, status: "error", error: { message: "Cancelled — nothing was sent.", code: "USER_CANCELLED" } } };
+        }
+        return { ...m, operation: { ...op, status: "preview" } };
+      }),
     );
   }
 
@@ -222,6 +274,7 @@ function AskPayAIChat() {
                   walletAddress={wallet.address}
                   onAdvanceOperation={advanceOperation}
                   onCancelOperation={cancelOperation}
+                  onRetryOperation={retryOperation}
                 />
               ))}
               {thinking && <ThinkingRow />}
