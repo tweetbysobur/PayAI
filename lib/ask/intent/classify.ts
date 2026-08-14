@@ -36,8 +36,16 @@ export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
   swap: ["amount", "fromAsset", "toAsset"],
   schedule_payment: ["amount", "asset", "recipient", "when"],
   recurring_payment: ["amount", "asset", "recipient", "frequency"],
-  check_balance: [],
+  wallet_balance: [],
+  token_balance: ["asset"],
   transaction_history: [],
+  wallet_activity: [],
+  // txHash is deliberately NOT required — most requests ("did it go
+  // through?", "my latest transaction") name no hash at all. The
+  // orchestrator resolves those against real recent activity; txHash here
+  // is only for when context already pins one down.
+  transaction_status: [],
+  transaction_details: [],
   automation_management: [],
   distribution: ["amount", "asset", "recipientCount"],
 };
@@ -49,20 +57,25 @@ Capabilities PayAI supports today, and what each needs:
 - swap: amount, fromAsset, toAsset — exchanging one token for another
 - schedule_payment: amount, asset, recipient, when (a one-time future date/time, e.g. "next Friday", "tomorrow", "2026-07-01")
 - recurring_payment: amount, asset, recipient, frequency (daily, weekly, or monthly)
-- check_balance: nothing required — the user wants to know what they hold
-- transaction_history: nothing required — the user wants to see past activity
+- wallet_balance: nothing required — the user wants their whole wallet's balance (all supported assets), e.g. "what's in my wallet", "how much money do I have"
+- token_balance: asset (MON or USDC) — the user wants ONE specific token's balance, e.g. "how much USDC do I have", "what's my MON balance". If they ask about a token PayAI doesn't track, still capture the asset they named — it's explained honestly downstream, never silently redirected to a supported one.
+- transaction_history: nothing required (asset is an optional filter, e.g. "how much USDC did I send recently") — the user wants a list of past transactions
+- wallet_activity: nothing required — a broader "what's been happening" question; treat the same as transaction_history when the distinction doesn't matter
+- transaction_status: nothing strictly required, but fill txHash when context clearly identifies which transaction (see rule 9) — the user is asking whether a payment went through / succeeded / is still pending
+- transaction_details: nothing strictly required, same txHash rule — the user wants specifics (who, how much, when) about a particular past transaction
 - automation_management: nothing required — the user wants to review or manage an existing scheduled/recurring payment
 - distribution: amount, asset, recipientCount — paying many wallets in one go
 
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
 2. Never default an unstated asset to USDC or MON. If it matters and wasn't said, ask.
-3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, or "actually make it 30"), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. Only start fresh if the message is clearly about something else.
+3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, "actually make it 30", or "what about MON?" right after a balance answer), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. Only start fresh if the message is clearly about something else.
 4. If you can identify a specific capability above but something required is missing, use outcome "incomplete" and write ONE short, natural question asking for exactly what's still missing — never re-ask for something already known, never open a form.
 5. If the request describes something real that PayAI does not support today (staking, lending, leverage/trading, NFTs, bridging to another chain, anything off this list), use outcome "unsupported". Explain briefly and honestly that it isn't available yet. Do NOT reinterpret it as send_payment or swap just because those happen to be supported.
 6. If you genuinely cannot tell what the user wants at all, use outcome "unclear" and ask a natural clarifying question. Do not guess or force it into one of the capabilities above.
 7. If it's just conversation — a greeting, thanks, a question about what PayAI is or does — with no operation implied, use outcome "chat" and reply naturally in a sentence or two.
 8. Write like a helpful person, never like a template or a form label.
+9. For transaction_status/transaction_details: if the user says "that", "it", "my last payment", or similar and your own PREVIOUS reply (in the recent conversation) already named a specific transaction (a hash, or a single clearly-identified payment), fill slots.txHash with that hash — you are reading it back from context, never inventing one. If nothing specific was said and none was just discussed, leave txHash null; a downstream system resolves that to the most recent transaction on its own. If the user's wording suggests they mean some OTHER, different transaction than whatever was last discussed, and you can't tell which one from the conversation, use outcome "incomplete" and ask them to say more (who it was to, roughly how much, or roughly when) rather than guessing.
 
 Field-specific notes:
 - send_payment's asset must be MON or USDC — PayAI's instant chat sends support only these two right now. A different token named here is still fine to capture (don't force it to null), it will be rejected with an honest reason downstream.
@@ -88,6 +101,7 @@ const TOOL_SCHEMA = {
           fromAsset: { type: ["string", "null"] },
           toAsset: { type: ["string", "null"] },
           recipientCount: { type: ["number", "null"] },
+          txHash: { type: ["string", "null"], description: "Only when read back from a transaction already named in context — never invented." },
         },
       },
       question: { type: ["string", "null"], description: "Set only when outcome is 'incomplete' — the single next thing to ask." },
@@ -99,7 +113,7 @@ const TOOL_SCHEMA = {
 };
 
 function emptySlots(): AskSlots {
-  return { amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null, recipientCount: null };
+  return { amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null, recipientCount: null, txHash: null };
 }
 
 /** Turns whatever the model (or a malformed/adversarial tool call) returned
@@ -226,8 +240,37 @@ async function understandDeterministic(text: string, pending: Understanding | nu
       : { kind, outcome: "incomplete", slots, question: missing[0] === "recipient" ? "Who should this pay?" : missing[0] === "amount" ? "How much should it send?" : "When should it run?" };
   }
 
+  // Best-effort keyword heuristics for transaction status/details — the
+  // deterministic detectors in brain.ts don't have an equivalent of their
+  // own, so this stays local to the key-free fallback. Checked BEFORE
+  // detectQueryIntent's show_history: "show me my LATEST transaction" (one,
+  // singular) would otherwise match show_history's generic "show...
+  // transaction" pattern and get misread as a request for the whole list.
+  // txHash is left null in every case here; the orchestrator resolves "no
+  // specific hash named" to the most recent real transaction.
+  if (/\b(go(es)?\s+through|went\s+through|successful|succeed(ed)?|confirmed|is\s+it\s+(done|pending)|failed)\b/i.test(text) &&
+      /\b(payment|transaction|transfer|it|that|this)\b/i.test(text)) {
+    return { kind: "transaction_status", outcome: "complete", slots: emptySlots() };
+  }
+  if (/\b(latest|last|recent|most recent)\s+(payment|transaction|transfer)\b/i.test(text) ||
+      /\bwho\s+did\s+i\s+(pay|send)\b/i.test(text) || /\bhow\s+much\s+did\s+i\s+send\b/i.test(text) ||
+      /\bwhen\s+did\s+(that|it|the)\b.*\b(happen|go)\b/i.test(text)) {
+    return { kind: "transaction_details", outcome: "complete", slots: emptySlots() };
+  }
+
   const query = detectQueryIntent(text);
-  if (query === "show_balance") return { kind: "check_balance", outcome: "complete", slots: emptySlots() };
+  if (query === "show_balance") {
+    // A message naming exactly one token (and not the other supported one)
+    // reads as "just that one" — including an unsupported token, so it gets
+    // an honest "not tracked" answer instead of silently showing the whole
+    // wallet. Anything with no single token named is the whole wallet.
+    const hasMon = /\bMON\b/i.test(text), hasUsdc = /\bUSDC\b/i.test(text);
+    const otherToken = text.match(/\b(USDT|USD|DAI|WETH|WBTC|WMON|ETH|BTC)\b/i);
+    if (hasMon && !hasUsdc) return { kind: "token_balance", outcome: "complete", slots: { ...emptySlots(), asset: "MON" } };
+    if (hasUsdc && !hasMon) return { kind: "token_balance", outcome: "complete", slots: { ...emptySlots(), asset: "USDC" } };
+    if (otherToken && !hasMon && !hasUsdc) return { kind: "token_balance", outcome: "complete", slots: { ...emptySlots(), asset: otherToken[0].toUpperCase() } };
+    return { kind: "wallet_balance", outcome: "complete", slots: emptySlots() };
+  }
   if (query === "show_history") return { kind: "transaction_history", outcome: "complete", slots: emptySlots() };
   if (query === "scheduled_payment") return { kind: "automation_management", outcome: "complete", slots: emptySlots() };
 

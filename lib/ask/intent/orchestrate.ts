@@ -18,8 +18,8 @@
 "use client";
 
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
-import { clearPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
-import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TransactionResult } from "@/lib/ask/types";
+import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
+import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
@@ -42,6 +42,21 @@ function idemKey(tag: string): string {
 }
 
 type SwapPlan = NonNullable<SwapIntent["execution"]>["plan"];
+/** One row of real transaction history, as /api/agent's show_history query
+ *  returns it — this is lib/platform/types.ts's TxLogEntry verbatim (minus
+ *  fields this module doesn't use), never a client-side reconstruction. */
+interface TxHistoryRow {
+  at: number;
+  decision: "executed" | "needs_review" | "blocked" | "refused" | "error";
+  action: string;
+  amount: number | null;
+  token: string;
+  recipient: string | null;
+  sender?: string | null;
+  txHash?: string;
+  explorerUrl?: string;
+  summary: string;
+}
 /** /api/agent's response covers far more decisions than AgentResult's own
  *  type declares (swap_ready, automation_prefill, info, ...) — widen
  *  `decision` to a plain string rather than fighting that union here. */
@@ -52,7 +67,7 @@ type AgentApiResponse = Omit<AgentResult, "decision"> & {
   provider?: string;
   prefill?: { amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number | null };
   balance?: { mon: number; usdc: number };
-  history?: { summary: string; txHash?: string }[];
+  history?: TxHistoryRow[];
   count?: number;
   query?: string;
 };
@@ -94,8 +109,11 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
     case "swap": return { message: await dispatchSwap(u.slots, walletAddress), nextPending: null };
     case "schedule_payment": return { message: await dispatchSchedule("schedule_payment", u.slots, walletAddress), nextPending: null };
     case "recurring_payment": return { message: await dispatchSchedule("recurring_payment", u.slots, walletAddress), nextPending: null };
-    case "check_balance": return { message: await dispatchBalance(walletAddress), nextPending: null };
-    case "transaction_history": return { message: await dispatchHistory(walletAddress), nextPending: null };
+    case "wallet_balance": return { message: await dispatchWalletBalance(walletAddress), nextPending: null };
+    case "token_balance": return { message: await dispatchTokenBalance(u.slots, walletAddress), nextPending: null };
+    case "transaction_history": case "wallet_activity": return { message: await dispatchTransactionHistoryCard(u.slots, walletAddress), nextPending: null };
+    case "transaction_status": return { message: await dispatchTransactionStatus(u.slots, walletAddress), nextPending: null };
+    case "transaction_details": return { message: await dispatchTransactionDetails(u.slots, walletAddress), nextPending: null };
     case "automation_management": return { message: await dispatchAutomations(walletAddress), nextPending: null };
     case "distribution": return { message: dispatchDistribution(u.slots), nextPending: null };
   }
@@ -237,36 +255,207 @@ export function handoffToAutomations(handoff: AutomationHandoff) {
   window.location.href = "/dashboard/automations";
 }
 
-async function dispatchBalance(walletAddress: string | null): Promise<AskMessage> {
-  if (!walletAddress) return assistantText("Connect your wallet and I can check your balance.");
-  try {
-    const r = await fetch("/api/agent", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intent: "show my balance", walletAddress, idempotencyKey: idemKey("bal") }),
-    });
-    const json = (await r.json()) as AgentApiResponse;
-    if (json.balance) return assistantText(`You're holding ${json.balance.mon.toFixed(4)} MON and ${json.balance.usdc.toFixed(2)} USDC.`);
-    return assistantText(json.error || "Couldn't read your balance right now.");
-  } catch {
-    return assistantText("Couldn't reach Monad to check your balance. Try again.");
-  }
+/** PayAI's chat-driven balance lookup only covers these two — real on-chain
+ *  reads via the same /api/agent path everything else in the dashboard
+ *  uses (lib/monad/balance.ts), never a mock number. */
+const SUPPORTED_BALANCE_ASSETS = ["MON", "USDC"];
+const NO_WALLET_MESSAGE = "Connect (or create) your PayAI wallet and I can look that up.";
+
+function shortHash(h: string): string {
+  return h.length > 14 ? `${h.slice(0, 8)}…${h.slice(-6)}` : h;
+}
+function explorerFor(txHash: string): string {
+  return `https://explorer.monad.xyz/tx/${txHash}`;
+}
+function formatWhen(at: number): string {
+  return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+}
+/** A logged transaction only ever reflects a settled outcome — "executed"
+ *  is the one decision that means real, on-chain success; every other
+ *  logged decision (blocked/refused/error/needs_review) means it did not
+ *  move funds. A truly in-flight (broadcast, not yet confirmed) transaction
+ *  never reaches this at all — it isn't recorded until confirm succeeds or
+ *  definitively reverts, so that case is handled separately via
+ *  pendingSettlement (see resolveTransaction). */
+function statusFromDecision(decision: TxHistoryRow["decision"]): "success" | "failed" {
+  return decision === "executed" ? "success" : "failed";
+}
+function txTypeLabel(action: string): string {
+  if (action === "pay_invoice") return "Invoice payment";
+  if (action === "create_payment_link" || action === "create_checkout_link") return "Payment link";
+  return "Payment";
+}
+function toTransactionView(row: TxHistoryRow, walletAddress: string): WalletTransactionView {
+  return {
+    type: txTypeLabel(row.action),
+    asset: row.token,
+    amount: row.amount != null ? String(row.amount) : "—",
+    sender: walletAddress,
+    recipient: row.recipient ?? "—",
+    status: statusFromDecision(row.decision),
+    timestamp: formatWhen(row.at),
+    txHash: row.txHash,
+    explorerUrl: row.explorerUrl,
+  };
 }
 
-async function dispatchHistory(walletAddress: string | null): Promise<AskMessage> {
-  if (!walletAddress) return assistantText("Connect your wallet and I can show your transaction history.");
+/** `null` return means the request itself failed (RPC/network) — distinct
+ *  from a real, empty `[]` history, so callers never conflate "couldn't
+ *  check" with "nothing there". */
+async function fetchHistory(walletAddress: string): Promise<TxHistoryRow[] | null> {
   try {
     const r = await fetch("/api/agent", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ intent: "show my transaction history", walletAddress, idempotencyKey: idemKey("hist") }),
     });
     const json = (await r.json()) as AgentApiResponse;
-    const count = json.count ?? json.history?.length ?? 0;
-    if (count === 0) return assistantText("You don't have any recorded transactions yet.");
-    const recent = (json.history ?? []).slice(0, 5).map((h) => `• ${h.summary}`).join("\n");
-    return assistantText(`You have ${count} recorded transaction${count === 1 ? "" : "s"}. Most recent:\n${recent}`);
+    return json.history ?? [];
   } catch {
-    return assistantText("Couldn't reach PayAI to load your history. Try again.");
+    return null;
   }
+}
+
+type ResolvedTx =
+  | { row: TxHistoryRow }
+  | { pendingTxHash: string }
+  | { notFound: true }
+  | { empty: true }
+  | { rpcError: true };
+
+/** Resolves "that transaction" against real data — never a guess. A
+ *  specific hash (read back from context by the classifier) is matched
+ *  exactly or reported not-found; with no hash, the most recent real entry
+ *  is used, UNLESS a payment has broadcast but not yet settled (tracked
+ *  client-side in pendingSettlement) and so hasn't reached the log yet —
+ *  that's still the most recent activity and takes priority. */
+async function resolveTransaction(txHashHint: string | null | undefined, walletAddress: string): Promise<ResolvedTx> {
+  const pending = getPendingSettlement(walletAddress);
+  if (txHashHint && pending && pending.txHash.toLowerCase() === txHashHint.toLowerCase()) {
+    return { pendingTxHash: pending.txHash };
+  }
+  const rows = await fetchHistory(walletAddress);
+  if (rows === null) return { rpcError: true };
+  if (txHashHint) {
+    const match = rows.find((r) => r.txHash?.toLowerCase() === txHashHint.toLowerCase());
+    return match ? { row: match } : { notFound: true };
+  }
+  if (pending && !rows.some((r) => r.txHash?.toLowerCase() === pending.txHash.toLowerCase())) {
+    return { pendingTxHash: pending.txHash };
+  }
+  if (rows.length === 0) return { empty: true };
+  return { row: rows[0] }; // newest-first — see lib/platform/store.ts's listTx
+}
+
+function transactionCard(view: WalletTransactionView): { intent: WalletOperationIntent; operation: Operation } {
+  const intent: WalletOperationIntent = { kind: "wallet_operation", network: "monad", operation: "transaction", transaction: view };
+  return { intent, operation: { id: nextId("op"), intent, status: "success" } };
+}
+
+async function dispatchWalletBalance(walletAddress: string | null): Promise<AskMessage> {
+  if (!walletAddress) return assistantText(NO_WALLET_MESSAGE);
+  let json: AgentApiResponse | null = null;
+  try {
+    const r = await fetch("/api/agent", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "show my balance", walletAddress, idempotencyKey: idemKey("bal") }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to check your balance. Try again.");
+  }
+  if (!json?.balance) return assistantText(json?.error || "Couldn't read your balance right now.");
+  const intent: WalletOperationIntent = {
+    kind: "wallet_operation", network: "monad", operation: "balance",
+    balances: [{ token: "MON", amount: json.balance.mon.toFixed(4) }, { token: "USDC", amount: json.balance.usdc.toFixed(2) }],
+    totalValueUsd: await fetchTotalValueUsd(walletAddress),
+  };
+  const operation: Operation = { id: nextId("op"), intent, status: "success" };
+  return { id: nextId("msg"), role: "assistant", content: "Here's what's in your wallet.", createdAt: Date.now(), operation };
+}
+
+/** Best-effort total USD value from the existing wallet-intelligence
+ *  endpoint (real MON price via the same DEX quoter the swap engine uses —
+ *  see lib/monad/wallet-intel.ts). Never blocks or fails the balance card:
+ *  unconfigured, no price, or a network hiccup all just mean no total line. */
+async function fetchTotalValueUsd(walletAddress: string): Promise<string | null> {
+  try {
+    const r = await fetch(`/api/wallet-intelligence?address=${encodeURIComponent(walletAddress)}`);
+    const json = (await r.json()) as { ok?: boolean; configured?: boolean; totalValueUsd?: number | null };
+    return json.ok && json.configured && json.totalValueUsd != null ? json.totalValueUsd.toFixed(2) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dispatchTokenBalance(slots: { asset?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+  if (!walletAddress) return assistantText(NO_WALLET_MESSAGE);
+  const asset = (slots.asset ?? "").toUpperCase();
+  if (!SUPPORTED_BALANCE_ASSETS.includes(asset)) {
+    return assistantText(`PayAI currently tracks MON and USDC balances — I don't have balance data for ${slots.asset ?? "that token"} yet.`);
+  }
+  let json: AgentApiResponse | null = null;
+  try {
+    const r = await fetch("/api/agent", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ intent: "show my balance", walletAddress, idempotencyKey: idemKey("bal") }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to check your balance. Try again.");
+  }
+  if (!json?.balance) return assistantText(json?.error || "Couldn't read your balance right now.");
+  const amount = asset === "MON" ? json.balance.mon.toFixed(4) : json.balance.usdc.toFixed(2);
+  return assistantText(`You have ${amount} ${asset}.`);
+}
+
+async function dispatchTransactionHistoryCard(slots: { asset?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+  if (!walletAddress) return assistantText(NO_WALLET_MESSAGE);
+  const rows = await fetchHistory(walletAddress);
+  if (rows === null) return assistantText("Couldn't reach PayAI to load your history. Try again.");
+  const filtered = slots.asset ? rows.filter((r) => r.token.toUpperCase() === slots.asset!.toUpperCase()) : rows;
+  if (filtered.length === 0) {
+    return assistantText(slots.asset ? `No recorded ${slots.asset.toUpperCase()} transactions yet.` : "You don't have any recorded transactions yet.");
+  }
+  const intent: WalletOperationIntent = {
+    kind: "wallet_operation", network: "monad", operation: "recent_payments",
+    payments: filtered.slice(0, 5).map((r) => ({
+      to: r.recipient ?? "—", amount: r.amount != null ? String(r.amount) : "—", token: r.token,
+      when: formatWhen(r.at), status: statusFromDecision(r.decision), txHash: r.txHash, explorerUrl: r.explorerUrl,
+    })),
+  };
+  const operation: Operation = { id: nextId("op"), intent, status: "success" };
+  return { id: nextId("msg"), role: "assistant", content: `You have ${filtered.length} recorded transaction${filtered.length === 1 ? "" : "s"}.`, createdAt: Date.now(), operation };
+}
+
+const AMBIGUOUS_TX_REPLY = "I couldn't find that specific transaction in your recent activity — could you tell me more (who it was to, roughly how much, or roughly when)?";
+
+async function dispatchTransactionStatus(slots: { txHash?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+  if (!walletAddress) return assistantText(NO_WALLET_MESSAGE);
+  const resolved = await resolveTransaction(slots.txHash, walletAddress);
+  if ("rpcError" in resolved) return assistantText("Couldn't reach Monad to check that. Try again in a moment.");
+  if ("empty" in resolved) return assistantText("You don't have any recorded transactions yet.");
+  if ("notFound" in resolved) return assistantText(AMBIGUOUS_TX_REPLY);
+  if ("pendingTxHash" in resolved) {
+    return assistantText(`Still confirming on-chain — nothing's wrong, just waiting for the block. ${shortHash(resolved.pendingTxHash)} · ${explorerFor(resolved.pendingTxHash)}`);
+  }
+  const view = toTransactionView(resolved.row, walletAddress);
+  const lead = view.status === "success" ? "Yes — that went through." : "That one failed on-chain — no funds moved.";
+  const { operation } = transactionCard(view);
+  return { id: nextId("msg"), role: "assistant", content: lead, createdAt: Date.now(), operation };
+}
+
+async function dispatchTransactionDetails(slots: { txHash?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+  if (!walletAddress) return assistantText(NO_WALLET_MESSAGE);
+  const resolved = await resolveTransaction(slots.txHash, walletAddress);
+  if ("rpcError" in resolved) return assistantText("Couldn't reach Monad to look that up. Try again in a moment.");
+  if ("empty" in resolved) return assistantText("You don't have any recorded transactions yet.");
+  if ("notFound" in resolved) return assistantText(AMBIGUOUS_TX_REPLY);
+  if ("pendingTxHash" in resolved) {
+    return assistantText(`That one's still confirming on-chain — I won't have full details until it settles. ${shortHash(resolved.pendingTxHash)} · ${explorerFor(resolved.pendingTxHash)}`);
+  }
+  const view = toTransactionView(resolved.row, walletAddress);
+  const { operation } = transactionCard(view);
+  return { id: nextId("msg"), role: "assistant", content: "Here's what I found.", createdAt: Date.now(), operation };
 }
 
 async function dispatchAutomations(walletAddress: string | null): Promise<AskMessage> {
