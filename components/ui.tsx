@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Animated number that counts up to `value` on mount and whenever it changes.
@@ -128,11 +128,12 @@ export function SkeletonRows({ rows = 4, className = "" }: { rows?: number; clas
   );
 }
 
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
   return (
     <input
+      ref={ref}
       {...props}
       className={`rounded-lg border border-border bg-input px-3 py-2.5 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm ${props.className ?? ""}`}
     />
   );
-}
+});
