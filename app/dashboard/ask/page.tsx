@@ -1,29 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, Send, Clock3, Wallet, ArrowLeftRight, Users, Search } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
-import { AskEmptyState } from "@/components/ask/AskEmptyState";
+import { AskEmptyState, CAPABILITY_SHORTCUTS } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
-import { mockRespond } from "@/lib/ask/mockAgent";
-import { executeSendPayment, respondToSendPayment } from "@/lib/ask/sendPayment/orchestrator";
-import type { AskMessage, Operation, TransactionResult } from "@/lib/ask/types";
+import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
+import {
+  classifyMessage, executeSwapIntent, handoffToAutomations, respondToUnderstanding,
+  type ConversationTurn,
+} from "@/lib/ask/intent/orchestrate";
+import type { Understanding } from "@/lib/ask/intent/types";
+import type { AskMessage } from "@/lib/ask/types";
 
-/** send_payment (MON/USDC) now runs through the real PayAI pipeline — see
- *  lib/ask/sendPayment/. Flip this back to `true` to hide the page again
- *  behind a "coming soon" placeholder without removing any code. */
+/** send_payment, swap, schedule/recurring handoff, balance, history, and
+ *  automation listing all run through the real PayAI pipeline now — see
+ *  lib/ask/intent/. Flip this back to `true` to hide the page again behind
+ *  a "coming soon" placeholder without removing any code. */
 const COMING_SOON = false;
-
-const PREVIEW_PROMPTS: { label: string; icon: typeof Send }[] = [
-  { label: "Send a payment", icon: Send },
-  { label: "Schedule a payment", icon: Clock3 },
-  { label: "Check my balance", icon: Wallet },
-  { label: "Swap tokens", icon: ArrowLeftRight },
-  { label: "Distribute to multiple wallets", icon: Users },
-  { label: "Explain my last transaction", icon: Search },
-];
 
 function AskComingSoon() {
   return (
@@ -52,29 +48,25 @@ function AskComingSoon() {
           initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.35 }}
           className="mt-2 max-w-md text-center text-sm leading-relaxed text-muted-foreground"
         >
-          We&apos;re building natural-language payments — describe what you want in plain English and PayAI
+          We&apos;re building natural-language payments — tell PayAI what you want in your own words, and it
           prepares it for your review, with nothing moving until you confirm and sign. Check back soon.
         </motion.p>
 
         <motion.div
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.35 }}
-          className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2"
+          className="mt-8 flex flex-wrap items-center justify-center gap-2"
         >
-          {PREVIEW_PROMPTS.map((p, i) => {
-            const Icon = p.icon;
+          {CAPABILITY_SHORTCUTS.map((s, i) => {
+            const Icon = s.icon;
             return (
               <motion.div
-                key={p.label}
+                key={s.label}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.18 + i * 0.04, duration: 0.3 }}
-                className="flex items-center gap-3 rounded-xl border border-border bg-panel px-4 py-3.5 opacity-60"
+                className="flex items-center gap-1.5 rounded-full border border-border bg-panel px-3.5 py-1.5 text-xs font-medium text-muted-foreground opacity-60"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground">
-                  <Icon size={16} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium text-foreground">{p.label}</span>
-                </span>
+                <Icon size={13} />
+                {s.label}
               </motion.div>
             );
           })}
@@ -84,20 +76,18 @@ function AskComingSoon() {
   );
 }
 
-/** Placeholder for the real settlement result the execution layer will
- *  eventually return. Shaped identically to what /api/agent already
- *  produces elsewhere in the app (see lib/hooks/useAgentConsole.ts), so
- *  swapping this out later is a data-source change, not a UI one. */
-function mockTxResult(): TransactionResult {
-  const hex = "0123456789abcdef";
-  const hash = `0x${Array.from({ length: 64 }, () => hex[Math.floor(Math.random() * 16)]).join("")}`;
-  return { txHash: hash, explorerUrl: `https://explorer.monad.xyz/tx/${hash}`, gasFee: "0.0008 MON" };
-}
-
 let idSeq = 0;
 function nextId(prefix: string): string {
   idSeq += 1;
   return `${prefix}_${Date.now()}_${idSeq}`;
+}
+
+/** Canonical text for a retry — always rebuilt from the operation's own
+ *  validated fields, never a stored raw string that might now be stale. */
+function retryTextFor(op: NonNullable<AskMessage["operation"]>): string | null {
+  if (op.intent.kind === "payment" && op.intent.execution) return op.intent.execution.confirmRawText;
+  if (op.intent.kind === "swap" && op.intent.execution) return `Swap ${op.intent.fromAmount} ${op.intent.fromToken} to ${op.intent.toToken}`;
+  return null;
 }
 
 function AskPayAIChat() {
@@ -105,6 +95,11 @@ function AskPayAIChat() {
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  // The in-flight, not-yet-complete (or just-completed) intent — carried
+  // into the next turn so "20", "MON", or "actually make it 30" is
+  // understood as continuing/correcting THIS request rather than starting
+  // an unrelated new one. See lib/ask/intent/classify.ts.
+  const [pending, setPending] = useState<Understanding | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -119,119 +114,65 @@ function AskPayAIChat() {
     setInput("");
     setThinking(true);
     try {
-      // send_payment is the only intent this phase runs for real — through
-      // the exact same /api/agent + /api/agent/confirm pipeline the rest of
-      // the dashboard uses. respondToSendPayment returns null for anything
-      // that isn't send-payment-shaped, so every other intent this phase
-      // doesn't implement (swap, schedule, distribute, balance...) still
-      // falls through to the existing mock layer below, unchanged.
-      const real = await respondToSendPayment(trimmed, wallet.address);
-      if (real) {
-        setMessages((m) => [...m, real]);
-        return;
-      }
-      // A believable, varied thinking delay — mocked, but never instant, so
-      // the pipeline-verification framing (this is checking things, not
-      // just echoing) reads true even before real latency exists. Only
-      // applied to the still-mocked intents; the real path above has its
-      // own genuine network latency and doesn't need one added on top.
-      await new Promise((r) => setTimeout(r, 550 + Math.random() * 450));
-      const reply = await mockRespond(trimmed);
-      setMessages((m) => [...m, reply]);
+      const history: ConversationTurn[] = [...messages, userMsg]
+        .slice(-8)
+        .map((m) => ({ role: m.role, content: m.content }));
+      const understanding = await classifyMessage(trimmed, history, pending);
+      const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+      setPending(nextPending);
+      setMessages((m) => [...m, message]);
     } finally {
       setThinking(false);
     }
   }
 
-  /** Advances a card exactly one step per click. A real send_payment card
-   *  (operation.intent.execution present) skips straight from "ready" —
-   *  set the moment /api/agent already approved it — through the real
-   *  wallet/passkey signature and settlement via executeSendPayment(); every
-   *  other (still-mocked) kind keeps the original preview -> ready ->
-   *  confirming demo behavior untouched. Never skips a step, never both
-   *  attaches a result AND changes status in reaction to anything but a
-   *  real user click. */
+  /** Advances a card exactly one step per click, dispatching by what kind of
+   *  real operation it is. Every branch below is gated on status === "ready"
+   *  — a card this module already built and the server already approved —
+   *  so nothing here can advance a card that hasn't been through validation. */
   async function advanceOperation(operationId: string) {
-    const current = messages.find((m) => m.operation?.id === operationId)?.operation;
-    if (current?.intent.kind === "payment" && current.intent.execution) {
-      if (current.status !== "ready") return;
-      setMessages((prev) =>
-        prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: { ...m.operation!, status: "confirming" } } : m)),
-      );
-      const result = await executeSendPayment(current, wallet);
-      setMessages((prev) => prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: result } : m)));
+    const op = messages.find((m) => m.operation?.id === operationId)?.operation;
+    if (!op || op.status !== "ready") return;
+
+    const setOp = (next: typeof op) =>
+      setMessages((prev) => prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: next } : m)));
+
+    if (op.intent.kind === "payment" && op.intent.execution) {
+      setOp({ ...op, status: "confirming" });
+      setOp(await executeSendPayment(op, wallet));
       return;
     }
-
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.operation?.id !== operationId) return m;
-        const op = m.operation;
-        if (op.status === "preview") return { ...m, operation: { ...op, status: "ready" } };
-        if (op.status === "ready") {
-          setTimeout(() => resolveOperation(operationId), 1300);
-          return { ...m, operation: { ...op, status: "confirming" } };
-        }
-        return m;
-      }),
-    );
+    if (op.intent.kind === "swap" && op.intent.execution && wallet.address) {
+      setOp({ ...op, status: "confirming" });
+      setOp(await executeSwapIntent(op, wallet, wallet.address));
+      return;
+    }
+    if ((op.intent.kind === "scheduled_payment" || op.intent.kind === "recurring_payment") && op.intent.handoff) {
+      setOp({ ...op, status: "confirming" });
+      handoffToAutomations(op.intent.handoff); // navigates away — nothing to sign here
+      return;
+    }
   }
 
   /** Re-runs the original request from scratch through the real pipeline —
-   *  never resubmits a stale signed artifact. Only wired up for real
-   *  send_payment cards (see the OperationCard onRetry prop below); a fresh
-   *  /api/agent call re-validates against current balances/state instead of
-   *  blindly retrying whatever failed. */
+   *  never resubmits a stale signed/quoted artifact. A fresh request
+   *  re-validates against current balances/quotes/state instead of blindly
+   *  retrying whatever failed. */
   function retryOperation(operationId: string) {
     const op = messages.find((m) => m.operation?.id === operationId)?.operation;
-    const rawText = op?.intent.kind === "payment" ? op.intent.execution?.confirmRawText : null;
-    if (rawText) void send(rawText);
+    const text = op ? retryTextFor(op) : null;
+    if (text) void send(text);
   }
 
-  /** The demo's stand-in for a real execution failure (compliance block, a
-   *  reverted transaction, an expired quote). Deterministic on amount rather
-   *  than random, so the error-state UI is something a reviewer can actually
-   *  reach on demand instead of hoping for an unlucky roll: try a number
-   *  over 10,000 in any of the transactional flows. */
-  function mockAmount(intent: Operation["intent"]): number {
-    switch (intent.kind) {
-      case "payment": case "scheduled_payment": case "recurring_payment": return Number(intent.amount);
-      case "swap": return Number(intent.fromAmount);
-      case "distribution": return Number(intent.totalAmount);
-      case "wallet_operation": return 0;
-    }
-  }
-
-  function resolveOperation(operationId: string) {
-    setMessages((prev) =>
-      prev.map((m) => {
-        if (m.operation?.id !== operationId) return m;
-        const overLimit = mockAmount(m.operation.intent) > 10_000;
-        return {
-          ...m,
-          operation: overLimit
-            ? { ...m.operation, status: "error", error: { message: "This exceeds your daily limit and was blocked before signing. No funds moved.", code: "LIMIT_EXCEEDED" } }
-            : { ...m.operation, status: "success", result: mockTxResult() },
-        };
-      }),
-    );
-  }
-
-  /** Cancelling a not-yet-confirmed card returns it to review rather than
-   *  destroying it — the details the user already reviewed shouldn't
-   *  disappear, only the "I'm ready" step should reset. A real send_payment
-   *  card never had a "preview" step (it starts at "ready", already
-   *  server-approved), so cancelling it ends the card instead — no
-   *  signature was ever requested, so there's nothing to undo. */
+  /** Cancelling a ready card ends it rather than reviving it — every real
+   *  card here is already server-approved by the time it's shown (no
+   *  "preview" step to fall back to), and no signature was ever requested,
+   *  so there's nothing to undo but the card itself. */
   function cancelOperation(operationId: string) {
     setMessages((prev) =>
       prev.map((m) => {
         if (m.operation?.id !== operationId) return m;
-        const op = m.operation;
-        if (op.intent.kind === "payment" && op.intent.execution) {
-          return { ...m, operation: { ...op, status: "error", error: { message: "Cancelled — nothing was sent.", code: "USER_CANCELLED" } } };
-        }
-        return { ...m, operation: { ...op, status: "preview" } };
+        return { ...m, operation: { ...m.operation, status: "error", error: { message: "Cancelled — nothing was sent.", code: "USER_CANCELLED" } } };
       }),
     );
   }
@@ -239,6 +180,7 @@ function AskPayAIChat() {
   function newConversation() {
     setMessages([]);
     setInput("");
+    setPending(null);
   }
 
   return (
