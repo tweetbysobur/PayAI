@@ -5,7 +5,7 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
-  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, AlertTriangle,
+  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, AlertTriangle, ArrowUpRight,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
@@ -328,15 +328,16 @@ function CardFooter({
   if (status === "success") return null;
 
   if (status === "confirming") {
+    const waitingLabel = operation.confirmIcon === "go" ? "Opening…" : "Waiting for your signature — nothing has moved yet.";
     return (
       <div className="flex items-center gap-2.5 border-t border-border/70 bg-primary/[0.03] px-4 py-3">
         <Fingerprint size={16} className="shrink-0 animate-pulse text-primary-ink" />
-        <p className="text-xs text-muted-foreground">Waiting for your signature — nothing has moved yet.</p>
+        <p className="text-xs text-muted-foreground">{waitingLabel}</p>
       </div>
     );
   }
 
-  const label = status === "preview" ? `Review ${REVIEW_NOUN[intent.kind]}` : "Confirm with passkey";
+  const label = status === "preview" ? `Review ${REVIEW_NOUN[intent.kind]}` : operation.confirmLabel ?? "Confirm with passkey";
 
   return (
     <div className="flex gap-2 border-t border-border/70 px-4 py-3">
@@ -357,7 +358,7 @@ function CardFooter({
         disabled={busy}
         className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-60"
       >
-        {busy ? <Loader2 size={13} className="animate-spin" /> : status === "ready" ? <Fingerprint size={13} /> : <Search size={13} />}
+        {busy ? <Loader2 size={13} className="animate-spin" /> : status === "ready" ? (operation.confirmIcon === "go" ? <ArrowUpRight size={13} /> : <Fingerprint size={13} />) : <Search size={13} />}
         {label}
       </button>
     </div>

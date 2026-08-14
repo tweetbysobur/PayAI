@@ -1,24 +1,29 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Sparkles, Send, Clock3, Wallet, ArrowLeftRight, Users, Search } from "lucide-react";
+import { Sparkles, Send, ArrowLeftRight, Clock3, Wallet } from "lucide-react";
 
-export interface SuggestedPrompt {
+/**
+ * Optional, entirely bypassable on-ramps — never a form, never a hint at
+ * required wording. Clicking one sends its label as an ordinary chat message
+ * through the exact same understanding pipeline as anything typed by hand;
+ * there is no special-cased path for these four strings. A user who ignores
+ * every one of them and types something completely different is the normal
+ * case, not a degraded one.
+ */
+export interface CapabilityShortcut {
   label: string;
-  prompt: string;
   icon: typeof Send;
 }
 
-export const SUGGESTED_PROMPTS: SuggestedPrompt[] = [
-  { label: "Send a payment", prompt: "Send 50 USDC to alex.nad", icon: Send },
-  { label: "Schedule a payment", prompt: "Schedule 100 USDC to my contributor every Friday", icon: Clock3 },
-  { label: "Check my balance", prompt: "How much MON do I have?", icon: Wallet },
-  { label: "Swap tokens", prompt: "Swap 20 MON to USDC", icon: ArrowLeftRight },
-  { label: "Distribute to multiple wallets", prompt: "Send 10 USDC to these 100 wallets", icon: Users },
-  { label: "Explain my last transaction", prompt: "Why did my last payment fail?", icon: Search },
+export const CAPABILITY_SHORTCUTS: CapabilityShortcut[] = [
+  { label: "Send payment", icon: Send },
+  { label: "Swap tokens", icon: ArrowLeftRight },
+  { label: "Schedule payment", icon: Clock3 },
+  { label: "Check balance", icon: Wallet },
 ];
 
-export function AskEmptyState({ onPick }: { onPick: (prompt: string) => void }) {
+export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-4 py-12">
       <motion.div
@@ -37,31 +42,25 @@ export function AskEmptyState({ onPick }: { onPick: (prompt: string) => void }) 
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.35 }}
         className="mt-2 max-w-md text-center text-sm leading-relaxed text-muted-foreground"
       >
-        Describe what you want to do — send a payment, schedule one, swap tokens, pay a whole list of
-        wallets — and PayAI prepares it for your review. Nothing moves until you confirm and sign.
+        Tell me what you want to do, in your own words. Nothing moves until you confirm and sign.
       </motion.p>
 
       <motion.div
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.35 }}
-        className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-2.5 sm:grid-cols-2"
+        className="mt-8 flex flex-wrap items-center justify-center gap-2"
       >
-        {SUGGESTED_PROMPTS.map((p, i) => {
-          const Icon = p.icon;
+        {CAPABILITY_SHORTCUTS.map((s, i) => {
+          const Icon = s.icon;
           return (
             <motion.button
-              key={p.label}
+              key={s.label}
               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.18 + i * 0.04, duration: 0.3 }}
-              onClick={() => onPick(p.prompt)}
-              className="group flex items-center gap-3 rounded-xl border border-border bg-panel px-4 py-3.5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onPick(s.label)}
+              className="group flex items-center gap-1.5 rounded-full border border-border bg-panel px-3.5 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground transition group-hover:bg-primary/12 group-hover:text-primary-ink">
-                <Icon size={16} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-foreground">{p.label}</span>
-                <span className="block truncate text-xs text-muted-foreground">{p.prompt}</span>
-              </span>
+              <Icon size={13} className="text-muted-foreground transition group-hover:text-primary-ink" />
+              {s.label}
             </motion.button>
           );
         })}
