@@ -156,7 +156,7 @@ export type WalletEventType = (typeof WALLET_EVENT_TYPES)[number];
  *   transaction log is the closest fit.
  * - A deposit or withdrawal is detected on-chain and exists ONLY in the
  *   wallet-events feed — the one place that actually renders it is the
- *   merged Activity Center, not the Wallets page.
+ *   Activity tab on Transactions, not the Wallets page.
  * - wallet_created / _connected / _disconnected are genuinely about the
  *   wallet itself, with nothing to view anywhere else — these keep
  *   /dashboard/wallets.
@@ -165,7 +165,7 @@ export function walletEventHref(type: WalletEventType): string {
   if (type === "swap_completed" || type === "swap_failed") return "/dashboard/transactions";
   if (type === "automation_signed" || type === "automation_executed") return "/dashboard/automations";
   if (type === "refund_completed") return "/dashboard/transactions";
-  if (type === "deposit_received" || type === "withdrawal_completed") return "/dashboard/activity";
+  if (type === "deposit_received" || type === "withdrawal_completed") return "/dashboard/transactions?tab=activity";
   return "/dashboard/wallets";
 }
 

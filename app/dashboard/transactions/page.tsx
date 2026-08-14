@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet } from "lucide-react";
+import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet, Activity as ActivityIcon, BarChart3, ShieldCheck } from "lucide-react";
 import { Badge, Card, Input, SkeletonRows } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { TokenLogo, VolumeStack } from "@/components/TokenLogo";
+import { SyncButton } from "@/components/dashboard/SyncButton";
+import { ActivityTabContent } from "@/components/dashboard/ActivityTabContent";
+import { AnalyticsTabContent } from "@/components/dashboard/AnalyticsTabContent";
+import { ComplianceTabContent } from "@/components/dashboard/ComplianceTabContent";
 
 interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
 
@@ -28,7 +33,91 @@ function ago(ms: number): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export default function Transactions() {
+const TABS = [
+  { key: "transactions", label: "Transactions", icon: Receipt, blurb: "Every payment you've made through PayAI, settled on Monad Mainnet." },
+  { key: "activity", label: "Activity", icon: ActivityIcon, blurb: "Every payment, automation, swap and wallet event in one feed." },
+  { key: "analytics", label: "Analytics", icon: BarChart3, blurb: "Payment volume, settlement activity, and revenue trends." },
+  { key: "compliance", label: "Compliance", icon: ShieldCheck, blurb: "The risk checks every payment goes through, and a manual address check." },
+] as const;
+type TabKey = typeof TABS[number]["key"];
+function parseTab(v: string | null): TabKey {
+  return TABS.some((t) => t.key === v) ? (v as TabKey) : "transactions";
+}
+/** Activity and Compliance were designed at a narrower column than the
+ *  denser Transactions/Analytics tables and stat grids — kept per-tab so
+ *  neither looks stretched-thin nor cramped in the shared shell. */
+const TAB_WIDTH: Record<TabKey, string> = {
+  transactions: "max-w-6xl", activity: "max-w-4xl", analytics: "max-w-6xl", compliance: "max-w-4xl",
+};
+
+function TransactionsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<TabKey>(() => parseTab(searchParams.get("tab")));
+
+  // The URL is the source of truth for which tab is open — so a link like
+  // "?tab=compliance" from elsewhere in the app (or a bookmark, or browser
+  // back/forward) lands on the right tab, not whatever was last clicked.
+  useEffect(() => {
+    setTab(parseTab(searchParams.get("tab")));
+  }, [searchParams]);
+
+  function selectTab(key: TabKey) {
+    setTab(key);
+    router.replace(key === "transactions" ? "/dashboard/transactions" : `/dashboard/transactions?tab=${key}`, { scroll: false });
+  }
+
+  const active = TABS.find((t) => t.key === tab) ?? TABS[0];
+
+  return (
+    <div className={`mx-auto ${TAB_WIDTH[tab]}`}>
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Transactions</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">{active.blurb}</p>
+        </div>
+        <SyncButton className="shrink-0 pt-1" />
+      </motion.div>
+
+      {/* Segmented tab control — everything that used to be four separate
+          pages (Transactions, Activity, Analytics, Compliance) lives here
+          now, one click apart instead of a full navigation away. */}
+      <div className="mb-5 inline-flex flex-wrap gap-1 rounded-xl border border-border bg-input/40 p-1">
+        {TABS.map((t) => {
+          const Icon = t.icon;
+          const isActive = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => selectTab(t.key)}
+              aria-current={isActive ? "page" : undefined}
+              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                isActive ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon size={14} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "transactions" && <TransactionsTabContent />}
+      {tab === "activity" && <ActivityTabContent />}
+      {tab === "analytics" && <AnalyticsTabContent />}
+      {tab === "compliance" && <ComplianceTabContent />}
+    </div>
+  );
+}
+
+export default function TransactionsPage() {
+  return (
+    <Suspense fallback={null}>
+      <TransactionsPageInner />
+    </Suspense>
+  );
+}
+
+function TransactionsTabContent() {
   const wallet = useWallet();
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,12 +159,7 @@ export default function Transactions() {
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <div className="mx-auto max-w-6xl">
-      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground">Transactions</h1>
-        <p className="mt-0.5 text-sm text-muted-foreground">Every payment you&apos;ve made through PayAI, settled on Monad Mainnet.</p>
-      </motion.div>
-
+    <div>
       {/* Headline stats */}
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[

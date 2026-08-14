@@ -94,7 +94,7 @@ const PRODUCTS = [
     icon: BarChart3,
     title: "Analytics & Activity",
     body: "Balances, transactions, swaps, automation runs, upcoming executions and notifications — one dashboard, scoped to your wallet and nobody else's.",
-    href: "/dashboard/analytics",
+    href: "/dashboard/transactions?tab=analytics",
     action: "View the dashboard",
   },
 ];
