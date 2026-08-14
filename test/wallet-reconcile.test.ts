@@ -96,8 +96,26 @@ describe("wallet transfer reconciliation", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("first scan only sets a baseline — never replays a wallet's whole history", run(async (m) => {
+  it("first scan looks back a short window, catching a deposit from just before it", run(async (m) => {
+    // Not a blank baseline: a deposit that landed moments before someone's
+    // very first dashboard visit must still be caught, or it silently never
+    // notifies at all.
     incoming = [transferLog("0xaaa", OTHER, WALLET)];
+    const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
+
+    expect(r.baseline).toBe(true);
+    expect(r.deposits).toBe(1);
+    const events = await m.listWalletEvents("demo", WALLET);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("deposit_received");
+  }));
+
+  it("first scan does not reach back far enough to replay a wallet's whole history", run(async (m) => {
+    // A native transfer at a block well outside the lookback window --
+    // latestBlock is 1000n, the window only reaches back to ~700n -- must
+    // not surface on the very first scan, or a dormant wallet would flood a
+    // new user with old activity the moment they first connect.
+    nativeTxsByBlock["100"] = [nativeTx("0xold", OTHER, WALLET)];
     const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
 
     expect(r.baseline).toBe(true);
@@ -180,6 +198,7 @@ describe("wallet transfer reconciliation", () => {
     await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
     vi.useFakeTimers();
     vi.advanceTimersByTime(61_000);
+    blocksRead = []; // only the next scan's reads matter here, not the baseline's own lookback window
 
     latestBlock = 40_000n; // ~39k blocks since the checkpoint, far past the cap
     const r = await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
@@ -193,6 +212,7 @@ describe("wallet transfer reconciliation", () => {
     await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
     vi.useFakeTimers();
     vi.advanceTimersByTime(61_000);
+    blocksRead = []; // only the next scan's reads matter here, not the baseline's own lookback window
 
     latestBlock = 1005n; // checkpoint was 1000 → expect 1001..1005
     await m.reconcileWalletTransfers({ merchantId: "demo", address: WALLET, providerId: "injected" });
@@ -332,10 +352,16 @@ describe("internal (contract-originated) native transfers", () => {
   }
 
   it("finds one via tracing, with the real transaction, when the RPC supports it", run(async (m) => {
+    // The baseline scan's own lookback window is wide enough to trigger the
+    // trace probe itself, so the RPC needs to look supported from the start
+    // (an empty response is still a valid, tracing-capable shape) — otherwise
+    // the probe would run against traceByBlock = null and latch "unsupported"
+    // before this test's real scenario ever gets to it.
+    traceByBlock = {};
     await baselineThenAdvance(m);
     latestBlock = 1002n;
     // A swap: the wallet's own call in, MON handed back by an inner call.
-    (traceByBlock ??= {})["1001"] = [{
+    traceByBlock["1001"] = [{
       txHash: "0xSWAP",
       result: {
         from: WALLET, to: "0xdex000000000000000000000000000000000000dex", value: "0x0",
