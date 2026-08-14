@@ -79,12 +79,17 @@ export function OperationCard({
   operation,
   onAdvance,
   onCancel,
+  onRetry,
 }: {
   operation: Operation;
   /** Called when the user takes the card's primary action for its current
    *  status (Review -> Confirm -> [real signature happens in the caller]). */
   onAdvance: (operationId: string) => void;
   onCancel?: (operationId: string) => void;
+  /** "Try again" on a failed card — only rendered when provided. Re-running
+   *  the request from scratch (not resending a stale signed artifact) is the
+   *  caller's job; this only signals the click. */
+  onRetry?: (operationId: string) => void;
 }) {
   const { intent, status } = operation;
   const meta = KIND_META[intent.kind];
@@ -122,6 +127,16 @@ export function OperationCard({
 
       {!isInfo && status !== "error" && (
         <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} />
+      )}
+      {status === "error" && onRetry && (
+        <div className="flex border-t border-border/70 px-4 py-3">
+          <button
+            onClick={() => onRetry(operation.id)}
+            className="flex-1 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition hover:opacity-90"
+          >
+            Try again
+          </button>
+        </div>
       )}
     </motion.div>
   );

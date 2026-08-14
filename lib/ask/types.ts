@@ -29,6 +29,19 @@ export interface PaymentIntent extends IntentBase {
   recipientDomain?: string | null;
   estimatedFee?: string | null;
   purpose?: string | null;
+  /**
+   * Present only for a real (non-mock) payment produced by the live PayAI
+   * pipeline (see lib/ask/sendPayment/orchestrator.ts) — the unsigned
+   * transaction and replay context needed to actually execute it via the
+   * existing wallet/confirm flow. Absent for demo/mock cards, which never
+   * reach a wallet signature. Nothing in components/ask/ reads this field;
+   * it exists purely for the orchestration layer that owns confirmation.
+   */
+  execution?: {
+    unsignedTx: { to: string; data: string; value?: string; from: string };
+    confirmRawText: string;
+    requestId?: string;
+  };
 }
 
 export interface ScheduledPaymentIntent extends IntentBase {

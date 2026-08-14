@@ -11,11 +11,13 @@ export function ChatMessageRow({
   walletAddress,
   onAdvanceOperation,
   onCancelOperation,
+  onRetryOperation,
 }: {
   message: AskMessage;
   walletAddress?: string | null;
   onAdvanceOperation: (operationId: string) => void;
   onCancelOperation: (operationId: string) => void;
+  onRetryOperation?: (operationId: string) => void;
 }) {
   const isUser = message.role === "user";
   return (
@@ -39,7 +41,12 @@ export function ChatMessageRow({
           </div>
         )}
         {message.operation && (
-          <OperationCard operation={message.operation} onAdvance={onAdvanceOperation} onCancel={onCancelOperation} />
+          <OperationCard
+            operation={message.operation}
+            onAdvance={onAdvanceOperation}
+            onCancel={onCancelOperation}
+            onRetry={onRetryOperation}
+          />
         )}
       </div>
     </motion.div>
