@@ -56,27 +56,36 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
               </button>
             </div>
             <nav className="flex-1 overflow-y-auto px-3 py-4">
-              {NAV.map((item) => {
-                const active = pathname === item.href;
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    aria-disabled={item.soon}
-                    onClick={onClose}
-                    className={`mb-0.5 flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition ${
-                      active ? "bg-primary/15 text-primary-ink" : "text-muted-foreground hover:bg-input hover:text-foreground"
-                    } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon size={16} />
-                      {item.label}
-                    </span>
-                    {item.soon && <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">Soon</span>}
-                  </Link>
-                );
-              })}
+              {(() => {
+                let lastSection: string | null = null;
+                return NAV.map((item) => {
+                  const active = pathname === item.href;
+                  const Icon = item.icon;
+                  const showSectionLabel = item.section !== lastSection && item.section !== null;
+                  lastSection = item.section;
+                  return (
+                    <div key={item.href}>
+                      {showSectionLabel && (
+                        <p className="mb-1.5 mt-4 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{item.section}</p>
+                      )}
+                      <Link
+                        href={item.href}
+                        aria-disabled={item.soon}
+                        onClick={onClose}
+                        className={`mb-0.5 flex items-center justify-between rounded-md px-3 py-2.5 text-sm transition ${
+                          active ? "bg-primary/15 text-primary-ink" : "text-muted-foreground hover:bg-input hover:text-foreground"
+                        } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <Icon size={16} />
+                          {item.label}
+                        </span>
+                        {item.soon && <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">Soon</span>}
+                      </Link>
+                    </div>
+                  );
+                });
+              })()}
 
               <p className="mb-1 mt-4 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
                 <GraduationCap size={12} /> Learn PayAI
