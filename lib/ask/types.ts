@@ -107,12 +107,35 @@ export interface DistributionIntent extends IntentBase {
   recipientCount: number;
 }
 
+/** A single past transaction, rendered from real, already-verified data —
+ *  never a live guess. `status` reflects what actually happened on-chain
+ *  (see lib/ask/intent/orchestrate.ts's resolveTransaction), not a claim. */
+export interface WalletTransactionView {
+  type: string;
+  asset: string;
+  amount: string;
+  sender: string;
+  recipient: string;
+  status: "success" | "pending" | "failed";
+  /** Human-readable, already formatted — e.g. "Aug 14, 2026, 3:04 PM". */
+  timestamp: string;
+  txHash?: string;
+  explorerUrl?: string;
+}
+
 export interface WalletOperationIntent extends IntentBase {
   kind: "wallet_operation";
-  operation: "balance" | "recent_payments" | "explain_transaction";
-  /** Free-form context the card can show (e.g. which transaction). Display
-   *  only — never parsed back into a parameter. */
-  detail?: string | null;
+  operation: "balance" | "recent_payments" | "transaction";
+  /** Real data only, populated entirely by the orchestrator from actual API
+   *  responses — this type and the component that renders it never invent
+   *  a number. An absent field renders an honest "no data" state. */
+  balances?: { token: string; amount: string }[];
+  /** Best-effort — from the existing /api/wallet-intelligence endpoint's
+   *  real MON-price quote. Absent (not fabricated as $0) when that endpoint
+   *  isn't configured or a price isn't available. */
+  totalValueUsd?: string | null;
+  payments?: { to: string; amount: string; token: string; when: string; status: "success" | "pending" | "failed"; txHash?: string; explorerUrl?: string }[];
+  transaction?: WalletTransactionView;
 }
 
 export type Intent =
@@ -191,5 +214,5 @@ export const FREQUENCY_LABEL: Record<RecurringPaymentIntent["frequency"], string
 export const WALLET_OP_LABEL: Record<WalletOperationIntent["operation"], string> = {
   balance: "Balance",
   recent_payments: "Recent payments",
-  explain_transaction: "Transaction explainer",
+  transaction: "Transaction",
 };

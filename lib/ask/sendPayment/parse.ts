@@ -13,10 +13,9 @@
  */
 import type { SendPaymentCandidate } from "./types";
 
-/** Mirrors lib/ask/mockAgent.ts's own "plain send" trigger condition, so the
- *  two stay in sync — swap/schedule/distribute/balance/etc. are checked
- *  first by the caller (mockRespond's existing priority order) and take
- *  precedence, exactly as they do in the mock layer. */
+/** A lightweight, deliberately narrow trigger — the real classification
+ *  (including telling this apart from swap/schedule/balance phrasing that
+ *  happens to contain "send") is lib/ask/intent/classify.ts's job. */
 export function looksLikeSendPayment(text: string): boolean {
   const t = text.toLowerCase();
   return /\bsend\b/.test(t) || /\bpay\s/.test(t);

@@ -119,6 +119,34 @@ describe("understand — LLM path", () => {
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("send_payment");
   });
+
+  it("a follow-up ('what about MON?') is sent with the prior balance exchange as context for the model to resolve", async () => {
+    mockCreate.mockResolvedValue(toolResponse({ kind: "token_balance", outcome: "complete", slots: { asset: "MON" } }));
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const history = [
+      { role: "user" as const, content: "How much USDC do I have?" },
+      { role: "assistant" as const, content: "You have 250 USDC." },
+    ];
+    const u = await understand("What about MON?", history, null);
+    const call = mockCreate.mock.calls[0][0] as { messages: { content: string }[] };
+    expect(call.messages[0].content).toContain("You have 250 USDC.");
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") { expect(u.kind).toBe("token_balance"); expect(u.slots.asset).toBe("MON"); }
+  });
+
+  it("a follow-up ('was that successful?') is sent with the prior transaction reply as context so a txHash can be read back", async () => {
+    mockCreate.mockResolvedValue(toolResponse({ kind: "transaction_status", outcome: "complete", slots: { txHash: "0xabc123" } }));
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const history = [
+      { role: "user" as const, content: "Show me my latest transaction." },
+      { role: "assistant" as const, content: "Here's what I found. Sent 50 USDC. Hash: 0xabc123" },
+    ];
+    const u = await understand("Was that successful?", history, null);
+    const call = mockCreate.mock.calls[0][0] as { messages: { content: string }[] };
+    expect(call.messages[0].content).toContain("0xabc123");
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.txHash).toBe("0xabc123");
+  });
 });
 
 describe("understand — key-free deterministic fallback", () => {
@@ -150,10 +178,44 @@ describe("understand — key-free deterministic fallback", () => {
     if (u.outcome === "complete") expect(u.kind).toBe("recurring_payment");
   });
 
-  it("recognizes a balance check", async () => {
+  it("recognizes a whole-wallet balance check", async () => {
     const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("what's my balance", [], null);
-    expect(u).toEqual({ kind: "check_balance", outcome: "complete", slots: expect.any(Object) });
+    expect(u).toEqual({ kind: "wallet_balance", outcome: "complete", slots: expect.any(Object) });
+  });
+
+  it("recognizes a single-token balance check as token_balance, not the whole wallet", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand("what's my USDC balance?", [], null);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") { expect(u.kind).toBe("token_balance"); expect(u.slots.asset).toBe("USDC"); }
+  });
+
+  it("an unsupported token still classifies as token_balance so it gets an honest 'not tracked' answer, not the whole wallet", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand("what's my ETH balance?", [], null);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") { expect(u.kind).toBe("token_balance"); expect(u.slots.asset).toBe("ETH"); }
+  });
+
+  it("recognizes a transaction-status question", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand("did my last payment go through?", [], null);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.kind).toBe("transaction_status");
+  });
+
+  it("recognizes a 'latest transaction' request as transaction_details", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand("show me my latest transaction", [], null);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.kind).toBe("transaction_details");
+  });
+
+  it("is honest that 'how much money is in my wallet' isn't a recognized keyword phrase — the gap the LLM path closes", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand("How much money is in my wallet?", [], null);
+    expect(u.outcome).toBe("unclear");
   });
 
   it("is honest about not understanding phrasing with no recognizable keyword, rather than misrouting it", async () => {

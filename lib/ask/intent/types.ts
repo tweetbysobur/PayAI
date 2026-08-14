@@ -15,8 +15,13 @@ export const ASK_INTENT_KINDS = [
   "swap",
   "schedule_payment",
   "recurring_payment",
-  "check_balance",
+  // Wallet intelligence — read-only, never signs anything.
+  "wallet_balance",
+  "token_balance",
   "transaction_history",
+  "wallet_activity",
+  "transaction_status",
+  "transaction_details",
   "automation_management",
   "distribution",
 ] as const;
@@ -40,6 +45,14 @@ export interface AskSlots {
   fromAsset?: string | null;
   toAsset?: string | null;
   recipientCount?: number | null;
+  /**
+   * A specific past transaction the user is referring to — filled only when
+   * the model can resolve exactly one from conversation context (e.g. the
+   * hash it just showed in its own last reply). Left null for "my latest
+   * transaction" / "did it go through" with nothing more specific said; the
+   * orchestrator resolves that case against real recent activity itself.
+   */
+  txHash?: string | null;
 }
 
 /**

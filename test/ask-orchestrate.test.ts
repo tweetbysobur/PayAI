@@ -3,10 +3,24 @@ import {
   classifyMessage, executeSwapIntent, handoffToAutomations, respondToUnderstanding,
 } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
-import type { Operation, PaymentIntent, SwapIntent } from "@/lib/ask/types";
+import type { Operation, PaymentIntent, SwapIntent, WalletOperationIntent } from "@/lib/ask/types";
 
 const ADDR = "0x1234567890abcdef1234567890abcdef12345678";
 const WALLET = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+
+// getPendingSettlement reads localStorage, which doesn't exist in this
+// Node test environment — it already degrades to null there with no
+// mocking needed. To actually exercise the "still broadcasting, not in the
+// log yet" path in resolveTransaction, mock the module directly.
+let pendingSettlementMock: { walletAddress: string; txHash: string } | null = null;
+vi.mock("@/lib/hooks/pendingSettlement", () => ({
+  getPendingSettlement: (walletAddress?: string | null) =>
+    pendingSettlementMock && (!walletAddress || pendingSettlementMock.walletAddress.toLowerCase() === walletAddress.toLowerCase())
+      ? pendingSettlementMock
+      : null,
+  savePendingSettlement: vi.fn(),
+  clearPendingSettlement: vi.fn(),
+}));
 
 /** Same pattern as test/ask-send-payment.test.ts — mock fetch and record
  *  every call so tests can assert exactly which endpoints were (or weren't)
@@ -232,21 +246,12 @@ describe("respondToUnderstanding — schedule/recurring hand off to the real Aut
 });
 
 describe("respondToUnderstanding — read-only info intents use real data, never fabricated numbers", () => {
-  it("check_balance requires a connected wallet", async () => {
+  it("wallet_balance requires a connected wallet, explaining they need to connect/create one", async () => {
     const { calls, restore } = mockFetch(() => ({}));
     try {
-      const r = await respondToUnderstanding({ kind: "check_balance", outcome: "complete", slots: {} }, null);
-      expect(r.message.content).toMatch(/connect your wallet/i);
+      const r = await respondToUnderstanding({ kind: "wallet_balance", outcome: "complete", slots: {} }, null);
+      expect(r.message.content).toMatch(/connect.*(payai wallet|your wallet)/i);
       expect(calls.length).toBe(0);
-    } finally { restore(); }
-  });
-
-  it("check_balance reports the real numbers from /api/agent", async () => {
-    const { restore } = mockFetch(() => ({ decision: "info", query: "show_balance", balance: { mon: 12.5, usdc: 340.2 } }));
-    try {
-      const r = await respondToUnderstanding({ kind: "check_balance", outcome: "complete", slots: {} }, WALLET);
-      expect(r.message.content).toContain("12.5000 MON");
-      expect(r.message.content).toContain("340.20 USDC");
     } finally { restore(); }
   });
 
@@ -255,6 +260,7 @@ describe("respondToUnderstanding — read-only info intents use real data, never
     try {
       const r = await respondToUnderstanding({ kind: "transaction_history", outcome: "complete", slots: {} }, WALLET);
       expect(r.message.content).toMatch(/don't have any recorded transactions/i);
+      expect(r.message.operation).toBeUndefined();
     } finally { restore(); }
   });
 
@@ -281,6 +287,243 @@ describe("respondToUnderstanding — read-only info intents use real data, never
       expect(r.message.content).toContain("3 automations");
       expect(r.message.content).toContain("2 active");
     } finally { restore(); }
+  });
+});
+
+describe("wallet intelligence — balances (real on-chain data, never mocked)", () => {
+  afterEach(() => { pendingSettlementMock = null; });
+
+  it("token_balance answers a single MON balance conversationally", async () => {
+    const { calls, restore } = mockFetch(() => ({ decision: "info", query: "show_balance", balance: { mon: 12.42, usdc: 250 } }));
+    try {
+      const r = await respondToUnderstanding({ kind: "token_balance", outcome: "complete", slots: { asset: "MON" } }, WALLET);
+      expect(r.message.content).toBe("You have 12.4200 MON.");
+      expect(r.message.operation).toBeUndefined(); // plain conversational answer, not a card
+      expect(calls[0].body.intent).toBe("show my balance");
+    } finally { restore(); }
+  });
+
+  it("token_balance answers a single USDC balance conversationally", async () => {
+    const { restore } = mockFetch(() => ({ decision: "info", query: "show_balance", balance: { mon: 12.42, usdc: 250 } }));
+    try {
+      const r = await respondToUnderstanding({ kind: "token_balance", outcome: "complete", slots: { asset: "USDC" } }, WALLET);
+      expect(r.message.content).toBe("You have 250.00 USDC.");
+    } finally { restore(); }
+  });
+
+  it("token_balance for an unsupported token explains honestly without a network call", async () => {
+    const { calls, restore } = mockFetch(() => ({}));
+    try {
+      const r = await respondToUnderstanding({ kind: "token_balance", outcome: "complete", slots: { asset: "ETH" } }, WALLET);
+      expect(r.message.content).toMatch(/don't have balance data for ETH/i);
+      expect(calls.length).toBe(0);
+    } finally { restore(); }
+  });
+
+  it("token_balance requires a connected wallet", async () => {
+    const r = await respondToUnderstanding({ kind: "token_balance", outcome: "complete", slots: { asset: "MON" } }, null);
+    expect(r.message.content).toMatch(/connect.*payai wallet/i);
+  });
+
+  it("wallet_balance (the full summary) renders as a real-data card, not text with invented numbers", async () => {
+    const { restore } = mockFetch(() => ({ decision: "info", query: "show_balance", balance: { mon: 12.42, usdc: 250 } }));
+    try {
+      const r = await respondToUnderstanding({ kind: "wallet_balance", outcome: "complete", slots: {} }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.kind).toBe("wallet_operation");
+      expect(intent.operation).toBe("balance");
+      expect(intent.balances).toEqual([{ token: "MON", amount: "12.4200" }, { token: "USDC", amount: "250.00" }]);
+    } finally { restore(); }
+  });
+
+  it("adds a real total USD value from the existing wallet-intelligence endpoint when it's configured and priced", async () => {
+    const { restore } = mockFetch((url) => {
+      if (url.includes("/api/wallet-intelligence")) return { ok: true, configured: true, totalValueUsd: 512.42 };
+      return { decision: "info", query: "show_balance", balance: { mon: 12.42, usdc: 250 } };
+    });
+    try {
+      const r = await respondToUnderstanding({ kind: "wallet_balance", outcome: "complete", slots: {} }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.totalValueUsd).toBe("512.42");
+    } finally { restore(); }
+  });
+
+  it("omits the total value line (never fabricates one) when wallet-intelligence isn't configured", async () => {
+    const { restore } = mockFetch((url) => {
+      if (url.includes("/api/wallet-intelligence")) return { ok: true, configured: false };
+      return { decision: "info", query: "show_balance", balance: { mon: 12.42, usdc: 250 } };
+    });
+    try {
+      const r = await respondToUnderstanding({ kind: "wallet_balance", outcome: "complete", slots: {} }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.totalValueUsd).toBeNull();
+    } finally { restore(); }
+  });
+
+  it("an RPC failure while checking balance is reported honestly, never as a silent zero", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("RPC timeout"); }) as unknown as typeof fetch;
+    try {
+      const r = await respondToUnderstanding({ kind: "wallet_balance", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/couldn't reach monad/i);
+      expect(r.message.operation).toBeUndefined();
+    } finally { globalThis.fetch = original; }
+  });
+});
+
+describe("wallet intelligence — transaction history (premium card, real rows)", () => {
+  it("builds a real transaction list card from /api/agent's history", async () => {
+    const { restore } = mockFetch(() => ({
+      decision: "info", query: "show_history", count: 1,
+      history: [{ at: Date.UTC(2026, 7, 14, 10), decision: "executed", action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, txHash: "0xabc", explorerUrl: "https://explorer.monad.xyz/tx/0xabc", summary: "Sent 50 USDC" }],
+    }));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_history", outcome: "complete", slots: {} }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.operation).toBe("recent_payments");
+      expect(intent.payments).toHaveLength(1);
+      expect(intent.payments?.[0]).toMatchObject({ to: ADDR, amount: "50", token: "USDC", status: "success", txHash: "0xabc" });
+    } finally { restore(); }
+  });
+
+  it("wallet_activity dispatches the same real history card as transaction_history", async () => {
+    const { restore } = mockFetch(() => ({
+      decision: "info", query: "show_history", count: 1,
+      history: [{ at: Date.now(), decision: "executed", action: "send_payment", amount: 5, token: "MON", recipient: ADDR, summary: "Sent 5 MON" }],
+    }));
+    try {
+      const r = await respondToUnderstanding({ kind: "wallet_activity", outcome: "complete", slots: {} }, WALLET);
+      expect((r.message.operation?.intent as WalletOperationIntent).operation).toBe("recent_payments");
+    } finally { restore(); }
+  });
+
+  it("filters by asset when the user asked about one specifically", async () => {
+    const { restore } = mockFetch(() => ({
+      decision: "info", query: "show_history", count: 2,
+      history: [
+        { at: 2000, decision: "executed", action: "send_payment", amount: 5, token: "MON", recipient: ADDR, summary: "Sent 5 MON" },
+        { at: 1000, decision: "executed", action: "send_payment", amount: 20, token: "USDC", recipient: ADDR, summary: "Sent 20 USDC" },
+      ],
+    }));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_history", outcome: "complete", slots: { asset: "USDC" } }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.payments).toHaveLength(1);
+      expect(intent.payments?.[0].token).toBe("USDC");
+    } finally { restore(); }
+  });
+
+  it("an RPC failure loading history is reported honestly, not as an empty history", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("RPC timeout"); }) as unknown as typeof fetch;
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_history", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/couldn't reach payai/i);
+      expect(r.message.content).not.toMatch(/don't have any recorded/i);
+    } finally { globalThis.fetch = original; }
+  });
+});
+
+describe("wallet intelligence — transaction status and details (resolved from real activity, never claimed without confirmation)", () => {
+  afterEach(() => { pendingSettlementMock = null; });
+
+  function historyResponder(rows: Record<string, unknown>[]) {
+    return () => ({ decision: "info", query: "show_history", count: rows.length, history: rows });
+  }
+
+  it("latest transaction defaults to the single most recent real entry", async () => {
+    const { restore } = mockFetch(historyResponder([
+      { at: 2000, decision: "executed", action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, txHash: "0xnewest", explorerUrl: "https://explorer.monad.xyz/tx/0xnewest", summary: "Sent 50 USDC" },
+      { at: 1000, decision: "executed", action: "send_payment", amount: 5, token: "MON", recipient: ADDR, txHash: "0xolder", summary: "Sent 5 MON" },
+    ]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_details", outcome: "complete", slots: {} }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.transaction?.txHash).toBe("0xnewest"); // rows[0] — newest-first, per lib/platform/store.ts
+      expect(intent.transaction?.sender).toBe(WALLET);
+      expect(intent.transaction?.recipient).toBe(ADDR);
+      expect(intent.transaction?.amount).toBe("50");
+    } finally { restore(); }
+  });
+
+  it("reports a real success, never claiming it without the recorded on-chain confirmation", async () => {
+    const { restore } = mockFetch(historyResponder([
+      { at: 1000, decision: "executed", action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, txHash: "0xok", explorerUrl: "https://explorer.monad.xyz/tx/0xok", summary: "Sent 50 USDC" },
+    ]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_status", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/yes.*went through/i);
+      expect((r.message.operation?.intent as WalletOperationIntent).transaction?.status).toBe("success");
+    } finally { restore(); }
+  });
+
+  it("reports a real failure honestly, never dressed up as pending or success", async () => {
+    const { restore } = mockFetch(historyResponder([
+      { at: 1000, decision: "blocked", action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, summary: "Blocked" },
+    ]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_status", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/failed/i);
+      expect((r.message.operation?.intent as WalletOperationIntent).transaction?.status).toBe("failed");
+    } finally { restore(); }
+  });
+
+  it("a payment broadcast but not yet in the log reports Pending, not failed or missing", async () => {
+    pendingSettlementMock = { walletAddress: WALLET, txHash: "0xpending" };
+    const { restore } = mockFetch(historyResponder([])); // empty log — it hasn't confirmed yet
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_status", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/still confirming/i);
+      expect(r.message.content).toContain("0xpending".slice(0, 8));
+    } finally { restore(); }
+  });
+
+  it("a txHash resolved from conversation context (not in this message) is matched exactly", async () => {
+    const { restore } = mockFetch(historyResponder([
+      { at: 2000, decision: "executed", action: "send_payment", amount: 5, token: "MON", recipient: ADDR, txHash: "0xnewest", summary: "Sent 5 MON" },
+      { at: 1000, decision: "executed", action: "send_payment", amount: 20, token: "USDC", recipient: ADDR, txHash: "0xtarget", explorerUrl: "https://explorer.monad.xyz/tx/0xtarget", summary: "Sent 20 USDC" },
+    ]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_details", outcome: "complete", slots: { txHash: "0xtarget" } }, WALLET);
+      const intent = r.message.operation?.intent as WalletOperationIntent;
+      expect(intent.transaction?.txHash).toBe("0xtarget");
+      expect(intent.transaction?.amount).toBe("20");
+    } finally { restore(); }
+  });
+
+  it("ambiguous / unresolvable transaction reference asks for clarification instead of guessing", async () => {
+    const { restore } = mockFetch(historyResponder([
+      { at: 1000, decision: "executed", action: "send_payment", amount: 5, token: "MON", recipient: ADDR, txHash: "0xreal", summary: "Sent 5 MON" },
+    ]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_details", outcome: "complete", slots: { txHash: "0xnonexistent" } }, WALLET);
+      expect(r.message.content).toMatch(/couldn't find that specific transaction/i);
+      expect(r.message.content).toMatch(/could you tell me more/i);
+      expect(r.message.operation).toBeUndefined();
+    } finally { restore(); }
+  });
+
+  it("no transactions at all is reported honestly, not as an error", async () => {
+    const { restore } = mockFetch(historyResponder([]));
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_status", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/don't have any recorded transactions/i);
+    } finally { restore(); }
+  });
+
+  it("an RPC failure resolving a transaction never fabricates a status", async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("RPC timeout"); }) as unknown as typeof fetch;
+    try {
+      const r = await respondToUnderstanding({ kind: "transaction_status", outcome: "complete", slots: {} }, WALLET);
+      expect(r.message.content).toMatch(/couldn't reach monad/i);
+      expect(r.message.operation).toBeUndefined();
+    } finally { globalThis.fetch = original; }
+  });
+
+  it("requires a connected wallet before resolving any transaction", async () => {
+    const r = await respondToUnderstanding({ kind: "transaction_details", outcome: "complete", slots: {} }, null);
+    expect(r.message.content).toMatch(/connect.*payai wallet/i);
   });
 });
 

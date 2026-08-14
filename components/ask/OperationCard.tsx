@@ -5,12 +5,12 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
-  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, AlertTriangle, ArrowUpRight,
+  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
   FREQUENCY_LABEL, NETWORK_LABEL, WALLET_OP_LABEL,
-  type Operation, type OperationStatus,
+  type Operation, type OperationStatus, type WalletTransactionView,
 } from "@/lib/ask/types";
 
 /**
@@ -231,33 +231,46 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
   }
 }
 
+const TX_STATUS_META: Record<WalletTransactionView["status"], { icon: typeof CheckCircle2; tone: string; label: string }> = {
+  success: { icon: CheckCircle2, tone: "bg-success/12 text-success", label: "Success" },
+  pending: { icon: Loader2, tone: "bg-warning/12 text-warning", label: "Pending" },
+  failed: { icon: XCircle, tone: "bg-danger/12 text-danger", label: "Failed" },
+};
+
 /** Read-only info surfaces — no signature, no funds movement, so these
- *  render their answer directly rather than entering the confirm funnel. */
+ *  render their answer directly rather than entering the confirm funnel.
+ *  Every value here comes from the intent's own fields, populated by the
+ *  orchestrator from real API data — this component never fills a gap with
+ *  a placeholder number. */
 function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], { kind: "wallet_operation" }> }) {
   if (intent.operation === "balance") {
+    const rows = intent.balances ?? [];
+    if (rows.length === 0) return <p className="text-sm text-muted-foreground">No balance data available.</p>;
     return (
-      <div className="grid grid-cols-2 gap-2.5">
-        {[{ token: "MON", amount: "128.42" }, { token: "USDC", amount: "1,240.00" }].map((b) => (
-          <div key={b.token} className="rounded-lg border border-border bg-input/30 px-3 py-2.5">
-            <div className="flex items-center gap-1.5"><TokenLogo token={b.token} size={15} /><span className="text-xs text-muted-foreground">{b.token}</span></div>
-            <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{b.amount}</p>
-          </div>
-        ))}
+      <div>
+        <div className="grid grid-cols-2 gap-2.5">
+          {rows.map((b) => (
+            <div key={b.token} className="rounded-lg border border-border bg-input/30 px-3 py-2.5">
+              <div className="flex items-center gap-1.5"><TokenLogo token={b.token} size={15} /><span className="text-xs text-muted-foreground">{b.token}</span></div>
+              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{b.amount}</p>
+            </div>
+          ))}
+        </div>
+        {intent.totalValueUsd && (
+          <p className="mt-2.5 text-xs text-muted-foreground">≈ ${intent.totalValueUsd} total (approximate)</p>
+        )}
       </div>
     );
   }
   if (intent.operation === "recent_payments") {
-    const rows = [
-      { to: "alex.nad", amount: "50 USDC", when: "2h ago" },
-      { to: "0x9f2a…c41e", amount: "12.5 MON", when: "Yesterday" },
-      { to: "contributor.nad", amount: "100 USDC", when: "3d ago" },
-    ];
+    const rows = intent.payments ?? [];
+    if (rows.length === 0) return <p className="text-sm text-muted-foreground">No recorded transactions yet.</p>;
     return (
       <div className="divide-y divide-border/60">
         {rows.map((r, i) => (
           <div key={i} className="flex items-center justify-between py-1.5 text-sm">
-            <span className="text-foreground">{r.to}</span>
-            <span className="text-muted-foreground">{r.amount} · {r.when}</span>
+            <span className="min-w-0 truncate text-foreground">{r.to}</span>
+            <span className="shrink-0 text-muted-foreground">{r.amount} {r.token} · {r.when}</span>
           </div>
         ))}
         <div className="pt-2">
@@ -268,11 +281,32 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
       </div>
     );
   }
-  // explain_transaction
+  // "transaction" — a single resolved transaction (status or details request)
+  const t = intent.transaction;
+  if (!t) return <p className="text-sm text-muted-foreground">No transaction data available.</p>;
+  const meta = TX_STATUS_META[t.status];
+  const StatusIcon = meta.icon;
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border border-warning/25 bg-warning/5 p-3">
-      <AlertTriangle size={15} className="mt-0.5 shrink-0 text-warning" />
-      <p className="text-sm leading-relaxed text-foreground">{intent.detail}</p>
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${meta.tone}`}>
+          <StatusIcon size={16} className={t.status === "pending" ? "animate-spin" : undefined} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{t.type} · {t.amount} {t.asset}</p>
+          <p className="text-xs text-muted-foreground">{t.timestamp}</p>
+        </div>
+      </div>
+      <div className="divide-y divide-border/60">
+        <Row label="From">{short(t.sender)}</Row>
+        <Row label="To">{short(t.recipient)}</Row>
+        <Row label="Status">{meta.label}</Row>
+      </div>
+      {t.txHash && t.explorerUrl && (
+        <a href={t.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline">
+          {short(t.txHash)} <ExternalLink size={11} />
+        </a>
+      )}
     </div>
   );
 }
