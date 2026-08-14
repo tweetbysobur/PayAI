@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertTriangle, Lock, Wallet } from "lucide-react";
+import { X, CheckCircle2, Upload, ClipboardPaste, Keyboard, Trash2, Plus, AlertTriangle, Lock, Wallet, FileText } from "lucide-react";
 import { encodeFunctionData, type Hex } from "viem";
 import { Button, Input } from "@/components/ui";
 import { useToast } from "@/components/Toast";
@@ -35,6 +35,69 @@ async function confirmTx(wallet: WalletState, to: string, data: string, value?: 
   const receipt = (await wallet.waitForReceipt(hash)) as { status?: string } | null;
   if (receipt && receipt.status !== "success") throw new Error("The on-chain transaction failed. Nothing was created.");
   return hash;
+}
+
+/**
+ * A styled drop target for CSV/Excel uploads. The bare `<input type="file">`
+ * this replaces rendered as the browser's own unstyled "Choose File / No
+ * file chosen" control — invisible next to the rest of this wizard's design,
+ * and gave no indication a file could even be dropped there. Click or drag,
+ * either way; the filename replaces the prompt once something's picked.
+ */
+function FileUploadZone({ accept, hint, onFile }: { accept: string; hint: string; onFile: (file: File) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  function handleFile(file: File) {
+    setFileName(file.name);
+    onFile(file);
+  }
+
+  if (fileName) {
+    return (
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="flex w-full items-center gap-3 rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-left transition hover:border-success/50"
+      >
+        <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/12 text-success"><FileText size={16} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-foreground">{fileName}</p>
+          <p className="text-xs text-muted-foreground">Click to choose a different file</p>
+        </div>
+        <CheckCircle2 size={16} className="shrink-0 text-success" />
+      </button>
+    );
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => inputRef.current?.click()}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputRef.current?.click(); } }}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) handleFile(f);
+      }}
+      className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        dragOver ? "border-primary/60 bg-primary/[0.06]" : "border-border hover:border-primary/40 hover:bg-input/30"
+      }`}
+    >
+      <input ref={inputRef} type="file" accept={accept} className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-input text-muted-foreground">
+        <Upload size={18} />
+      </span>
+      <p className="text-sm font-medium text-foreground">Click to upload, or drag and drop</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
 }
 
 type Cadence = "once" | "daily" | "weekly" | "monthly" | "custom";
@@ -372,22 +435,24 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                       )}
                       {inputTab === "csv" && (
                         <div>
-                          <input type="file" accept=".csv,text/csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleCsvFile(f); }} className="text-sm text-muted-foreground" />
-                          <p className="mt-1.5 text-xs text-muted-foreground">Columns: address (required), amount, percentage, note — in any order, with or without a header row.</p>
+                          <FileUploadZone accept=".csv,text/csv" hint="CSV file, up to a few thousand rows" onFile={handleCsvFile} />
+                          <p className="mt-2 text-xs text-muted-foreground">Columns: address (required), amount, percentage, note — in any order, with or without a header row.</p>
                         </div>
                       )}
                       {inputTab === "excel" && (
                         <div>
-                          <input type="file" accept=".xlsx,.xls" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleExcelFile(f); }} className="text-sm text-muted-foreground" />
-                          <p className="mt-1.5 text-xs text-muted-foreground">First sheet is used. Columns: address, amount, percentage, note.</p>
+                          <FileUploadZone accept=".xlsx,.xls" hint="Excel file — .xlsx or .xls" onFile={(f) => void handleExcelFile(f)} />
+                          <p className="mt-2 text-xs text-muted-foreground">First sheet is used. Columns: address, amount, percentage, note.</p>
                         </div>
                       )}
                       {inputTab === "manual" && (
-                        <div className="flex flex-wrap items-end gap-2">
-                          <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Address or .nad domain</label><Input value={manualAddr} onChange={(e) => setManualAddr(e.target.value)} className="w-full" /></div>
-                          <div><label className="mb-1 block text-xs text-muted-foreground">Amount (optional)</label><Input value={manualAmt} onChange={(e) => setManualAmt(e.target.value.replace(/[^0-9.]/g, ""))} className="w-28" /></div>
-                          <div><label className="mb-1 block text-xs text-muted-foreground">Note (optional)</label><Input value={manualNote} onChange={(e) => setManualNote(e.target.value)} className="w-32" /></div>
-                          <Button className="!px-3 !py-2" onClick={addManualRow}><Plus size={14} /></Button>
+                        <div className="rounded-xl border border-border bg-input/20 p-4">
+                          <div className="flex flex-wrap items-end gap-2">
+                            <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Address or .nad domain</label><Input value={manualAddr} onChange={(e) => setManualAddr(e.target.value)} className="w-full" /></div>
+                            <div><label className="mb-1 block text-xs text-muted-foreground">Amount (optional)</label><Input value={manualAmt} onChange={(e) => setManualAmt(e.target.value.replace(/[^0-9.]/g, ""))} className="w-28" /></div>
+                            <div><label className="mb-1 block text-xs text-muted-foreground">Note (optional)</label><Input value={manualNote} onChange={(e) => setManualNote(e.target.value)} className="w-32" /></div>
+                            <Button className="!px-3 !py-2" onClick={addManualRow}><Plus size={14} /></Button>
+                          </div>
                         </div>
                       )}
                     </div>
