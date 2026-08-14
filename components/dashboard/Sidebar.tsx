@@ -25,7 +25,7 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
 // related to what's happened with your payments, instead of four.
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
-  { href: "/dashboard/ask", label: "Ask PayAI", icon: Sparkles, section: null },
+  { href: "/dashboard/ask", label: "Ask PayAI", icon: Sparkles, section: null, soon: true },
   { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
