@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue } from "motion/react";
 import {
   Sparkles, X, CheckCircle2, Clock3, XCircle, AlertTriangle,
@@ -51,6 +52,14 @@ function clamp(pos: { x: number; y: number }, w: number, h: number) {
 export function CommandBar() {
   const [open, setOpen] = useState(false);
   const c = useAgentConsole();
+  // The dedicated Ask PayAI workspace (app/dashboard/ask) IS this feature,
+  // full-page — floating a second, smaller "Ask PayAI" trigger on top of it
+  // (and letting ⌘K pop the compact modal over the page already showing the
+  // same thing) is redundant at best and visually collides with the page's
+  // own content at worst. Suppressed only on that one route; every other
+  // page keeps the trigger exactly as it was.
+  const pathname = usePathname();
+  const onAskPage = pathname === "/dashboard/ask";
   // What the assistant already knows when it opens — see AssistantBriefing.
   const { ctx, loading: ctxLoading } = useAssistantContext();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +131,7 @@ export function CommandBar() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (onAskPage) return;
         e.preventDefault();
         setOpen((o) => !o);
       }
@@ -129,7 +139,7 @@ export function CommandBar() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onAskPage]);
 
   useEffect(() => {
     if (open) { setTimeout(() => inputRef.current?.focus(), 50); }
@@ -152,6 +162,7 @@ export function CommandBar() {
 
   return (
     <>
+      {!onAskPage && (
       <motion.button
         ref={triggerRef}
         drag
@@ -177,6 +188,7 @@ export function CommandBar() {
         Ask PayAI
         <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1.5 py-0.5 text-[10px] opacity-80 sm:inline-block">⌘K</kbd>
       </motion.button>
+      )}
 
       <AnimatePresence>
         {open && (
