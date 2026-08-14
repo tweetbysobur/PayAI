@@ -132,6 +132,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const [pasteText, setPasteText] = useState("");
   const [drafts, setDrafts] = useState<RecipientDraft[]>([]);
   const [manualAddr, setManualAddr] = useState("");
+  const manualAddrRef = useRef<HTMLInputElement>(null);
   const [manualAmt, setManualAmt] = useState("");
   const [manualNote, setManualNote] = useState("");
   const [method, setMethod] = useState<DistributionMethod>("equal");
@@ -231,10 +232,31 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
     }
   }
 
-  function addManualRow() {
-    if (!manualAddr.trim()) return;
-    setDrafts((d) => [...d, { input: manualAddr.trim(), amount: manualAmt ? Number(manualAmt) : undefined, note: manualNote || undefined }]);
+  function addRow(input: string) {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    setDrafts((d) => [...d, { input: trimmed, amount: manualAmt ? Number(manualAmt) : undefined, note: manualNote || undefined }]);
     setManualAddr(""); setManualAmt(""); setManualNote("");
+  }
+  function addManualRow() {
+    addRow(manualAddr);
+  }
+  /** Pasting one address into Manual should behave like scanning a list one
+   *  at a time: land the row and leave the field ready for the next paste,
+   *  instead of making every address a separate click-the-+-button trip.
+   *  Pasting several lines at once adds them all, the same as the Paste tab. */
+  function handleManualAddrPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    e.preventDefault();
+    if (lines.length === 1) {
+      addRow(lines[0]);
+    } else {
+      setDrafts((d) => [...d, ...parseRecipientsPaste(text)]);
+      setManualAddr(""); setManualAmt(""); setManualNote("");
+    }
+    requestAnimationFrame(() => manualAddrRef.current?.focus());
   }
 
   function removeDraft(i: number) {
@@ -448,7 +470,18 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                       {inputTab === "manual" && (
                         <div className="rounded-xl border border-border bg-input/20 p-4">
                           <div className="flex flex-wrap items-end gap-2">
-                            <div className="flex-1"><label className="mb-1 block text-xs text-muted-foreground">Address or .nad domain</label><Input value={manualAddr} onChange={(e) => setManualAddr(e.target.value)} className="w-full" /></div>
+                            <div className="flex-1">
+                              <label className="mb-1 block text-xs text-muted-foreground">Address or .nad domain</label>
+                              <Input
+                                ref={manualAddrRef}
+                                value={manualAddr}
+                                onChange={(e) => setManualAddr(e.target.value)}
+                                onPaste={handleManualAddrPaste}
+                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addManualRow(); } }}
+                                placeholder="Paste an address to add it instantly"
+                                className="w-full"
+                              />
+                            </div>
                             <div><label className="mb-1 block text-xs text-muted-foreground">Amount (optional)</label><Input value={manualAmt} onChange={(e) => setManualAmt(e.target.value.replace(/[^0-9.]/g, ""))} className="w-28" /></div>
                             <div><label className="mb-1 block text-xs text-muted-foreground">Note (optional)</label><Input value={manualNote} onChange={(e) => setManualNote(e.target.value)} className="w-32" /></div>
                             <Button className="!px-3 !py-2" onClick={addManualRow}><Plus size={14} /></Button>
