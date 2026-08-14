@@ -11,11 +11,10 @@ import { mockRespond } from "@/lib/ask/mockAgent";
 import { executeSendPayment, respondToSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import type { AskMessage, Operation, TransactionResult } from "@/lib/ask/types";
 
-/** Ask PayAI's natural-language flow is still in development (real intent
- *  parsing + wallet execution). Until that lands, the page shows a "coming
- *  soon" state instead of the mock chat experience — flip this back to
- *  `false` to restore it once the real integration is ready. */
-const COMING_SOON = true;
+/** send_payment (MON/USDC) now runs through the real PayAI pipeline — see
+ *  lib/ask/sendPayment/. Flip this back to `true` to hide the page again
+ *  behind a "coming soon" placeholder without removing any code. */
+const COMING_SOON = false;
 
 const PREVIEW_PROMPTS: { label: string; icon: typeof Send }[] = [
   { label: "Send a payment", icon: Send },
