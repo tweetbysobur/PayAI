@@ -22,6 +22,17 @@ import {
 const ERC20_APPROVE_ABI = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "s", type: "address" }, { name: "a", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
+const ERC20_BALANCE_ABI = [
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "a", type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+// Standard WETH9-style wrapped-native interface: depositing native MON mints
+// the same amount of WMON to the caller. This is what actually makes MON
+// usable through Wallet Automation -- approving WMON's allowance was already
+// wired up, but without this step the user never holds any WMON for that
+// allowance to pull from, and every run would fail on an empty balance.
+const WMON_DEPOSIT_ABI = [
+  { type: "function", name: "deposit", stateMutability: "payable", inputs: [], outputs: [] },
+] as const;
 
 /**
  * Send a tx and wait for it to confirm through the wallet the user actually
@@ -363,6 +374,26 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
       // instead; any other token uses its own real address directly.
       const tokenAddr = isNative ? config.wmon : tokenInfo.address;
       if (!tokenAddr) throw new Error("MON isn't available for Bulk Payments yet — choose an ERC-20 token.");
+
+      if (isNative) {
+        // Approving WMON's allowance is worthless if the wallet never
+        // actually holds any WMON to pull from -- wrap the shortfall (not
+        // necessarily the full total, in case a previous run already left
+        // some WMON here) before approving.
+        const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
+        const client = await getBrowserPublicClient();
+        const wmonBalance = (await client.readContract({
+          address: tokenAddr as Hex, abi: ERC20_BALANCE_ABI, functionName: "balanceOf", args: [wallet.address as Hex],
+        })) as bigint;
+        if (wmonBalance < totalWei) {
+          const shortfall = totalWei - wmonBalance;
+          setSavingStep("Wrapping MON into WMON");
+          const wrapData = encodeFunctionData({ abi: WMON_DEPOSIT_ABI, functionName: "deposit", args: [] });
+          setSavingStep("Waiting for the wrap to confirm on Monad");
+          await confirmTx(wallet, tokenAddr, wrapData, shortfall);
+        }
+      }
+
       setSavingStep("Approve PayAI to send from your wallet");
       const data = encodeFunctionData({ abi: ERC20_APPROVE_ABI, functionName: "approve", args: [config.executor as Hex, totalWei] });
       setSavingStep("Waiting for approval to confirm on Monad");
