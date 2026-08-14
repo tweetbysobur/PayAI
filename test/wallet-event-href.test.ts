@@ -32,11 +32,12 @@ describe("walletEventHref sends each event type where it actually renders", () =
     expect(walletEventHref("refund_completed")).toBe("/dashboard/transactions");
   });
 
-  it("sends a deposit or withdrawal to the Activity Center, the only place that renders it", () => {
+  it("sends a deposit or withdrawal to the Activity tab, the only place that renders it", () => {
     // These are detected on-chain and exist ONLY in the wallet-events feed —
-    // /dashboard/wallets never reads that feed at all.
-    expect(walletEventHref("deposit_received")).toBe("/dashboard/activity");
-    expect(walletEventHref("withdrawal_completed")).toBe("/dashboard/activity");
+    // /dashboard/wallets never reads that feed at all. Activity lives as a
+    // tab on Transactions, not its own page.
+    expect(walletEventHref("deposit_received")).toBe("/dashboard/transactions?tab=activity");
+    expect(walletEventHref("withdrawal_completed")).toBe("/dashboard/transactions?tab=activity");
   });
 
   it("keeps genuinely wallet-identity events on /dashboard/wallets", () => {

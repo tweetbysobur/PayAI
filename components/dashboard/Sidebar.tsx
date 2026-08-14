@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
-  ShieldCheck, BarChart3, Wallet, Settings, Repeat,
-  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy, Activity,
+  Wallet, Settings, Repeat,
+  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
@@ -19,16 +19,17 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
   { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
 ];
 
+// Activity, Analytics and Compliance used to be separate entries here, each
+// its own page. They're now tabs on Transactions (see
+// app/dashboard/transactions/page.tsx) — one destination for everything
+// related to what's happened with your payments, instead of four.
 export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
   { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
-  { href: "/dashboard/activity", label: "Activity", icon: Activity, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
   { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments" },
-  { href: "/dashboard/compliance", label: "Compliance", icon: ShieldCheck, section: "Compliance" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, section: "Compliance" },
   { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Settings" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
   { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },

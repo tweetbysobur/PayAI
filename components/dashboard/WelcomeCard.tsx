@@ -34,12 +34,11 @@ const ACTIONS = [
 const TOUR_BLURBS: Record<string, string> = {
   "/dashboard/payments": "Pay any wallet address or .nad name.",
   "/dashboard/automations": "Set up recurring or scheduled payments.",
-  "/dashboard/transactions": "Every payment you've sent, with receipts.",
-  "/dashboard/activity": "A live feed of what's happening on your wallet.",
+  // Activity, Analytics and Compliance live as tabs on this same page now,
+  // not separate NAV entries — see app/dashboard/transactions/page.tsx.
+  "/dashboard/transactions": "Every payment, plus activity, analytics, and compliance.",
   "/dashboard/recipients": "Save wallets and register on-chain merchants.",
   "/dashboard/invoices": "Create and share a payment request.",
-  "/dashboard/compliance": "The risk checks every payment goes through.",
-  "/dashboard/analytics": "Spending trends and approval rates over time.",
   "/dashboard/wallets": "Manage and switch between linked wallets.",
   "/dashboard/settings": "Your username, preferences, and account.",
 };

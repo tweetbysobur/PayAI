@@ -329,7 +329,7 @@ export default function Overview() {
                 <div><p className="text-foreground">{a.compliance.review}</p><p className="text-muted-foreground">Pending</p></div>
                 <div><p className="text-foreground">{a.compliance.blocked + a.compliance.rejected}</p><p className="text-muted-foreground">Rejected</p></div>
               </div>
-              <Link href="/dashboard/compliance" className="mt-3 text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View payment checks →</Link>
+              <Link href="/dashboard/transactions?tab=compliance" className="mt-3 text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View payment checks →</Link>
             </div>
           ) : <EmptyHint icon={ShieldCheck} title="No compliance data yet" hint="Every payment is screened. Results appear here." />}
         </Card>
@@ -387,7 +387,7 @@ export default function Overview() {
             { label: "Create Invoice", sub: "Request payments", icon: FileText, href: "/dashboard/invoices" },
             { label: "Add Recipient", sub: "Save contact", icon: UserPlus, href: "/dashboard/recipients" },
             { label: "Audit Logs", sub: "Check history", icon: ScrollText, href: "/dashboard/transactions" },
-            { label: "Analytics", sub: "Business metrics", icon: Store, href: "/dashboard/analytics" },
+            { label: "Analytics", sub: "Business metrics", icon: Store, href: "/dashboard/transactions?tab=analytics" },
           ].map((q) => (
             <Link key={q.label} href={q.href} className="group rounded-lg border border-border bg-panel p-4 transition hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <q.icon size={18} className="mb-2 text-muted-foreground group-hover:text-primary-ink" />
