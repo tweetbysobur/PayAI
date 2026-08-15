@@ -29,6 +29,7 @@ jobs:
           solc_version = "0.8.24"
           optimizer = true
           optimizer_runs = 200
+          evm_version = "paris"
           EOF
 
       - name: Verify MerchantRegistry (0xadf04A50a2319D8B57245Db2aEB101DAb517AA72)
