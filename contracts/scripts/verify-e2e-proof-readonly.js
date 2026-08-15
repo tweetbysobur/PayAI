@@ -45,7 +45,7 @@ async function main() {
 
   const rpcUrl = process.env.MONAD_MAINNET_RPC || "https://rpc.monad.xyz";
   const executorAddr = process.env.MONAD_MAINNET_PAYMENT_EXECUTOR || "0xf723BE809A99A1c29e0205a542aa2aEF80B508AF";
-  const registryAddr = process.env.MONAD_MAINNET_MERCHANT_REGISTRY || "0xadf04A50a2319D8857245Db2aEB101DAb517AA72";
+  const registryAddr = process.env.MONAD_MAINNET_MERCHANT_REGISTRY || "0xadf04A50a2319D8B57245Db2aEB101DAb517AA72";
 
   const provider = new hre.ethers.JsonRpcProvider(rpcUrl, { chainId: 143, name: "monad" });
   const executor = new hre.ethers.Contract(executorAddr, EXECUTOR_ABI, provider);
