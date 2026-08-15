@@ -22,6 +22,15 @@ let verifiedMarketResult: readonly [number, bigint, string, bigint, string, bigi
 let sellAmountOutWei = 0n; // placeAndExecuteMarketSell (MON -> USDC) result
 let buyAmountOutWei = 0n; // placeAndExecuteMarketBuy (USDC -> MON) result
 let allowanceWei = 0n;
+type SimulateCall = { functionName: string; args: readonly unknown[]; value?: bigint };
+const lastSimulate: { call: SimulateCall | null } = { call: null };
+// Read through a function call (not a direct property access) so TS's
+// control-flow narrowing -- which otherwise treats `lastSimulate.call` as
+// permanently `null` after the reset a few lines above, unaware the mocked
+// simulateContract() below reassigns it across the await -- doesn't apply.
+function getLastSimulate(): SimulateCall | null {
+  return lastSimulate.call;
+}
 
 vi.mock("@/lib/monad/wallet", () => ({
   getPublicClient: () => ({
@@ -30,9 +39,9 @@ vi.mock("@/lib/monad/wallet", () => ({
       if (functionName === "allowance") return allowanceWei;
       throw new Error(`unexpected readContract call: ${functionName}`);
     },
-    simulateContract: async ({ functionName }: { functionName: string }) => {
-      if (functionName === "placeAndExecuteMarketSell") return { result: sellAmountOutWei };
-      if (functionName === "placeAndExecuteMarketBuy") return { result: buyAmountOutWei };
+    simulateContract: async ({ functionName, args, value }: { functionName: string; args: readonly unknown[]; value?: bigint }) => {
+      if (functionName === "placeAndExecuteMarketSell") { lastSimulate.call = { functionName, args, value }; return { result: sellAmountOutWei }; }
+      if (functionName === "placeAndExecuteMarketBuy") { lastSimulate.call = { functionName, args, value }; return { result: buyAmountOutWei }; }
       if (functionName === "quoteExactInputSingle") return { result: [0n, 0n, 0, 0n] }; // Uniswap: no liquidity, so Kuru is isolated in single-provider tests
       throw new Error(`unexpected simulateContract call: ${functionName}`);
     },
@@ -82,6 +91,42 @@ describe("Kuru provider — real quote, honest fields", () => {
     const { default: kuruProvider } = await import("@/lib/monad/kuruSwap");
     const q = await kuruProvider.quote("USDC", "MON", 20);
     expect(q.amountOut).toBeCloseTo(42.8, 6);
+  });
+
+  it("never attaches a native msg.value to the quote-time simulate call, even for a native-base market sell", async () => {
+    // The zero address (used as the simulate `account`) holds no real MON --
+    // a nonzero `value` there would fail the EVM's balance check before the
+    // call even runs. Kuru's own documented CostEstimator never sends value
+    // on this callStatic either; only the real, wallet-signed execution
+    // transaction (built in buildPlan) ever carries msg.value.
+    sellAmountOutWei = 2_340000n;
+    lastSimulate.call = null;
+    const { default: kuruProvider } = await import("@/lib/monad/kuruSwap");
+    await kuruProvider.quote("MON", "USDC", 5);
+    expect(getLastSimulate()?.functionName).toBe("placeAndExecuteMarketSell");
+    expect(getLastSimulate()?.value ?? 0n).toBe(0n);
+  });
+
+  it("scales the order size with pricePrecision for a buy and sizePrecision for a sell -- never the same constant by accident", async () => {
+    // Distinct precisions (buy: 4 decimals, sell: 2 decimals) so a swapped
+    // constant would produce a visibly different (wrong) encoded size,
+    // unlike the other tests' fixture where both precisions are equal.
+    verifiedMarketResult = [10_000, 100n, ZERO, 18n, USDC, 6n, 100, 0n, 0n, 30n, 10n];
+    try {
+      const { default: kuruProvider } = await import("@/lib/monad/kuruSwap");
+
+      buyAmountOutWei = 1_000000000000000000n;
+      lastSimulate.call = null;
+      await kuruProvider.quote("USDC", "MON", 20); // buy: quoteSize scaled by pricePrecision (10_000 -> 4 decimals)
+      expect(getLastSimulate()?.args[0]).toBe(200000n); // 20 * 10_000
+
+      sellAmountOutWei = 1_000000n;
+      lastSimulate.call = null;
+      await kuruProvider.quote("MON", "USDC", 5); // sell: size scaled by sizePrecision (100 -> 2 decimals)
+      expect(getLastSimulate()?.args[0]).toBe(500n); // 5 * 100
+    } finally {
+      verifiedMarketResult = [1_000000, 1_000000n, ZERO, 18n, USDC, 6n, 100, 0n, 0n, 30n, 10n];
+    }
   });
 });
 

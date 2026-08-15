@@ -488,7 +488,14 @@ export function getSwapProvider(): SwapProvider {
   return {
     name: "PayAI",
     isConfigured() {
-      return uniswapV3Provider.isConfigured();
+      // A coarse "is swapping possible on this network at all" gate, not
+      // "is any ONE provider ready" -- Uniswap's own isConfigured() also
+      // requires a configured stablecoin, which would wrongly report the
+      // whole aggregator unavailable even for a pair (e.g. MON/AUSD) only
+      // Kuru serves. Per-pair/per-provider readiness is already handled by
+      // bestQuote()'s fallback below; this only needs to agree with what
+      // every provider behind the seam requires in common.
+      return getNetwork() === "mainnet";
     },
     async quote(fromToken, toToken, amountIn) {
       const { quote } = await bestQuote(fromToken, toToken, amountIn);

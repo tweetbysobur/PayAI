@@ -173,18 +173,30 @@ async function resolveKuruMarket(fromToken: SwapToken, toToken: SwapToken): Prom
     (side.isNative && sideAddress === zeroAddress) || side.routeAddress.toLowerCase() === sideAddress.toLowerCase();
 
   let isBuy: boolean;
+  let baseSide: { isNative: boolean };
+  let quoteSide: { isNative: boolean };
   if (matchesSide(fromSide, quoteAssetAddress) && matchesSide(toSide, baseAssetAddress)) {
     isBuy = true; // spending quote to acquire base
+    quoteSide = fromSide; baseSide = toSide;
   } else if (matchesSide(fromSide, baseAssetAddress) && matchesSide(toSide, quoteAssetAddress)) {
     isBuy = false; // spending base to acquire quote
+    baseSide = fromSide; quoteSide = toSide;
   } else {
     return null; // this market's real on-chain sides don't match what was asked for
   }
 
   return {
     marketAddress,
-    baseAssetAddress, baseDecimals: Number(baseAssetDecimals), baseIsNative: baseAssetAddress === zeroAddress,
-    quoteAssetAddress, quoteDecimals: Number(quoteAssetDecimals), quoteIsNative: quoteAssetAddress === zeroAddress,
+    // baseIsNative/quoteIsNative come from the SAME resolveSwapSide().isNative
+    // flag matchesSide() already validated above — never re-derived from a
+    // raw zeroAddress check, which would silently disagree with matchesSide
+    // if a market ever represented its native leg via WMON instead of the
+    // zero-address sentinel (matchesSide accepts either; a separate
+    // zeroAddress-only check here would not, and buildPlan would then treat
+    // a native debit as an ERC-20 -- reading/approving allowance instead of
+    // attaching msg.value).
+    baseAssetAddress, baseDecimals: Number(baseAssetDecimals), baseIsNative: baseSide.isNative,
+    quoteAssetAddress, quoteDecimals: Number(quoteAssetDecimals), quoteIsNative: quoteSide.isNative,
     sizePrecision, pricePrecision, takerFeeBps, isBuy,
   };
 }
@@ -200,21 +212,24 @@ function minOutWei(amountOutWei: bigint, slippage: number): bigint {
 
 /** Real callStatic simulation of the actual execution function, exactly
  *  matching Kuru's own documented quoting pattern (CostEstimator: simulate
- *  placeAndExecuteMarketBuy/Sell "from" the zero address) — never a
- *  hand-rolled order-book-walking formula. */
+ *  placeAndExecuteMarketBuy/Sell "from" the zero address, with NO msg.value
+ *  override even for a native-base market sell) — never a hand-rolled
+ *  order-book-walking formula, and never a native value attached here: the
+ *  zero address doesn't hold any real MON, so a nonzero value would fail
+ *  the EVM's balance check before the call even runs. Only the actual
+ *  execution transaction built in buildPlan() (signed by the real wallet,
+ *  which does hold the funds) ever carries a real value. */
 async function simulateMarketOrder(m: ResolvedKuruMarket, amountIn: number, minAmountOutWei: bigint) {
   const pub = getPublicClient();
   const functionName = m.isBuy ? "placeAndExecuteMarketBuy" : "placeAndExecuteMarketSell";
   const sizeArg = toPrecisionUnits(amountIn, m.isBuy ? m.pricePrecision : m.sizePrecision);
-  const sendingNative = (m.isBuy && m.quoteIsNative) || (!m.isBuy && m.baseIsNative);
-  const value = sendingNative ? parseUnits(String(amountIn), m.isBuy ? m.quoteDecimals : m.baseDecimals) : 0n;
 
   const { result } = await pub.simulateContract({
     address: m.marketAddress, abi: ORDERBOOK_ABI, functionName,
     args: [sizeArg, minAmountOutWei, false, false],
-    account: zeroAddress, value,
+    account: zeroAddress,
   });
-  return { amountOutWei: result as bigint, sizeArg, value };
+  return { amountOutWei: result as bigint, sizeArg };
 }
 
 const kuruProvider: SwapProvider = {
