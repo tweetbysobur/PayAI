@@ -27,8 +27,8 @@ import { extractDomain } from "../monad/domain-resolver";
 // generous MON amount rather than a tight flat cap, so real payments aren't
 // blocked. (A cumulative per-user USD cap is a planned upgrade.) These use new
 // env names so any stale VERIPAYAI_MAX_AMOUNT is no longer in effect.
-const MAX_USD = Number(process.env.PAYAI_MAX_USD || "10000");
-const MAX_MON = Number(process.env.PAYAI_MAX_MON || "100000");
+const MAX_USD = Number(process.env.PAYAI_MAX_USD || "100000000");
+const MAX_MON = Number(process.env.PAYAI_MAX_MON || "100000000");
 /** The cap for a given asset. */
 function capFor(token: Token): number {
   return token === "MON" ? MAX_MON : MAX_USD;
