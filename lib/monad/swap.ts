@@ -240,7 +240,7 @@ function minOutWei(amountOutWei: bigint, slippage: number): bigint {
  * this fails open (returns null) rather than blocking a trade over an
  * unrelated RPC hiccup.
  */
-async function estimatePriceImpact(
+export async function estimatePriceImpact(
   pub: ReturnType<typeof getPublicClient>,
   tokenIn: Address, tokenOut: Address, fee: number,
   amountInWei: bigint, actualAmountOutWei: bigint,
@@ -444,7 +444,7 @@ const uniswapV3Provider: SwapProvider = {
  *  this codebase's existing convention for cross-module lazy loading) to
  *  avoid a static circular import with kuruSwap.ts, which itself imports
  *  shared helpers back from this file. */
-async function candidateProviders(): Promise<SwapProvider[]> {
+export async function candidateProviders(): Promise<SwapProvider[]> {
   const { default: kuruProvider } = await import("./kuruSwap");
   return [uniswapV3Provider, kuruProvider].filter((p) => p.isConfigured());
 }

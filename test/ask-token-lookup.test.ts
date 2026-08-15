@@ -101,6 +101,72 @@ describe("router — conversation context: a follow-up about 'the token' resolve
   });
 });
 
+describe("router — natural-language market follow-ups (pair + amount questions)", () => {
+  const pending: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
+
+  it("'Can I trade it with USDC?' captures the specific asset asked about, no Anthropic call", async () => {
+    const r = await routeRequest("Can I trade it with USDC?", pending);
+    expect(r.anthropic).toBe(false);
+    expect(r.understanding?.kind).toBe("token_lookup");
+    if (r.understanding?.kind === "token_lookup" && r.understanding.outcome === "complete") {
+      expect(r.understanding.slots.tokenAddress).toBe(TOKEN);
+      expect(r.understanding.slots.toAsset).toBe("USDC");
+    }
+  });
+
+  it("'What about MON?' after a token lookup also captures the asset (WMON normalizes to MON)", async () => {
+    const r = await routeRequest("what about WMON", pending);
+    if (r.understanding?.kind === "token_lookup" && r.understanding.outcome === "complete") {
+      expect(r.understanding.slots.toAsset).toBe("MON");
+    }
+  });
+
+  it("'How much would I get for 50?' captures the amount, no Anthropic call", async () => {
+    const r = await routeRequest("How much would I get for 50?", pending);
+    expect(r.anthropic).toBe(false);
+    expect(r.understanding?.kind).toBe("token_lookup");
+    if (r.understanding?.kind === "token_lookup" && r.understanding.outcome === "complete") {
+      expect(r.understanding.slots.amount).toBe("50");
+    }
+  });
+
+  it("'quote 200' also reads as an amount question", async () => {
+    const r = await routeRequest("quote 200", pending);
+    if (r.understanding?.kind === "token_lookup" && r.understanding.outcome === "complete") {
+      expect(r.understanding.slots.amount).toBe("200");
+    }
+  });
+
+  it("'how much USDC do I have' (no number) is NOT misread as a token quote request -- stays a real wallet-balance question", async () => {
+    const r = await routeRequest("how much USDC do I have", pending);
+    expect(r.understanding?.kind).not.toBe("token_lookup");
+  });
+});
+
+describe("IMPORTANT REGRESSION CHECK — the recipient flow from the task spec, end to end", () => {
+  it("'I want to send USDC' -> '50' -> '0xRecipient' ends with the address treated as the recipient, never hijacked into a token lookup", async () => {
+    const step1 = await routeRequest("I want to send USDC", null);
+    expect(step1.understanding?.kind === "send_payment" || step1.fallback.kind === "send_payment").toBe(true);
+    const afterStep1: Understanding = step1.understanding ?? step1.fallback;
+    expect(afterStep1.outcome).toBe("incomplete");
+
+    const step2 = await routeRequest("50", afterStep1);
+    expect(step2.route).toBe("follow_up");
+    const afterStep2 = step2.understanding!;
+    if (afterStep2.kind !== "send_payment") throw new Error("expected send_payment");
+    expect(afterStep2.slots.amount).toBe("50");
+
+    const step3 = await routeRequest(RECIPIENT, afterStep2);
+    expect(step3.route).toBe("follow_up");
+    expect(step3.understanding?.kind).toBe("send_payment"); // NOT token_lookup
+    if (step3.understanding?.kind === "send_payment" && step3.understanding.outcome === "complete") {
+      expect(step3.understanding.slots.recipient).toBe(RECIPIENT);
+      expect(step3.understanding.slots.amount).toBe("50");
+      expect(step3.understanding.slots.asset).toBe("USDC");
+    }
+  });
+});
+
 function mockFetch(responder: (url: string, body: Record<string, unknown> | undefined) => unknown) {
   const original = globalThis.fetch;
   const calls: { url: string; body: Record<string, unknown> }[] = [];
@@ -141,13 +207,18 @@ describe("respondToUnderstanding — token_lookup dispatches to /api/ask/token a
     } finally { restore(); }
   });
 
+  const PEPE_DATA = {
+    name: "Pepe Coin", symbol: "PEPE", decimals: 18, totalSupply: "1000000",
+    verified: false, userBalance: null, isTradable: true, explorerUrl: "https://monadexplorer.com/address/x",
+    market: {
+      price: "0.0000123", priceQuoteAsset: "USD", liquidity: null, volume24h: null, priceChange24h: null,
+      quoteAssetsChecked: ["USDC", "MON"], signals: [],
+      routes: [{ provider: "Uniswap v3", inputToken: "PEPE", outputToken: "USDC", estimatedOutput: "0.0000123", priceImpact: "0.10%", available: true as const }],
+    },
+  };
+
   it("a real token gets a full card, a summary lead line, and nextPending set for follow-ups", async () => {
-    const data = {
-      name: "Pepe Coin", symbol: "PEPE", decimals: 18, totalSupply: "1000000",
-      verified: false, userBalance: null, isTradable: true, explorerUrl: "https://monadexplorer.com/address/x",
-      market: { price: "0.0000123", priceQuoteAsset: "USDC", liquidity: null, volume24h: null, priceChange24h: null, pairs: [{ dex: "Uniswap v3", base: "PEPE", quote: "USDC" }] },
-    };
-    const { restore } = mockFetch(() => ({ status: "token", data }));
+    const { restore } = mockFetch(() => ({ status: "token", data: PEPE_DATA }));
     try {
       const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
       const r = await respondToUnderstanding(u, null);
@@ -166,13 +237,27 @@ describe("respondToUnderstanding — token_lookup dispatches to /api/ask/token a
     const data = {
       name: "Dead Token", symbol: "DEAD", decimals: 18, totalSupply: "1",
       verified: false, userBalance: null, isTradable: false, explorerUrl: "https://monadexplorer.com/address/x",
-      market: { price: null, priceQuoteAsset: null, liquidity: null, volume24h: null, priceChange24h: null, pairs: [] },
+      market: { price: null, priceQuoteAsset: null, liquidity: null, volume24h: null, priceChange24h: null, quoteAssetsChecked: ["USDC", "MON"], signals: ["no_liquidity"], routes: [] },
     };
     const { restore } = mockFetch(() => ({ status: "token", data }));
     try {
       const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
       const r = await respondToUnderstanding(u, null);
       expect(r.message.content).toMatch(/no usable trading route/i);
+    } finally { restore(); }
+  });
+
+  it("a route exists but is too shallow to price is described honestly, not as untradable", async () => {
+    const data = {
+      ...PEPE_DATA,
+      market: { ...PEPE_DATA.market, price: null, priceQuoteAsset: null, signals: ["quote_unavailable"] },
+    };
+    const { restore } = mockFetch(() => ({ status: "token", data }));
+    try {
+      const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
+      const r = await respondToUnderstanding(u, null);
+      expect(r.message.content).toMatch(/route exists/i);
+      expect(r.message.content).not.toMatch(/no usable trading route/i);
     } finally { restore(); }
   });
 
@@ -184,5 +269,82 @@ describe("respondToUnderstanding — token_lookup dispatches to /api/ask/token a
       const r = await respondToUnderstanding(u, null);
       expect(r.message.content).toMatch(/couldn't reach monad/i);
     } finally { globalThis.fetch = original; }
+  });
+});
+
+describe("respondToUnderstanding — 'Can I trade it with USDC?' answers the SPECIFIC pair asked about", () => {
+  it("a real USDC route is confirmed by name", async () => {
+    const data = {
+      name: "Pepe Coin", symbol: "PEPE", decimals: 18, totalSupply: "1000000",
+      verified: false, userBalance: null, isTradable: true, explorerUrl: "https://monadexplorer.com/address/x",
+      market: {
+        price: "0.0000123", priceQuoteAsset: "USD", liquidity: null, volume24h: null, priceChange24h: null,
+        quoteAssetsChecked: ["USDC", "MON"], signals: [],
+        routes: [{ provider: "Uniswap v3", inputToken: "PEPE", outputToken: "USDC", estimatedOutput: "0.0000123", priceImpact: "0.10%", available: true as const }],
+      },
+    };
+    const { calls, restore } = mockFetch(() => ({ status: "token", data }));
+    try {
+      const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN, toAsset: "USDC" } };
+      const r = await respondToUnderstanding(u, null);
+      expect(r.message.content).toMatch(/yes.*PEPE\/USDC/i);
+      expect(r.message.content).toMatch(/Uniswap v3/);
+      // toAsset does NOT get sent as a quote request -- only `amount` does;
+      // a bare "can I trade with X" is answered from the general probe.
+      expect(calls[0].body.amount).toBeUndefined();
+    } finally { restore(); }
+  });
+
+  it("no route for the asked-about pair is reported honestly, not guessed either way", async () => {
+    const data = {
+      name: "Pepe Coin", symbol: "PEPE", decimals: 18, totalSupply: "1000000",
+      verified: false, userBalance: null, isTradable: true, explorerUrl: "https://monadexplorer.com/address/x",
+      market: {
+        price: null, priceQuoteAsset: null, liquidity: null, volume24h: null, priceChange24h: null,
+        quoteAssetsChecked: ["USDC", "MON"], signals: ["unsupported_trading_pair"],
+        routes: [{ provider: "Uniswap v3", inputToken: "PEPE", outputToken: "MON", estimatedOutput: "1.2", priceImpact: null, available: true as const }],
+      },
+    };
+    const { restore } = mockFetch(() => ({ status: "token", data }));
+    try {
+      const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN, toAsset: "USDC" } };
+      const r = await respondToUnderstanding(u, null);
+      expect(r.message.content).toMatch(/no usable usdc route/i);
+    } finally { restore(); }
+  });
+});
+
+describe("respondToUnderstanding — 'How much would I get for 50?' prepares a real quote, never a scaled-up guess", () => {
+  it("sends the amount to /api/ask/token and reports the real quoted route", async () => {
+    const data = {
+      name: "Pepe Coin", symbol: "PEPE", decimals: 18, totalSupply: "1000000",
+      verified: false, userBalance: null, isTradable: true, explorerUrl: "https://monadexplorer.com/address/x",
+      market: { price: "0.0000123", priceQuoteAsset: "USD", liquidity: null, volume24h: null, priceChange24h: null, quoteAssetsChecked: ["USDC", "MON"], signals: [], routes: [] },
+      quote: { amount: "50", quoteAsset: "USDC", route: { provider: "Uniswap v3", inputToken: "PEPE", outputToken: "USDC", estimatedOutput: "0.000615", priceImpact: "0.05%", available: true as const } },
+    };
+    const { calls, restore } = mockFetch(() => ({ status: "token", data }));
+    try {
+      const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN, amount: "50" } };
+      const r = await respondToUnderstanding(u, null);
+      expect(calls[0].body.amount).toBe("50");
+      expect(r.message.content).toMatch(/50 PEPE/);
+      expect(r.message.content).toMatch(/0\.000615 USDC/);
+      expect(r.message.content).toMatch(/Uniswap v3/);
+    } finally { restore(); }
+  });
+
+  it("no usable route for the requested amount is reported honestly, never a fabricated figure", async () => {
+    const data = {
+      name: "Dead Token", symbol: "DEAD", decimals: 18, totalSupply: "1",
+      verified: false, userBalance: null, isTradable: false, explorerUrl: "https://monadexplorer.com/address/x",
+      market: { price: null, priceQuoteAsset: null, liquidity: null, volume24h: null, priceChange24h: null, quoteAssetsChecked: ["USDC", "MON"], signals: ["no_liquidity"], routes: [] },
+      quote: { amount: "50", quoteAsset: "USDC", route: null },
+    };
+    const { restore } = mockFetch(() => ({ status: "token", data }));
+    try {
+      const u: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN, amount: "50" } };
+      const r = await respondToUnderstanding(u, null);
+      expect(r.message.content).toMatch(/couldn't find a usable route to quote 50 DEAD/i);
+    } finally { restore(); }
   });
 });

@@ -334,6 +334,16 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 const UNAVAILABLE = "Unavailable";
 
+/** Human-readable labels for lib/monad/tokenIntelligence's descriptive
+ *  signal tags — never a verdict ("scam"/"safe"), just what was observed. */
+const SIGNAL_LABEL: Record<string, string> = {
+  no_liquidity: "No liquidity found",
+  quote_unavailable: "Price unavailable",
+  high_price_impact: "High price impact",
+  very_low_liquidity: "Very low liquidity",
+  unsupported_trading_pair: "Some pairs unsupported",
+};
+
 /** Read-only lookup of an arbitrary Monad address — populated entirely from
  *  lib/monad/tokenIntelligence's real on-chain reads (see
  *  orchestrate.ts's dispatchTokenLookup). Never a confirm funnel: there's
@@ -371,14 +381,35 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
       <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
         <p className="mb-0.5 text-xs text-muted-foreground">Price</p>
         <p className="text-lg font-semibold tabular-nums text-foreground">
-          {d.market.price ? `≈ ${d.market.price} ${d.market.priceQuoteAsset}` : UNAVAILABLE}
+          {d.market.price ? `$${d.market.price}` : UNAVAILABLE}
         </p>
+        {/* A route can exist even when price is null (too thin to price
+            honestly) — say so, rather than let "Unavailable" read as "not
+            tradable" when the routes list right below says otherwise. */}
+        {!d.market.price && d.isTradable && (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Liquidity data unavailable, but a trading route was found.</p>
+        )}
       </div>
 
+      {d.quote?.route && (
+        <div className="mb-2.5 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+          <p className="mb-0.5 text-xs text-muted-foreground">{d.quote.amount} {d.symbol} ≈</p>
+          <p className="text-base font-semibold tabular-nums text-foreground">
+            {d.quote.route.estimatedOutput} {d.quote.route.outputToken}
+            <span className="ml-1.5 text-xs font-normal text-muted-foreground">via {d.quote.route.provider}</span>
+          </p>
+        </div>
+      )}
+      {d.quote && !d.quote.route && (
+        <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+          <p className="text-xs text-muted-foreground">No usable route to quote {d.quote.amount} {d.symbol} in {d.quote.quoteAsset}.</p>
+        </div>
+      )}
+
       <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+        <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
         <MiniStat label="Liquidity" value={d.market.liquidity ?? UNAVAILABLE} />
         <MiniStat label="24h Volume" value={d.market.volume24h ?? UNAVAILABLE} />
-        <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
         <MiniStat label="Total Supply" value={d.totalSupply ?? UNAVAILABLE} />
       </div>
 
@@ -389,10 +420,38 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
         </div>
       )}
 
+      {d.market.routes.length > 0 && (
+        <div className="mb-2.5">
+          <p className="mb-1.5 text-xs text-muted-foreground">Trading routes</p>
+          <div className="space-y-1.5">
+            {d.market.routes.map((r, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-input/30 px-3 py-2 text-xs">
+                <span className="min-w-0 truncate font-medium text-foreground">{r.inputToken}/{r.outputToken}</span>
+                <span className="shrink-0 text-muted-foreground">{r.provider}</span>
+                <span className="shrink-0 tabular-nums text-foreground">≈ {r.estimatedOutput} {r.outputToken}</span>
+                {r.priceImpact && <span className="shrink-0 text-muted-foreground">{r.priceImpact} impact</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {d.market.signals.length > 0 && (
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
+          {d.market.signals.map((s) => (
+            <span key={s} className="rounded-full border border-border bg-input px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {SIGNAL_LABEL[s] ?? s.replace(/_/g, " ")}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="divide-y divide-border/60">
         <Row label="Decimals">{d.decimals}</Row>
         <Row label="Network">Monad</Row>
-        <Row label="Route">{d.market.pairs.length > 0 ? d.market.pairs.map((p) => p.dex).join(", ") : "None"}</Row>
+        <Row label="Available markets">{d.market.quoteAssetsChecked.join(", ") || "None checked"}</Row>
+        <Row label="DEX">{d.market.routes.length > 0 ? Array.from(new Set(d.market.routes.map((r) => r.provider))).join(", ") : "None"}</Row>
+        <Row label="Status">{d.isTradable ? "Tradable" : "Not tradable"}</Row>
       </div>
 
       <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
