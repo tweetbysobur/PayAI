@@ -15,9 +15,7 @@
  *  - lib/monad/prices's getUsdPrice() for the headline USD figure — the
  *    SAME address-based, cached (60s TTL), shallow-pool-rejecting pricing
  *    the rest of the app already shows users, not a second, weaker
- *    implementation. This is also where "market data must stay fresh"
- *    without a new cache comes from: that TTL already exists and is reused
- *    as-is, nothing new added here.
+ *    implementation.
  *  - lib/monad/swap's candidateProviders() for VERIFIED tokens (safe to
  *    route by symbol — resolveToken()'s `verified` flag is only true when
  *    the address is byte-exact in the curated registry, so there's no risk
@@ -26,6 +24,30 @@
  *    per-pair routes — a general, address-based Uniswap probe shared with
  *    lib/monad/tradeQuote.ts (Step 3's trade quoting) so this fee-tier-loop-
  *    plus-price-impact logic lives in exactly one place, not two.
+ *
+ * Step 5 — external market-data provider: investigated DexScreener (this
+ * app's previously identified candidate) plus CoinGecko/GeckoTerminal/
+ * DefiLlama as alternatives. All four were UNREACHABLE from this
+ * development/build environment — every outbound request to
+ * api.dexscreener.com, docs.dexscreener.com, api.coingecko.com,
+ * api.geckoterminal.com, and api.llama.fi was rejected by the sandbox's own
+ * egress policy (403 policy denial at the network layer, confirmed via the
+ * proxy's own status log — not a transient failure or a provider-side
+ * block). That means the exact endpoint, response schema, rate limits, and
+ * failure behavior could NOT be verified firsthand, so per this step's own
+ * instruction ("do not guess any endpoint, do not invent an API response,
+ * do not integrate a provider based only on search results") no external
+ * provider is integrated. Market data stays exactly what Steps 1-2 already
+ * built: real on-chain reads (price via prices.ts's DEX quote, routes via
+ * candidateProviders()/quoteUniswapDirect()) — this already IS the
+ * "external market data -> on-chain -> unavailable" fallback chain Step 5
+ * asks for, just with the external leg absent rather than stubbed, so nulls
+ * were never faked as zeros or invented as a fabricated provider response.
+ * liquidity/volume24h/priceChange24h/pairAddress remain honestly
+ * unavailable (null) for the same reason — an indexer/subgraph, not a
+ * single-price DEX quote, is what would compute these, and no such source
+ * could be verified either. If egress to a real provider is ever opened up,
+ * `probeMarket` below is the one integration point.
  *
  * Server-only.
  */
@@ -104,6 +126,13 @@ export interface TokenMarketData {
   /** Descriptive tags only — never a verdict. See this module's doc and the
    *  Step 2 report for the exact list and what each one means. */
   signals: string[];
+  /** Date.now() when this market snapshot was actually fetched — may be
+   *  served from the short-lived cache below, so this is NOT always "just
+   *  now"; the UI uses it to show "updated Xs ago" rather than implying
+   *  every render is a fresh RPC round-trip. Distinct from a trade quote's
+   *  own quotedAt (lib/monad/tradeQuote.ts) — this is display-only market
+   *  context and is never read by the execution/signing path. */
+  lastUpdated: number;
 }
 
 export interface TokenIntelligence {
@@ -247,7 +276,40 @@ function computeSignals(routes: TokenRoute[], usdPrice: number | null, quoteAsse
   return signals;
 }
 
+/**
+ * Market-data cache — separate from BOTH tokenRegistry's permanent metadata
+ * cache (name/symbol/decimals never change) and prices.ts's own 60s price
+ * cache (which this still calls through on every miss, so a market-data
+ * cache hit still gets prices.ts's freshest cached price). This one caches
+ * the more expensive part: route discovery, which fans out to every
+ * provider x quote-asset combination and — unlike a single price quote —
+ * had NO caching at all before Step 5, so "what's the price?" right after
+ * pasting a contract address re-ran the full discovery fan-out twice in a
+ * row for no reason. Short TTL (not the metadata cache's "permanent"):
+ * routes and liquidity genuinely change, so this must expire, just not on
+ * every single render. Never used by trade execution — previewTrade() and
+ * prepareTradeExecution() in lib/monad/tradeQuote.ts call swap.ts's
+ * bestQuote()/quoteUniswapDirect() directly and were never routed through
+ * this cache, so Step 4's "always re-quote fresh before signing" guarantee
+ * is untouched by this addition.
+ */
+const MARKET_TTL_MS = 20_000;
+interface MarketCacheEntry { data: TokenMarketData; at: number }
+const marketCache = new Map<string, MarketCacheEntry>();
+
+/** Test-only escape hatch — a module-level cache otherwise persists across
+ *  test cases that re-import this module (ESM caches by specifier), which
+ *  would leak one test's mocked market snapshot into the next test run
+ *  against the same address. Not called anywhere in application code. */
+export function clearMarketDataCache(): void {
+  marketCache.clear();
+}
+
 async function probeMarket(info: TokenInfo, address: Address): Promise<TokenMarketData> {
+  const key = address.toLowerCase();
+  const hit = marketCache.get(key);
+  if (hit && Date.now() - hit.at < MARKET_TTL_MS) return hit.data;
+
   const stablecoin = getStablecoin();
   const quoteAssetsChecked = QUOTE_ASSETS.filter((qa) => {
     if (qa === "USDC" && address.toLowerCase() === stablecoin.address.toLowerCase()) return false;
@@ -260,7 +322,7 @@ async function probeMarket(info: TokenInfo, address: Address): Promise<TokenMark
     getUsdPrice(address, info.decimals),
   ]);
 
-  return {
+  const data: TokenMarketData = {
     price: usdPrice != null ? usdPrice.toFixed(usdPrice < 1 ? 8 : 4) : null,
     priceQuoteAsset: usdPrice != null ? "USD" : null,
     liquidity: null,
@@ -269,7 +331,10 @@ async function probeMarket(info: TokenInfo, address: Address): Promise<TokenMark
     quoteAssetsChecked,
     routes,
     signals: computeSignals(routes, usdPrice, quoteAssetsChecked),
+    lastUpdated: Date.now(),
   };
+  marketCache.set(key, { data, at: Date.now() });
+  return data;
 }
 
 /**

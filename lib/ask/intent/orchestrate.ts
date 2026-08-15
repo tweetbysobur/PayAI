@@ -49,6 +49,7 @@ interface TxHistoryRow {
   at: number;
   decision: "executed" | "needs_review" | "blocked" | "refused" | "error";
   action: string;
+  feature?: "payment" | "swap" | "trade" | "automation" | "bulk";
   amount: number | null;
   token: string;
   recipient: string | null;
@@ -56,6 +57,10 @@ interface TxHistoryRow {
   txHash?: string;
   explorerUrl?: string;
   summary: string;
+  /** Swap/trade only (see lib/platform/types.ts's TxLogEntry). */
+  outputAmount?: number | null;
+  outputToken?: string | null;
+  provider?: string | null;
 }
 /** /api/agent's response covers far more decisions than AgentResult's own
  *  type declares (swap_ready, automation_prefill, info, ...) — widen
@@ -240,8 +245,8 @@ export async function executeSwapIntent(
     const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
     if (!cj.success) {
       clearPendingSettlement();
-      const message = cj.reverted ? (cj.error || "This swap failed on-chain. No tokens were swapped.") : friendlyError(cj.error || "The swap could not be confirmed.");
-      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED" };
+      const message = cj.reverted ? (cj.error || "This swap failed on-chain. No tokens were swapped.") : friendlyError(cj.error || "The swap could not be confirmed.", "Swap");
+      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED", txHash: lastHash, explorerUrl: cj.explorerUrl };
       return { ...operation, status: "error", error };
     }
     clearPendingSettlement();
@@ -255,7 +260,7 @@ export async function executeSwapIntent(
       };
       return { ...operation, status: "error", error };
     }
-    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Swap failed."), code: "NOT_SENT" };
+    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Swap failed.", "Swap"), code: "NOT_SENT" };
     return { ...operation, status: "error", error };
   }
 }
@@ -380,13 +385,14 @@ export async function executeTradeIntent(
       body: JSON.stringify({
         walletAddress, txHash: lastHash, fromToken: freshData.spend.token, toToken: freshData.receive.token,
         amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount),
+        feature: "trade", provider: freshData.route.provider,
       }),
     });
     const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
     if (!cj.success) {
       clearPendingSettlement();
-      const message = cj.reverted ? (cj.error || "This trade failed on-chain. No tokens were traded.") : friendlyError(cj.error || "The trade could not be confirmed.");
-      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED" };
+      const message = cj.reverted ? (cj.error || "This trade failed on-chain. No tokens were traded.") : friendlyError(cj.error || "The trade could not be confirmed.", "Trade");
+      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED", txHash: lastHash, explorerUrl: cj.explorerUrl };
       return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
     }
     clearPendingSettlement();
@@ -400,7 +406,7 @@ export async function executeTradeIntent(
       };
       return { ...operation, status: "error", error };
     }
-    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed."), code: "NOT_SENT" };
+    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed.", "Trade"), code: "NOT_SENT" };
     return { ...operation, status: "error", error };
   }
 }
@@ -484,6 +490,8 @@ function statusFromDecision(decision: TxHistoryRow["decision"]): "success" | "fa
 function txTypeLabel(action: string): string {
   if (action === "pay_invoice") return "Invoice payment";
   if (action === "create_payment_link" || action === "create_checkout_link") return "Payment link";
+  if (action === "trade") return "Trade";
+  if (action === "swap") return "Swap";
   return "Payment";
 }
 function toTransactionView(row: TxHistoryRow, walletAddress: string): WalletTransactionView {
@@ -497,6 +505,9 @@ function toTransactionView(row: TxHistoryRow, walletAddress: string): WalletTran
     timestamp: formatWhen(row.at),
     txHash: row.txHash,
     explorerUrl: row.explorerUrl,
+    outputAmount: row.outputAmount != null ? String(row.outputAmount) : null,
+    outputToken: row.outputToken ?? null,
+    provider: row.provider ?? null,
   };
 }
 
@@ -628,6 +639,7 @@ async function dispatchTransactionHistoryCard(slots: { asset?: string | null }, 
     payments: filtered.slice(0, 5).map((r) => ({
       to: r.recipient ?? "—", amount: r.amount != null ? String(r.amount) : "—", token: r.token,
       when: formatWhen(r.at), status: statusFromDecision(r.decision), txHash: r.txHash, explorerUrl: r.explorerUrl,
+      outputAmount: r.outputAmount != null ? String(r.outputAmount) : null, outputToken: r.outputToken ?? null, provider: r.provider ?? null,
     })),
   };
   const operation: Operation = { id: nextId("op"), intent, status: "success" };

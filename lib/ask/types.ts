@@ -125,6 +125,13 @@ export interface WalletTransactionView {
   timestamp: string;
   txHash?: string;
   explorerUrl?: string;
+  /** Swap/trade only — what was actually received + which DEX served it, so
+   *  a trade reads as "50 USDC → 12,345 RANDO via Uniswap v3" rather than
+   *  just its spent side. Absent for a payment (no output side) and for
+   *  swap/trade rows recorded before these fields existed. */
+  outputAmount?: string | null;
+  outputToken?: string | null;
+  provider?: string | null;
 }
 
 export interface WalletOperationIntent extends IntentBase {
@@ -138,7 +145,12 @@ export interface WalletOperationIntent extends IntentBase {
    *  real MON-price quote. Absent (not fabricated as $0) when that endpoint
    *  isn't configured or a price isn't available. */
   totalValueUsd?: string | null;
-  payments?: { to: string; amount: string; token: string; when: string; status: "success" | "pending" | "failed"; txHash?: string; explorerUrl?: string }[];
+  payments?: {
+    to: string; amount: string; token: string; when: string; status: "success" | "pending" | "failed";
+    txHash?: string; explorerUrl?: string;
+    /** Swap/trade rows only — see WalletTransactionView's own doc. */
+    outputAmount?: string | null; outputToken?: string | null; provider?: string | null;
+  }[];
   transaction?: WalletTransactionView;
 }
 
@@ -181,6 +193,10 @@ export interface TokenMarketData {
   quoteAssetsChecked: string[];
   routes: TokenRoute[];
   signals: string[];
+  /** Date.now() when this snapshot was actually fetched — may be a few
+   *  seconds old (served from lib/monad/tokenIntelligence's short-lived
+   *  market-data cache), never implied to be "live this instant". */
+  lastUpdated: number;
 }
 
 /** Everything real and known about one identified ERC-20 token — populated
@@ -306,6 +322,13 @@ export interface OperationError {
   message: string;
   /** Machine-readable when available, for future retry/telemetry logic. */
   code?: string;
+  /** Present only when a transaction actually reached the chain before
+   *  failing (e.g. a mined revert) — absent for a pre-broadcast failure
+   *  (rejected signature, no route, build failure), since there's no real
+   *  transaction to point at yet. Never fabricated: always the same hash
+   *  the wallet actually returned. */
+  txHash?: string;
+  explorerUrl?: string;
 }
 
 export interface Operation {

@@ -8,8 +8,20 @@
 /** Which product surface produced a TxLogEntry — distinct from `action`
  *  (send_payment/swap/invoice_payment/…), since an automation and a bulk
  *  distribution both settle through the exact same "send_payment" pipeline
- *  as a manual send and are otherwise indistinguishable in the log. */
-export type PlatformFeature = "payment" | "swap" | "automation" | "bulk";
+ *  as a manual send and are otherwise indistinguishable in the log.
+ *  "trade" (Step 5) settles through the exact same /api/swap/confirm path
+ *  as "swap" — same reasoning: an Ask PayAI trade (arbitrary-token, quoted
+ *  via lib/monad/tradeQuote.ts) and PayAI's curated Smart Swap are
+ *  otherwise indistinguishable in the log without this. */
+export type PlatformFeature = "payment" | "swap" | "trade" | "automation" | "bulk";
+
+/** The revenue/analytics chart's own category set — deliberately narrower
+ *  than PlatformFeature. "trade" (Step 5's Ask PayAI arbitrary-token trades)
+ *  folds into "swap" for revenue purposes — see lib/platform/analytics.ts's
+ *  featureOf() — since this chart's 4-color categorical palette is validated
+ *  for exactly these four buckets (see PlatformSections.tsx's FEATURE_COLOR
+ *  doc); the raw "trade" vs "swap" distinction stays on TxLogEntry itself. */
+export type RevenueFeature = Exclude<PlatformFeature, "trade">;
 
 /** One recorded agent run (every outcome, not just settled). */
 export interface TxLogEntry {
@@ -35,6 +47,14 @@ export interface TxLogEntry {
   txHash?: string;
   explorerUrl?: string;
   summary: string;
+  /** Swap/trade only — what was actually received, alongside `amount`/`token`
+   *  (what was spent). Absent for a payment (there's no "output side") and
+   *  for swap/trade entries recorded before this field existed. */
+  outputAmount?: number | null;
+  outputToken?: string | null;
+  /** Swap/trade only — which DEX actually served the trade ("Uniswap v3",
+   *  "Kuru"). Absent for a payment. */
+  provider?: string | null;
 }
 
 /**

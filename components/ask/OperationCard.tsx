@@ -11,7 +11,7 @@ import {
 import { TokenLogo } from "@/components/TokenLogo";
 import {
   FREQUENCY_LABEL, NETWORK_LABEL, WALLET_OP_LABEL,
-  type Operation, type OperationStatus, type WalletTransactionView,
+  type Operation, type OperationError, type OperationStatus, type WalletTransactionView,
 } from "@/lib/ask/types";
 
 /**
@@ -36,6 +36,15 @@ function fmtDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/** "Updated Xs/Xm ago" for a market-data snapshot — makes a short-lived
+ *  cache hit honest rather than implying every render just hit the chain. */
+function agoLabel(at: number): string {
+  const secs = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (secs < 5) return "just now";
+  if (secs < 60) return `${secs}s ago`;
+  return `${Math.round(secs / 60)}m ago`;
 }
 
 const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title: string }> = {
@@ -135,7 +144,7 @@ export function OperationCard({
 
       <div className="px-4 py-3">
         {status === "error" && operation.error ? (
-          <ErrorBody message={operation.error.message} />
+          <ErrorBody error={operation.error} />
         ) : status === "success" && operation.result && !isInfo ? (
           <SuccessBody intent={intent} result={operation.result} />
         ) : (
@@ -291,8 +300,12 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
       <div className="divide-y divide-border/60">
         {rows.map((r, i) => (
           <div key={i} className="flex items-center justify-between py-1.5 text-sm">
-            <span className="min-w-0 truncate text-foreground">{r.to}</span>
-            <span className="shrink-0 text-muted-foreground">{r.amount} {r.token} · {r.when}</span>
+            <span className="min-w-0 truncate text-foreground">
+              {r.outputToken ? `${r.token} → ${r.outputToken}${r.provider ? ` · ${r.provider}` : ""}` : r.to}
+            </span>
+            <span className="shrink-0 text-muted-foreground">
+              {r.outputAmount ? `${r.amount} → ${r.outputAmount} ${r.outputToken}` : `${r.amount} ${r.token}`} · {r.when}
+            </span>
           </div>
         ))}
         <div className="pt-2">
@@ -315,13 +328,24 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
           <StatusIcon size={16} className={t.status === "pending" ? "animate-spin" : undefined} />
         </span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{t.type} · {t.amount} {t.asset}</p>
+          <p className="text-sm font-semibold text-foreground">
+            {t.type} · {t.amount} {t.asset}{t.outputAmount ? ` → ${t.outputAmount} ${t.outputToken}` : ""}
+          </p>
           <p className="text-xs text-muted-foreground">{t.timestamp}</p>
         </div>
       </div>
       <div className="divide-y divide-border/60">
-        <Row label="From">{short(t.sender)}</Row>
-        <Row label="To">{short(t.recipient)}</Row>
+        {t.outputToken ? (
+          <>
+            <Row label="Route">{t.asset} → {t.outputToken}</Row>
+            {t.provider && <Row label="DEX">{t.provider}</Row>}
+          </>
+        ) : (
+          <>
+            <Row label="From">{short(t.sender)}</Row>
+            <Row label="To">{short(t.recipient)}</Row>
+          </>
+        )}
         <Row label="Status">{meta.label}</Row>
       </div>
       {t.txHash && t.explorerUrl && (
@@ -389,7 +413,10 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
       </div>
 
       <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <p className="mb-0.5 text-xs text-muted-foreground">Price</p>
+        <div className="mb-0.5 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">Price</p>
+          <p className="text-[10px] text-muted-foreground">Updated {agoLabel(d.market.lastUpdated)}</p>
+        </div>
         <p className="text-lg font-semibold tabular-nums text-foreground">
           {d.market.price ? `$${d.market.price}` : UNAVAILABLE}
         </p>
@@ -605,6 +632,13 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
         </div>
       </div>
       <ResultSummary intent={intent} />
+      {intent.kind === "trade_preview" && (
+        <div className="mb-2.5 divide-y divide-border/60">
+          <Row label="Route">{intent.data.route.path.join(" → ")}</Row>
+          <Row label="DEX">{intent.data.route.provider}</Row>
+          <Row label="Network">{intent.data.network}</Row>
+        </div>
+      )}
       <div className="rounded-lg border border-border bg-input/40 p-3">
         <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
         <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-primary-ink hover:underline">
@@ -618,11 +652,21 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
   );
 }
 
-function ErrorBody({ message }: { message: string }) {
+function ErrorBody({ error }: { error: OperationError }) {
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border border-danger/25 bg-danger/5 p-3">
-      <XCircle size={15} className="mt-0.5 shrink-0 text-danger" />
-      <p className="text-sm leading-relaxed text-foreground">{message}</p>
+    <div>
+      <div className="flex items-start gap-2.5 rounded-lg border border-danger/25 bg-danger/5 p-3">
+        <XCircle size={15} className="mt-0.5 shrink-0 text-danger" />
+        <p className="text-sm leading-relaxed text-foreground">{error.message}</p>
+      </div>
+      {error.txHash && error.explorerUrl && (
+        <a
+          href={error.explorerUrl} target="_blank" rel="noreferrer"
+          className="mt-2 flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline"
+        >
+          {short(error.txHash)} <ExternalLink size={11} />
+        </a>
+      )}
     </div>
   );
 }

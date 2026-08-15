@@ -62,8 +62,10 @@ vi.mock("@/lib/monad/prices", () => ({
   getUsdPrice: (address: string) => getUsdPriceImpl(address),
 }));
 
-afterEach(() => {
+afterEach(async () => {
   vi.restoreAllMocks();
+  const { clearMarketDataCache } = await import("@/lib/monad/tokenIntelligence");
+  clearMarketDataCache();
   network = "mainnet";
   codeAt = {};
   getCodeShouldThrow = false;
@@ -359,5 +361,99 @@ describe("inspectAddress — a specific requested amount is a real quote, not a 
     const r = await inspectAddress(TOKEN, null, { amount: "50", quoteAsset: "USDC" });
     if (r.kind !== "token") throw new Error("expected token");
     expect(r.data.quote).toEqual({ amount: "50", quoteAsset: "USDC", route: null });
+  });
+});
+
+/**
+ * Step 5's market-data cache (separate from tokenRegistry's permanent
+ * metadata cache and prices.ts's own 60s price cache — see probeMarket's
+ * own doc). Before this existed, every inspectAddress() call re-ran the
+ * full route-discovery fan-out (candidateProviders x quote assets) with no
+ * caching at all, so "what's the price?" right after pasting a contract
+ * address cost the full RPC fan-out twice for identical data.
+ */
+describe("inspectAddress — market-data caching (routes + price snapshot)", () => {
+  function setUpVerifiedToken() {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "PEPE", name: "Pepe Coin", decimals: 18, verified: true });
+    readContractImpl = () => 0n;
+  }
+
+  it("a second lookup within the TTL is served from cache -- no repeat route-discovery RPC fan-out", async () => {
+    setUpVerifiedToken();
+    let calls = 0;
+    candidateProvidersImpl = async () => [
+      { name: "Uniswap v3", quote: async () => { calls += 1; return { amountOut: 100, priceImpact: 0.001 }; } },
+    ];
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    await inspectAddress(TOKEN);
+    const callsAfterFirst = calls;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    await inspectAddress(TOKEN);
+    expect(calls).toBe(callsAfterFirst); // no new RPC round-trips -- served from cache
+  });
+
+  it("the cached snapshot's lastUpdated timestamp does not change on a cache hit -- an honest 'still the same snapshot', not a fabricated fresh one", async () => {
+    setUpVerifiedToken();
+    candidateProvidersImpl = async () => [{ name: "Uniswap v3", quote: async () => ({ amountOut: 100, priceImpact: 0.001 }) }];
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const first = await inspectAddress(TOKEN);
+    const second = await inspectAddress(TOKEN);
+    if (first.kind !== "token" || second.kind !== "token") throw new Error("expected token");
+    expect(second.data.market.lastUpdated).toBe(first.data.market.lastUpdated);
+  });
+
+  it("a lookup after the TTL expires refreshes rather than serving stale routes forever", async () => {
+    setUpVerifiedToken();
+    let calls = 0;
+    candidateProvidersImpl = async () => [
+      { name: "Uniswap v3", quote: async () => { calls += 1; return { amountOut: 100, priceImpact: 0.001 }; } },
+    ];
+    vi.useFakeTimers();
+    try {
+      const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+      const first = await inspectAddress(TOKEN);
+      const callsAfterFirst = calls;
+
+      vi.advanceTimersByTime(21_000); // past the 20s market-data TTL
+      const second = await inspectAddress(TOKEN);
+      expect(calls).toBeGreaterThan(callsAfterFirst); // genuinely re-fetched
+      if (first.kind !== "token" || second.kind !== "token") throw new Error("expected token");
+      expect(second.data.market.lastUpdated).toBeGreaterThan(first.data.market.lastUpdated);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a specific-amount quote request is never served from the market cache -- always a fresh route lookup for that exact amount", async () => {
+    setUpVerifiedToken();
+    let calls = 0;
+    candidateProvidersImpl = async () => [
+      { name: "Uniswap v3", quote: async (_from, _to, amountIn) => { calls += 1; return { amountOut: amountIn * 2, priceImpact: 0.001 }; } },
+    ];
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    await inspectAddress(TOKEN); // primes the market cache (amount "1")
+    const callsAfterBaseline = calls;
+    await inspectAddress(TOKEN, null, { amount: "50", quoteAsset: "USDC" });
+    expect(calls).toBeGreaterThan(callsAfterBaseline); // a different amount always re-quotes, cache or not
+  });
+
+  it("two DIFFERENT tokens never share a cache entry -- each address gets its own snapshot", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    codeAt[OTHER_TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async (address: string) =>
+      address.toLowerCase() === TOKEN.toLowerCase()
+        ? { address: TOKEN, symbol: "PEPE", name: "Pepe Coin", decimals: 18, verified: false }
+        : { address: OTHER_TOKEN, symbol: "WOJAK", name: "Wojak Coin", decimals: 18, verified: false };
+    readContractImpl = () => 0n;
+    quoteUniswapDirectImpl = async (tokenIn) =>
+      tokenIn.toLowerCase() === TOKEN.toLowerCase() ? { amountOut: "111", priceImpact: null } : { amountOut: "222", priceImpact: null };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const a = await inspectAddress(TOKEN);
+    const b = await inspectAddress(OTHER_TOKEN);
+    if (a.kind !== "token" || b.kind !== "token") throw new Error("expected token");
+    expect(a.data.market.routes[0]?.estimatedOutput).toBe("111");
+    expect(b.data.market.routes[0]?.estimatedOutput).toBe("222");
   });
 });
