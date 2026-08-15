@@ -115,7 +115,9 @@ const SWAP_ROUTER_ABI = [
   },
 ] as const;
 
-const ERC20_ABI = [
+/** Exported so other providers behind the same seam (e.g. kuruSwap.ts) reuse
+ *  this instead of redefining the same two standard ERC-20 functions. */
+export const ERC20_ABI = [
   { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] },
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
@@ -150,6 +152,12 @@ export interface SwapPlan {
   quote: SwapQuote;
   steps: UnsignedStep[];
   summary: string;
+  /** Which real provider this plan actually executes through ("Uniswap v3",
+   *  "Kuru") — set by the aggregating getSwapProvider() below so callers can
+   *  report the real route without asking a shared/mutable provider object
+   *  which one won (unsafe under concurrent requests). Individual providers
+   *  leave this unset; only the aggregator fills it in. */
+  provider?: string;
 }
 
 export interface SwapProvider {
@@ -431,7 +439,65 @@ const uniswapV3Provider: SwapProvider = {
   },
 };
 
-/** The active swap provider. Single seam for swapping in an aggregator later. */
+/** Every provider behind the seam, loaded lazily (dynamic import, matching
+ *  this codebase's existing convention for cross-module lazy loading) to
+ *  avoid a static circular import with kuruSwap.ts, which itself imports
+ *  shared helpers back from this file. */
+async function candidateProviders(): Promise<SwapProvider[]> {
+  const { default: kuruProvider } = await import("./kuruSwap");
+  return [uniswapV3Provider, kuruProvider].filter((p) => p.isConfigured());
+}
+
+/** Quotes every configured provider that can serve this pair and returns
+ *  whichever gives the better real output. Sequential, not raced — quoting
+ *  is cheap RPC/HTTP work, not worth the added complexity of a concurrent
+ *  race for what's a one-shot preview, not a hot path. A provider throwing
+ *  (pair it doesn't cover, no liquidity, an RPC hiccup) just excludes that
+ *  one candidate — it only surfaces as an error if EVERY provider failed. */
+async function bestQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number): Promise<{ provider: SwapProvider; quote: SwapQuote }> {
+  const providers = await candidateProviders();
+  const ok: { provider: SwapProvider; quote: SwapQuote }[] = [];
+  const failures: unknown[] = [];
+  for (const provider of providers) {
+    try {
+      ok.push({ provider, quote: await provider.quote(fromToken, toToken, amountIn) });
+    } catch (e) {
+      failures.push(e);
+    }
+  }
+  if (ok.length === 0) {
+    // Providers are tried in coverage order (Uniswap first — broader pair
+    // support), so the first failure is usually the most informative one
+    // (e.g. "No liquidity pool found for X → Y") rather than a narrower
+    // "Kuru doesn't support this pair" masking the real reason.
+    const first = failures[0];
+    throw first instanceof Error ? first : new Error("No swap route available for this pair.");
+  }
+  return ok.reduce((best, cur) => (cur.quote.amountOut > best.quote.amountOut ? cur : best));
+}
+
+/**
+ * The active swap provider — an aggregator across every real provider
+ * behind the seam above (currently Uniswap v3 and Kuru), always routing
+ * through whichever gives the better real output for THIS specific
+ * request. Quote and execution always use the SAME provider (buildPlan()
+ * re-resolves the winner itself rather than trusting a separately-computed
+ * quote), so what's shown in the preview is exactly what gets signed.
+ */
 export function getSwapProvider(): SwapProvider {
-  return uniswapV3Provider;
+  return {
+    name: "PayAI",
+    isConfigured() {
+      return uniswapV3Provider.isConfigured();
+    },
+    async quote(fromToken, toToken, amountIn) {
+      const { quote } = await bestQuote(fromToken, toToken, amountIn);
+      return quote;
+    },
+    async buildPlan(fromToken, toToken, amountIn, wallet, slippage) {
+      const { provider } = await bestQuote(fromToken, toToken, amountIn);
+      const plan = await provider.buildPlan(fromToken, toToken, amountIn, wallet, slippage);
+      return { ...plan, provider: provider.name };
+    },
+  };
 }
