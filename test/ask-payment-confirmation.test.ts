@@ -112,6 +112,16 @@ describe("classify.ts — correcting an already-complete payment (post-preview, 
     expect(u).toEqual({ kind: "send_payment", outcome: "complete", slots: { amount: "50", asset: "USDC", recipient: OTHER_ADDR } });
   });
 
+  it("'Actually send it to bob2.nad instead.' updates the recipient to the domain, not a garbage amount from the digit inside it", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending: Understanding = { kind: "send_payment", outcome: "complete", slots: { amount: "50", asset: "USDC", recipient: ADDR } };
+    const u = await understand("Actually send it to bob2.nad instead.", [], pending);
+    // The "2" inside "bob2.nad" must never be read as a corrected amount —
+    // the amount stays 50, and the recipient becomes the domain, not the
+    // stale old address.
+    expect(u).toEqual({ kind: "send_payment", outcome: "complete", slots: { amount: "50", asset: "USDC", recipient: "bob2.nad" } });
+  });
+
   it("a plain unrelated message does NOT get misread as a correction just because a payment is pending", async () => {
     const { understand } = await import("@/lib/ask/intent/classify");
     const pending: Understanding = { kind: "send_payment", outcome: "complete", slots: { amount: "50", asset: "USDC", recipient: ADDR } };
