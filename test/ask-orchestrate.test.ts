@@ -89,6 +89,22 @@ describe("respondToUnderstanding — send_payment dispatches to the real /api/ag
       expect(calls[0].body.intent).toBe(`Send 50 USDC to ${ADDR}`); // canonical, not raw user text
       expect(r.message.operation?.status).toBe("ready");
       expect((r.message.operation?.intent as PaymentIntent).kind).toBe("payment");
+      // A ready payment card stays "pending" — a follow-up correction
+      // ("actually make it 75") or natural confirmation ("yes") needs to
+      // know THIS payment is what's being corrected/confirmed.
+      expect(r.nextPending).toEqual(u);
+    } finally { restore(); }
+  });
+
+  it("does not carry the intent forward when the card never became ready (e.g. refused)", async () => {
+    const { restore } = mockFetch(() => ({
+      decision: "refused",
+      guardrail: { allowed: false, violations: ["Amount exceeds the current limit of 100000000 USDC per payment."] },
+    }));
+    try {
+      const u: Understanding = { kind: "send_payment", outcome: "complete", slots: { amount: "999999999", asset: "USDC", recipient: ADDR } };
+      const r = await respondToUnderstanding(u, WALLET);
+      expect(r.message.operation).toBeUndefined();
       expect(r.nextPending).toBeNull();
     } finally { restore(); }
   });
