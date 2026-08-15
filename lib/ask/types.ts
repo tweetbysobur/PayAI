@@ -142,25 +142,45 @@ export interface WalletOperationIntent extends IntentBase {
   transaction?: WalletTransactionView;
 }
 
-/** A DEX route that actually served a quote — which provider, and which two
- *  symbols it quoted between. */
-export interface TokenMarketPair {
-  dex: string;
-  base: string;
-  quote: string;
+/** One real, usable trading route — which provider, which two symbols, and
+ *  what 1 unit of the input actually converts to right now. Only routes
+ *  that genuinely resolved are ever included (see lib/monad/tokenIntelligence
+ *  — "only show a pair if an actual usable route exists"). */
+export interface TokenRoute {
+  provider: string;
+  inputToken: string;
+  outputToken: string;
+  estimatedOutput: string;
+  priceImpact: string | null;
+  available: true;
+}
+
+/** A specific requested amount, quoted through whichever real route serves
+ *  it — the discovery layer Step 3's execution builds on. `route: null`
+ *  means no usable route existed for that pair, never a 0. */
+export interface QuotedAmount {
+  amount: string;
+  quoteAsset: string;
+  route: TokenRoute | null;
 }
 
 /** Real market data only — every field is either a genuine freshly-read
  *  value or `null`, never a fabricated 0 or "$0.00" standing in for
- *  "unavailable". liquidity/volume24h/priceChange24h are null until this
- *  app has an indexer to source them from (see lib/monad/tokenIntelligence). */
+ *  "unavailable". `price` can be null even when `routes` is non-empty — a
+ *  route can exist but be too shallow to price honestly (see
+ *  lib/monad/prices's getUsdPrice, which this reuses). liquidity/volume24h/
+ *  priceChange24h are null until this app has an indexer to source them
+ *  from (see lib/monad/tokenIntelligence). `signals` are descriptive tags
+ *  only, never a verdict ("scam"/"safe" is never inferred from these). */
 export interface TokenMarketData {
   price: string | null;
   priceQuoteAsset: string | null;
   liquidity: string | null;
   volume24h: string | null;
   priceChange24h: string | null;
-  pairs: TokenMarketPair[];
+  quoteAssetsChecked: string[];
+  routes: TokenRoute[];
+  signals: string[];
 }
 
 /** Everything real and known about one identified ERC-20 token — populated
@@ -175,6 +195,9 @@ export interface TokenData {
   isTradable: boolean;
   explorerUrl: string;
   market: TokenMarketData;
+  /** Present only when a specific amount was actually requested (e.g. "how
+   *  much would I get for 50?") — absent, not null, when nothing was asked. */
+  quote?: QuotedAmount | null;
 }
 
 /** Read-only lookup of an arbitrary Monad address — never signs, never

@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const limited = await rateLimited(req, "agent");
   if (limited) return limited;
 
-  let body: { address?: string; walletAddress?: string | null };
+  let body: { address?: string; walletAddress?: string | null; amount?: string | null; quoteAsset?: string | null };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -27,8 +27,10 @@ export async function POST(req: NextRequest) {
   const address = body.address?.trim();
   if (!address) return NextResponse.json({ status: "invalid", error: "address is required" }, { status: 400 });
 
+  const quoteRequest = body.amount?.trim() ? { amount: body.amount.trim(), quoteAsset: body.quoteAsset ?? null } : null;
+
   try {
-    const result = await inspectAddress(address, body.walletAddress ?? null);
+    const result = await inspectAddress(address, body.walletAddress ?? null, quoteRequest);
     if (result.kind === "invalid") {
       return NextResponse.json({ status: "invalid", error: "That doesn't look like a token address PayAI can check right now." });
     }

@@ -227,20 +227,39 @@ async function understandWithLLM(
  *  conversation-context requirement without ever needing an Anthropic call:
  *  once a token_lookup is pending, a plain question using one of these words
  *  and naming no NEW address just re-resolves the SAME address. */
-const TOKEN_FOLLOWUP_RE = /\b(price|worth|value|liquidity|liquid|volume|tradable|trade(?:able)?|pair|pairs|supply|decimals|holders|verified|legit|scam|contract|market\s*cap|mcap)\b/i;
+const TOKEN_FOLLOWUP_RE = /\b(price|worth|value|liquidity|liquid|volume|tradable|trade(?:able)?|pair|pairs|route|routes|supply|decimals|holders|verified|legit|scam|contract|market\s*cap|mcap)\b/i;
+
+/** "How much would I get for 50?" / "what would 50 get me" / "quote 50" —
+ *  requires BOTH the phrase AND an actual number, so "how much USDC do I
+ *  have" (no number) is never misread as a token quote request; that one
+ *  correctly keeps falling through to the real wallet-balance path below. */
+const TOKEN_AMOUNT_QUESTION_RE = /\b(how\s+(much|many)|what\s+would\s+i\s+get|quote)\b/i;
+
+/** A specific quote asset named in a token follow-up ("...with USDC?",
+ *  "...for MON?") — WMON is normalized to MON since Uniswap always trades
+ *  the wrapped form under the hood (see swap.ts's resolveSwapSide); showing
+ *  it as a separate asset here would just be the same route under a
+ *  different name. */
+const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
 
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
-  // price?" right after a token_lookup card means THIS token, not a fresh
+  // price?" / "Can I trade it with USDC?" / "How much would I get for 50?"
+  // right after a token_lookup card all mean THIS token, not a fresh
   // unrelated question. A message naming a NEW address always overrides
   // this (handled separately, before tryMergePending is ever called — see
   // routeRequest), so this branch only ever fires when no fresh address is
   // present in the new message.
-  if (
-    pending && pending.kind === "token_lookup" && pending.outcome === "complete" &&
-    !EVM_ADDRESS_RE.test(text) && TOKEN_FOLLOWUP_RE.test(text)
-  ) {
-    return { kind: "token_lookup", outcome: "complete", slots: pending.slots };
+  if (pending && pending.kind === "token_lookup" && pending.outcome === "complete" && !EVM_ADDRESS_RE.test(text)) {
+    const numMatch = text.match(/\d+(?:\.\d+)?/);
+    const isAmountQuestion = !!numMatch && TOKEN_AMOUNT_QUESTION_RE.test(text);
+    if (TOKEN_FOLLOWUP_RE.test(text) || isAmountQuestion) {
+      const slots: AskSlots = { ...pending.slots };
+      const assetMatch = text.match(TOKEN_ASSET_MENTION_RE);
+      if (assetMatch) slots.toAsset = assetMatch[0].toUpperCase() === "WMON" ? "MON" : assetMatch[0].toUpperCase();
+      if (isAmountQuestion) slots.amount = numMatch![0];
+      return { kind: "token_lookup", outcome: "complete", slots };
+    }
   }
 
   if (pending && pending.outcome === "incomplete") {

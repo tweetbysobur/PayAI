@@ -546,17 +546,42 @@ function tokenIntelligenceCard(address: string, status: "wallet" | "unknown_cont
   return { intent, operation: { id: nextId("op"), intent, status: "success" } };
 }
 
-/** What the assistant says above the card — deliberately simple and
+/** The generic "what did we find" summary — used whenever the follow-up
+ *  wasn't asking about one specific pair or amount. Deliberately simple and
  *  deterministic (no Anthropic call): the card itself shows every field, so
- *  this is just an honest one-line summary of what was actually found,
- *  never a guess at which specific thing the user was asking about. */
+ *  this is just an honest one-line summary, never a guess at which specific
+ *  thing the user was asking about. */
 function tokenLookupLead(data: TokenData): string {
   const idLine = `${data.symbol} — ${data.name}${data.verified ? " (verified)" : ""}.`;
-  if (!data.isTradable || !data.market.price) return `${idLine} No usable trading route found — this token may not be tradable yet.`;
-  return `${idLine} ≈ ${data.market.price} ${data.market.priceQuoteAsset} per ${data.symbol}, via ${data.market.pairs.map((p) => p.dex).join(", ")}.`;
+  if (!data.isTradable) return `${idLine} No usable trading route found — this token may not be tradable yet.`;
+  const dexes = Array.from(new Set(data.market.routes.map((r) => r.provider))).join(", ");
+  if (!data.market.price) return `${idLine} A trading route exists (via ${dexes}), but the price isn't reliable enough to show — the pool looks too thin to trust.`;
+  return `${idLine} ≈ $${data.market.price} per ${data.symbol}, via ${dexes}.`;
 }
 
-async function dispatchTokenLookup(slots: { tokenAddress?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+/** "Can I trade it with USDC?" — answers the SPECIFIC pair asked about,
+ *  reusing whatever the general market probe already found rather than a
+ *  second call: routes only ever contains pairs that genuinely resolved, so
+ *  "not in the list" already means "no route", never a guess either way. */
+function pairLead(data: TokenData, quoteAsset: string): string {
+  const route = data.market.routes.find((r) => r.outputToken.toUpperCase() === quoteAsset.toUpperCase());
+  if (!route) return `No usable ${quoteAsset} route was found for ${data.symbol} right now.`;
+  return `Yes — ${data.symbol}/${quoteAsset} trades via ${route.provider}, ≈ ${route.estimatedOutput} ${quoteAsset} per ${data.symbol}${route.priceImpact ? ` (est. price impact ${route.priceImpact})` : ""}.`;
+}
+
+/** "How much would I get for 50?" — a real quote for that specific amount
+ *  (see lib/monad/tokenIntelligence's quoteRequest), never scaled up from
+ *  the 1-unit reference price, which would silently ignore price impact. */
+function amountLead(data: TokenData, amount: string): string {
+  const q = data.quote;
+  if (!q || !q.route) return `I couldn't find a usable route to quote ${amount} ${data.symbol} right now.`;
+  return `${amount} ${data.symbol} ≈ ${q.route.estimatedOutput} ${q.route.outputToken}, via ${q.route.provider}${q.route.priceImpact ? ` (est. price impact ${q.route.priceImpact})` : ""}.`;
+}
+
+async function dispatchTokenLookup(
+  slots: { tokenAddress?: string | null; amount?: string | null; toAsset?: string | null },
+  walletAddress: string | null,
+): Promise<AskMessage> {
   const address = slots.tokenAddress;
   if (!address) return assistantText("I couldn't find a valid contract address in that message.");
 
@@ -564,7 +589,10 @@ async function dispatchTokenLookup(slots: { tokenAddress?: string | null }, wall
   try {
     const r = await fetch("/api/ask/token", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ address, walletAddress }),
+      body: JSON.stringify({
+        address, walletAddress,
+        ...(slots.amount ? { amount: slots.amount, quoteAsset: slots.toAsset ?? null } : {}),
+      }),
     });
     json = await r.json();
   } catch {
@@ -582,6 +610,10 @@ async function dispatchTokenLookup(slots: { tokenAddress?: string | null }, wall
     return { id: nextId("msg"), role: "assistant", content: "This is a contract on Monad, but I couldn't identify it as an ERC-20 token.", createdAt: Date.now(), operation };
   }
   if (!json.data) return assistantText("Couldn't read that token's data right now. Try again in a moment.");
+
+  const lead = slots.amount ? amountLead(json.data, slots.amount)
+    : slots.toAsset ? pairLead(json.data, slots.toAsset)
+    : tokenLookupLead(json.data);
   const { operation } = tokenIntelligenceCard(address, "token", json.data);
-  return { id: nextId("msg"), role: "assistant", content: tokenLookupLead(json.data), createdAt: Date.now(), operation };
+  return { id: nextId("msg"), role: "assistant", content: lead, createdAt: Date.now(), operation };
 }
