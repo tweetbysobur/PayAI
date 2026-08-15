@@ -55,25 +55,40 @@ reconciling against what the dashboard's Transactions tab actually shows
 for the same account, since a mismatch there would mean the two aren't
 reading the same contract.
 
-## Where PaymentExecutor + MerchantRegistry came from (resolved)
+## Where all three came from (fully resolved)
 
-`0xf723BE80...508AF` (PaymentExecutor) and `0xadf04A50...7AA72`
-(MerchantRegistry) are the output of the migration described in
-`MERCHANT_REGISTRY_MIGRATION.md` — that plan's own status line said "not
-started" as of 2026-08-13, but `contracts/scripts/verify-e2e-proof-readonly.js`,
-committed 2026-08-14, already hardcodes these exact two addresses and calls
-them "the final cutover address" / wiring set up "during today's cutover,"
-past tense. The plan doc's status was just never updated after the
-migration actually ran — see that file for the full trail. No sandbox
-session executed this (none has ever had `MONAD_AGENT_PRIVATE_KEY` or live
-mainnet write access) — it was run by whoever holds the real deploy keys.
+**GitHub PR #15** — "Ultrafuzz report fixes: M-01, L-01, L-02, merchant-cap
++ verification tooling," merged 2026-08-14 — is the missing deploy record.
+It was never written as a `deployed-*.json` file in this directory; it's
+in the PR description instead, which states plainly: "already deployed to
+Monad mainnet and confirmed live via the app's own `/api/onchain` and
+`/api/automation-config` endpoints," listing all three addresses in this
+table exactly. The PR shipped the actual contract fixes each address
+corresponds to:
 
-## Still open: AutomationVault
+- **AutomationVault** `0x87D42314...64cA47` — the M-01 fix (verifies the
+  vault's own balance fell by exactly `amount`, not just that the
+  recipient received it — closes a sender-surcharge-ERC20 fund-lock gap).
+- **PaymentExecutor** `0xf723BE80...508AF` — the L-01 fix (native MON
+  requests now settle through the same path as native payments) plus the
+  merchant-cap invariant fix.
+- **MerchantRegistry** `0xadf04A50...7AA72` — the L-02 fix (a narrower
+  `isRegistrar` role) plus `registerMerchantWithHistory`/`closeMigration`,
+  which is the actual migration `MERCHANT_REGISTRY_MIGRATION.md` describes
+  — that plan document's own status line still said "not started" as late
+  as 2026-08-13, one day before this PR shipped the migration for real; its
+  status has been corrected.
 
-`0x87D42314...64cA47` has no equivalent trail — no script, commit, or doc
-in this repo mentions it anywhere. Unlike the registry/executor pair above,
-this one's origin is genuinely unexplained from what's in this repo.
-Whoever has Vercel/deploy access should trace it and either commit the
-missing deploy record or document why it's intentionally untracked. Until
-then, don't assume any `deployed-*.json` file's `automationVault` value is
-live — check `GET /api/automation-config` instead.
+(One loose end, cosmetic only: the PR description carries the exact same
+one-character typo on the MerchantRegistry address —`...D8B5...` instead
+of the confirmed-live `...D885...` — that was in
+`verify-e2e-proof-readonly.js`'s hardcoded default, now fixed there. Same
+origin, doesn't affect anything live — Vercel's actual env var was set
+correctly regardless of what either piece of text says.)
+
+No sandbox session executed any of this — none has ever had
+`MONAD_AGENT_PRIVATE_KEY` or live mainnet write access. This was a real
+deploy + cutover run by whoever holds the actual keys, from the
+`claude/bitv-s3ctfc` branch these fixes originated on (per PR #13's own
+note: the contract-level fixes "need a real mainnet deploy session with
+signing keys" and were deliberately kept off the app-layer-only PR).
