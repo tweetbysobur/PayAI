@@ -1193,7 +1193,7 @@ function IconAction({ label, onClick, disabled, danger, children }: { label: str
 }
 
 function Info({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return <div><p className="text-muted-foreground">{label}</p><p className={`mt-0.5 truncate text-foreground ${mono ? "font-mono" : ""}`}>{value}</p></div>;
+  return <div className="min-w-0"><p className="text-muted-foreground">{label}</p><p className={`mt-0.5 truncate text-foreground ${mono ? "font-mono" : ""}`}>{value}</p></div>;
 }
 
 /** Sleek review summary — each field a subtle panel card; key money values
@@ -1202,7 +1202,7 @@ function ReviewGrid({ rows }: { rows: { label: string; value: string; mono?: boo
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {rows.map((r) => (
-        <div key={r.label} className="rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3.5 py-2.5 transition-colors hover:border-primary/25">
+        <div key={r.label} className="min-w-0 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3.5 py-2.5 transition-colors hover:border-primary/25">
           <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{r.label}</p>
           <p className={`mt-0.5 truncate ${r.mono ? "font-mono text-xs" : "text-sm"} ${r.accent ? "font-semibold text-primary-ink" : "font-medium text-foreground"}`}>{r.value}</p>
         </div>
