@@ -55,15 +55,25 @@ reconciling against what the dashboard's Transactions tab actually shows
 for the same account, since a mismatch there would mean the two aren't
 reading the same contract.
 
-## Open question this file does NOT answer
+## Where PaymentExecutor + MerchantRegistry came from (resolved)
 
-Where did `0xf723BE80...508AF` / `0xadf04A50...7AA72` / `0x87D42314...64cA47`
-come from? No deploy script or record in this repo produced any of the
-three. Possibilities, none confirmed: a deploy that ran but whose record
-JSON was never committed; a manual `vercel env` edit pointing at contracts
-deployed some other way; or something else. Whoever has Vercel/deploy
-access should trace this and either commit the missing deploy record (so
-this directory's history is
-complete again) or document why it's intentionally untracked. Until then,
-don't assume the newest-dated `deployed-*.json` file is live — check the
-endpoints above instead.
+`0xf723BE80...508AF` (PaymentExecutor) and `0xadf04A50...7AA72`
+(MerchantRegistry) are the output of the migration described in
+`MERCHANT_REGISTRY_MIGRATION.md` — that plan's own status line said "not
+started" as of 2026-08-13, but `contracts/scripts/verify-e2e-proof-readonly.js`,
+committed 2026-08-14, already hardcodes these exact two addresses and calls
+them "the final cutover address" / wiring set up "during today's cutover,"
+past tense. The plan doc's status was just never updated after the
+migration actually ran — see that file for the full trail. No sandbox
+session executed this (none has ever had `MONAD_AGENT_PRIVATE_KEY` or live
+mainnet write access) — it was run by whoever holds the real deploy keys.
+
+## Still open: AutomationVault
+
+`0x87D42314...64cA47` has no equivalent trail — no script, commit, or doc
+in this repo mentions it anywhere. Unlike the registry/executor pair above,
+this one's origin is genuinely unexplained from what's in this repo.
+Whoever has Vercel/deploy access should trace it and either commit the
+missing deploy record or document why it's intentionally untracked. Until
+then, don't assume any `deployed-*.json` file's `automationVault` value is
+live — check `GET /api/automation-config` instead.
