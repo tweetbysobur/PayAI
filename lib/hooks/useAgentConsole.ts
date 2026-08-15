@@ -202,10 +202,10 @@ export function timeAgo(ms: number): string {
  * are already user-facing copy and pass through unchanged — this only catches
  * the cases that otherwise leak provider/fetch internals to the screen.
  */
-export function friendlyError(message: string): string {
+export function friendlyError(message: string, noun: string = "Payment"): string {
   const m = message.toLowerCase();
   if (m.includes("user rejected") || m.includes("user denied") || (m.includes("denied") && m.includes("signature"))) {
-    return "Payment not sent — you canceled it in your wallet.";
+    return `${noun} not sent — you canceled it in your wallet.`;
   }
   if (m.includes("failed to fetch") || m.includes("networkerror") || m.includes("network request failed")) {
     return "Couldn't reach the network. Check your connection and try again.";

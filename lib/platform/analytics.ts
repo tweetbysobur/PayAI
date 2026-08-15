@@ -13,18 +13,19 @@ import type {
   Customer,
   ComplianceMetrics,
   Insight,
-  PlatformFeature,
+  RevenueFeature,
   RevenueOverview,
   TrendPoint,
   TxLogEntry,
 } from "./types";
 import type { TokenInfo } from "../monad/tokenRegistry";
 
-const FEATURES: PlatformFeature[] = ["payment", "swap", "automation", "bulk"];
+const FEATURES: RevenueFeature[] = ["payment", "swap", "automation", "bulk"];
 
-/** Which feature produced a tx. Falls back to inferring from `action` for
- *  entries recorded before TxLogEntry.feature existed. */
-function featureOf(t: TxLogEntry): PlatformFeature {
+/** Which feature bucket a tx's revenue belongs in. Falls back to inferring
+ *  from `action` for entries recorded before TxLogEntry.feature existed. */
+function featureOf(t: TxLogEntry): RevenueFeature {
+  if (t.feature === "trade") return "swap";
   if (t.feature) return t.feature;
   return t.action === "swap" ? "swap" : "payment";
 }
@@ -353,7 +354,7 @@ export function buildSummary(snap: AnalyticsSnapshot): string {
  *  by feature. See computeMonthlyVolumeByFeature. */
 export interface MonthlyFeatureVolume {
   month: string; // YYYY-MM
-  byFeature: Record<PlatformFeature, Record<string, number>>;
+  byFeature: Record<RevenueFeature, Record<string, number>>;
 }
 
 /** One calendar month's volume, in USD, broken down by feature. A `null`
@@ -362,7 +363,7 @@ export interface MonthlyFeatureVolume {
  *  activity" when the truth is "activity we can't price"). */
 export interface MonthlyFeatureUsd {
   month: string; // YYYY-MM
-  byFeature: Record<PlatformFeature, number | null>;
+  byFeature: Record<RevenueFeature, number | null>;
   total: number | null;
 }
 
@@ -467,7 +468,7 @@ export async function getPlatformActivity(): Promise<PlatformActivity> {
     activityVolumeMon = usdToMon(activityVolumeUsd, bySymbol, prices);
 
     monthlyVolumeUsd = monthly.map((m) => {
-      const byFeature = {} as Record<PlatformFeature, number | null>;
+      const byFeature = {} as Record<RevenueFeature, number | null>;
       let total: number | null = null;
       for (const feature of FEATURES) {
         const { totalUsd } = usdTotal(m.byFeature[feature], bySymbol, prices);

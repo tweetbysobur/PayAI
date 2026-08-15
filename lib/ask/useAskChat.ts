@@ -80,6 +80,59 @@ export function isQuoteStale(quotedAt: number, now: number = Date.now()): boolea
   return now - quotedAt > QUOTE_STALE_MS;
 }
 
+// ── Deterministic post-trade follow-ups (Step 5, Part 7) ────────────────
+//
+// "How much did I get?", "what's the price now?", "can I sell what I just
+// bought?" are all answerable from context PayAI already has, without a
+// fresh Anthropic call to interpret them — matching classify.ts's own
+// deterministic-first principle (see AFFIRMATION_RE/TOKEN_FOLLOWUP_RE)
+// rather than spending a model call on something a regex + the existing
+// real data already resolves. A message that doesn't match any of these,
+// or matches but has no context to answer from, falls through to the
+// normal AI-classified flow untouched. Module-level (not inside the hook)
+// so this pure decision logic is directly unit-testable without rendering
+// a hook — see test/ask-trade-followups.test.ts.
+
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+
+export const TRADE_RESULT_RE = /\b(how much (?:did|do) i (?:get|receive|end up with)|what did i (?:get|receive)|how much did (?:that|it) (?:get|make) me)\b/i;
+export const SELL_JUST_BOUGHT_RE = /\b(can i sell what i (?:just )?bought|sell what i (?:just )?bought|can i sell (?:that|it)(?: now)?|sell (?:that|it) back)\b/i;
+export const PRICE_NOW_RE = /\b(what'?s? the price now|current price|price now|what'?s? it (?:worth|trading at) now)\b/i;
+
+/** The most recent trade that actually settled on-chain (status success +
+ *  a real result attached) — never a preview that was only shown, and
+ *  never one that errored. */
+export function findLastConfirmedTrade(msgs: AskMessage[]): { intent: Extract<Operation["intent"], { kind: "trade_preview" }>; result: NonNullable<Operation["result"]> } | null {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const op = msgs[i].operation;
+    if (op?.intent.kind === "trade_preview" && op.status === "success" && op.result) {
+      return { intent: op.intent, result: op.result };
+    }
+  }
+  return null;
+}
+
+/** The contract address PayAI would currently understand "it"/"that
+ *  token" to mean — an active token_intelligence card, or (failing that)
+ *  the most recently confirmed trade's received side, but ONLY when that
+ *  side was originally identified BY ADDRESS (an arbitrary token — see
+ *  this module's own contract-address-is-identity principle). A curated
+ *  symbol trade (e.g. "MON") has no client-known address to look up by,
+ *  so it's honestly left unresolved here rather than guessed — the normal
+ *  AI-classified flow still gets a chance at it. */
+export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const op = msgs[i].operation;
+    if (op?.intent.kind === "token_intelligence") return op.intent.address;
+    if (op?.intent.kind === "trade_preview" && op.status === "success" && op.result) {
+      const received = op.intent.execution?.request.outputToken;
+      if (received && ADDR_RE.test(received)) return received;
+      return null; // a curated-symbol trade -- no address to resolve locally
+    }
+  }
+  return null;
+}
+
 export function useAskChat() {
   const wallet = useWallet();
   const [messages, setMessages] = useState<AskMessage[]>([]);
@@ -123,6 +176,67 @@ export function useAskChat() {
     setMessages((m) => [...m, message]);
   }
 
+  function assistantText(content: string): AskMessage {
+    return { id: nextId("msg"), role: "assistant", content, createdAt: Date.now() };
+  }
+
+  /** "How much did I get?" — answered directly from the confirmed trade's
+   *  own real spend/receive amounts. No fetch, no Anthropic: the numbers are
+   *  already sitting in the card that's on screen. */
+  async function answerTradeResult(userMsg: AskMessage) {
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    const found = findLastConfirmedTrade(messages);
+    const reply = found
+      ? assistantText(`You spent ${found.intent.data.spend.amount} ${found.intent.data.spend.token} and received ${found.intent.data.receive.amount} ${found.intent.data.receive.token}, via ${found.intent.data.route.provider}. Transaction: ${found.result.txHash}`)
+      : assistantText("I don't have a recently completed trade to answer that from — what would you like to check?");
+    setMessages((m) => [...m, reply]);
+  }
+
+  /** "Can I sell what I just bought?" — deterministically reverses the last
+   *  confirmed trade's own pair (received side becomes the new input, spent
+   *  side becomes the new output) through the SAME real dispatchTrade path
+   *  a typed "sell X for Y" already uses — a genuine new quote, never a
+   *  cached or guessed one. */
+  async function sellLastPurchase(userMsg: AskMessage) {
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    const found = findLastConfirmedTrade(messages);
+    const req = found?.intent.execution?.request;
+    if (!found || !req) {
+      const reply = assistantText("I don't have a recently completed trade to sell from — tell me the token and amount you'd like to sell.");
+      setMessages((m) => [...m, reply]);
+      return;
+    }
+    const understanding: Understanding = {
+      kind: "trade", outcome: "complete",
+      slots: { tradeAction: "sell", fromAsset: req.outputToken, toAsset: req.inputToken, amount: found.intent.data.receive.amount, amountType: "exact_input", slippage: req.slippage },
+    };
+    const { message } = await respondToUnderstanding(understanding, wallet.address);
+    setMessages((m) => [...m, message]);
+  }
+
+  /** "What's the price now?" — a genuinely fresh market-data lookup (never
+   *  the trade's own now-stale quote) for whichever token is currently in
+   *  context, via the exact same real token_lookup path a pasted contract
+   *  address already uses. */
+  async function answerPriceNow(userMsg: AskMessage) {
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    const address = findCurrentTokenAddress(messages);
+    if (!address) {
+      const understanding = await classifyMessage(userMsg.content, [...messages, userMsg].slice(-8).map((m) => ({ role: m.role, content: m.content })), pending);
+      const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+      setPending(nextPending);
+      setMessages((m) => [...m, message]);
+      return;
+    }
+    const understanding: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: address } };
+    const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+    setPending(nextPending);
+    setMessages((m) => [...m, message]);
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
@@ -140,6 +254,29 @@ export function useAskChat() {
       setMessages((m) => [...m, userMsg]);
       setInput("");
       await advanceOperation(readyOp.id);
+      return;
+    }
+
+    // Deterministic post-trade follow-ups (see the block above) — checked
+    // before the AI classifier for the same reason AFFIRMATION_RE is: these
+    // are fixed, regex-matched shortcuts over data PayAI already has, not
+    // something worth spending a model call to interpret.
+    if (TRADE_RESULT_RE.test(trimmed)) {
+      const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
+      setThinking(true);
+      try { await answerTradeResult(userMsg); } finally { setThinking(false); }
+      return;
+    }
+    if (SELL_JUST_BOUGHT_RE.test(trimmed)) {
+      const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
+      setThinking(true);
+      try { await sellLastPurchase(userMsg); } finally { setThinking(false); }
+      return;
+    }
+    if (PRICE_NOW_RE.test(trimmed)) {
+      const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
+      setThinking(true);
+      try { await answerPriceNow(userMsg); } finally { setThinking(false); }
       return;
     }
 

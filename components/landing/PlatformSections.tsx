@@ -6,7 +6,7 @@ import { ShieldCheck, Blocks, AtSign, Wallet, Database, Code2 } from "lucide-rea
 import { TokenLogo } from "@/components/TokenLogo";
 import { MonadMark } from "@/components/MonadMark";
 import { formatUsd } from "@/lib/hooks/useTokenPrices";
-import type { PlatformFeature } from "@/lib/platform/types";
+import type { RevenueFeature } from "@/lib/platform/types";
 
 /**
  * Landing sections that describe the platform with REAL data only.
@@ -116,7 +116,7 @@ export function SupportedTokens() {
 
 interface MonthlyFeatureUsd {
   month: string; // YYYY-MM
-  byFeature: Record<PlatformFeature, number | null>;
+  byFeature: Record<RevenueFeature, number | null>;
   total: number | null;
 }
 
@@ -153,14 +153,14 @@ function formatMon(v: number | null): string | null {
  * else in the product needs a 4-way categorical split; every other surface
  * stays the single-purple brand palette.
  */
-const FEATURE_ORDER: PlatformFeature[] = ["payment", "swap", "automation", "bulk"];
-const FEATURE_LABEL: Record<PlatformFeature, string> = {
+const FEATURE_ORDER: RevenueFeature[] = ["payment", "swap", "automation", "bulk"];
+const FEATURE_LABEL: Record<RevenueFeature, string> = {
   payment: "Payments",
   swap: "Swaps",
   automation: "Automations",
   bulk: "Bulk distributions",
 };
-const FEATURE_COLOR: Record<PlatformFeature, string> = {
+const FEATURE_COLOR: Record<RevenueFeature, string> = {
   payment: "#3987e5",
   swap: "#d95926",
   automation: "#199e70",
