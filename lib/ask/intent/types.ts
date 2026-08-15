@@ -24,6 +24,11 @@ export const ASK_INTENT_KINDS = [
   "transaction_details",
   "automation_management",
   "distribution",
+  // Token intelligence — read-only lookup of an ARBITRARY Monad contract
+  // address (not necessarily one PayAI's own wallet holds). Detected purely
+  // deterministically (an EVM address in the message) — see classify.ts's
+  // detectTokenLookup() — never by asking Anthropic to spot an address.
+  "token_lookup",
 ] as const;
 
 export type AskIntentKind = (typeof ASK_INTENT_KINDS)[number];
@@ -53,6 +58,10 @@ export interface AskSlots {
    * orchestrator resolves that case against real recent activity itself.
    */
   txHash?: string | null;
+  /** An EVM contract address named in the message (or carried over from a
+   *  prior token_lookup, once the conversation has already identified one) —
+   *  always a regex-matched literal from the text, never guessed. */
+  tokenAddress?: string | null;
 }
 
 /**

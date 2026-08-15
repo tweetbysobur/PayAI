@@ -19,7 +19,7 @@
 
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
-import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
+import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
@@ -137,6 +137,14 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
     case "transaction_details": return { message: await dispatchTransactionDetails(u.slots, walletAddress), nextPending: null };
     case "automation_management": return { message: await dispatchAutomations(walletAddress), nextPending: null };
     case "distribution": return { message: dispatchDistribution(u.slots), nextPending: null };
+    case "token_lookup": {
+      const message = await dispatchTokenLookup(u.slots, walletAddress);
+      // Unlike the other read-only kinds above, this one DOES carry forward
+      // — "What's the price?" right after this card means the SAME token
+      // (see classify.ts's TOKEN_FOLLOWUP_RE), so the address needs to stay
+      // in `pending` for that merge to have something to resolve against.
+      return { message, nextPending: { kind: "token_lookup" as const, outcome: "complete" as const, slots: u.slots } };
+    }
   }
 }
 
@@ -522,4 +530,58 @@ function dispatchDistribution(slots: { amount?: string | null; asset?: string | 
   return assistantText(
     `I understand — ${desc}. Bulk distributions aren't executable from this chat yet; you can set one up from the dashboard, or I can send individual payments here one at a time.`,
   );
+}
+
+/** /api/ask/token's response shape — mirrors lib/monad/tokenIntelligence.ts's
+ *  TokenInspection exactly (this module never reshapes what the server
+ *  already validated). */
+interface TokenLookupApiResponse {
+  status: "invalid" | "wallet" | "unknown_contract" | "token";
+  error?: string;
+  data?: TokenData;
+}
+
+function tokenIntelligenceCard(address: string, status: "wallet" | "unknown_contract" | "token", data?: TokenData): { intent: TokenIntelligenceIntent; operation: Operation } {
+  const intent: TokenIntelligenceIntent = { kind: "token_intelligence", network: "monad", address, status, data };
+  return { intent, operation: { id: nextId("op"), intent, status: "success" } };
+}
+
+/** What the assistant says above the card — deliberately simple and
+ *  deterministic (no Anthropic call): the card itself shows every field, so
+ *  this is just an honest one-line summary of what was actually found,
+ *  never a guess at which specific thing the user was asking about. */
+function tokenLookupLead(data: TokenData): string {
+  const idLine = `${data.symbol} — ${data.name}${data.verified ? " (verified)" : ""}.`;
+  if (!data.isTradable || !data.market.price) return `${idLine} No usable trading route found — this token may not be tradable yet.`;
+  return `${idLine} ≈ ${data.market.price} ${data.market.priceQuoteAsset} per ${data.symbol}, via ${data.market.pairs.map((p) => p.dex).join(", ")}.`;
+}
+
+async function dispatchTokenLookup(slots: { tokenAddress?: string | null }, walletAddress: string | null): Promise<AskMessage> {
+  const address = slots.tokenAddress;
+  if (!address) return assistantText("I couldn't find a valid contract address in that message.");
+
+  let json: TokenLookupApiResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/token", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, walletAddress }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to look up that address. Try again in a moment.");
+  }
+  if (!json) return assistantText("Couldn't look that up right now.");
+
+  if (json.status === "invalid") return assistantText(json.error || "That doesn't look like a valid Monad address.");
+  if (json.status === "wallet") {
+    const { operation } = tokenIntelligenceCard(address, "wallet");
+    return { id: nextId("msg"), role: "assistant", content: "This address is a wallet address, not a token contract.", createdAt: Date.now(), operation };
+  }
+  if (json.status === "unknown_contract") {
+    const { operation } = tokenIntelligenceCard(address, "unknown_contract");
+    return { id: nextId("msg"), role: "assistant", content: "This is a contract on Monad, but I couldn't identify it as an ERC-20 token.", createdAt: Date.now(), operation };
+  }
+  if (!json.data) return assistantText("Couldn't read that token's data right now. Try again in a moment.");
+  const { operation } = tokenIntelligenceCard(address, "token", json.data);
+  return { id: nextId("msg"), role: "assistant", content: tokenLookupLead(json.data), createdAt: Date.now(), operation };
 }

@@ -58,6 +58,7 @@ export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
   transaction_details: [],
   automation_management: [],
   distribution: ["amount", "asset", "recipientCount"],
+  token_lookup: ["tokenAddress"],
 };
 
 const SYSTEM_PROMPT = `You are the natural-language understanding layer for Ask PayAI, a non-custodial crypto payments product on Monad. Users type however they naturally would — casual language, slang, typos, incomplete thoughts, corrections. Your only job is to figure out what they're trying to do and extract exactly the information they've actually given. You never execute anything; you only describe intent for a separate, already-secure system to validate and act on.
@@ -75,6 +76,7 @@ Capabilities PayAI supports today, and what each needs:
 - transaction_details: nothing strictly required, same txHash rule — the user wants specifics (who, how much, when) about a particular past transaction
 - automation_management: nothing required — the user wants to review or manage an existing scheduled/recurring payment
 - distribution: amount, asset, recipientCount — paying many wallets in one go
+- token_lookup: tokenAddress — identifying an arbitrary Monad contract address the user pasted or named (e.g. "what is this token? 0x...", "check this CA: 0x...", "is 0x... tradable?"). This is normally handled deterministically before you're ever called, purely by regex — you'll only see it if a message mixes a real address with something else that genuinely needs judgment (e.g. "is this legit, 0x...?" alongside an unrelated question).
 
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
@@ -112,6 +114,7 @@ const TOOL_SCHEMA = {
           toAsset: { type: ["string", "null"] },
           recipientCount: { type: ["number", "null"] },
           txHash: { type: ["string", "null"], description: "Only when read back from a transaction already named in context — never invented." },
+          tokenAddress: { type: ["string", "null"], description: "An EVM contract address (0x... 40 hex chars) actually present in the message — never invented." },
         },
       },
       question: { type: ["string", "null"], description: "Set only when outcome is 'incomplete' — the single next thing to ask." },
@@ -123,7 +126,7 @@ const TOOL_SCHEMA = {
 };
 
 function emptySlots(): AskSlots {
-  return { amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null, recipientCount: null, txHash: null };
+  return { amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null, recipientCount: null, txHash: null, tokenAddress: null };
 }
 
 /** Turns whatever the model (or a malformed/adversarial tool call) returned
@@ -218,7 +221,28 @@ async function understandWithLLM(
  * Returns null when the message doesn't clearly answer/correct anything,
  * so the caller can fall through to a fresh classification instead.
  */
+/** Keywords that mean "tell me more about the token we're already talking
+ *  about" — narrow enough to never misfire on an unrelated follow-up (e.g.
+ *  "what's my wallet balance?" doesn't match), broad enough to cover the
+ *  conversation-context requirement without ever needing an Anthropic call:
+ *  once a token_lookup is pending, a plain question using one of these words
+ *  and naming no NEW address just re-resolves the SAME address. */
+const TOKEN_FOLLOWUP_RE = /\b(price|worth|value|liquidity|liquid|volume|tradable|trade(?:able)?|pair|pairs|supply|decimals|holders|verified|legit|scam|contract|market\s*cap|mcap)\b/i;
+
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
+  // Conversation context for an already-identified token — "What's the
+  // price?" right after a token_lookup card means THIS token, not a fresh
+  // unrelated question. A message naming a NEW address always overrides
+  // this (handled separately, before tryMergePending is ever called — see
+  // routeRequest), so this branch only ever fires when no fresh address is
+  // present in the new message.
+  if (
+    pending && pending.kind === "token_lookup" && pending.outcome === "complete" &&
+    !EVM_ADDRESS_RE.test(text) && TOKEN_FOLLOWUP_RE.test(text)
+  ) {
+    return { kind: "token_lookup", outcome: "complete", slots: pending.slots };
+  }
+
   if (pending && pending.outcome === "incomplete") {
     const missing = REQUIRED_SLOTS[pending.kind].filter((k) => !pending.slots[k]);
     // Trailing punctuation ("50.", "yes!") shouldn't block recognizing the
@@ -457,6 +481,30 @@ const FAREWELL_RE = /^(bye|goodbye|see\s*ya|see\s*you|later|farewell|take\s*care
  *  dropping the actionable half. */
 const ACTIONABLE_SIGNAL_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|recurring|automate)\b|0x[a-fA-F0-9]{40}|\d+(?:\.\d+)?\s*(?:MON|USDC)\b/i;
 
+/** A bare EVM address — the ONLY signal token_lookup detection needs. Kept
+ *  distinct from ACTIONABLE_SIGNAL_RE's own address check above (that one
+ *  is about whether a compound message might have an actionable half riding
+ *  along with a fact/greeting; this one is the literal extraction). */
+const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
+
+/** A real money-moving verb alongside the address means the address is a
+ *  RECIPIENT or a swap target, not the subject of a lookup — "send 10 USDC
+ *  to 0x..." must never be hijacked into a token lookup. "trade" is a whole
+ *  word match (\b...\b), so it does NOT match inside "tradable" — "Is this
+ *  token tradable? 0x..." correctly stays a lookup. */
+const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|recurring|automate|distribute|split)\b/i;
+
+/** Detects "what is this token, 0x...", a bare address, "check this CA:
+ *  0x...", etc. — purely mechanical (one regex match plus a negative
+ *  keyword check), so this is answered without ever spending an Anthropic
+ *  call on it, no matter how the user phrases it. */
+function detectTokenLookup(text: string): Understanding | null {
+  const match = text.match(EVM_ADDRESS_RE);
+  if (!match) return null;
+  if (MONEY_ACTION_VERBS_RE.test(text)) return null;
+  return { kind: "token_lookup", outcome: "complete", slots: { ...emptySlots(), tokenAddress: match[0] } };
+}
+
 /** Ordinary conversation with no operation implied — answered locally,
  *  never worth an Anthropic call. */
 function matchSimpleChat(text: string): string | null {
@@ -520,8 +568,20 @@ export async function routeRequest(text: string, pending: Understanding | null, 
     return { route: "deterministic_query", anthropic: false, understanding: u, fallback: u };
   }
 
+  // A pending send_payment/swap/schedule already waiting on a specific slot
+  // (most importantly `recipient`) gets first crack at the message — "To
+  // 0x1234..." after "I want to send USDC." / "50." is answering THAT
+  // question, not starting an unrelated token lookup, even though it
+  // contains a bare address. Only once nothing pending actually claims this
+  // message does a fresh address get treated as "tell me about this token"
+  // (see detectTokenLookup below) — which still correctly wins over a
+  // pending token_lookup itself, since TOKEN_FOLLOWUP_RE's merge branch
+  // inside tryMergePending explicitly declines when a NEW address is present.
   const merged = tryMergePending(text, pending);
   if (merged) return { route: "follow_up", anthropic: false, understanding: merged, fallback: merged };
+
+  const tokenLookup = detectTokenLookup(text);
+  if (tokenLookup) return { route: "deterministic_query", anthropic: false, understanding: tokenLookup, fallback: tokenLookup };
 
   const fresh = await classifyFresh(text);
   // classifyFresh only ever actually returns an actionable kind (complete or

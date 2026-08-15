@@ -142,13 +142,62 @@ export interface WalletOperationIntent extends IntentBase {
   transaction?: WalletTransactionView;
 }
 
+/** A DEX route that actually served a quote — which provider, and which two
+ *  symbols it quoted between. */
+export interface TokenMarketPair {
+  dex: string;
+  base: string;
+  quote: string;
+}
+
+/** Real market data only — every field is either a genuine freshly-read
+ *  value or `null`, never a fabricated 0 or "$0.00" standing in for
+ *  "unavailable". liquidity/volume24h/priceChange24h are null until this
+ *  app has an indexer to source them from (see lib/monad/tokenIntelligence). */
+export interface TokenMarketData {
+  price: string | null;
+  priceQuoteAsset: string | null;
+  liquidity: string | null;
+  volume24h: string | null;
+  priceChange24h: string | null;
+  pairs: TokenMarketPair[];
+}
+
+/** Everything real and known about one identified ERC-20 token — populated
+ *  entirely by lib/monad/tokenIntelligence's on-chain reads, never invented. */
+export interface TokenData {
+  name: string;
+  symbol: string;
+  decimals: number;
+  totalSupply: string | null;
+  verified: boolean;
+  userBalance: string | null;
+  isTradable: boolean;
+  explorerUrl: string;
+  market: TokenMarketData;
+}
+
+/** Read-only lookup of an arbitrary Monad address — never signs, never
+ *  moves funds. `status` is what the on-chain inspection actually found:
+ *  an EOA ("wallet"), a contract that didn't behave like an ERC-20
+ *  ("unknown_contract"), or a real identified token ("token", with `data`
+ *  populated). See lib/monad/tokenIntelligence.ts's TokenInspection, which
+ *  this mirrors. */
+export interface TokenIntelligenceIntent extends IntentBase {
+  kind: "token_intelligence";
+  address: string;
+  status: "wallet" | "unknown_contract" | "token";
+  data?: TokenData;
+}
+
 export type Intent =
   | PaymentIntent
   | ScheduledPaymentIntent
   | RecurringPaymentIntent
   | SwapIntent
   | DistributionIntent
-  | WalletOperationIntent;
+  | WalletOperationIntent
+  | TokenIntelligenceIntent;
 
 /**
  * Where an Operation sits in the mandatory funnel:
