@@ -397,10 +397,16 @@ async function dispatchWalletBalance(walletAddress: string | null): Promise<AskM
 /** Best-effort total USD value from the existing wallet-intelligence
  *  endpoint (real MON price via the same DEX quoter the swap engine uses —
  *  see lib/monad/wallet-intel.ts). Never blocks or fails the balance card:
- *  unconfigured, no price, or a network hiccup all just mean no total line. */
+ *  unconfigured, no price, or a network hiccup all just mean no total line —
+ *  enforced with a hard timeout, since dispatchWalletBalance() awaits this
+ *  AFTER the real mon/usdc numbers already came back; without a bound here,
+ *  a slow /api/wallet-intelligence (it walks tx history via getLogs/getBlock)
+ *  would hang the whole "show my balance" reply, not just the total line. */
 async function fetchTotalValueUsd(walletAddress: string): Promise<string | null> {
   try {
-    const r = await fetch(`/api/wallet-intelligence?address=${encodeURIComponent(walletAddress)}`);
+    const r = await fetch(`/api/wallet-intelligence?address=${encodeURIComponent(walletAddress)}`, {
+      signal: AbortSignal.timeout(5000),
+    });
     const json = (await r.json()) as { ok?: boolean; configured?: boolean; totalValueUsd?: number | null };
     return json.ok && json.configured && json.totalValueUsd != null ? json.totalValueUsd.toFixed(2) : null;
   } catch {
