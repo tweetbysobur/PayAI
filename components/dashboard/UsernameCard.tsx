@@ -114,7 +114,7 @@ export function UsernameCard() {
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !busy) void save(); }}
               placeholder="your-name" autoFocus maxLength={20}
-              className="w-full bg-transparent font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              className="w-full bg-transparent font-mono text-base text-foreground outline-none placeholder:text-muted-foreground sm:text-sm"
             />
           </div>
           <p className="mt-1.5 text-[11px] text-muted-foreground">

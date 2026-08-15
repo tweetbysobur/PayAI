@@ -187,7 +187,7 @@ export function WalletManager() {
                           onKeyDown={(e) => { if (e.key === "Enter") void saveRename(row.address); if (e.key === "Escape") setEditing(null); }}
                           autoFocus
                           aria-label="Wallet name"
-                          className="min-w-0 flex-1 rounded-md border border-border bg-input px-2 py-1 text-xs text-foreground outline-none focus:border-primary/40"
+                          className="min-w-0 flex-1 rounded-md border border-border bg-input px-2 py-1 text-base text-foreground outline-none focus:border-primary/40 sm:text-xs"
                         />
                         <button onClick={() => void saveRename(row.address)} aria-label="Save name" className="rounded-md p-1 text-success transition hover:bg-input">
                           {busy?.kind === "rename" && busy.key === row.address ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}

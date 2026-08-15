@@ -147,7 +147,7 @@ export function TokenSelector({ value, onChange, walletAddress, disabled }: {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search name, symbol, or paste a token address"
-                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                className="w-full bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground sm:text-sm"
               />
               {resolving && <Loader2 size={13} className="shrink-0 animate-spin text-muted-foreground" />}
               {query && <button onClick={() => setQuery("")} className="shrink-0 text-muted-foreground hover:text-foreground"><X size={13} /></button>}

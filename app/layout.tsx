@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Montserrat } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
@@ -29,6 +29,16 @@ const montserrat = Montserrat({
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
 const DESCRIPTION =
   "Send, swap, and automate payments on Monad. You approve every payment from your own wallet, and automations require wallet confirmation.";
+
+// viewportFit: "cover" is what makes iPhone report real env(safe-area-inset-*)
+// values (notch, Dynamic Island, home-indicator strip) instead of zero — used
+// below to keep fixed bottom UI (the chat composer, the floating command-bar
+// button) clear of that strip on both iPhone and gesture-nav Android.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),

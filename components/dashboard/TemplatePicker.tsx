@@ -96,7 +96,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search templates…"
-                  className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-lg border border-border bg-input py-2 pl-9 pr-3 text-base text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:text-sm"
                 />
               </div>
               <div className="flex flex-wrap gap-2">

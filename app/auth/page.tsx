@@ -251,7 +251,7 @@ function AuthFlow() {
                               <input
                                 type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                                 placeholder="you@example.com" disabled={!agreed}
-                                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+                                className="w-full bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed sm:text-sm"
                               />
                             </div>
                             <button

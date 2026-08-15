@@ -39,7 +39,7 @@ export function ChatComposer({
   }
 
   return (
-    <div className="shrink-0 border-t border-border bg-panel px-4 py-3 sm:px-5">
+    <div className="shrink-0 border-t border-border bg-panel px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-5">
       <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-input/40 px-3 py-2 transition-colors focus-within:border-primary/40">
         <textarea
           ref={ref}
@@ -50,7 +50,7 @@ export function ChatComposer({
           placeholder={placeholder}
           disabled={disabled}
           aria-label="Message Ask PayAI"
-          className="max-h-40 w-full resize-none bg-transparent py-1.5 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/70 disabled:opacity-60"
+          className="max-h-40 w-full resize-none bg-transparent py-1.5 text-base leading-5 text-foreground outline-none placeholder:text-muted-foreground/70 disabled:opacity-60 sm:text-sm"
         />
         <button
           onClick={() => value.trim() && onSend()}

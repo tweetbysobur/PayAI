@@ -98,7 +98,7 @@ export function ActivityTabContent() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search activity"
               aria-label="Search activity"
-              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40"
+              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-base text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 sm:text-xs"
             />
           </div>
         </div>
