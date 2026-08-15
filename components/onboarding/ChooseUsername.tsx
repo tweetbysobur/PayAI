@@ -86,7 +86,7 @@ export function ChooseUsername({ address }: { address: string }) {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && status?.available && !busy) void claim(); }}
             placeholder="yourname" maxLength={20}
-            className="w-full bg-transparent font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            className="w-full bg-transparent font-mono text-base text-foreground outline-none placeholder:text-muted-foreground sm:text-sm"
           />
         </div>
         <button

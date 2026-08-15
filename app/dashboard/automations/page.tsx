@@ -714,23 +714,23 @@ export default function AutomationsPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search recipient, template, wallet, or tx hash…"
-              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-3 text-xs text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:w-64"
+              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-3 text-base text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:w-64 sm:text-xs"
             />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as Status | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-base text-foreground outline-none sm:text-xs">
             <option value="all">All statuses</option>
             {(["active", "scheduled", "executing", "paused", "completed", "cancelled", "failed"] as Status[]).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select value={tokenFilter} onChange={(e) => setTokenFilter(e.target.value)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+          <select value={tokenFilter} onChange={(e) => setTokenFilter(e.target.value)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-base text-foreground outline-none sm:text-xs">
             <option value="all">All tokens</option>
             {availableTokens.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as FundingMode | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+          <select value={modeFilter} onChange={(e) => setModeFilter(e.target.value as FundingMode | "all")} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-base text-foreground outline-none sm:text-xs">
             <option value="all">All execution modes</option>
             <option value="wallet">Wallet Automation</option>
             <option value="reserved">Reserved Funds</option>
           </select>
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-xs text-foreground outline-none">
+          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as typeof dateFilter)} className="rounded-lg border border-border bg-input px-2.5 py-1.5 text-base text-foreground outline-none sm:text-xs">
             <option value="all">Any date created</option>
             <option value="today">Last 24 hours</option>
             <option value="week">Last 7 days</option>
@@ -1863,7 +1863,7 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
                     {amountUsd ? `≈ ${amountUsd}` : ""}
                   </p>
                 </div><div className="mt-1 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? `${money(Number(balance), tokenInfo?.symbol ?? "")}${balanceUsd ? ` · ≈ ${balanceUsd}` : ""}` : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
-              {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={choiceClass(cadence === c, "px-3 py-3 text-left capitalize")}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
+              {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={choiceClass(cadence === c, "px-3 py-3 text-left capitalize")}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-base text-foreground sm:text-sm"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
               {step === 4 && <Step title="Execution Time" detail="Set the first execution date and time, then choose when it ends.">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div><label className="mb-1.5 block text-xs font-medium text-muted-foreground">First execution date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>

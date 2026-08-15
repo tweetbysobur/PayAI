@@ -143,17 +143,17 @@ function SupportPageInner() {
                 <textarea
                   value={description} onChange={(e) => setDescription(e.target.value)}
                   rows={5} maxLength={4000} placeholder="Describe the issue in as much detail as you can."
-                  className="w-full rounded-lg border border-border bg-input px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring"
+                  className="w-full rounded-lg border border-border bg-input px-3 py-2.5 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm"
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Automation ID (optional)</label>
-                  <input value={automationId} onChange={(e) => setAutomationId(e.target.value)} placeholder="sch_..." className="w-full rounded-lg border border-border bg-input px-3 py-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring" />
+                  <input value={automationId} onChange={(e) => setAutomationId(e.target.value)} placeholder="sch_..." className="w-full rounded-lg border border-border bg-input px-3 py-2.5 text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm" />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-muted-foreground">Transaction hash (optional)</label>
-                  <input value={txHash} onChange={(e) => setTxHash(e.target.value)} placeholder="0x..." className="w-full rounded-lg border border-border bg-input px-3 py-2.5 font-mono text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring" />
+                  <input value={txHash} onChange={(e) => setTxHash(e.target.value)} placeholder="0x..." className="w-full rounded-lg border border-border bg-input px-3 py-2.5 font-mono text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm" />
                 </div>
               </div>
               {!wallet.address && (

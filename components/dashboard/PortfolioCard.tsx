@@ -85,7 +85,7 @@ export function PortfolioCard({ address }: { address: string | null }) {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tokens"
               aria-label="Search tokens"
-              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-xs text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40"
+              className="w-full rounded-lg border border-border bg-input py-1.5 pl-8 pr-2.5 text-base text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/40 sm:text-xs"
             />
           </div>
           <div className="flex shrink-0 gap-0.5 rounded-lg border border-border bg-input p-0.5">

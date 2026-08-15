@@ -481,7 +481,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                             value={pasteText} onChange={(e) => setPasteText(e.target.value)}
                             placeholder={"0xabc...\n0xdef... , alice.nad\n0x123..."}
                             rows={5}
-                            className="w-full rounded-lg border border-border bg-input p-3 text-sm text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring"
+                            className="w-full rounded-lg border border-border bg-input p-3 text-base text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:text-sm"
                           />
                           <Button variant="secondary" className="mt-2 !px-3 !py-1.5 text-xs" onClick={handlePaste}>Add to list</Button>
                         </div>
@@ -613,7 +613,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                       <div className="mt-3 flex items-center gap-2">
                         <span className="text-sm text-muted-foreground">Every</span>
                         <Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" />
-                        <select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground">
+                        <select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-base text-foreground sm:text-sm">
                           <option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option>
                         </select>
                       </div>

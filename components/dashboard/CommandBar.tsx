@@ -547,7 +547,7 @@ export function CommandBar() {
               </div>
 
               {/* Footer hints */}
-              <div className="flex items-center justify-between border-t border-border px-4 py-2.5 text-[11px] text-muted-foreground">
+              <div className="flex items-center justify-between border-t border-border px-4 pb-[calc(0.625rem+env(safe-area-inset-bottom))] pt-2.5 text-[11px] text-muted-foreground">
                 <div className="flex items-center gap-4">
                   <span className="flex items-center gap-1.5">
                     <kbd className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-0.5"><CornerDownLeft size={10} /> Enter</kbd> run
