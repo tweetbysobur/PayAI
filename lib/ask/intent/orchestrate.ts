@@ -260,6 +260,151 @@ export async function executeSwapIntent(
   }
 }
 
+/** /api/ask/trade/build's response shape — mirrors lib/monad/tradeQuote.ts's
+ *  TradeExecutionResult exactly: flat, same convention as
+ *  TradePreviewApiResponse above. */
+type TradeBuildApiResponse =
+  | { ok: true; status: "ready"; preview: TradePreviewData & { ok?: true }; steps: { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }[] }
+  | { ok: true; status: "changed"; preview: TradePreviewData & { ok?: true } }
+  | { ok: false; message: string };
+
+function stripOk(preview: TradePreviewData & { ok?: true }): TradePreviewData {
+  const { ok: _ok, ...data } = preview;
+  return data;
+}
+
+/**
+ * The only function allowed to request a wallet signature for a trade —
+ * called exclusively from an explicit "Confirm trade" click on a card this
+ * module already built. Mirrors executeSwapIntent above almost exactly
+ * (multi-step approve-then-trade signing, pendingSettlement, /api/swap/confirm
+ * settlement, translated errors) — see that function's own doc for why each
+ * piece exists; this reuses the identical /api/swap/confirm settlement path
+ * and pendingSettlement "swap" kind rather than inventing a second one, since
+ * a trade settles exactly the same way a swap does.
+ *
+ * Two things this adds beyond executeSwapIntent:
+ *  1. An explicit wrong-network check before ever asking for a signature — a
+ *     trade may touch an arbitrary, never-before-approved token contract, so
+ *     "wrong chain" must never silently sign into it.
+ *  2. It never signs the preview card's own numbers. It always re-quotes and
+ *     rebuilds fresh via /api/ask/trade/build first (never constructs a
+ *     transaction from stale preview data); if that fresh quote moved
+ *     materially since the card was shown, it returns an updated "ready"
+ *     card instead of ever signing — the user must click Confirm again on
+ *     the new numbers (see the "changed" branch below).
+ */
+export async function executeTradeIntent(
+  operation: Operation,
+  wallet: SendPaymentWallet & { isWrongNetwork?: boolean },
+  walletAddress: string,
+  onProgress?: (label: string) => void,
+): Promise<Operation> {
+  if (operation.intent.kind !== "trade_preview" || !operation.intent.execution) return operation;
+  const { request } = operation.intent.execution;
+  const priorData = operation.intent.data;
+
+  if (wallet.isWrongNetwork) {
+    const error: OperationError = { message: "You're connected to the wrong network — switch your wallet to Monad and try again.", code: "WRONG_NETWORK" };
+    return { ...operation, status: "error", error };
+  }
+
+  onProgress?.("Preparing trade…");
+  let build: TradeBuildApiResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/trade/build", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...request, walletAddress,
+        previousQuote: { receiveAmount: priorData.receive.amount, provider: priorData.route.provider },
+      }),
+    });
+    build = await r.json();
+  } catch {
+    const error: OperationError = { message: "Couldn't reach Monad to prepare that trade. Try again in a moment.", code: "BUILD_FAILED" };
+    return { ...operation, status: "error", error };
+  }
+  if (!build) {
+    const error: OperationError = { message: "Couldn't prepare that trade. Try again.", code: "BUILD_FAILED" };
+    return { ...operation, status: "error", error };
+  }
+  if (!build.ok) {
+    const error: OperationError = { message: build.message || "Couldn't prepare that trade.", code: "BUILD_FAILED" };
+    return { ...operation, status: "error", error };
+  }
+
+  const freshData = stripOk(build.preview);
+  if (build.status === "changed") {
+    // The fresh, just-fetched quote moved enough (or the route changed) that
+    // executing against what the user approved would be executing a
+    // materially different trade. Never sign it — show the updated numbers
+    // and require an explicit new confirm click instead.
+    return {
+      ...operation,
+      status: "ready",
+      intent: { ...operation.intent, data: freshData },
+      confirmLabel: "Quote updated — confirm again",
+    };
+  }
+
+  const steps = build.steps;
+  let broadcastHash: string | null = null;
+  try {
+    let lastHash = "";
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i].label;
+      onProgress?.(
+        steps.length > 1
+          ? `Step ${i + 1} of ${steps.length}: waiting for your signature (${step}) — nothing has moved yet.`
+          : "Waiting for your signature — nothing has moved yet.",
+      );
+      lastHash = await wallet.sendTransaction(steps[i].tx);
+      broadcastHash = lastHash;
+      if (i === steps.length - 1) {
+        savePendingSettlement({
+          kind: "swap", walletAddress, txHash: lastHash,
+          fromToken: freshData.spend.token, toToken: freshData.receive.token,
+          amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount), savedAt: Date.now(),
+        });
+      }
+      onProgress?.(
+        steps.length > 1
+          ? `Step ${i + 1} of ${steps.length}: confirming on-chain…`
+          : "Signed — confirming on-chain…",
+      );
+      await wallet.waitForReceipt(lastHash);
+    }
+    onProgress?.("Finalizing trade…");
+    const r = await fetch("/api/swap/confirm", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        walletAddress, txHash: lastHash, fromToken: freshData.spend.token, toToken: freshData.receive.token,
+        amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount),
+      }),
+    });
+    const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
+    if (!cj.success) {
+      clearPendingSettlement();
+      const message = cj.reverted ? (cj.error || "This trade failed on-chain. No tokens were traded.") : friendlyError(cj.error || "The trade could not be confirmed.");
+      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED" };
+      return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+    }
+    clearPendingSettlement();
+    const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
+    return { ...operation, status: "success", intent: { ...operation.intent, data: freshData }, result };
+  } catch (e) {
+    if (broadcastHash) {
+      const error: OperationError = {
+        message: `Your trade was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Don't resend it — check Transactions for the latest status.`,
+        code: "UNCONFIRMED",
+      };
+      return { ...operation, status: "error", error };
+    }
+    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed."), code: "NOT_SENT" };
+    return { ...operation, status: "error", error };
+  }
+}
+
 async function dispatchSchedule(
   kind: "schedule_payment" | "recurring_payment",
   slots: { amount?: string | null; asset?: string | null; recipient?: string | null; when?: string | null; frequency?: "daily" | "weekly" | "monthly" | null },
@@ -631,20 +776,27 @@ async function dispatchTokenLookup(
 }
 
 /** /api/ask/trade's response shape — mirrors lib/monad/tradeQuote.ts's
- *  TradePreviewResult exactly. */
-type TradePreviewApiResponse = { ok: true; data: TradePreviewData } | { ok: false; message: string };
+ *  TradePreviewResult exactly: FLAT (ok + the preview fields directly on
+ *  the same object), never wrapped in a `data` property. */
+type TradePreviewApiResponse = ({ ok: true } & TradePreviewData) | { ok: false; message: string };
 
-function tradePreviewCard(data: TradePreviewData): { intent: TradePreviewIntent; operation: Operation } {
-  const intent: TradePreviewIntent = { kind: "trade_preview", network: "monad", data };
-  // status "success", not "ready": this is STRICTLY a preview -- see
-  // TradePreviewIntent's own doc. Using "ready" would render the funnel's
-  // real "Confirm with passkey" button via CardFooter; "success" (the same
-  // pattern wallet_operation/token_intelligence already use) routes through
-  // OperationCard's isInfo path instead, where TradePreviewBody renders its
-  // OWN confirm affordance wired to nothing, and the existing
-  // advanceOperation()/executeSwapIntent() machinery in useAskChat is never
-  // reachable for this card at all -- architecturally, not just by policy.
-  return { intent, operation: { id: nextId("op"), intent, status: "success" } };
+type TradeRequest = NonNullable<TradePreviewIntent["execution"]>["request"];
+
+/**
+ * `request` is present only when a wallet was connected — it's what lets
+ * executeTradeIntent re-quote and build real steps at confirm-time (see
+ * /api/ask/trade/build). Its presence is what actually decides the card's
+ * status: "ready" (real confirm funnel, wallet signs) when execution is
+ * buildable, "success" (informational-only, same pattern
+ * wallet_operation/token_intelligence use — no execution field, no signer
+ * to build against) when there's no wallet to trade with yet. See
+ * OperationCard's isInfo for the render-side half of this.
+ */
+function tradePreviewCard(data: TradePreviewData, request: TradeRequest | null): { intent: TradePreviewIntent; operation: Operation } {
+  const intent: TradePreviewIntent = { kind: "trade_preview", network: "monad", data, ...(request ? { execution: { request } } : {}) };
+  const status: Operation["status"] = request ? "ready" : "success";
+  const operation: Operation = { id: nextId("op"), intent, status, ...(request ? { confirmLabel: "Confirm trade" } : {}) };
+  return { intent, operation };
 }
 
 /** Deliberately simple and deterministic (no Anthropic call) -- every field
@@ -671,6 +823,8 @@ async function dispatchTrade(
     return assistantText("I need a bit more detail to quote that trade.");
   }
   const amountType = slots.amountType ?? "exact_input";
+  const amount = slots.amount ?? "";
+  const slippage = slots.slippage ?? null;
 
   let json: TradePreviewApiResponse | null = null;
   try {
@@ -678,7 +832,7 @@ async function dispatchTrade(
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
         action: slots.tradeAction, inputToken: slots.fromAsset, outputToken: slots.toAsset,
-        amount: slots.amount ?? "", amountType, slippage: slots.slippage ?? null, walletAddress,
+        amount, amountType, slippage, walletAddress,
       }),
     });
     json = await r.json();
@@ -688,6 +842,12 @@ async function dispatchTrade(
   if (!json) return assistantText("Couldn't quote that trade right now.");
   if (!json.ok) return assistantText(json.message);
 
-  const { operation } = tradePreviewCard(json.data);
-  return { id: nextId("msg"), role: "assistant", content: tradePreviewLead(json.data), createdAt: Date.now(), operation };
+  const { ok: _ok, ...data } = json;
+  // Only a wallet-connected preview carries the request needed to actually
+  // execute it — see tradePreviewCard's own doc.
+  const request: TradeRequest | null = walletAddress
+    ? { action: slots.tradeAction, inputToken: slots.fromAsset, outputToken: slots.toAsset, amount, amountType, slippage }
+    : null;
+  const { operation } = tradePreviewCard(data, request);
+  return { id: nextId("msg"), role: "assistant", content: tradePreviewLead(data), createdAt: Date.now(), operation };
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * lib/monad/tradeQuote.ts's only external inputs are the token registry
@@ -32,11 +32,29 @@ let resolveSwapSideImpl: (symbol: string) => Promise<{ symbol: string; routeAddr
   if (s === "MON" || s === "WMON") return { symbol: "MON", routeAddress: WMON.address, decimals: WMON.decimals, isNative: true };
   throw new Error(`${symbol} isn't a token PayAI can swap yet.`);
 };
+interface StubStep { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }
+let buildPlanImpl: (from: string, to: string, amount: number, wallet: string, slippage?: number) => Promise<{ steps: StubStep[] }> =
+  async () => { throw new Error("buildPlan not stubbed"); };
+let buildUniswapPlanDirectImpl: (
+  tokenIn: string, tokenInSymbol: string, tokenInDecimals: number, tokenInIsNative: boolean,
+  tokenOut: string, tokenOutSymbol: string, tokenOutDecimals: number, tokenOutIsNative: boolean,
+  amount: string, slippage: number, wallet: string,
+) => Promise<{ steps: StubStep[]; amountOut: string; priceImpact: string | null }> =
+  async () => { throw new Error("buildUniswapPlanDirect not stubbed"); };
+
 vi.mock("@/lib/monad/swap", () => ({
   bestQuote: (from: string, to: string, amount: number) => bestQuoteImpl(from, to, amount),
   quoteUniswapDirect: (tokenIn: string, tokenInDecimals: number, tokenOut: string, tokenOutDecimals: number, amount: string) =>
     quoteUniswapDirectImpl(tokenIn, tokenInDecimals, tokenOut, tokenOutDecimals, amount),
   resolveSwapSide: (symbol: string) => resolveSwapSideImpl(symbol),
+  getSwapProvider: () => ({
+    buildPlan: (from: string, to: string, amount: number, wallet: string, slippage?: number) => buildPlanImpl(from, to, amount, wallet, slippage),
+  }),
+  buildUniswapPlanDirect: (
+    tokenIn: string, tokenInSymbol: string, tokenInDecimals: number, tokenInIsNative: boolean,
+    tokenOut: string, tokenOutSymbol: string, tokenOutDecimals: number, tokenOutIsNative: boolean,
+    amount: string, slippage: number, wallet: string,
+  ) => buildUniswapPlanDirectImpl(tokenIn, tokenInSymbol, tokenInDecimals, tokenInIsNative, tokenOut, tokenOutSymbol, tokenOutDecimals, tokenOutIsNative, amount, slippage, wallet),
   DEFAULT_SLIPPAGE: 0.005,
   MAX_SLIPPAGE: 0.5,
   MAX_PRICE_IMPACT: 0.15,
@@ -65,6 +83,8 @@ afterEach(() => {
   };
   getTokenBalanceImpl = async () => 0;
   getUsdPriceImpl = async () => null;
+  buildPlanImpl = async () => { throw new Error("buildPlan not stubbed"); };
+  buildUniswapPlanDirectImpl = async () => { throw new Error("buildUniswapPlanDirect not stubbed"); };
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -321,5 +341,169 @@ describe("previewTrade — every successful preview is freshly quoted, never reu
     const second = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
     if (!first.ok || !second.ok) throw new Error("expected ok");
     expect(second.quotedAt).toBeGreaterThanOrEqual(first.quotedAt);
+  });
+});
+
+/**
+ * prepareTradeExecution — Step 4's transaction-construction entry point.
+ * Every case here confirms the same guarantees previewTrade already has
+ * (real quote, honest rejection) PLUS the Step 4-specific ones: it always
+ * re-quotes fresh rather than trusting the caller, it never builds when the
+ * fresh quote moved materially, and the transaction target it produces is
+ * always either the resolved token's OWN contract (approve) or the
+ * existing, hardcoded router/aggregator plan — never anything derived from
+ * unvalidated input.
+ */
+describe("prepareTradeExecution — re-quotes fresh and only builds real steps when nothing material changed", () => {
+  beforeEach(() => {
+    // Every WALLET-connected case below needs a balance the requested
+    // amount actually fits under — previewTrade() (which
+    // prepareTradeExecution calls internally) re-checks this for real.
+    getTokenBalanceImpl = async () => 1000;
+  });
+
+  it("requires a connected wallet — never builds for an anonymous request", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "100", priceImpact: null });
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: null });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/connect your wallet/i);
+  });
+
+  it("an invalid trade (no route) is rejected the same honest way previewTrade rejects it — never builds steps", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => null;
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
+
+  it("no previous quote supplied (first confirm) — builds steps directly, no 'changed' comparison possible", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
+    buildUniswapPlanDirectImpl = async (_tokenIn, tokenInSymbol) => {
+      expect(tokenInSymbol).toBe("USDC");
+      return { steps: [{ kind: "swap", label: `Trade 50 USDC for RANDO`, tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }], amountOut: "12345", priceImpact: "0.30%" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+    if (r.status !== "ready") return;
+    expect(r.steps).toHaveLength(1);
+    expect(r.steps[0].kind).toBe("swap");
+  });
+
+  it("an unchanged quote (within slippage tolerance) builds real steps", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
+    buildUniswapPlanDirectImpl = async () => ({ steps: [{ kind: "swap", label: "Trade", tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }], amountOut: "12345", priceImpact: "0.30%" });
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET },
+      { receiveAmount: "12345", provider: "Uniswap v3" }, // identical to the fresh quote
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+  });
+
+  it("the route/provider changing is a material change — never builds steps, returns 'changed' with the fresh preview", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" }); // Uniswap v3 provider (see getTradeRoute)
+    buildUniswapPlanDirectImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET },
+      { receiveAmount: "12345", provider: "Kuru" }, // the card the user is looking at shows a different DEX
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("changed");
+    if (r.status !== "changed") return;
+    expect(r.preview.receive.amount).toBe("12345");
+  });
+
+  it("the receive amount moving beyond the slippage tolerance is a material change — never builds steps", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "9000", priceImpact: "0.30%" }); // moved far from what the user was shown
+    buildUniswapPlanDirectImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", slippage: "0.5", walletAddress: WALLET },
+      { receiveAmount: "12345", provider: "Uniswap v3" },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("changed");
+  });
+
+  it("the receive amount moving only WITHIN the slippage tolerance is NOT material — builds steps as normal (that's what slippage protection is for)", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12300", priceImpact: "0.30%" }); // ~0.36% off, well under a 5% tolerance
+    buildUniswapPlanDirectImpl = async () => ({ steps: [{ kind: "swap", label: "Trade", tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }], amountOut: "12300", priceImpact: "0.30%" });
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", slippage: "5", walletAddress: WALLET },
+      { receiveAmount: "12345", provider: "Uniswap v3" },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+  });
+
+  it("a verified pair on both sides builds through the SAME curated aggregator plan Smart Swap uses (getSwapProvider().buildPlan), not the direct address path", async () => {
+    resolveTokenImpl = async () => { throw new Error("must not resolve by address for curated symbols"); };
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 64.2, priceImpact: null } });
+    buildPlanImpl = async (from, to, amount, wallet) => {
+      expect(from).toBe("USDC");
+      expect(to).toBe("MON");
+      expect(wallet).toBe(WALLET);
+      return { steps: [{ kind: "swap", label: "Swap", tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }] };
+    };
+    buildUniswapPlanDirectImpl = async () => { throw new Error("verified pairs must use buildPlan, not the direct address path"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: "USDC", outputToken: "MON", amount: "30", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+  });
+
+  it("an arbitrary/unverified token on either side never reaches Kuru's curated-symbol plan builder — only the direct Uniswap path", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
+    buildPlanImpl = async () => { throw new Error("an arbitrary token must never route through the curated-symbol aggregator plan"); };
+    buildUniswapPlanDirectImpl = async (_tokenIn, _tokenInSymbol, _d1, _n1, tokenOut) => {
+      expect(tokenOut.toLowerCase()).toBe(TOKEN.toLowerCase());
+      return { steps: [{ kind: "swap", label: "Trade", tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }], amountOut: "12345", priceImpact: "0.30%" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+  });
+
+  it("a build-time failure (e.g. allowance/simulate revert) is reported honestly, never a fabricated step list", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
+    buildUniswapPlanDirectImpl = async () => { throw new Error("simulateContract reverted"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/simulatecontract reverted/i);
+  });
+
+  it("exact_output is still unsupported at execution time too — never fabricates a reverse quote", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "100", amountType: "exact_output", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/exact-output/i);
   });
 });

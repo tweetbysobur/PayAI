@@ -315,6 +315,124 @@ export async function quoteUniswapDirect(
   };
 }
 
+export interface DirectPlanResult {
+  steps: UnsignedStep[];
+  amountOut: string;
+  priceImpact: string | null;
+}
+
+/**
+ * General, ADDRESS-based Uniswap buildPlan — Step 4's execution-time
+ * counterpart to quoteUniswapDirect() above, for a pair where at least one
+ * side is an arbitrary/uncurated token (a curated pair goes through
+ * uniswapV3Provider.buildPlan() below instead, which is what
+ * getSwapProvider().buildPlan() already calls — this function exists
+ * ONLY because that one requires resolveSwapSide(), which by design
+ * cannot resolve an uncurated symbol).
+ *
+ * Mirrors uniswapV3Provider.buildPlan() exactly — same approve-step logic,
+ * same native-in/native-out wrap/unwrap handling, same
+ * "never floor a positive minAmountOut to 0" protection (minOutWei) — just
+ * parameterized by raw resolved sides instead of resolveSwapSide()'s
+ * curated-symbol lookup. Re-quotes internally rather than accepting a
+ * separately-computed quote as a parameter, matching this file's own
+ * existing principle (see SwapPlan's own doc): whatever gets signed is
+ * exactly what THIS call just quoted, never a value computed moments
+ * earlier by a different call that could have raced a pool-state change.
+ */
+export async function buildUniswapPlanDirect(
+  tokenIn: Address, tokenInSymbol: string, tokenInDecimals: number, tokenInIsNative: boolean,
+  tokenOut: Address, tokenOutSymbol: string, tokenOutDecimals: number, tokenOutIsNative: boolean,
+  amount: string, slippage: number, wallet: Address,
+): Promise<DirectPlanResult> {
+  if (tokenIn.toLowerCase() === tokenOut.toLowerCase()) throw new Error("Choose two different tokens to trade.");
+  if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {
+    throw new Error(`Slippage tolerance must be between 0% and ${(MAX_SLIPPAGE * 100).toFixed(0)}%.`);
+  }
+  if (getNetwork() !== "mainnet") throw new Error("Trading is only available on Monad mainnet right now.");
+
+  const pub = getPublicClient();
+  const amountInWei = parseUnits(amount, tokenInDecimals);
+  const settled = await Promise.allSettled(
+    FEE_TIERS.map(async (fee) => {
+      const { result } = await pub.simulateContract({
+        address: UNISWAP_MAINNET.quoterV2, abi: QUOTER_V2_ABI, functionName: "quoteExactInputSingle",
+        args: [{ tokenIn, tokenOut, amountIn: amountInWei, fee, sqrtPriceLimitX96: 0n }],
+      });
+      return { fee, amountOut: (result as readonly bigint[])[0] };
+    }),
+  );
+  let best: { fee: number; amountOut: bigint } | null = null;
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value.amountOut > 0n && (best === null || r.value.amountOut > best.amountOut)) best = r.value;
+  }
+  if (!best) throw new Error(`No usable trading route found for ${tokenInSymbol} → ${tokenOutSymbol} right now.`);
+
+  const priceImpact = await estimatePriceImpact(pub, tokenIn, tokenOut, best.fee, amountInWei, best.amountOut);
+  const minOutWeiValue = minOutWei(best.amountOut, slippage);
+  const router = UNISWAP_MAINNET.swapRouter02;
+  const steps: UnsignedStep[] = [];
+
+  // An ERC-20 input must be pulled by the router, so it needs an allowance
+  // first — but only if the CURRENT on-chain allowance doesn't already
+  // cover this amount (never request a redundant second approval). A
+  // native input needs none — it arrives as msg.value.
+  if (!tokenInIsNative) {
+    const allowance = (await pub.readContract({
+      address: tokenIn, abi: ERC20_ABI, functionName: "allowance", args: [wallet, router],
+    })) as bigint;
+    if (allowance < amountInWei) {
+      steps.push({
+        kind: "approve",
+        label: `Approve ${amount} ${tokenInSymbol} for the trade`,
+        tx: {
+          to: tokenIn,
+          data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [router, amountInWei] }),
+          value: "0x0",
+        },
+      });
+    }
+  }
+
+  const tradeLabel = `Trade ${amount} ${tokenInSymbol} for ${tokenOutSymbol}`;
+  if (tokenOutIsNative) {
+    // Native OUT: Uniswap can only deliver WMON, so the swap sends it to the
+    // router (ADDRESS_THIS) and unwrapWETH9 forwards real MON to the user —
+    // atomically in one multicall, so a failed unwrap reverts the trade too.
+    const swapCall = encodeFunctionData({
+      abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
+      args: [{ tokenIn, tokenOut, fee: best.fee, recipient: ADDRESS_THIS, amountIn: amountInWei, amountOutMinimum: minOutWeiValue, sqrtPriceLimitX96: 0n }],
+    });
+    const unwrapCall = encodeFunctionData({ abi: SWAP_ROUTER_ABI, functionName: "unwrapWETH9", args: [minOutWeiValue, wallet] });
+    steps.push({
+      kind: "swap", label: tradeLabel,
+      tx: {
+        to: router,
+        data: encodeFunctionData({ abi: SWAP_ROUTER_ABI, functionName: "multicall", args: [[swapCall, unwrapCall]] }),
+        value: tokenInIsNative ? `0x${amountInWei.toString(16)}` : "0x0",
+      },
+    });
+  } else {
+    steps.push({
+      kind: "swap", label: tradeLabel,
+      tx: {
+        to: router,
+        data: encodeFunctionData({
+          abi: SWAP_ROUTER_ABI, functionName: "exactInputSingle",
+          args: [{ tokenIn, tokenOut, fee: best.fee, recipient: wallet, amountIn: amountInWei, amountOutMinimum: minOutWeiValue, sqrtPriceLimitX96: 0n }],
+        }),
+        value: tokenInIsNative ? `0x${amountInWei.toString(16)}` : "0x0",
+      },
+    });
+  }
+
+  return {
+    steps,
+    amountOut: formatUnits(best.amountOut, tokenOutDecimals),
+    priceImpact: priceImpact != null ? `${(priceImpact * 100).toFixed(2)}%` : null,
+  };
+}
+
 async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number, slippage: number): Promise<RawQuote> {
   if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
   if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {

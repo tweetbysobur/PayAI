@@ -251,6 +251,24 @@ export interface TradePreviewData {
 export interface TradePreviewIntent extends IntentBase {
   kind: "trade_preview";
   data: TradePreviewData;
+  /**
+   * Present only when a wallet was connected at preview time — the request
+   * fields needed to re-quote and build real unsigned steps at confirm-time
+   * (see /api/ask/trade/build and lib/ask/intent/orchestrate.ts's
+   * executeTradeIntent). Absent means preview-only / informational: no
+   * wallet to execute against, so the card never enters the confirm funnel
+   * (see OperationCard.tsx's isInfo).
+   */
+  execution?: {
+    request: {
+      action: "buy" | "sell";
+      inputToken: string;
+      outputToken: string;
+      amount: string;
+      amountType: "exact_input" | "exact_output" | "usd" | "percentage" | "balance_all";
+      slippage: string | null;
+    };
+  };
 }
 
 export type Intent =
