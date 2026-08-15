@@ -60,7 +60,7 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
   preview: { label: "Preview", tone: "border-border bg-input text-muted-foreground" },
-  ready: { label: "Ready to confirm", tone: "border-warning/30 bg-warning/10 text-warning" },
+  ready: { label: "Ready to confirm", tone: "border-primary bg-primary text-primary-foreground" },
   confirming: { label: "Confirming", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
   success: { label: "Sent", tone: "border-success/30 bg-success/10 text-success" },
   error: { label: "Failed", tone: "border-danger/30 bg-danger/10 text-danger" },
