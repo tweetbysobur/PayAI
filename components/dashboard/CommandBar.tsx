@@ -216,6 +216,7 @@ export function CommandBar() {
                         // future kind without a canonical retry text) would
                         // otherwise show a button that silently does nothing.
                         onRetryOperation={m.operation && retryTextFor(m.operation) ? chat.retryOperation : undefined}
+                        progressLabel={m.operation ? chat.progress[m.operation.id] : undefined}
                       />
                     ))}
                     {chat.thinking && <ThinkingRow />}

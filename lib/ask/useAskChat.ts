@@ -86,6 +86,12 @@ export function useAskChat() {
   // understood as continuing/correcting THIS request rather than starting
   // an unrelated new one. See lib/ask/intent/classify.ts.
   const [pending, setPending] = useState<Understanding | null>(null);
+  // Live text for whatever's happening RIGHT NOW during "confirming" --
+  // "waiting for your signature" reads as a lie the instant it's still
+  // showing after the user already signed and the tx is on-chain pending.
+  // Keyed by operation id so switching cards (or a stale one) never bleeds
+  // progress text onto the wrong card; cleared once that operation settles.
+  const [progress, setProgress] = useState<Record<string, string>>({});
 
   /** Re-quotes a swap whose preview has gone stale — built entirely from the
    *  expired card's own already-known pair/amount, so this never needs a
@@ -164,10 +170,20 @@ export function useAskChat() {
 
     const setOp = (next: typeof op) =>
       setMessages((prev) => prev.map((m) => (m.operation?.id === operationId ? { ...m, operation: next } : m)));
+    const setProgressFor = (label: string) => setProgress((p) => ({ ...p, [operationId]: label }));
+    const clearProgressFor = () =>
+      setProgress((p) => {
+        if (!(operationId in p)) return p;
+        const next = { ...p };
+        delete next[operationId];
+        return next;
+      });
 
     if (op.intent.kind === "payment" && op.intent.execution) {
       setOp({ ...op, status: "confirming" });
-      setOp(await executeSendPayment(op, wallet));
+      const result = await executeSendPayment(op, wallet, setProgressFor);
+      clearProgressFor();
+      setOp(result);
       return;
     }
     if (op.intent.kind === "swap" && op.intent.execution) {
@@ -186,7 +202,9 @@ export function useAskChat() {
         return;
       }
       setOp({ ...op, status: "confirming" });
-      setOp(await executeSwapIntent(op, wallet, wallet.address));
+      const result = await executeSwapIntent(op, wallet, wallet.address, setProgressFor);
+      clearProgressFor();
+      setOp(result);
       return;
     }
     if ((op.intent.kind === "scheduled_payment" || op.intent.kind === "recurring_payment") && op.intent.handoff) {
@@ -223,10 +241,11 @@ export function useAskChat() {
     setMessages([]);
     setInput("");
     setPending(null);
+    setProgress({});
   }
 
   return {
-    wallet, messages, input, setInput, thinking,
+    wallet, messages, input, setInput, thinking, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
   };
 }

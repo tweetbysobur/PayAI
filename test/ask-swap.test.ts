@@ -49,7 +49,7 @@ describe("advanceOperation checks quote staleness before ever signing a swap", (
     // for the swap branch — assert the ordering, not just that both exist.
     const swapBranchStart = src.indexOf('op.intent.kind === "swap"');
     const staleCheck = src.indexOf("isQuoteStale(op.intent.execution.quotedAt)");
-    const executeCall = src.indexOf("await executeSwapIntent(op, wallet, wallet.address)");
+    const executeCall = src.indexOf("await executeSwapIntent(op, wallet, wallet.address, setProgressFor)");
     expect(swapBranchStart).toBeGreaterThan(-1);
     expect(staleCheck).toBeGreaterThan(swapBranchStart);
     expect(executeCall).toBeGreaterThan(staleCheck);
