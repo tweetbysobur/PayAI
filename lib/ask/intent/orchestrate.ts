@@ -118,7 +118,16 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
         : null;
       return { message, nextPending };
     }
-    case "swap": return { message: await dispatchSwap(u.slots, walletAddress), nextPending: null };
+    case "swap": {
+      const message = await dispatchSwap(u.slots, walletAddress);
+      // Same reasoning as send_payment above: a ready swap quote stays
+      // "pending" so "actually make it 30" or "swap it" resolves against
+      // THIS quote rather than starting over or falling through to unclear.
+      const nextPending = message.operation?.status === "ready" && message.operation.intent.kind === "swap"
+        ? { kind: "swap" as const, outcome: "complete" as const, slots: u.slots }
+        : null;
+      return { message, nextPending };
+    }
     case "schedule_payment": return { message: await dispatchSchedule("schedule_payment", u.slots, walletAddress), nextPending: null };
     case "recurring_payment": return { message: await dispatchSchedule("recurring_payment", u.slots, walletAddress), nextPending: null };
     case "wallet_balance": return { message: await dispatchWalletBalance(walletAddress), nextPending: null };
@@ -160,7 +169,7 @@ async function dispatchSwap(slots: { amount?: string | null; fromAsset?: string 
       fromAmount: String(plan.quote.amountIn),
       toAmountEstimate: plan.quote.amountOut != null ? String(plan.quote.amountOut) : null,
       slippage: `${(plan.quote.slippage * 100).toFixed(2)}%`,
-      execution: { plan, provider: json.provider },
+      execution: { plan, provider: json.provider, quotedAt: Date.now() },
     };
     const operation: Operation = { id: nextId("op"), intent, status: "ready" };
     return { id: nextId("msg"), role: "assistant", content: `Here's a live quote for that swap, via ${json.provider ?? "the DEX"}.`, createdAt: Date.now(), operation };

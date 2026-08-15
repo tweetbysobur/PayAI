@@ -165,6 +165,7 @@ describe("executeSwapIntent — the ONLY function allowed to sign a swap", () =>
           summary: "Swap 20 USDC for ~42.8 MON",
         },
         provider: "Uniswap v3",
+        quotedAt: Date.now(),
       },
     };
     return { id: "op-swap-1", intent, status: "ready" };

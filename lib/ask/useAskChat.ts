@@ -36,26 +36,44 @@ export function retryTextFor(op: NonNullable<AskMessage["operation"]>): string |
 }
 
 /** Matches ONLY a bare, unambiguous confirmation — "yes", "confirm", "send
- *  it", "do it", close variants, and a comma-joined combination of them
- *  ("Yes, send it.") — nothing more. Deliberately not routed through the AI
- *  classifier: whether a message counts as authorization is a fixed,
- *  deterministic decision, not something an LLM's interpretation could ever
- *  loosen or bypass. A message that introduces anything beyond these exact
- *  phrases ("yes, but make it 30") intentionally does NOT match — see the
- *  correction handling in classify.ts instead. */
-const AFFIRMATION_WORD = "(?:yes|yeah|yep|yup|confirm(?:ed)?|do it|send it|go ahead|proceed)";
+ *  it", "swap it", "do it", close variants, and a comma-joined combination
+ *  of them ("Yes, send it.") — nothing more. Deliberately not routed
+ *  through the AI classifier: whether a message counts as authorization is
+ *  a fixed, deterministic decision, not something an LLM's interpretation
+ *  could ever loosen or bypass. A message that introduces anything beyond
+ *  these exact phrases ("yes, but make it 30") intentionally does NOT
+ *  match — see the correction handling in classify.ts instead. */
+const AFFIRMATION_WORD = "(?:yes|yeah|yep|yup|confirm(?:ed)?|do it|send it|swap it|go ahead|proceed)";
 export const AFFIRMATION_RE = new RegExp(`^${AFFIRMATION_WORD}(?:\\s*,?\\s*${AFFIRMATION_WORD})*[.!]*$`, "i");
 
-/** The most recent still-unsigned, server-approved payment card — the only
- *  thing a bare "yes" is ever allowed to authorize. Undefined when nothing
- *  is actually awaiting confirmation, so "yes" out of nowhere is never
- *  misread as an authorization (see send()'s guard below). */
-export function findReadyPaymentOperation(messages: AskMessage[]): Operation | undefined {
+/** Operation kinds a bare "yes"/"confirm" is ever allowed to authorize —
+ *  the two real, wallet-signed money-moving cards Ask PayAI can show.
+ *  Everything else (a schedule/recurring handoff) has no signature step
+ *  here to confirm at all — it hands off to the real Automations creator. */
+const CONFIRMABLE_KINDS = new Set<Operation["intent"]["kind"]>(["payment", "swap"]);
+
+/** The most recent still-unsigned, server-approved payment or swap card —
+ *  the only thing a bare "yes" is ever allowed to authorize. Undefined when
+ *  nothing is actually awaiting confirmation, so "yes" out of nowhere is
+ *  never misread as an authorization (see send()'s guard below). */
+export function findReadyConfirmableOperation(messages: AskMessage[]): Operation | undefined {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const op = messages[i].operation;
-    if (op?.status === "ready" && op.intent.kind === "payment") return op;
+    if (op?.status === "ready" && CONFIRMABLE_KINDS.has(op.intent.kind)) return op;
   }
   return undefined;
+}
+
+/** How long a swap quote is trusted before a confirm click gets a fresh one
+ *  instead of executing the stale price. Matches typical DEX-quote UX
+ *  conventions — long enough that a normal "read the preview, then confirm"
+ *  pause never trips it, short enough that a price genuinely can't have
+ *  drifted far underneath it. */
+const QUOTE_STALE_MS = 60_000;
+
+/** Pure so it's directly testable without rendering the hook. */
+export function isQuoteStale(quotedAt: number, now: number = Date.now()): boolean {
+  return now - quotedAt > QUOTE_STALE_MS;
 }
 
 export function useAskChat() {
@@ -69,22 +87,34 @@ export function useAskChat() {
   // an unrelated new one. See lib/ask/intent/classify.ts.
   const [pending, setPending] = useState<Understanding | null>(null);
 
+  /** Re-quotes a swap whose preview has gone stale — built entirely from the
+   *  expired card's own already-known pair/amount, so this never needs a
+   *  fresh Anthropic call just to ask for the exact same thing again. */
+  async function requoteExpiredSwap(intent: Extract<Operation["intent"], { kind: "swap" }>) {
+    const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
+    setMessages((m) => [...m, notice]);
+    const understanding: Understanding = { kind: "swap", outcome: "complete", slots: { amount: intent.fromAmount, fromAsset: intent.fromToken, toAsset: intent.toToken } };
+    const { message } = await respondToUnderstanding(understanding, wallet.address);
+    setMessages((m) => [...m, message]);
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
 
-    // Natural-language confirmation of an already-previewed payment. Checked
-    // BEFORE anything is sent to the AI: whether this message authorizes a
-    // real payment is decided here, deterministically, against a card this
-    // module already built and the server already approved — never by
-    // asking the model to decide it. No matching card means "yes" is just a
-    // stray word, never a payment authorization (see AFFIRMATION_RE's doc).
-    const readyPayment = findReadyPaymentOperation(messages);
-    if (readyPayment && AFFIRMATION_RE.test(trimmed)) {
+    // Natural-language confirmation of an already-previewed payment or swap.
+    // Checked BEFORE anything is sent to the AI: whether this message
+    // authorizes a real operation is decided here, deterministically,
+    // against a card this module already built and the server already
+    // approved — never by asking the model to decide it. No matching card
+    // means "yes" is just a stray word, never an authorization (see
+    // AFFIRMATION_RE's doc).
+    const readyOp = findReadyConfirmableOperation(messages);
+    if (readyOp && AFFIRMATION_RE.test(trimmed)) {
       const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
       setMessages((m) => [...m, userMsg]);
       setInput("");
-      await advanceOperation(readyPayment.id);
+      await advanceOperation(readyOp.id);
       return;
     }
 
@@ -99,18 +129,19 @@ export function useAskChat() {
       const understanding = await classifyMessage(trimmed, history, pending);
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
 
-      // A freshly-built ready payment card (e.g. from "actually make it 75")
-      // supersedes any earlier one still awaiting confirmation — the old
-      // card's unsigned transaction reflects details the user just changed,
-      // so it must never stay clickable once a corrected preview exists.
+      // A freshly-built ready card (e.g. from "actually make it 75", or a
+      // corrected swap amount/token) supersedes any earlier one still
+      // awaiting confirmation — the old card's unsigned transaction reflects
+      // details the user just changed, so it must never stay clickable once
+      // a corrected preview exists.
       if (
-        readyPayment && readyPayment.id !== message.operation?.id &&
-        message.operation?.status === "ready" && message.operation.intent.kind === "payment"
+        readyOp && readyOp.id !== message.operation?.id &&
+        message.operation?.status === "ready" && CONFIRMABLE_KINDS.has(message.operation.intent.kind)
       ) {
         setMessages((prev) =>
           prev.map((m) =>
-            m.operation?.id === readyPayment.id
-              ? { ...m, operation: { ...m.operation, status: "error", error: { message: "Replaced by the updated payment below.", code: "SUPERSEDED" } } }
+            m.operation?.id === readyOp.id
+              ? { ...m, operation: { ...m.operation, status: "error", error: { message: `Replaced by the updated ${message.operation!.intent.kind === "swap" ? "swap" : "payment"} below.`, code: "SUPERSEDED" } } }
               : m,
           ),
         );
@@ -142,6 +173,16 @@ export function useAskChat() {
     if (op.intent.kind === "swap" && op.intent.execution) {
       if (!wallet.address) {
         setOp({ ...op, status: "error", error: { message: "Your wallet disconnected — reconnect and try again.", code: "NO_WALLET" } });
+        return;
+      }
+      // A quote's price is only as good as how recently it was fetched —
+      // confirming long after it was shown could sign into a materially
+      // different price than what was previewed. Never execute a stale
+      // quote; get a fresh one instead (no Anthropic call needed — the
+      // pair/amount are already known from the stale card itself).
+      if (isQuoteStale(op.intent.execution.quotedAt)) {
+        setOp({ ...op, status: "error", error: { message: "That quote has expired.", code: "QUOTE_EXPIRED" } });
+        await requoteExpiredSwap(op.intent);
         return;
       }
       setOp({ ...op, status: "confirming" });

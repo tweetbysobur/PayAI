@@ -95,6 +95,10 @@ export interface SwapIntent extends IntentBase {
   execution?: {
     plan: { quote: { fromToken: string; toToken: string; amountIn: number; amountOut: number; minAmountOut: number; feeTier: number; slippage: number; priceImpact: number | null }; steps: { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }[]; summary: string };
     provider?: string;
+    /** When this quote was fetched (Date.now() at dispatch time) — a
+     *  confirm click long after this is a stale price, not a guaranteed
+     *  one; see useAskChat's staleness check before executeSwapIntent. */
+    quotedAt: number;
   };
 }
 

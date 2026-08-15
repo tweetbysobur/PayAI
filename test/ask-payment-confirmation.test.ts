@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AFFIRMATION_RE, findReadyPaymentOperation } from "@/lib/ask/useAskChat";
+import { AFFIRMATION_RE, findReadyConfirmableOperation } from "@/lib/ask/useAskChat";
 import type { AskMessage, Operation } from "@/lib/ask/types";
 import { respondToUnderstanding } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
@@ -67,9 +67,9 @@ describe("AFFIRMATION_RE — the fixed, deterministic confirmation gate", () => 
   });
 });
 
-describe("findReadyPaymentOperation — what a bare 'yes' is allowed to authorize", () => {
-  it("returns undefined with no messages at all — 'confirmation without an active payment'", () => {
-    expect(findReadyPaymentOperation([])).toBeUndefined();
+describe("findReadyConfirmableOperation — what a bare 'yes' is allowed to authorize", () => {
+  it("returns undefined with no messages at all — 'confirmation without an active operation'", () => {
+    expect(findReadyConfirmableOperation([])).toBeUndefined();
   });
 
   it("returns undefined when nothing is currently ready (e.g. already sent, or just a question)", () => {
@@ -77,23 +77,38 @@ describe("findReadyPaymentOperation — what a bare 'yes' is allowed to authoriz
       { id: "1", role: "assistant", content: "How much USDC would you like to send?", createdAt: 1 },
       { id: "2", role: "assistant", content: "Payment sent", createdAt: 2, operation: { id: "op1", status: "success", intent: { kind: "payment", network: "monad", token: "USDC", amount: "10", recipient: ADDR }, result: { txHash: "0xabc", explorerUrl: "" } } },
     ];
-    expect(findReadyPaymentOperation(msgs)).toBeUndefined();
+    expect(findReadyConfirmableOperation(msgs)).toBeUndefined();
   });
 
-  it("finds the ready payment card, ignoring a ready card of a different kind (e.g. swap)", () => {
+  it("finds a ready SWAP card too, not just payment — a bare 'yes'/'swap it' can confirm either", () => {
     const swapReady: AskMessage = {
       id: "s1", role: "assistant", content: "Swap ready", createdAt: 1,
       operation: { id: "op-swap", status: "ready", intent: { kind: "swap", network: "monad", fromToken: "MON", toToken: "USDC", fromAmount: "1" } },
     };
+    expect(findReadyConfirmableOperation([swapReady])?.id).toBe("op-swap");
+  });
+
+  it("ignores a ready card of a non-confirmable kind (a schedule/recurring handoff has no signature step here to confirm)", () => {
+    const handoffReady: AskMessage = {
+      id: "h1", role: "assistant", content: "Set this up in Automations", createdAt: 1,
+      operation: { id: "op-handoff", status: "ready", confirmLabel: "Set up in Automations", confirmIcon: "go", intent: { kind: "scheduled_payment", network: "monad", token: "USDC", amount: "10", recipient: ADDR, startDate: new Date().toISOString() } },
+    };
+    expect(findReadyConfirmableOperation([handoffReady])).toBeUndefined();
+  });
+
+  it("finds the MOST RECENT ready confirmable card when more than one exists, across kinds", () => {
     const paymentReady = readyPaymentMessage("50", ADDR);
-    const msgs = [swapReady, paymentReady];
-    expect(findReadyPaymentOperation(msgs)?.id).toBe(paymentReady.operation!.id);
+    const swapReady: AskMessage = {
+      id: "s1", role: "assistant", content: "Swap ready", createdAt: 2,
+      operation: { id: "op-swap", status: "ready", intent: { kind: "swap", network: "monad", fromToken: "MON", toToken: "USDC", fromAmount: "1" } },
+    };
+    expect(findReadyConfirmableOperation([paymentReady, swapReady])?.id).toBe("op-swap");
   });
 
   it("finds the MOST RECENT ready payment when more than one exists", () => {
     const first = readyPaymentMessage("50", ADDR);
     const second = readyPaymentMessage("75", ADDR);
-    expect(findReadyPaymentOperation([first, second])?.id).toBe(second.operation!.id);
+    expect(findReadyConfirmableOperation([first, second])?.id).toBe(second.operation!.id);
   });
 });
 
@@ -236,7 +251,7 @@ describe("full multi-turn walkthrough — the task spec's exact scenario", () =>
 
     // Turn 5: "Yes, send it." — must resolve to the 75 USDC card, never the
     // superseded 50 USDC one.
-    const readyNow = findReadyPaymentOperation(finalMessages);
+    const readyNow = findReadyConfirmableOperation(finalMessages);
     expect(readyNow?.id).toBe(correctedDispatch.message.operation!.id);
     expect((readyNow!.intent as Extract<Operation["intent"], { kind: "payment" }>).amount).toBe("75");
     expect(AFFIRMATION_RE.test("Yes, send it.")).toBe(true);

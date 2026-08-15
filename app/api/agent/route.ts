@@ -128,6 +128,18 @@ export async function POST(req: NextRequest) {
     if (!walletAddress) {
       return NextResponse.json({ decision: "swap_error", error: "Connect your wallet to swap.", success: false }, { status: 400 });
     }
+    // Real balance check before building a quote nobody can actually afford
+    // to execute — same helper the payment path uses, so "insufficient
+    // balance" is one honest, consistent message across the whole app.
+    // Only covers MON/USDC (the two assets this task scopes balance
+    // validation to); an unrecognized fromToken symbol returns null (no
+    // block) exactly like the payment path does, and the wallet/contract
+    // still correctly reject on-chain if funds are short.
+    const { insufficientBalanceReason } = await import("@/lib/monad/balance");
+    const balanceIssue = await insufficientBalanceReason(walletAddress as `0x${string}`, swap.fromToken, swap.amount);
+    if (balanceIssue) {
+      return NextResponse.json({ decision: "swap_error", error: balanceIssue, success: false }, { status: 422 });
+    }
     try {
       const plan = await provider.buildPlan(swap.fromToken, swap.toToken, swap.amount, walletAddress as `0x${string}`);
       return NextResponse.json({
