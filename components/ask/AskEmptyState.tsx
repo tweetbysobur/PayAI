@@ -28,19 +28,20 @@ export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
     <div className="flex h-full flex-col items-center justify-center px-4 py-12">
       <motion.div
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}
-        className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"
+        className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink sm:h-14 sm:w-14"
       >
-        <Sparkles size={26} />
+        <Sparkles size={22} className="sm:hidden" />
+        <Sparkles size={26} className="hidden sm:block" />
       </motion.div>
       <motion.h1
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.35 }}
-        className="mt-4 text-2xl font-semibold tracking-tight text-foreground"
+        className="mt-3 text-xl font-semibold tracking-tight text-foreground sm:mt-4 sm:text-2xl"
       >
         Ask PayAI
       </motion.h1>
       <motion.p
         initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.35 }}
-        className="mt-2 max-w-md text-center text-sm leading-relaxed text-muted-foreground"
+        className="mt-2 max-w-md text-center text-xs leading-relaxed text-muted-foreground sm:text-sm"
       >
         Tell me what you want to do, in your own words. Nothing moves until you confirm and sign.
       </motion.p>

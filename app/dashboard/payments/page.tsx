@@ -374,26 +374,26 @@ export default function Payments() {
                   {c.res.decision === "executed" && (
                     <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-4 text-left text-xs">
                       {(c.res.intent.domain || c.res.intent.recipient) && (
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-muted-foreground">To</p>
                           {/* The name and the address it resolved to — a receipt
                               for a .nad payment has to record which account was
                               actually paid, not just the name that was typed. */}
-                          {c.res.intent.domain && <p className="mt-0.5 font-medium text-foreground">{c.res.intent.domain}</p>}
-                          <p className={`mt-0.5 font-mono ${c.res.intent.domain ? "text-[11px] text-muted-foreground" : "text-foreground"}`} title={c.res.intent.recipient ?? undefined}>
+                          {c.res.intent.domain && <p className="mt-0.5 truncate font-medium text-foreground">{c.res.intent.domain}</p>}
+                          <p className={`mt-0.5 truncate font-mono ${c.res.intent.domain ? "text-[11px] text-muted-foreground" : "text-foreground"}`} title={c.res.intent.recipient ?? undefined}>
                             {short(c.res.intent.recipient)}
                           </p>
                         </div>
                       )}
                       {c.res.transaction?.blockTimestamp != null && (
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-muted-foreground">When</p>
-                          <p className="mt-0.5 text-foreground">{new Date(c.res.transaction.blockTimestamp).toLocaleString()}</p>
+                          <p className="mt-0.5 truncate text-foreground">{new Date(c.res.transaction.blockTimestamp).toLocaleString()}</p>
                         </div>
                       )}
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-muted-foreground">Network</p>
-                        <p className="mt-0.5 text-foreground">{c.res.intent.network === "monad" ? MONAD_CHAIN_NAME : c.res.intent.network}</p>
+                        <p className="mt-0.5 truncate text-foreground">{c.res.intent.network === "monad" ? MONAD_CHAIN_NAME : c.res.intent.network}</p>
                       </div>
                     </div>
                   )}
