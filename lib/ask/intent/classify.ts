@@ -239,12 +239,18 @@ async function understandDeterministic(text: string, pending: Understanding | nu
     const trimmed = text.trim();
     if (/\b(actually|instead|change it|update it|make it|correct(ion)?)\b/i.test(trimmed)) {
       const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
-      const withoutAddr = addrMatch ? trimmed.replace(addrMatch[0], " ") : trimmed;
-      const amountMatch = withoutAddr.match(/\d+(?:\.\d+)?/);
+      const domainMatch = !addrMatch ? trimmed.match(/\b[a-z0-9-]+\.(nad|nads)\b/i) : null;
+      const recipientMatch = addrMatch ?? domainMatch;
+      // Strip whatever was just matched as the recipient before hunting for
+      // an amount — a domain like "bob2.nad" has a digit in it that must
+      // never be misread as a corrected amount (same precaution parse.ts
+      // takes for a raw address).
+      const withoutRecipient = recipientMatch ? trimmed.replace(recipientMatch[0], " ") : trimmed;
+      const amountMatch = withoutRecipient.match(/\d+(?:\.\d+)?/);
       const assetMatch = trimmed.match(/\b(MON|USDC)\b/i);
-      if (addrMatch || amountMatch || assetMatch) {
+      if (recipientMatch || amountMatch || assetMatch) {
         const updated: AskSlots = { ...pending.slots };
-        if (addrMatch) updated.recipient = addrMatch[0];
+        if (recipientMatch) updated.recipient = recipientMatch[0];
         if (assetMatch) updated.asset = assetMatch[0].toUpperCase();
         if (amountMatch) updated.amount = amountMatch[0];
         return { kind: "send_payment", outcome: "complete", slots: updated };
