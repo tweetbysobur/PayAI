@@ -170,7 +170,11 @@ async function understandWithLLM(
   pending: Understanding | null,
 ): Promise<Understanding> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-  const model = process.env.VERIPAYAI_MODEL || "claude-opus-4-8";
+  // Sonnet, not Opus: this is a narrow, tool-schema-constrained extraction
+  // task (classify + fill slots), not open-ended reasoning -- Opus's extra
+  // latency bought little here. Overridable via VERIPAYAI_MODEL if a
+  // deployment needs a different tier.
+  const model = process.env.VERIPAYAI_MODEL || "claude-sonnet-5";
 
   const contextLines = history.slice(-8).map((t) => `${t.role === "user" ? "User" : "Ask PayAI"}: ${t.content}`).join("\n");
   const pendingLine = pending ? `Pending intent (merge into this if the new message relates to it): ${JSON.stringify(pending)}` : "No pending intent.";
