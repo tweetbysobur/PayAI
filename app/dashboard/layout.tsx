@@ -39,7 +39,15 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    // h-dvh + overflow-hidden, not min-h-screen: this is what actually
+    // bounds the flex-1/min-h-0/overflow-y-auto chain below (Sidebar,
+    // main, and Ask PayAI's own chat box all depend on an ancestor with a
+    // REAL fixed height to clip against). min-h-screen has no upper bound,
+    // so once page content grew tall enough (a long chat, more txns), the
+    // whole document exceeded the viewport and the BROWSER scrolled the
+    // entire page -- carrying the sidebar off-screen with it -- instead of
+    // each region's own internal scroll area doing its job.
+    <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar />
       <MobileNavDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
       <div className="flex flex-1 flex-col">
