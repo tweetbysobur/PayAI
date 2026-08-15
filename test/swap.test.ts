@@ -172,3 +172,35 @@ describe("swap — price-impact (bad quote) protection", () => {
     expect(q.priceImpact).toBeLessThan(0.06);
   });
 });
+
+describe("quoteUniswapDirect — the general address-based probe reused by tokenIntelligence.ts and tradeQuote.ts", () => {
+  const TOKEN_IN = "0xaaaabbbbccccddddeeeeffff0000111122223333" as const;
+  const TOKEN_OUT = "0xffffeeeeddddccccbbbbaaaa0000111122223333" as const;
+
+  it("quotes a real pool and reports price impact, exactly for the requested amount", async () => {
+    quoteFn = linearPool(100_000000n); // 100 USDC-ish base units per 1e18 wei in, no impact
+    const { quoteUniswapDirect } = await import("@/lib/monad/swap");
+    const r = await quoteUniswapDirect(TOKEN_IN, 18, TOKEN_OUT, 6, "2");
+    expect(r).not.toBeNull();
+    expect(Number(r!.amountOut)).toBeCloseTo(200, 5);
+  });
+
+  it("returns null (never a fabricated output) when every fee tier reverts", async () => {
+    quoteFn = () => 0n;
+    const { quoteUniswapDirect } = await import("@/lib/monad/swap");
+    const r = await quoteUniswapDirect(TOKEN_IN, 18, TOKEN_OUT, 6, "1");
+    expect(r).toBeNull();
+  });
+
+  it("reports a real price-impact percentage when the trade's own size moves the pool", async () => {
+    const referenceRate = linearPool(100_000000n);
+    quoteFn = (amountInWei) => (amountInWei === ONE_MON_WEI ? 90_000000n : referenceRate(amountInWei)); // 10% shortfall
+    const { quoteUniswapDirect } = await import("@/lib/monad/swap");
+    const r = await quoteUniswapDirect(TOKEN_IN, 18, TOKEN_OUT, 6, "1");
+    expect(r).not.toBeNull();
+    expect(r!.priceImpact).not.toBeNull();
+    const impactPct = parseFloat(r!.priceImpact!);
+    expect(impactPct).toBeGreaterThan(8);
+    expect(impactPct).toBeLessThan(12);
+  });
+});

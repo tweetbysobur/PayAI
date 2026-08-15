@@ -18,26 +18,23 @@
  *    implementation. This is also where "market data must stay fresh"
  *    without a new cache comes from: that TTL already exists and is reused
  *    as-is, nothing new added here.
- *  - lib/monad/swap's candidateProviders()/estimatePriceImpact
- *    for VERIFIED tokens (safe to route by symbol — resolveToken()'s
- *    `verified` flag is only true when the address is byte-exact in the
- *    curated registry, so there's no risk of quoting a different contract
- *    that happens to share a symbol).
- *  - A direct, address-based Uniswap QuoterV2 probe (matches this
- *    codebase's own established pattern — prices.ts does the same, for the
- *    same reason: an arbitrary/unverified token has no curated symbol to
- *    resolve by) for an UNVERIFIED token's per-pair routes, still reusing
- *    swap.ts's estimatePriceImpact() for the impact number rather than
- *    reimplementing that math a third time.
+ *  - lib/monad/swap's candidateProviders() for VERIFIED tokens (safe to
+ *    route by symbol — resolveToken()'s `verified` flag is only true when
+ *    the address is byte-exact in the curated registry, so there's no risk
+ *    of quoting a different contract that happens to share a symbol).
+ *  - lib/monad/swap's quoteUniswapDirect() for an UNVERIFIED token's
+ *    per-pair routes — a general, address-based Uniswap probe shared with
+ *    lib/monad/tradeQuote.ts (Step 3's trade quoting) so this fee-tier-loop-
+ *    plus-price-impact logic lives in exactly one place, not two.
  *
  * Server-only.
  */
 import "server-only";
-import { formatUnits, parseUnits, type Address } from "viem";
+import { formatUnits, type Address } from "viem";
 import { getPublicClient } from "./wallet";
 import { getNetwork, getStablecoin, explorerAddress } from "./config";
 import { resolveToken, type TokenInfo } from "./tokenRegistry";
-import { candidateProviders, estimatePriceImpact, MAX_PRICE_IMPACT, resolveSwapSide } from "./swap";
+import { candidateProviders, MAX_PRICE_IMPACT, quoteUniswapDirect, resolveSwapSide } from "./swap";
 import { getUsdPrice } from "./prices";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -46,36 +43,6 @@ const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const TOKEN_EXTRA_ABI = [
   { type: "function", name: "totalSupply", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] },
-] as const;
-
-/** Same Uniswap v3 QuoterV2 swap.ts and prices.ts both already trust (Monad
- *  mainnet, chain 143) — duplicated narrowly rather than exported, matching
- *  prices.ts's own established precedent for this exact situation: an
- *  address-based probe needs its own small copy since swap.ts's version is
- *  symbol-based internally. */
-const UNISWAP_QUOTER = (process.env.MONAD_MAINNET_UNISWAP_QUOTER || "0x661e93cca42afacb172121ef892830ca3b70f08d") as Address;
-const FEE_TIERS = [500, 3000, 10000] as const;
-const QUOTER_V2_ABI = [
-  {
-    type: "function",
-    name: "quoteExactInputSingle",
-    stateMutability: "nonpayable",
-    inputs: [{
-      name: "params", type: "tuple", components: [
-        { name: "tokenIn", type: "address" },
-        { name: "tokenOut", type: "address" },
-        { name: "amountIn", type: "uint256" },
-        { name: "fee", type: "uint24" },
-        { name: "sqrtPriceLimitX96", type: "uint160" },
-      ],
-    }],
-    outputs: [
-      { name: "amountOut", type: "uint256" },
-      { name: "sqrtPriceX96After", type: "uint160" },
-      { name: "initializedTicksCrossed", type: "uint32" },
-      { name: "gasEstimate", type: "uint256" },
-    ],
-  },
 ] as const;
 
 /** The only two base pairs PayAI's own liquidity infrastructure actually
@@ -185,41 +152,19 @@ function fmtImpact(impact: number | null): string | null {
   return impact != null ? `${(impact * 100).toFixed(2)}%` : null;
 }
 
-/** General, address-based single-pair probe against Uniswap — works for ANY
- *  token (curated or not) because it never goes through symbol resolution.
- *  Mirrors swap.ts's rawQuote() fee-tier loop, then reuses swap.ts's own
- *  estimatePriceImpact() for the impact number rather than recomputing that
- *  math here too. Returns null (never a route with a fabricated 0 output)
- *  when no fee tier has a real pool. */
+/** Address-based single-pair probe against Uniswap — works for ANY token
+ *  (curated or not) because it never goes through symbol resolution. Thin
+ *  wrapper over swap.ts's quoteUniswapDirect(), which is also reused by
+ *  lib/monad/tradeQuote.ts's trade quoting — the fee-tier-loop-plus-price-
+ *  impact logic itself lives in exactly one place. */
 async function probeUniswapPair(
   tokenIn: Address, tokenInSymbol: string, tokenInDecimals: number,
   tokenOut: Address, tokenOutSymbol: string, tokenOutDecimals: number,
   amount: string,
 ): Promise<TokenRoute | null> {
-  if (getNetwork() !== "mainnet") return null;
-  const pub = getPublicClient();
-  const amountIn = parseUnits(amount, tokenInDecimals);
-  const settled = await Promise.allSettled(
-    FEE_TIERS.map(async (fee) => {
-      const { result } = await pub.simulateContract({
-        address: UNISWAP_QUOTER, abi: QUOTER_V2_ABI, functionName: "quoteExactInputSingle",
-        args: [{ tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96: 0n }],
-      });
-      return { fee, amountOut: (result as readonly bigint[])[0] };
-    }),
-  );
-  let best: { fee: number; amountOut: bigint } | null = null;
-  for (const r of settled) {
-    if (r.status === "fulfilled" && r.value.amountOut > 0n && (best === null || r.value.amountOut > best.amountOut)) best = r.value;
-  }
-  if (!best) return null;
-
-  const impact = await estimatePriceImpact(pub, tokenIn, tokenOut, best.fee, amountIn, best.amountOut);
-  return {
-    provider: "Uniswap v3", inputToken: tokenInSymbol, outputToken: tokenOutSymbol,
-    estimatedOutput: formatUnits(best.amountOut, tokenOutDecimals),
-    priceImpact: fmtImpact(impact), available: true,
-  };
+  const direct = await quoteUniswapDirect(tokenIn, tokenInDecimals, tokenOut, tokenOutDecimals, amount);
+  if (!direct) return null;
+  return { provider: "Uniswap v3", inputToken: tokenInSymbol, outputToken: tokenOutSymbol, estimatedOutput: direct.amountOut, priceImpact: direct.priceImpact, available: true };
 }
 
 /** Real trading-pair discovery for a VERIFIED token — safe to route by

@@ -19,7 +19,7 @@
 
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
-import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
+import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
@@ -144,6 +144,18 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
       // (see classify.ts's TOKEN_FOLLOWUP_RE), so the address needs to stay
       // in `pending` for that merge to have something to resolve against.
       return { message, nextPending: { kind: "token_lookup" as const, outcome: "complete" as const, slots: u.slots } };
+    }
+    case "trade": {
+      const message = await dispatchTrade(u.slots, walletAddress);
+      // A successful preview stays pending too — "Actually make it 100." /
+      // "Actually use MON instead." / "Sell instead." (see classify.ts's own
+      // trade-correction handling) all need something to correct. A failed
+      // preview (no route, insufficient balance, ...) carries nothing
+      // forward, same as every other dispatch failure in this file.
+      const nextPending = message.operation?.intent.kind === "trade_preview"
+        ? { kind: "trade" as const, outcome: "complete" as const, slots: u.slots }
+        : null;
+      return { message, nextPending };
     }
   }
 }
@@ -616,4 +628,66 @@ async function dispatchTokenLookup(
     : tokenLookupLead(json.data);
   const { operation } = tokenIntelligenceCard(address, "token", json.data);
   return { id: nextId("msg"), role: "assistant", content: lead, createdAt: Date.now(), operation };
+}
+
+/** /api/ask/trade's response shape — mirrors lib/monad/tradeQuote.ts's
+ *  TradePreviewResult exactly. */
+type TradePreviewApiResponse = { ok: true; data: TradePreviewData } | { ok: false; message: string };
+
+function tradePreviewCard(data: TradePreviewData): { intent: TradePreviewIntent; operation: Operation } {
+  const intent: TradePreviewIntent = { kind: "trade_preview", network: "monad", data };
+  // status "success", not "ready": this is STRICTLY a preview -- see
+  // TradePreviewIntent's own doc. Using "ready" would render the funnel's
+  // real "Confirm with passkey" button via CardFooter; "success" (the same
+  // pattern wallet_operation/token_intelligence already use) routes through
+  // OperationCard's isInfo path instead, where TradePreviewBody renders its
+  // OWN confirm affordance wired to nothing, and the existing
+  // advanceOperation()/executeSwapIntent() machinery in useAskChat is never
+  // reachable for this card at all -- architecturally, not just by policy.
+  return { intent, operation: { id: nextId("op"), intent, status: "success" } };
+}
+
+/** Deliberately simple and deterministic (no Anthropic call) -- every field
+ *  on the card itself is the real quote; this is just the one-line summary
+ *  above it. */
+function tradePreviewLead(data: TradePreviewData): string {
+  const verb = data.action === "buy" ? "Buying" : "Selling";
+  const warn = data.highPriceImpact ? " ⚠ high price impact." : "";
+  return `${verb} ${data.spend.amount} ${data.spend.token} → ≈ ${data.receive.amount} ${data.receive.token}, via ${data.route.provider}.${warn}`;
+}
+
+async function dispatchTrade(
+  slots: {
+    tradeAction?: "buy" | "sell" | null;
+    fromAsset?: string | null;
+    toAsset?: string | null;
+    amount?: string | null;
+    amountType?: "exact_input" | "exact_output" | "usd" | "percentage" | "balance_all" | null;
+    slippage?: string | null;
+  },
+  walletAddress: string | null,
+): Promise<AskMessage> {
+  if (!slots.tradeAction || !slots.fromAsset || !slots.toAsset) {
+    return assistantText("I need a bit more detail to quote that trade.");
+  }
+  const amountType = slots.amountType ?? "exact_input";
+
+  let json: TradePreviewApiResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/trade", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        action: slots.tradeAction, inputToken: slots.fromAsset, outputToken: slots.toAsset,
+        amount: slots.amount ?? "", amountType, slippage: slots.slippage ?? null, walletAddress,
+      }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to quote that trade. Try again in a moment.");
+  }
+  if (!json) return assistantText("Couldn't quote that trade right now.");
+  if (!json.ok) return assistantText(json.message);
+
+  const { operation } = tradePreviewCard(json.data);
+  return { id: nextId("msg"), role: "assistant", content: tradePreviewLead(json.data), createdAt: Date.now(), operation };
 }

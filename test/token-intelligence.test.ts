@@ -2,20 +2,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
  * lib/monad/tokenIntelligence.ts's only external inputs are the chain
- * (getCode / readContract / simulateContract), the token registry
- * (resolveToken), the swap aggregator (candidateProviders /
- * estimatePriceImpact / resolveSwapSide), and lib/monad/prices's
- * getUsdPrice — stub all of them so these tests exercise the real
- * classification/routing/formatting logic without touching a real RPC,
- * DEX, or external price source.
+ * (getCode / readContract), the token registry (resolveToken), the swap
+ * aggregator (candidateProviders / quoteUniswapDirect / resolveSwapSide),
+ * and lib/monad/prices's getUsdPrice — stub all of them so these tests
+ * exercise the real classification/routing/formatting logic without
+ * touching a real RPC, DEX, or external price source. quoteUniswapDirect
+ * is mocked at this (higher) level rather than the raw simulateContract
+ * calls beneath it, since that fee-tier-loop math now lives in swap.ts —
+ * see test/swap.test.ts for coverage of quoteUniswapDirect itself.
  */
 
 let codeAt: Record<string, string | undefined> = {};
 let readContractImpl: (args: { address: string; functionName: string; args?: unknown[] }) => unknown = () => {
   throw new Error("unexpected readContract call");
-};
-let simulateContractImpl: (args: { functionName: string; args: unknown[] }) => unknown = () => {
-  throw new Error("unexpected simulateContract call");
 };
 let getCodeShouldThrow = false;
 
@@ -26,7 +25,6 @@ vi.mock("@/lib/monad/wallet", () => ({
       return codeAt[address.toLowerCase()];
     },
     readContract: async (args: { address: string; functionName: string; args?: unknown[] }) => readContractImpl(args),
-    simulateContract: async (args: { functionName: string; args: unknown[] }) => simulateContractImpl(args),
   }),
 }));
 
@@ -47,13 +45,14 @@ vi.mock("@/lib/monad/tokenRegistry", () => ({
 
 type MockProvider = { name: string; quote: (from: string, to: string, amountIn: number) => Promise<{ amountOut: number; priceImpact: number | null }> };
 let candidateProvidersImpl: () => Promise<MockProvider[]> = async () => [];
-let estimatePriceImpactImpl: () => Promise<number | null> = async () => null;
+let quoteUniswapDirectImpl: (tokenIn: string, tokenInDecimals: number, tokenOut: string, tokenOutDecimals: number, amount: string) => Promise<{ amountOut: string; priceImpact: string | null } | null> = async () => null;
 let resolveSwapSideImpl: (symbol: string) => Promise<{ symbol: string; routeAddress: string; decimals: number; isNative: boolean }> = async (symbol) => ({
   symbol, routeAddress: symbol === "USDC" ? STABLECOIN.address : "0xwmon00000000000000000000000000000000000", decimals: symbol === "USDC" ? 6 : 18, isNative: symbol !== "USDC",
 });
 vi.mock("@/lib/monad/swap", () => ({
   candidateProviders: () => candidateProvidersImpl(),
-  estimatePriceImpact: () => estimatePriceImpactImpl(),
+  quoteUniswapDirect: (tokenIn: string, tokenInDecimals: number, tokenOut: string, tokenOutDecimals: number, amount: string) =>
+    quoteUniswapDirectImpl(tokenIn, tokenInDecimals, tokenOut, tokenOutDecimals, amount),
   MAX_PRICE_IMPACT: 0.15,
   resolveSwapSide: (symbol: string) => resolveSwapSideImpl(symbol),
 }));
@@ -69,10 +68,9 @@ afterEach(() => {
   codeAt = {};
   getCodeShouldThrow = false;
   readContractImpl = () => { throw new Error("unexpected readContract call"); };
-  simulateContractImpl = () => { throw new Error("unexpected simulateContract call"); };
   resolveTokenImpl = async () => { throw new Error("not an ERC-20"); };
   candidateProvidersImpl = async () => [];
-  estimatePriceImpactImpl = async () => null;
+  quoteUniswapDirectImpl = async () => null;
   resolveSwapSideImpl = async (symbol: string) => ({ symbol, routeAddress: symbol === "USDC" ? STABLECOIN.address : "0xwmon00000000000000000000000000000000000", decimals: symbol === "USDC" ? 6 : 18, isNative: symbol !== "USDC" });
   getUsdPriceImpl = async () => null;
 });
@@ -223,11 +221,7 @@ describe("inspectAddress — real trading-pair and route discovery", () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
-    simulateContractImpl = ({ args }) => {
-      const fee = (args[0] as { fee: number }).fee;
-      return { result: [fee === 3000 ? 5_000000n : 0n, 0n, 0, 0n] }; // only the 0.3% tier has a real pool
-    };
-    estimatePriceImpactImpl = async () => 0.01;
+    quoteUniswapDirectImpl = async () => ({ amountOut: "5.0", priceImpact: "1.00%" });
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
@@ -242,7 +236,7 @@ describe("inspectAddress — real trading-pair and route discovery", () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
-    simulateContractImpl = () => { throw new Error("execution reverted"); }; // every fee tier reverts, no pool
+    // quoteUniswapDirectImpl already defaults to null (no pool found).
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
@@ -256,7 +250,6 @@ describe("inspectAddress — real trading-pair and route discovery", () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
-    simulateContractImpl = () => { throw new Error("execution reverted"); };
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
@@ -269,10 +262,7 @@ describe("inspectAddress — real trading-pair and route discovery", () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "SHALLOW", name: "Shallow Pool Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
-    simulateContractImpl = ({ args }) => {
-      const fee = (args[0] as { fee: number }).fee;
-      return { result: [fee === 3000 ? 100n : 0n, 0n, 0, 0n] }; // a real (if tiny) route exists
-    };
+    quoteUniswapDirectImpl = async () => ({ amountOut: "0.000001", priceImpact: "50.00%" }); // a real (if tiny) route exists
     getUsdPriceImpl = async () => null; // prices.ts's own shallow-pool rejection kicked in
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
@@ -313,10 +303,7 @@ describe("inspectAddress — contract-address identity (never symbol)", () => {
     candidateProvidersImpl = async () => [
       { name: "Kuru", quote: async () => ({ amountOut: 0.999, priceImpact: null }) },
     ];
-    simulateContractImpl = ({ args }) => {
-      const fee = (args[0] as { fee: number }).fee;
-      return { result: [fee === 3000 ? 1n : 0n, 0n, 0, 0n] };
-    };
+    quoteUniswapDirectImpl = async () => ({ amountOut: "0.0001", priceImpact: "5.00%" });
 
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const real = await inspectAddress(TOKEN);
@@ -367,7 +354,7 @@ describe("inspectAddress — a specific requested amount is a real quote, not a 
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
-    simulateContractImpl = () => { throw new Error("execution reverted"); };
+    // quoteUniswapDirectImpl already defaults to null (no pool found).
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN, null, { amount: "50", quoteAsset: "USDC" });
     if (r.kind !== "token") throw new Error("expected token");

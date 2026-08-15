@@ -59,6 +59,10 @@ export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
   automation_management: [],
   distribution: ["amount", "asset", "recipientCount"],
   token_lookup: ["tokenAddress"],
+  // fromAsset/toAsset here are frequently pre-filled by applyTradeContext()
+  // before this is ever checked (from the previously identified token, or a
+  // sensible USDC default) — see that function's own doc for exactly when.
+  trade: ["tradeAction", "amount", "fromAsset", "toAsset"],
 };
 
 const SYSTEM_PROMPT = `You are the natural-language understanding layer for Ask PayAI, a non-custodial crypto payments product on Monad. Users type however they naturally would — casual language, slang, typos, incomplete thoughts, corrections. Your only job is to figure out what they're trying to do and extract exactly the information they've actually given. You never execute anything; you only describe intent for a separate, already-secure system to validate and act on.
@@ -77,6 +81,7 @@ Capabilities PayAI supports today, and what each needs:
 - automation_management: nothing required — the user wants to review or manage an existing scheduled/recurring payment
 - distribution: amount, asset, recipientCount — paying many wallets in one go
 - token_lookup: tokenAddress — identifying an arbitrary Monad contract address the user pasted or named (e.g. "what is this token? 0x...", "check this CA: 0x...", "is 0x... tradable?"). This is normally handled deterministically before you're ever called, purely by regex — you'll only see it if a message mixes a real address with something else that genuinely needs judgment (e.g. "is this legit, 0x...?" alongside an unrelated question).
+- trade: tradeAction (buy or sell), fromAsset (what's being spent), toAsset (what's being acquired), amount, amountType — a real trade quote preview for ANY Monad token, not just MON/USDC. fromAsset/toAsset can be a symbol (USDC, MON) or, when the user means "this"/"it" referring to a token already identified earlier in the conversation, leave that field null — the system fills it in from context, you don't need to guess or invent an address. amountType must be exactly one of: "exact_input" (a plain amount of the asset being spent — "use 50 USDC", "spend 20 MON"), "usd" (a dollar amount — "$50 worth", "get me 50 dollars of this"), "percentage" (a fraction of the wallet's balance — "half my USDC", amount is the percent number as a string e.g. "50"), "balance_all" (the entire balance — "sell all my MON", "my whole balance" — amount can be left null), or "exact_output" (an exact amount of what they want to RECEIVE, e.g. "I want exactly 100 tokens") — exact_output is recognized but PayAI can't quote it yet, so still report it honestly as amountType "exact_output" rather than silently reinterpreting it as exact_input. A slippage tolerance the user explicitly names ("use 1% slippage") goes in the slippage field as a plain percent number ("1") — never invent one if not stated.
 
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
@@ -88,11 +93,13 @@ Rules, no exceptions:
 7. If it's just conversation — a greeting, thanks, a question about what PayAI is or does — with no operation implied, use outcome "chat" and reply naturally in a sentence or two.
 8. Write like a helpful person, never like a template or a form label.
 9. For transaction_status/transaction_details: if the user says "that", "it", "my last payment", or similar and your own PREVIOUS reply (in the recent conversation) already named a specific transaction (a hash, or a single clearly-identified payment), fill slots.txHash with that hash — you are reading it back from context, never inventing one. If nothing specific was said and none was just discussed, leave txHash null; a downstream system resolves that to the most recent transaction on its own. If the user's wording suggests they mean some OTHER, different transaction than whatever was last discussed, and you can't tell which one from the conversation, use outcome "incomplete" and ask them to say more (who it was to, roughly how much, or roughly when) rather than guessing.
+10. For trade specifically, "actually use MON instead" (or any bare asset correction on an already-complete trade) means: for a pending BUY, correct fromAsset (what's being spent) — the thing being acquired was already anchored by context; for a pending SELL, correct toAsset (what's being received) — the thing being sold was already anchored. This is the one case where a bare token mention safely maps to a specific side (unlike swap's own "use MON instead", which stays genuinely ambiguous between fromAsset/toAsset and is left unresolved there).
 
 Field-specific notes:
 - send_payment's asset must be MON or USDC — PayAI's instant chat sends support only these two right now. A different token named here is still fine to capture (don't force it to null), it will be rejected with an honest reason downstream.
 - swap's fromAsset/toAsset can be any token symbol the user names — PayAI validates tradeability downstream.
-- schedule_payment's "when" must be normalized to one of: a weekday name ("Friday"), "tomorrow", "next week", "next month", "in N days/weeks/months", or an ISO date (YYYY-MM-DD) — pick whichever is the closest honest match to what the user actually said, never a made-up specific date they didn't imply.`;
+- schedule_payment's "when" must be normalized to one of: a weekday name ("Friday"), "tomorrow", "next week", "next month", "in N days/weeks/months", or an ISO date (YYYY-MM-DD) — pick whichever is the closest honest match to what the user actually said, never a made-up specific date they didn't imply.
+- trade never signs or executes anything — it only ever produces a quote preview. Still apply rule 1 fully: never invent an amount, and never invent WHICH token "this"/"it" refers to if no token has actually been identified earlier in the conversation (leave fromAsset/toAsset null and ask, exactly like any other missing field).`;
 
 const TOOL_SCHEMA = {
   name: "submit_understanding",
@@ -115,6 +122,9 @@ const TOOL_SCHEMA = {
           recipientCount: { type: ["number", "null"] },
           txHash: { type: ["string", "null"], description: "Only when read back from a transaction already named in context — never invented." },
           tokenAddress: { type: ["string", "null"], description: "An EVM contract address (0x... 40 hex chars) actually present in the message — never invented." },
+          tradeAction: { type: ["string", "null"], enum: ["buy", "sell", null] },
+          amountType: { type: ["string", "null"], enum: ["exact_input", "exact_output", "usd", "percentage", "balance_all", null] },
+          slippage: { type: ["string", "null"], description: "A plain percent number the user explicitly named (e.g. \"1\" for 1%) — never invented." },
         },
       },
       question: { type: ["string", "null"], description: "Set only when outcome is 'incomplete' — the single next thing to ask." },
@@ -126,25 +136,80 @@ const TOOL_SCHEMA = {
 };
 
 function emptySlots(): AskSlots {
-  return { amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null, recipientCount: null, txHash: null, tokenAddress: null };
+  return {
+    amount: null, asset: null, recipient: null, when: null, frequency: null, fromAsset: null, toAsset: null,
+    recipientCount: null, txHash: null, tokenAddress: null, tradeAction: null, amountType: null, slippage: null,
+  };
+}
+
+/** The token most recently identified via a real token_lookup — the ONLY
+ *  thing "this"/"it" is ever allowed to resolve to. Null whenever nothing
+ *  was actually identified, so a trade with no real context correctly stays
+ *  "incomplete" and asks, rather than guessing. */
+function contextTokenFrom(pending: Understanding | null): string | null {
+  return pending && pending.kind === "token_lookup" && pending.outcome === "complete" ? pending.slots.tokenAddress ?? null : null;
+}
+
+/** Resolves whichever side of a trade wasn't explicitly named, the same way
+ *  regardless of whether Anthropic or the deterministic fast path produced
+ *  the slots (both funnel through this):
+ *   - BUY with no toAsset named -> the previously identified context token
+ *     (that's what "this"/"it" means for a buy: the thing being acquired).
+ *   - BUY with amountType "usd" and no fromAsset named -> USDC (the "$"
+ *     already specifies the currency; this is narrower than and does not
+ *     relax rule 2's general "never default an unstated asset" instruction).
+ *   - SELL with no fromAsset named -> the context token (what "this"/"it"
+ *     means for a sell: the thing being disposed of).
+ *   - SELL with no toAsset named at all -> USDC, PayAI's default settlement
+ *     asset elsewhere in the product (Step 2's own quote-asset default,
+ *     lib/monad/prices's numeraire) — easily corrected afterward ("actually
+ *     get MON instead"), so a low-risk default rather than an extra question. */
+function applyTradeContext(slots: AskSlots, contextTokenAddress: string | null): AskSlots {
+  if (slots.tradeAction !== "buy" && slots.tradeAction !== "sell") return slots;
+  const next = { ...slots };
+  if (next.tradeAction === "buy") {
+    if (!next.toAsset && contextTokenAddress) next.toAsset = contextTokenAddress;
+    if (!next.fromAsset && next.amountType === "usd") next.fromAsset = "USDC";
+  } else {
+    if (!next.fromAsset && contextTokenAddress) next.fromAsset = contextTokenAddress;
+    if (!next.toAsset) next.toAsset = "USDC";
+  }
+  return next;
+}
+
+function tradeQuestionFor(missing: (keyof AskSlots)[]): string {
+  if (missing.includes("tradeAction")) return "Would you like to buy or sell?";
+  if (missing.includes("amount")) return "How much would you like to spend?";
+  if (missing.includes("toAsset")) return "Which token would you like to buy?";
+  if (missing.includes("fromAsset")) return "Which token would you like to spend?";
+  return "Could you tell me a bit more about that trade?";
 }
 
 /** Turns whatever the model (or a malformed/adversarial tool call) returned
  *  into a well-typed Understanding. Never trusts kind/outcome to be
  *  consistent — a mismatch or an unrecognized kind always degrades to
  *  "unclear" with a safe fallback reply, never to something that LOOKS
- *  actionable without actually being validated. */
-function coerce(raw: Record<string, unknown>): Understanding {
+ *  actionable without actually being validated. `contextTokenAddress` is
+ *  applied here (not left to the model) so "this"/"it" resolves the exact
+ *  same way regardless of whether Anthropic or the deterministic fast path
+ *  produced the trade — see applyTradeContext's own doc. */
+function coerce(raw: Record<string, unknown>, contextTokenAddress: string | null = null): Understanding {
   const kind = typeof raw.kind === "string" ? raw.kind : "unclear";
   const outcome = typeof raw.outcome === "string" ? raw.outcome : "unclear";
   const rawSlots = (raw.slots && typeof raw.slots === "object" ? raw.slots : {}) as Record<string, unknown>;
-  const slots: AskSlots = { ...emptySlots() };
+  let slots: AskSlots = { ...emptySlots() };
   for (const key of Object.keys(slots) as (keyof AskSlots)[]) {
     const v = rawSlots[key];
     if (key === "recipientCount") { slots[key] = typeof v === "number" ? v : null; continue; }
     if (key === "frequency") { slots[key] = v === "daily" || v === "weekly" || v === "monthly" ? v : null; continue; }
+    if (key === "tradeAction") { slots[key] = v === "buy" || v === "sell" ? v : null; continue; }
+    if (key === "amountType") {
+      slots[key] = v === "exact_input" || v === "exact_output" || v === "usd" || v === "percentage" || v === "balance_all" ? v : null;
+      continue;
+    }
     (slots as Record<string, unknown>)[key] = typeof v === "string" ? v : null;
   }
+  if (kind === "trade") slots = applyTradeContext(slots, contextTokenAddress);
 
   if ((ASK_INTENT_KINDS as readonly string[]).includes(kind) && (outcome === "incomplete" || outcome === "complete")) {
     const missing = REQUIRED_SLOTS[kind as AskIntentKind].filter((k) => !slots[k]);
@@ -207,7 +272,7 @@ async function understandWithLLM(
 
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!tool) return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you say a bit more?" };
-  return coerce(tool.input as Record<string, unknown>);
+  return coerce(tool.input as Record<string, unknown>, contextTokenFrom(pending));
 }
 
 /**
@@ -242,15 +307,32 @@ const TOKEN_AMOUNT_QUESTION_RE = /\b(how\s+(much|many)|what\s+would\s+i\s+get|qu
  *  different name. */
 const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
 
+/** A message that actually wants to SPEND/ACQUIRE something — distinct from
+ *  merely asking ABOUT a pair or price (TOKEN_FOLLOWUP_RE's "can I trade it
+ *  with USDC?" has no amount/action and stays a read-only market question).
+ *  Deliberately requires a real signal (a buy/sell verb, a dollar amount, a
+ *  percentage-of-balance phrase, or "get me"/"can I get" framing) — bare
+ *  "trade" alone does NOT match, so it never fires on a plain tradability
+ *  question. Checked ahead of detectSwapIntent in classifyFresh too, since
+ *  that detector also triggers on "swap"/"trade" and would otherwise happily
+ *  (and wrongly) capture "this" as a literal token symbol for phrasing like
+ *  "swap 100 USDC into this token". */
+const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b/i;
+
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
-  // price?" / "Can I trade it with USDC?" / "How much would I get for 50?"
-  // right after a token_lookup card all mean THIS token, not a fresh
+  // price?" right after a token_lookup card means THIS token, not a fresh
   // unrelated question. A message naming a NEW address always overrides
   // this (handled separately, before tryMergePending is ever called — see
-  // routeRequest), so this branch only ever fires when no fresh address is
-  // present in the new message.
-  if (pending && pending.kind === "token_lookup" && pending.outcome === "complete" && !EVM_ADDRESS_RE.test(text)) {
+  // routeRequest); a message that's actually a TRADE REQUEST (see
+  // TRADE_SIGNAL_RE) is a kind change, not a same-kind follow-up, so it
+  // deliberately falls through here to classifyFresh's detectTradeFresh
+  // instead, which resolves the SAME context token as the input to a
+  // real trade preview rather than another read-only market answer.
+  if (
+    pending && pending.kind === "token_lookup" && pending.outcome === "complete" &&
+    !EVM_ADDRESS_RE.test(text) && !TRADE_SIGNAL_RE.test(text)
+  ) {
     const numMatch = text.match(/\d+(?:\.\d+)?/);
     const isAmountQuestion = !!numMatch && TOKEN_AMOUNT_QUESTION_RE.test(text);
     if (TOKEN_FOLLOWUP_RE.test(text) || isAmountQuestion) {
@@ -259,6 +341,98 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
       if (assetMatch) slots.toAsset = assetMatch[0].toUpperCase() === "WMON" ? "MON" : assetMatch[0].toUpperCase();
       if (isAmountQuestion) slots.amount = numMatch![0];
       return { kind: "token_lookup", outcome: "complete", slots };
+    }
+  }
+
+  // Corrections to an already-previewed trade — "Actually make it 100."
+  // (amount), "Actually use MON instead." (the non-anchored side — see rule
+  // 10 in the system prompt for why this one IS safe to resolve locally,
+  // unlike swap's own ambiguous "use X instead"), "Sell instead." (action
+  // flip). All require an explicit cue, matching send_payment/swap's own
+  // correction pattern below — a bare number/word here is genuinely
+  // ambiguous with the start of an unrelated new message.
+  if (pending && pending.outcome === "complete" && pending.kind === "trade") {
+    const trimmed = text.trim();
+    if (/\b(sell|buy)\s+instead\b|\breverse\s+(it|that|the\s+trade)\b|\bflip\s+it\b/i.test(trimmed)) {
+      const flipped = pending.slots.tradeAction === "buy" ? "sell" : "buy";
+      // Amount deliberately dropped: "50 USDC worth" reversed under "sell"
+      // no longer means the same thing (now 50 of WHAT?) — asking fresh
+      // beats silently reinterpreting a number under the new direction.
+      return {
+        kind: "trade", outcome: "incomplete",
+        slots: { ...pending.slots, tradeAction: flipped, fromAsset: pending.slots.toAsset, toAsset: pending.slots.fromAsset, amount: null, amountType: null },
+        question: "How much would you like to spend?",
+      };
+    }
+    if (/\b(actually|instead|change it|update it|make it|correct(ion)?)\b/i.test(trimmed)) {
+      const updated: AskSlots = { ...pending.slots };
+      let changed = false;
+      const usdMatch = trimmed.match(/\$\s*(\d+(?:\.\d+)?)/);
+      const addrMatch = trimmed.match(EVM_ADDRESS_RE);
+      const assetMatch = !addrMatch ? trimmed.match(TOKEN_ASSET_MENTION_RE) : null;
+      if (usdMatch) { updated.amount = usdMatch[1]; updated.amountType = "usd"; changed = true; }
+      else {
+        const amountMatch = trimmed.match(/\d+(?:\.\d+)?/);
+        if (amountMatch) { updated.amount = amountMatch[0]; updated.amountType = updated.amountType === "usd" ? "exact_input" : updated.amountType; changed = true; }
+      }
+      if (addrMatch || assetMatch) {
+        const newAsset = addrMatch ? addrMatch[0] : (assetMatch![0].toUpperCase() === "WMON" ? "MON" : assetMatch![0].toUpperCase());
+        if (pending.slots.tradeAction === "buy") updated.fromAsset = newAsset;
+        else if (pending.slots.tradeAction === "sell") updated.toAsset = newAsset;
+        changed = true;
+      }
+      if (changed) return { kind: "trade", outcome: "complete", slots: updated };
+    }
+  }
+
+  // Answering a pending trade's still-missing field — "buy or sell?",
+  // "how much?", "which token?". Trade-specific (rather than the generic
+  // incomplete-fill loop below) because it needs to infer amountType from
+  // HOW the answer was phrased ("$50" vs "half" vs a plain number), not
+  // just capture a bare value.
+  if (pending && pending.outcome === "incomplete" && pending.kind === "trade") {
+    const stripped = text.trim().replace(/[.!]+$/, "");
+    const missing = REQUIRED_SLOTS.trade.filter((k) => !pending.slots[k]);
+    const filled: AskSlots = { ...pending.slots };
+    let filledOne = false;
+
+    // "50 USDC" answers "how much would you like to spend?" completely in
+    // one reply — both the amount AND which asset, unambiguous together
+    // even though a bare "50" alone (matched below) wouldn't be enough to
+    // also place an asset. Checked first so it doesn't fall into the
+    // amount-only branch and leave the asset unfilled.
+    const numAssetMatch = missing.includes("amount") ? stripped.match(/^(\d+(?:\.\d+)?)\s*(USDC|W?MON)$/i) : null;
+    if (numAssetMatch) {
+      filled.amount = numAssetMatch[1];
+      filled.amountType = "exact_input";
+      const asset = numAssetMatch[2].toUpperCase() === "WMON" ? "MON" : numAssetMatch[2].toUpperCase();
+      if (missing.includes("toAsset") && !missing.includes("fromAsset")) filled.toAsset = asset;
+      else if (missing.includes("fromAsset") && !missing.includes("toAsset")) filled.fromAsset = asset;
+      // Both sides still open: the amount still lands, the asset is left
+      // for a separate answer rather than guessed onto either side.
+      filledOne = true;
+    } else if (missing.includes("tradeAction") && /^(buy|sell)$/i.test(stripped)) {
+      filled.tradeAction = stripped.toLowerCase() as "buy" | "sell";
+      filledOne = true;
+    } else if (missing.includes("amount")) {
+      const usdMatch = stripped.match(/^\$\s*(\d+(?:\.\d+)?)$/);
+      if (usdMatch) { filled.amount = usdMatch[1]; filled.amountType = "usd"; filledOne = true; }
+      else if (/^(all|everything)$/i.test(stripped)) { filled.amountType = "balance_all"; filledOne = true; }
+      else if (/^half$/i.test(stripped)) { filled.amount = "50"; filled.amountType = "percentage"; filledOne = true; }
+      else if (/^\d+(?:\.\d+)?$/.test(stripped)) { filled.amount = stripped; filled.amountType = filled.amountType ?? "exact_input"; filledOne = true; }
+    } else if (TOKEN_ASSET_MENTION_RE.test(stripped) && /^(USDC|W?MON)$/i.test(stripped)) {
+      const asset = stripped.toUpperCase() === "WMON" ? "MON" : stripped.toUpperCase();
+      // Only commit when EXACTLY ONE side is open — both open at once means
+      // this bare word can't be placed without guessing which one it answers.
+      if (missing.includes("toAsset") && !missing.includes("fromAsset")) { filled.toAsset = asset; filledOne = true; }
+      else if (missing.includes("fromAsset") && !missing.includes("toAsset")) { filled.fromAsset = asset; filledOne = true; }
+    }
+
+    if (filledOne) {
+      const stillMissing = REQUIRED_SLOTS.trade.filter((k) => !filled[k]);
+      return stillMissing.length === 0
+        ? { kind: "trade", outcome: "complete", slots: filled }
+        : { kind: "trade", outcome: "incomplete", slots: filled, question: tradeQuestionFor(stillMissing) };
     }
   }
 
@@ -346,14 +520,71 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
   return null;
 }
 
+/** Best-effort deterministic extraction for the clearest trade phrasings —
+ *  the FALLBACK used only when Anthropic isn't configured or fails (a fresh
+ *  trade always gets a real Anthropic pass otherwise, same as
+ *  send_payment/swap — see routeRequest's own rule on this). Not required to
+ *  handle every phrasing perfectly; genuinely open-ended wording ("Use half
+ *  of my USDC to buy this, but not more than what I'd need for gas") is
+ *  exactly what Anthropic is for. Checked BEFORE detectSwapIntent in
+ *  classifyFresh below so a message like "swap 100 USDC into this token"
+ *  never reaches detectSwapIntent at all — that detector also triggers on
+ *  "swap"/"trade" and would otherwise capture "this" as a literal (bogus)
+ *  token symbol. */
+function detectTradeFresh(text: string, contextTokenAddress: string | null): Understanding | null {
+  if (!TRADE_SIGNAL_RE.test(text)) return null;
+  const t = text.trim();
+
+  const isSell = /\bsell\b/i.test(t);
+  const isBuy = !isSell && (/\b(buy|purchase)\b/i.test(t) || /\bswap\b/i.test(t) || /\b(can\s+i\s+get|get\s+me)\b/i.test(t));
+  const action: "buy" | "sell" | null = isSell ? "sell" : isBuy ? "buy" : null;
+
+  let amount: string | null = null;
+  let amountType: NonNullable<AskSlots["amountType"]> | null = null;
+  const usdMatch = t.match(/\$\s*(\d+(?:\.\d+)?)/);
+  const allMatch = /\ball\s+my\b|\bmy\s+(?:entire|whole)\b/i.test(t);
+  const halfMatch = /\bhalf\b/i.test(t) && /\bmy\b/i.test(t);
+  const numMatch = t.match(/\b(\d+(?:\.\d+)?)\b/);
+  if (usdMatch) { amount = usdMatch[1]; amountType = "usd"; }
+  else if (allMatch) { amountType = "balance_all"; }
+  else if (halfMatch) { amount = "50"; amountType = "percentage"; }
+  else if (numMatch) { amount = numMatch[1]; amountType = "exact_input"; }
+
+  // The one curated asset explicitly named (if any) — assumed to be on the
+  // side the action implies (spend-side for buy, sold-side for sell) unless
+  // a second asset also appears (e.g. "Sell 20 MON for USDC"), which then
+  // names the OTHER side explicitly too. Anything this can't confidently
+  // place (multiple assets in an unclear order, no asset at all with no
+  // context either) stays null and gets asked about, or is resolved by
+  // Anthropic on the real pass.
+  const assetMatches = [...t.matchAll(/\b(USDC|W?MON)\b/gi)].map((m) => (m[1].toUpperCase() === "WMON" ? "MON" : m[1].toUpperCase()));
+  const [namedAsset, secondAsset] = assetMatches;
+
+  let slots: AskSlots = { ...emptySlots(), tradeAction: action, amount, amountType };
+  if (action === "buy" || action === "sell") {
+    if (namedAsset) slots.fromAsset = namedAsset;
+    if (secondAsset) slots.toAsset = secondAsset;
+  }
+  slots = applyTradeContext(slots, contextTokenAddress);
+
+  if (!action) return { kind: "trade", outcome: "incomplete", slots, question: "Would you like to buy or sell?" };
+  const missing = REQUIRED_SLOTS.trade.filter((k) => !slots[k]);
+  if (missing.length === 0) return { kind: "trade", outcome: "complete", slots };
+  return { kind: "trade", outcome: "incomplete", slots, question: tradeQuestionFor(missing) };
+}
+
 /**
  * Fresh (non-follow-up) classification via PayAI's existing production
  * detectors — reduced (keyword-matched, not open-ended) capability, and
  * honest about that limit. Used both as the key-free fallback and, via
  * routeRequest(), as the router's own "can I handle this locally" engine
- * for read-only queries.
+ * for read-only queries. `pending` is used only to resolve a trade's
+ * context token (see contextTokenFrom) — nothing else here reads it.
  */
-async function classifyFresh(text: string): Promise<Understanding> {
+async function classifyFresh(text: string, pending: Understanding | null = null): Promise<Understanding> {
+  const trade = detectTradeFresh(text, contextTokenFrom(pending));
+  if (trade) return trade;
+
   const { detectSwapIntent, parseScheduleIntent, detectQueryIntent, parseIntentDeterministic } = await import("@/lib/agent/brain");
 
   const swap = detectSwapIntent(text);
@@ -602,7 +833,7 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   const tokenLookup = detectTokenLookup(text);
   if (tokenLookup) return { route: "deterministic_query", anthropic: false, understanding: tokenLookup, fallback: tokenLookup };
 
-  const fresh = await classifyFresh(text);
+  const fresh = await classifyFresh(text, pending);
   // classifyFresh only ever actually returns an actionable kind (complete or
   // incomplete) or "unclear" — this check also narrows fresh.kind to
   // AskIntentKind for the Set lookups below.

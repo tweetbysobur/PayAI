@@ -265,6 +265,56 @@ export async function estimatePriceImpact(
   }
 }
 
+export interface DirectQuoteResult {
+  /** Human-readable, for the exact `amount` requested (never a 1-unit
+   *  reference scaled up). */
+  amountOut: string;
+  /** Formatted percentage ("1.23%"), or null when it couldn't be estimated. */
+  priceImpact: string | null;
+}
+
+/**
+ * General, ADDRESS-based single-pair Uniswap quote — the one place this
+ * exact fee-tier-loop-plus-price-impact logic lives, reused by both
+ * lib/monad/tokenIntelligence.ts (arbitrary-token market probing) and
+ * lib/monad/tradeQuote.ts (arbitrary-token trade quoting), so neither of
+ * them reimplements it. Deliberately separate from rawQuote()/resolveSwapSide
+ * above: those resolve by CURATED SYMBOL (safe only for the curated
+ * registry); this one takes raw addresses directly, so it works for a token
+ * that was never curated at all — which is the entire reason it exists.
+ * Returns null (never a route with a fabricated 0 output) when no fee tier
+ * has a real pool.
+ */
+export async function quoteUniswapDirect(
+  tokenIn: Address, tokenInDecimals: number,
+  tokenOut: Address, tokenOutDecimals: number,
+  amount: string,
+): Promise<DirectQuoteResult | null> {
+  if (getNetwork() !== "mainnet") return null;
+  const pub = getPublicClient();
+  const amountIn = parseUnits(amount, tokenInDecimals);
+  const settled = await Promise.allSettled(
+    FEE_TIERS.map(async (fee) => {
+      const { result } = await pub.simulateContract({
+        address: UNISWAP_MAINNET.quoterV2, abi: QUOTER_V2_ABI, functionName: "quoteExactInputSingle",
+        args: [{ tokenIn, tokenOut, amountIn, fee, sqrtPriceLimitX96: 0n }],
+      });
+      return { fee, amountOut: (result as readonly bigint[])[0] };
+    }),
+  );
+  let best: { fee: number; amountOut: bigint } | null = null;
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value.amountOut > 0n && (best === null || r.value.amountOut > best.amountOut)) best = r.value;
+  }
+  if (!best) return null;
+
+  const impact = await estimatePriceImpact(pub, tokenIn, tokenOut, best.fee, amountIn, best.amountOut);
+  return {
+    amountOut: formatUnits(best.amountOut, tokenOutDecimals),
+    priceImpact: impact != null ? `${(impact * 100).toFixed(2)}%` : null,
+  };
+}
+
 async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number, slippage: number): Promise<RawQuote> {
   if (fromToken === toToken) throw new Error("Choose two different tokens to swap.");
   if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {
