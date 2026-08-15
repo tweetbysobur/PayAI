@@ -144,13 +144,25 @@ export async function resolveToken(addressInput: string): Promise<TokenInfo> {
 }
 
 /** The full verified list for the active network, each entry confirmed
- *  on-chain (not just hand-typed). Native asset always comes first. */
+ *  on-chain (not just hand-typed). Native asset always comes first.
+ *
+ *  In-flight calls share one promise: on a cold cache, Uniswap and Kuru
+ *  quote a pair concurrently and each independently needs this list, which
+ *  would otherwise fire the same RPC burst twice at once. Once it resolves
+ *  the memo is cleared -- every entry is already permanent in `cache` by
+ *  then, so later calls are cheap reads, not another live RPC round-trip. */
+let verifiedTokensInFlight: Promise<TokenInfo[]> | null = null;
 export async function getVerifiedTokens(): Promise<TokenInfo[]> {
+  if (verifiedTokensInFlight) return verifiedTokensInFlight;
   const curated = curatedList();
-  const resolved = await Promise.all(
+  verifiedTokensInFlight = Promise.all(
     curated.map((c) => resolveToken(c.address).catch(() => null)),
-  );
-  return [nativeTokenInfo(), ...resolved.filter((t): t is TokenInfo => t !== null)];
+  )
+    .then((resolved) => [nativeTokenInfo(), ...resolved.filter((t): t is TokenInfo => t !== null)])
+    .finally(() => {
+      verifiedTokensInFlight = null;
+    });
+  return verifiedTokensInFlight;
 }
 
 /** Case-insensitive substring match against name or symbol. */
