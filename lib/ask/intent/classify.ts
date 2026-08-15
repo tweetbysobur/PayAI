@@ -79,7 +79,7 @@ Capabilities PayAI supports today, and what each needs:
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
 2. Never default an unstated asset to USDC or MON. If it matters and wasn't said, ask.
-3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, "actually make it 30", or "what about MON?" right after a balance answer), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. This applies even when the pending intent is already "complete" (e.g. a payment has just been previewed and is awaiting the user's confirmation) — "actually make it 75" or "change it to 0x456..." at that point still means "correct the amount/recipient of THIS payment," not "start describing a new one." Only start fresh if the message is clearly about something else.
+3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, "actually make it 30", or "what about MON?" right after a balance answer), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. This applies even when the pending intent is already "complete" (e.g. a payment or swap has just been previewed and is awaiting the user's confirmation) — "actually make it 75", "change it to 0x456...", or "use MON instead" (correcting fromAsset/toAsset on a pending swap) at that point still mean "correct THIS operation," not "start describing a new one." Only start fresh if the message is clearly about something else.
 4. If you can identify a specific capability above but something required is missing, use outcome "incomplete" and write ONE short, natural question asking for exactly what's still missing — never re-ask for something already known, never open a form.
 5. If the request describes something real that PayAI does not support today (staking, lending, leverage/trading, NFTs, bridging to another chain, anything off this list), use outcome "unsupported". Explain briefly and honestly that it isn't available yet. Do NOT reinterpret it as send_payment or swap just because those happen to be supported.
 6. If you genuinely cannot tell what the user wants at all, use outcome "unclear" and ask a natural clarifying question. Do not guess or force it into one of the capabilities above.
@@ -275,6 +275,23 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
         if (assetMatch) updated.asset = assetMatch[0].toUpperCase();
         if (amountMatch) updated.amount = amountMatch[0];
         return { kind: "send_payment", outcome: "complete", slots: updated };
+      }
+    }
+  }
+
+  // Same idea for an already-quoted swap ("Actually make it 30.") — but
+  // narrower still: only a pure amount correction is handled locally. A
+  // token mention ("use MON instead") could mean either fromAsset or
+  // toAsset, and guessing which one would risk quoting the wrong pair; that
+  // case (and any token outside MON/USDC, which this fallback doesn't even
+  // check for) is left to Anthropic rather than resolved incorrectly here.
+  if (pending && pending.outcome === "complete" && pending.kind === "swap") {
+    const trimmed = text.trim();
+    if (/\b(actually|instead|change it|update it|make it|correct(ion)?)\b/i.test(trimmed)) {
+      const mentionsToken = /\b(MON|USDC)\b/i.test(trimmed);
+      const amountMatch = trimmed.match(/\d+(?:\.\d+)?/);
+      if (amountMatch && !mentionsToken) {
+        return { kind: "swap", outcome: "complete", slots: { ...pending.slots, amount: amountMatch[0] } };
       }
     }
   }
