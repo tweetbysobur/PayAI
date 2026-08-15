@@ -140,12 +140,16 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
  * Called exclusively from the "Confirm with passkey" click on an
  * already-displayed, already-server-approved operation.
  */
-export async function executeSendPayment(operation: Operation, wallet: SendPaymentWallet): Promise<Operation> {
+export async function executeSendPayment(
+  operation: Operation, wallet: SendPaymentWallet,
+  onProgress?: (label: string) => void,
+): Promise<Operation> {
   if (operation.intent.kind !== "payment" || !operation.intent.execution) return operation;
   const { unsignedTx, confirmRawText, requestId } = operation.intent.execution;
 
   let broadcastHash: string | null = null;
   try {
+    onProgress?.("Waiting for your signature — nothing has moved yet.");
     const hash = await wallet.sendTransaction(unsignedTx);
     broadcastHash = hash;
     // The wallet has now broadcast a REAL transaction — persist immediately,
@@ -153,7 +157,9 @@ export async function executeSendPayment(operation: Operation, wallet: SendPayme
     // hiccup never reads back as "the payment failed" (see pendingSettlement.ts).
     savePendingSettlement({ kind: "payment", walletAddress: unsignedTx.from, txHash: hash, rawText: confirmRawText, requestId, savedAt: Date.now() });
 
+    onProgress?.("Signed — confirming on-chain…");
     await wallet.waitForReceipt(hash);
+    onProgress?.("Finalizing payment…");
     const r = await fetch("/api/agent/confirm", {
       method: "POST",
       headers: { "content-type": "application/json" },

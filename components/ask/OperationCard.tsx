@@ -80,6 +80,7 @@ export function OperationCard({
   onAdvance,
   onCancel,
   onRetry,
+  progressLabel,
 }: {
   operation: Operation;
   /** Called when the user takes the card's primary action for its current
@@ -90,6 +91,12 @@ export function OperationCard({
    *  the request from scratch (not resending a stale signed artifact) is the
    *  caller's job; this only signals the click. */
   onRetry?: (operationId: string) => void;
+  /** What's actually happening right now during "confirming" — signature
+   *  requested vs. signed-and-broadcasting vs. on-chain confirmation vs.
+   *  finalizing. Undefined falls back to a generic "waiting for signature"
+   *  message so a card never regresses to blank if the caller doesn't wire
+   *  this up. See useAskChat's `progress` map for where this comes from. */
+  progressLabel?: string;
 }) {
   const { intent, status } = operation;
   const meta = KIND_META[intent.kind];
@@ -126,7 +133,7 @@ export function OperationCard({
       </div>
 
       {!isInfo && status !== "error" && (
-        <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} />
+        <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} progressLabel={progressLabel} />
       )}
       {status === "error" && onRetry && (
         <div className="flex border-t border-border/70 px-4 py-3">
@@ -311,6 +318,43 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
   );
 }
 
+/** What actually happened, in one line — the whole reason this exists is
+ *  that a bare tx hash doesn't tell anyone what they just did. Only
+ *  payment and swap ever reach "success" with a result (scheduled/
+ *  recurring hand off to Automations instead of executing in-chat, and
+ *  distribution isn't executable from chat at all yet — see
+ *  dispatchDistribution) — every other kind falls through to null and the
+ *  card shows just the transaction, which is still honest, just terser. */
+function ResultSummary({ intent }: { intent: Operation["intent"] }) {
+  if (intent.kind === "payment") {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <TokenLogo token={intent.token} size={20} />
+        <span className="text-lg font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{intent.amount}</span>
+        <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
+        <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">
+          {intent.recipientDomain ?? short(intent.recipient)}
+        </span>
+      </div>
+    );
+  }
+  if (intent.kind === "swap") {
+    return (
+      <div className="mb-3 flex items-center justify-center gap-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
+          <TokenLogo token={intent.fromToken} size={18} /> {intent.fromAmount} {intent.fromToken}
+        </span>
+        <ArrowLeftRight size={14} className="shrink-0 text-muted-foreground" />
+        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
+          <TokenLogo token={intent.toToken} size={18} /> ≈ {intent.toAmountEstimate ?? "—"} {intent.toToken}
+        </span>
+      </div>
+    );
+  }
+  return null;
+}
+
 function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: NonNullable<Operation["result"]> }) {
   return (
     <div>
@@ -327,6 +371,7 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
           {result.gasFee && <p className="text-xs text-muted-foreground">Network fee: {result.gasFee}</p>}
         </div>
       </div>
+      <ResultSummary intent={intent} />
       <div className="rounded-lg border border-border bg-input/40 p-3">
         <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
         <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-primary-ink hover:underline">
@@ -350,11 +395,12 @@ function ErrorBody({ message }: { message: string }) {
 }
 
 function CardFooter({
-  operation, onAdvance, onCancel,
+  operation, onAdvance, onCancel, progressLabel,
 }: {
   operation: Operation;
   onAdvance: (id: string) => void;
   onCancel?: (id: string) => void;
+  progressLabel?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const { status, id, intent } = operation;
@@ -362,10 +408,21 @@ function CardFooter({
   if (status === "success") return null;
 
   if (status === "confirming") {
-    const waitingLabel = operation.confirmIcon === "go" ? "Opening…" : "Waiting for your signature — nothing has moved yet.";
+    // progressLabel tracks the REAL step (signature requested -> signed,
+    // broadcasting -> confirming on-chain -> finalizing) — falling back to
+    // a generic waiting message only for the instant before the first real
+    // update lands, never staying stuck on "waiting for your signature"
+    // after the user has already signed (see executeSwapIntent/
+    // executeSendPayment's onProgress calls).
+    const waitingLabel = progressLabel ?? (operation.confirmIcon === "go" ? "Opening…" : "Waiting for your signature — nothing has moved yet.");
+    const onChain = !!progressLabel && /confirming on-chain|finalizing/i.test(progressLabel);
     return (
       <div className="flex items-center gap-2.5 border-t border-border/70 bg-primary/[0.03] px-4 py-3">
-        <Fingerprint size={16} className="shrink-0 animate-pulse text-primary-ink" />
+        {onChain ? (
+          <Loader2 size={16} className="shrink-0 animate-spin text-primary-ink" />
+        ) : (
+          <Fingerprint size={16} className="shrink-0 animate-pulse text-primary-ink" />
+        )}
         <p className="text-xs text-muted-foreground">{waitingLabel}</p>
       </div>
     );

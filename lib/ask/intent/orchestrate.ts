@@ -180,13 +180,22 @@ async function dispatchSwap(slots: { amount?: string | null; fromAsset?: string 
 /** The only function allowed to request a wallet signature for a swap —
  *  called exclusively from an explicit "Confirm" click on a card this
  *  module already built and the server already quoted. */
-export async function executeSwapIntent(operation: Operation, wallet: SendPaymentWallet, walletAddress: string): Promise<Operation> {
+export async function executeSwapIntent(
+  operation: Operation, wallet: SendPaymentWallet, walletAddress: string,
+  onProgress?: (label: string) => void,
+): Promise<Operation> {
   if (operation.intent.kind !== "swap" || !operation.intent.execution) return operation;
   const { plan } = operation.intent.execution;
   let broadcastHash: string | null = null;
   try {
     let lastHash = "";
     for (let i = 0; i < plan.steps.length; i++) {
+      const step = plan.steps[i].label;
+      onProgress?.(
+        plan.steps.length > 1
+          ? `Step ${i + 1} of ${plan.steps.length}: waiting for your signature (${step}) — nothing has moved yet.`
+          : "Waiting for your signature — nothing has moved yet.",
+      );
       lastHash = await wallet.sendTransaction(plan.steps[i].tx);
       broadcastHash = lastHash;
       if (i === plan.steps.length - 1) {
@@ -196,8 +205,14 @@ export async function executeSwapIntent(operation: Operation, wallet: SendPaymen
           amountIn: plan.quote.amountIn, amountOut: plan.quote.amountOut, savedAt: Date.now(),
         });
       }
+      onProgress?.(
+        plan.steps.length > 1
+          ? `Step ${i + 1} of ${plan.steps.length}: confirming on-chain…`
+          : "Signed — confirming on-chain…",
+      );
       await wallet.waitForReceipt(lastHash);
     }
+    onProgress?.("Finalizing swap…");
     const r = await fetch("/api/swap/confirm", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ walletAddress, txHash: lastHash, fromToken: plan.quote.fromToken, toToken: plan.quote.toToken, amountIn: plan.quote.amountIn, amountOut: plan.quote.amountOut }),

@@ -341,6 +341,27 @@ describe("send_payment — executeSendPayment (the ONLY function allowed to sign
     }
   });
 
+  it("reports live progress through signing -> on-chain -> finalizing", async () => {
+    const { restore } = mockFetch(() => ({
+      intent: { action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, purpose: null, network: "monad", summary: "Sent 50 USDC", confidence: 1 },
+      decision: "executed",
+      transaction: { status: "settled", detail: "ok", mode: "monad", txHash: "0xabc123", explorerUrl: "https://explorer.monad.xyz/tx/0xabc123", gasFee: "0.0004 MON", blockNumber: 42 },
+    }));
+    try {
+      const wallet: SendPaymentWallet = {
+        sendTransaction: vi.fn().mockResolvedValue("0xabc123"),
+        waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+      };
+      const seen: string[] = [];
+      await executeSendPayment(readyOperation(), wallet, (label) => seen.push(label));
+      expect(seen[0]).toMatch(/waiting for your signature/i);
+      expect(seen[1]).toMatch(/confirming on-chain/i);
+      expect(seen[2]).toMatch(/finalizing/i);
+    } finally {
+      restore();
+    }
+  });
+
   it("failed transaction: a mined revert becomes a clear, final error — no fabricated success", async () => {
     const { restore } = mockFetch(() => ({ reverted: true, error: "This payment failed on-chain. No funds were transferred." }));
     try {
@@ -412,6 +433,9 @@ describe("send_payment — the AI cannot execute without passing through validat
     // respondToSendPayment's exported signature takes no wallet parameter at
     // all: it is structurally incapable of calling wallet.sendTransaction.
     expect(respondToSendPayment.length).toBeLessThanOrEqual(2); // (rawText, walletAddress) — no wallet object
-    expect(executeSendPayment.length).toBe(2); // (operation, wallet) — the only path that can sign
+    // (operation, wallet, onProgress?) — the only path that can sign. The
+    // third param is a progress-text reporter (see OperationCard's live
+    // "confirming" label), never a capability that widens what this can do.
+    expect(executeSendPayment.length).toBe(3);
   });
 });

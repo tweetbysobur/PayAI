@@ -12,12 +12,16 @@ export function ChatMessageRow({
   onAdvanceOperation,
   onCancelOperation,
   onRetryOperation,
+  progressLabel,
 }: {
   message: AskMessage;
   walletAddress?: string | null;
   onAdvanceOperation: (operationId: string) => void;
   onCancelOperation: (operationId: string) => void;
   onRetryOperation?: (operationId: string) => void;
+  /** What's happening RIGHT NOW if this message's card is mid-execution —
+   *  see useAskChat's `progress` map. Undefined outside "confirming". */
+  progressLabel?: string;
 }) {
   const isUser = message.role === "user";
   return (
@@ -46,6 +50,7 @@ export function ChatMessageRow({
             onAdvance={onAdvanceOperation}
             onCancel={onCancelOperation}
             onRetry={onRetryOperation}
+            progressLabel={progressLabel}
           />
         )}
       </div>

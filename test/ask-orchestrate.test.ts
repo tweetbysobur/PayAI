@@ -190,6 +190,22 @@ describe("executeSwapIntent — the ONLY function allowed to sign a swap", () =>
     } finally { restore(); }
   });
 
+  it("reports live progress through signing -> on-chain -> finalizing, never stuck on a stale 'waiting for signature' message", async () => {
+    const { restore } = mockFetch(() => ({ success: true, explorerUrl: "https://explorer.monad.xyz/tx/0xswap" }));
+    try {
+      const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xswap"), waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }) };
+      const seen: string[] = [];
+      await executeSwapIntent(readySwapOperation(), wallet, WALLET, (label) => seen.push(label));
+      expect(seen[0]).toMatch(/waiting for your signature/i);
+      expect(seen[1]).toMatch(/confirming on-chain/i);
+      expect(seen[2]).toMatch(/finalizing/i);
+      // Never regresses back to "waiting for signature" after it's already
+      // moved on to a later phase -- the exact bug this was built to fix.
+      const firstOnChain = seen.findIndex((l) => /confirming on-chain/i.test(l));
+      expect(seen.slice(firstOnChain).some((l) => /waiting for your signature/i.test(l))).toBe(false);
+    } finally { restore(); }
+  });
+
   it("reverted swap: a clear final error, no tokens implied moved", async () => {
     const { restore } = mockFetch(() => ({ success: false, reverted: true, error: "This swap failed on-chain. No tokens were swapped." }));
     try {

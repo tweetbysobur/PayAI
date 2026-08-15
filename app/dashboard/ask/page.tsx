@@ -71,7 +71,7 @@ function AskComingSoon() {
 
 function AskPayAIChat() {
   const {
-    wallet, messages, input, setInput, thinking,
+    wallet, messages, input, setInput, thinking, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
   } = useAskChat();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -117,6 +117,7 @@ function AskPayAIChat() {
                   // future kind without a canonical retry text) would
                   // otherwise show a button that silently does nothing.
                   onRetryOperation={m.operation && retryTextFor(m.operation) ? retryOperation : undefined}
+                  progressLabel={m.operation ? progress[m.operation.id] : undefined}
                 />
               ))}
               {thinking && <ThinkingRow />}
