@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
   CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight,
+  Coins, ShieldCheck,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
@@ -44,6 +45,7 @@ const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title:
   swap: { icon: ArrowLeftRight, title: "Swap" },
   distribution: { icon: Users, title: "Distribution" },
   wallet_operation: { icon: Wallet, title: "" }, // overridden per-operation below
+  token_intelligence: { icon: Coins, title: "Token Info" },
 };
 
 /** What "Review ___" should say — a swap isn't a payment, a distribution
@@ -56,6 +58,7 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
   swap: "swap",
   distribution: "distribution",
   wallet_operation: "",
+  token_intelligence: "",
 };
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
@@ -102,10 +105,10 @@ export function OperationCard({
   const meta = KIND_META[intent.kind];
   const Icon = meta.icon;
   const title = intent.kind === "wallet_operation" ? WALLET_OP_LABEL[intent.operation] : meta.title;
-  const isInfo = intent.kind === "wallet_operation";
-  // Info surfaces (balance, history, an explainer) never moved money, so
-  // "Sent"/"Preview"/etc. would misdescribe them — they get their own
-  // neutral label instead of borrowing a transactional one.
+  // Info surfaces (balance, history, an explainer, a token lookup) never
+  // moved money, so "Sent"/"Preview"/etc. would misdescribe them — they get
+  // their own neutral label instead of borrowing a transactional one.
+  const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence";
   const chip = isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
   return (
@@ -235,6 +238,8 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
       );
     case "wallet_operation":
       return <WalletOperationBody intent={intent} />;
+    case "token_intelligence":
+      return <TokenIntelligenceBody intent={intent} />;
   }
 }
 
@@ -314,6 +319,85 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
           {short(t.txHash)} <ExternalLink size={11} />
         </a>
       )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-input/30 px-3 py-2">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-medium tabular-nums text-foreground">{value}</p>
+    </div>
+  );
+}
+
+const UNAVAILABLE = "Unavailable";
+
+/** Read-only lookup of an arbitrary Monad address — populated entirely from
+ *  lib/monad/tokenIntelligence's real on-chain reads (see
+ *  orchestrate.ts's dispatchTokenLookup). Never a confirm funnel: there's
+ *  nothing to sign here, just information. */
+function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"], { kind: "token_intelligence" }> }) {
+  if (intent.status === "wallet") {
+    return <p className="text-sm text-muted-foreground">This address is a wallet address, not a token contract.</p>;
+  }
+  if (intent.status === "unknown_contract") {
+    return <p className="text-sm text-muted-foreground">This is a contract on Monad, but I couldn&apos;t identify it as an ERC-20 token.</p>;
+  }
+  const d = intent.data;
+  if (!d) return <p className="text-sm text-muted-foreground">No token data available.</p>;
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <TokenLogo token={d.symbol} size={34} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <p className="truncate text-sm font-semibold text-foreground">{d.name}</p>
+            {d.verified && <ShieldCheck size={13} className="shrink-0 text-primary-ink" aria-label="Verified" />}
+          </div>
+          <p className="truncate font-mono text-xs text-muted-foreground">{d.symbol} · {short(intent.address)}</p>
+        </div>
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+            d.isTradable ? "border-primary/30 bg-primary/10 text-primary-ink" : "border-border bg-input text-muted-foreground"
+          }`}
+        >
+          {d.isTradable ? "Tradable" : "No route found"}
+        </span>
+      </div>
+
+      <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <p className="mb-0.5 text-xs text-muted-foreground">Price</p>
+        <p className="text-lg font-semibold tabular-nums text-foreground">
+          {d.market.price ? `≈ ${d.market.price} ${d.market.priceQuoteAsset}` : UNAVAILABLE}
+        </p>
+      </div>
+
+      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+        <MiniStat label="Liquidity" value={d.market.liquidity ?? UNAVAILABLE} />
+        <MiniStat label="24h Volume" value={d.market.volume24h ?? UNAVAILABLE} />
+        <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
+        <MiniStat label="Total Supply" value={d.totalSupply ?? UNAVAILABLE} />
+      </div>
+
+      {d.userBalance != null && (
+        <div className="mb-2.5 rounded-lg border border-border bg-input/30 px-3 py-2">
+          <p className="text-xs text-muted-foreground">Your balance</p>
+          <p className="text-sm font-semibold tabular-nums text-foreground">{d.userBalance} {d.symbol}</p>
+        </div>
+      )}
+
+      <div className="divide-y divide-border/60">
+        <Row label="Decimals">{d.decimals}</Row>
+        <Row label="Network">Monad</Row>
+        <Row label="Route">{d.market.pairs.length > 0 ? d.market.pairs.map((p) => p.dex).join(", ") : "None"}</Row>
+      </div>
+
+      <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
+        View contract <ExternalLink size={11} />
+      </a>
     </div>
   );
 }

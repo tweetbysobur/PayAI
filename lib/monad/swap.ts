@@ -455,7 +455,7 @@ async function candidateProviders(): Promise<SwapProvider[]> {
  *  them. A provider throwing (pair it doesn't cover, no liquidity, an RPC
  *  hiccup) just excludes that one candidate — it only surfaces as an error
  *  if EVERY provider failed. */
-async function bestQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number): Promise<{ provider: SwapProvider; quote: SwapQuote }> {
+export async function bestQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number): Promise<{ provider: SwapProvider; quote: SwapQuote }> {
   const providers = await candidateProviders();
   const settled = await Promise.allSettled(
     providers.map(async (provider) => ({ provider, quote: await provider.quote(fromToken, toToken, amountIn) })),
