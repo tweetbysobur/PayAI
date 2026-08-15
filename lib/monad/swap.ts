@@ -18,6 +18,7 @@ import { encodeFunctionData, formatUnits, parseUnits, type Address } from "viem"
 import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { getStablecoin } from "./config";
+import { getVerifiedTokens } from "./tokenRegistry";
 
 /** A token SYMBOL. Any verified Monad token, resolved via resolveSwapSide()
  *  against the on-chain registry — no longer a two-token union. */
@@ -192,7 +193,6 @@ export async function resolveSwapSide(symbol: string): Promise<ResolvedSwapSide>
   if (sym === "MON") {
     return { symbol: "MON", routeAddress: UNISWAP_MAINNET.wmon, decimals: 18, isNative: true };
   }
-  const { getVerifiedTokens } = await import("./tokenRegistry");
   const match = (await getVerifiedTokens()).find((t) => t.symbol.toUpperCase() === sym && !/^0x0+$/.test(t.address));
   if (!match) {
     throw new Error(`${sym} isn't a token PayAI can swap yet. Try MON, USDC, USDT0, AUSD, WETH, or WBTC.`);
@@ -448,22 +448,22 @@ async function candidateProviders(): Promise<SwapProvider[]> {
   return [uniswapV3Provider, kuruProvider].filter((p) => p.isConfigured());
 }
 
-/** Quotes every configured provider that can serve this pair and returns
- *  whichever gives the better real output. Sequential, not raced — quoting
- *  is cheap RPC/HTTP work, not worth the added complexity of a concurrent
- *  race for what's a one-shot preview, not a hot path. A provider throwing
- *  (pair it doesn't cover, no liquidity, an RPC hiccup) just excludes that
- *  one candidate — it only surfaces as an error if EVERY provider failed. */
+/** Quotes every configured provider that can serve this pair CONCURRENTLY
+ *  and returns whichever gives the better real output — a user waiting on
+ *  a swap preview waits for the SLOWEST provider, not the sum of all of
+ *  them. A provider throwing (pair it doesn't cover, no liquidity, an RPC
+ *  hiccup) just excludes that one candidate — it only surfaces as an error
+ *  if EVERY provider failed. */
 async function bestQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: number): Promise<{ provider: SwapProvider; quote: SwapQuote }> {
   const providers = await candidateProviders();
+  const settled = await Promise.allSettled(
+    providers.map(async (provider) => ({ provider, quote: await provider.quote(fromToken, toToken, amountIn) })),
+  );
   const ok: { provider: SwapProvider; quote: SwapQuote }[] = [];
   const failures: unknown[] = [];
-  for (const provider of providers) {
-    try {
-      ok.push({ provider, quote: await provider.quote(fromToken, toToken, amountIn) });
-    } catch (e) {
-      failures.push(e);
-    }
+  for (const r of settled) {
+    if (r.status === "fulfilled") ok.push(r.value);
+    else failures.push(r.reason);
   }
   if (ok.length === 0) {
     // Providers are tried in coverage order (Uniswap first — broader pair
