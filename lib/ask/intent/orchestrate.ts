@@ -105,7 +105,19 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
   }
 
   switch (u.kind) {
-    case "send_payment": return { message: await dispatchSendPayment(u.slots, walletAddress), nextPending: null };
+    case "send_payment": {
+      const message = await dispatchSendPayment(u.slots, walletAddress);
+      // A ready-to-confirm payment card stays "pending" (in the same sense
+      // as an incomplete intent) so a follow-up like "actually make it 75"
+      // or "yes, send it" is understood as continuing/correcting THIS
+      // payment rather than starting an unrelated new one — see
+      // classify.ts rule 3 and useAskChat's natural-confirmation handling.
+      // A question, refusal, or error carries nothing forward to correct.
+      const nextPending = message.operation?.status === "ready" && message.operation.intent.kind === "payment"
+        ? { kind: "send_payment" as const, outcome: "complete" as const, slots: u.slots }
+        : null;
+      return { message, nextPending };
+    }
     case "swap": return { message: await dispatchSwap(u.slots, walletAddress), nextPending: null };
     case "schedule_payment": return { message: await dispatchSchedule("schedule_payment", u.slots, walletAddress), nextPending: null };
     case "recurring_payment": return { message: await dispatchSchedule("recurring_payment", u.slots, walletAddress), nextPending: null };

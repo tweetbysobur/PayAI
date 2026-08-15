@@ -69,7 +69,7 @@ Capabilities PayAI supports today, and what each needs:
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
 2. Never default an unstated asset to USDC or MON. If it matters and wasn't said, ask.
-3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, "actually make it 30", or "what about MON?" right after a balance answer), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. Only start fresh if the message is clearly about something else.
+3. You are given the current PENDING intent, if any, plus recent conversation. If the new message continues, answers, or corrects that pending intent (e.g. a bare "20" after you asked for an amount, "actually make it 30", or "what about MON?" right after a balance answer), merge into the SAME kind with updated slots — do not treat it as an unrelated new request. This applies even when the pending intent is already "complete" (e.g. a payment has just been previewed and is awaiting the user's confirmation) — "actually make it 75" or "change it to 0x456..." at that point still means "correct the amount/recipient of THIS payment," not "start describing a new one." Only start fresh if the message is clearly about something else.
 4. If you can identify a specific capability above but something required is missing, use outcome "incomplete" and write ONE short, natural question asking for exactly what's still missing — never re-ask for something already known, never open a form.
 5. If the request describes something real that PayAI does not support today (staking, lending, leverage/trading, NFTs, bridging to another chain, anything off this list), use outcome "unsupported". Explain briefly and honestly that it isn't available yet. Do NOT reinterpret it as send_payment or swap just because those happen to be supported.
 6. If you genuinely cannot tell what the user wants at all, use outcome "unclear" and ask a natural clarifying question. Do not guess or force it into one of the capabilities above.
@@ -196,21 +196,58 @@ async function understandDeterministic(text: string, pending: Understanding | nu
 
   if (pending && pending.outcome === "incomplete") {
     const missing = REQUIRED_SLOTS[pending.kind].filter((k) => !pending.slots[k]);
-    if (missing.length === 1) {
-      const key = missing[0];
-      const trimmed = text.trim();
-      const filled: AskSlots = { ...pending.slots };
-      if (key === "amount" && /^\d+(\.\d+)?$/.test(trimmed)) filled.amount = trimmed;
-      else if ((key === "toAsset" || key === "asset" || key === "fromAsset") && /^(MON|USDC)$/i.test(trimmed)) (filled as Record<string, unknown>)[key] = trimmed.toUpperCase();
-      else if (key === "recipient" && trimmed) filled.recipient = trimmed;
-      else if (key === "frequency" && /^(daily|weekly|monthly)$/i.test(trimmed)) filled.frequency = trimmed.toLowerCase() as "daily" | "weekly" | "monthly";
-      else if (key === "recipientCount" && /^\d+$/.test(trimmed)) filled.recipientCount = Number(trimmed);
-      else if (key === "when" && trimmed) filled.when = trimmed;
-      if (filled[key]) {
-        const stillMissing = REQUIRED_SLOTS[pending.kind].filter((k) => !filled[k]);
-        return stillMissing.length === 0
-          ? { kind: pending.kind, outcome: "complete", slots: filled }
-          : { kind: pending.kind, outcome: "incomplete", slots: filled, question: `And ${stillMissing[0]}?` };
+    // Trailing punctuation ("50.", "yes!") shouldn't block recognizing the
+    // answer underneath it — the value stored is always the stripped form.
+    const stripped = text.trim().replace(/[.!]+$/, "");
+    // Try every still-missing slot against the shape of what was actually
+    // said — not just when exactly one thing is missing overall (a payment
+    // can easily be two slots short, e.g. after "I want to send some USDC."
+    // leaves both amount and recipient open). Only ever commits a fill when
+    // EXACTLY ONE still-missing slot's shape matches this message; if the
+    // message's shape could plausibly answer more than one open question
+    // (e.g. a bare number when both amount and recipientCount are open),
+    // that's genuinely ambiguous and this fallback does not guess.
+    const candidates: Partial<AskSlots> = {};
+    for (const key of missing) {
+      if (key === "amount" && /^\d+(\.\d+)?$/.test(stripped)) candidates.amount = stripped;
+      else if ((key === "toAsset" || key === "asset" || key === "fromAsset") && /^(MON|USDC)$/i.test(stripped)) (candidates as Record<string, unknown>)[key] = stripped.toUpperCase();
+      else if (key === "recipient" && stripped && !/^\d+(\.\d+)?$/.test(stripped) && !/^(MON|USDC)$/i.test(stripped)) {
+        const addr = stripped.match(/0x[a-fA-F0-9]{40}/)?.[0];
+        const domain = stripped.match(/\b[a-z0-9-]+\.(nad|nads)\b/i)?.[0];
+        candidates.recipient = addr ?? domain ?? stripped.replace(/^to\s+/i, "").trim();
+      }
+      else if (key === "frequency" && /^(daily|weekly|monthly)$/i.test(stripped)) candidates.frequency = stripped.toLowerCase() as "daily" | "weekly" | "monthly";
+      else if (key === "recipientCount" && /^\d+$/.test(stripped)) candidates.recipientCount = Number(stripped);
+      else if (key === "when" && stripped) candidates.when = stripped;
+    }
+    const filledKeys = Object.keys(candidates) as (keyof AskSlots)[];
+    if (filledKeys.length === 1) {
+      const filled: AskSlots = { ...pending.slots, ...candidates };
+      const stillMissing = REQUIRED_SLOTS[pending.kind].filter((k) => !filled[k]);
+      return stillMissing.length === 0
+        ? { kind: pending.kind, outcome: "complete", slots: filled }
+        : { kind: pending.kind, outcome: "incomplete", slots: filled, question: `And ${stillMissing[0]}?` };
+    }
+  }
+
+  // A correction to a payment that's already complete and being previewed
+  // ("Actually make it 75", "change it to 0x456...") — narrower than the
+  // missing-slot fill above (requires an explicit correction word, not just
+  // a bare number) since a bare number here is genuinely ambiguous: it could
+  // be the start of an unrelated new message rather than a correction.
+  if (pending && pending.outcome === "complete" && pending.kind === "send_payment") {
+    const trimmed = text.trim();
+    if (/\b(actually|instead|change it|update it|make it|correct(ion)?)\b/i.test(trimmed)) {
+      const addrMatch = trimmed.match(/0x[a-fA-F0-9]{40}/);
+      const withoutAddr = addrMatch ? trimmed.replace(addrMatch[0], " ") : trimmed;
+      const amountMatch = withoutAddr.match(/\d+(?:\.\d+)?/);
+      const assetMatch = trimmed.match(/\b(MON|USDC)\b/i);
+      if (addrMatch || amountMatch || assetMatch) {
+        const updated: AskSlots = { ...pending.slots };
+        if (addrMatch) updated.recipient = addrMatch[0];
+        if (assetMatch) updated.asset = assetMatch[0].toUpperCase();
+        if (amountMatch) updated.amount = amountMatch[0];
+        return { kind: "send_payment", outcome: "complete", slots: updated };
       }
     }
   }
@@ -278,16 +315,26 @@ async function understandDeterministic(text: string, pending: Understanding | nu
   // other action keyword matched — that's brain.ts's fallback value for
   // genuine payment text, not a positive "this is a payment" signal. Gating
   // on an actual send/pay verb here (rather than trusting that default)
-  // matters: without it, "...I need to get MON..." reads its own "to get"
-  // as a `to <recipient>` clause and misfires as an incomplete payment.
+  // matters: without it, "...I need to get MON..." would misfire as a
+  // payment — looksLikeSendPayment requires a real "send"/"pay " word,
+  // which that phrase doesn't have, so it's excluded regardless of what
+  // detectRecipient below extracts (see brain.ts's own fix for why "to get"
+  // no longer gets misread as a `to <recipient>` clause in the first place).
+  // Unlike the two branches, an amount/recipient isn't required to enter
+  // this one — "I want to send some USDC." names no amount or recipient at
+  // all yet is a completely legitimate start to a payment ("How much?" is
+  // the right next question), and requiring one up front would just make
+  // that exact case fall through to "unclear" instead.
   const { looksLikeSendPayment } = await import("@/lib/ask/sendPayment/parse");
   const base = parseIntentDeterministic(text);
-  if (looksLikeSendPayment(text) && base.action === "send_payment" && (base.amount != null || base.recipient)) {
+  if (looksLikeSendPayment(text) && base.action === "send_payment") {
     const slots: AskSlots = { ...emptySlots(), amount: base.amount != null ? String(base.amount) : null, asset: /\b(MON|USDC)\b/i.test(text) ? base.token : null, recipient: base.recipient };
     const missing = REQUIRED_SLOTS.send_payment.filter((k) => !slots[k]);
+    // Amount before recipient when both are missing — "How much?" then
+    // "Who should receive it?", matching how a person would actually ask.
     return missing.length === 0
       ? { kind: "send_payment", outcome: "complete", slots }
-      : { kind: "send_payment", outcome: "incomplete", slots, question: missing.includes("recipient") ? `Who should receive ${slots.amount ? `the ${slots.amount}${slots.asset ? ` ${slots.asset}` : ""}` : "it"}?` : missing.includes("amount") ? `How much${slots.asset ? ` ${slots.asset}` : ""} would you like to send?` : "Which token — MON or USDC?" };
+      : { kind: "send_payment", outcome: "incomplete", slots, question: missing.includes("amount") ? `How much${slots.asset ? ` ${slots.asset}` : ""} would you like to send?` : missing.includes("recipient") ? `Who should receive ${slots.amount ? `the ${slots.amount}${slots.asset ? ` ${slots.asset}` : ""}` : "it"}?` : "Which token — MON or USDC?" };
   }
 
   return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you tell me more?" };

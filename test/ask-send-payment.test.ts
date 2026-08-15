@@ -45,6 +45,21 @@ describe("send_payment — AI intent parser (pure text extraction, never resolve
     const c2 = extractSendPaymentCandidate("Send 50 USDC.");
     expect(c2.recipientText).toBeNull();
   });
+
+  it("different wording for the same payment resolves to the identical amount/asset/recipient", () => {
+    // The task spec's own set of equivalent phrasings.
+    const variants = [
+      `Send 50 USDC to ${ADDR}`,
+      `Pay ${ADDR} 50 USDC`,
+      `Can you transfer 50 USDC to ${ADDR}?`,
+    ];
+    for (const text of variants) {
+      const c = extractSendPaymentCandidate(text);
+      expect(c.amountText).toBe("50");
+      expect(c.assetText).toBe("USDC");
+      expect(c.recipientText).toBe(ADDR);
+    }
+  });
 });
 
 describe("send_payment — validation layer (missing/invalid fields ask, never guess)", () => {
@@ -189,7 +204,7 @@ describe("send_payment — respondToSendPayment (preview only, never executes)",
     }
   });
 
-  it("insufficient balance is surfaced as a refusal with the real reason, no operation card", async () => {
+  it("insufficient USDC balance is surfaced as a refusal with the real reason, no operation card", async () => {
     const { restore } = mockFetch(() => ({
       decision: "refused",
       intent: { action: "send_payment", amount: 5000, token: "USDC", recipient: ADDR, purpose: null, network: "monad", summary: "Send 5000 USDC", confidence: 1 },
@@ -201,6 +216,23 @@ describe("send_payment — respondToSendPayment (preview only, never executes)",
       const msg = await respondToSendPayment(`Send 5000 USDC to ${ADDR}`, WALLET);
       expect(msg?.operation).toBeUndefined();
       expect(msg?.content).toMatch(/insufficient usdc balance/i);
+    } finally {
+      restore();
+    }
+  });
+
+  it("insufficient MON balance is surfaced as a refusal with the real reason, no operation card — checked separately from USDC since native MON has no ERC-20 balanceOf call behind it", async () => {
+    const { restore } = mockFetch(() => ({
+      decision: "refused",
+      intent: { action: "send_payment", amount: 500, token: "MON", recipient: ADDR, purpose: null, network: "monad", summary: "Send 500 MON", confidence: 1 },
+      guardrail: { allowed: false, violations: ["Insufficient MON balance."] },
+      compliance: { status: "approved", summary: "ok", checks: [] },
+      risk: { score: 10, level: "low", factors: [] },
+    }));
+    try {
+      const msg = await respondToSendPayment(`Send 500 MON to ${ADDR}`, WALLET);
+      expect(msg?.operation).toBeUndefined();
+      expect(msg?.content).toMatch(/insufficient mon balance/i);
     } finally {
       restore();
     }

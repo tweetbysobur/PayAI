@@ -260,8 +260,12 @@ function detectRecipient(text: string, address?: string, domain?: string | null)
   // truncate it at the "." (it treats a period as a sentence-end stop), so it
   // must be caught before that lossy parse runs.
   if (domain) return domain;
+  // The negative lookahead keeps an infinitive ("want TO send", "need TO
+  // get") from being misread as the "to <recipient>" clause — "I want to
+  // send some USDC" has no recipient at all, but naively the generic regex
+  // captures "send some" as if it were one.
   const m =
-    text.match(/\bto\s+(.+?)(?:\s+on\s+\w+|\s+for\b|\s+via\b|[.,]|$)/i) ||
+    text.match(/\bto\s+(?!(?:send|pay|transfer|wire|remit|get|receive)\b)(.+?)(?:\s+on\s+\w+|\s+for\b|\s+via\b|[.,]|$)/i) ||
     text.match(/\b(?:pay|send|transfer|wire|remit)\s+([A-Za-z][\w .'-]*?)\s+\$?\d/i);
   if (!m) return null;
   const r = m[1].replace(/\b(usdc|usdt|usd|tokens?)\b/gi, "").trim();
