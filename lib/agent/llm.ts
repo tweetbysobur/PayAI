@@ -29,7 +29,11 @@ export async function refineWithLLM(
   prior: ParsedIntent,
 ): Promise<ParsedIntent> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-  const model = process.env.VERIPAYAI_MODEL || "claude-opus-4-8";
+  // Sonnet, not Opus: this is a normalization/correction pass over an
+  // already-parsed intent, not open-ended reasoning -- Opus's extra latency
+  // bought little here. Overridable via VERIPAYAI_MODEL if a deployment
+  // needs a different tier.
+  const model = process.env.VERIPAYAI_MODEL || "claude-sonnet-5";
 
   const msg = await client.messages.create({
     model,
