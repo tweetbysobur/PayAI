@@ -7,15 +7,25 @@
  * pipeline. orchestrate.ts is the only thing allowed to act on what this
  * returns, and only after the user explicitly confirms.
  *
- * Two paths:
- *  - understandWithLLM: a real Claude call (forced tool output), given the
- *    conversation so far and any in-flight (pending) intent so it can merge
- *    a follow-up ("20", "make it 30") into what's already being built,
- *    instead of treating every message as an isolated command.
- *  - understandDeterministic: the key-free fallback, reusing PayAI's
- *    existing production detectors (lib/agent/brain.ts) so the product still
- *    runs with zero external dependency — reduced to recognizable keywords
- *    rather than open-ended phrasing, and honest about that limit.
+ * `understand()` is a lightweight ROUTER first, an Anthropic caller second —
+ * see routeRequest() below. Most messages (greetings, factual questions,
+ * read-only wallet/transaction queries the deterministic engine can
+ * confidently resolve, and follow-ups that merge into an already-classified
+ * pending intent) are answered without ever touching the network. Anthropic
+ * is reserved for messages that actually need semantic reasoning: a fresh
+ * money-moving request (send/swap/schedule/recurring/distribution — these
+ * always get a real understanding pass, never a locally-guessed shortcut,
+ * even when the deterministic engine thinks it already has every field) or
+ * anything the deterministic engine can't confidently place at all.
+ *
+ * When Anthropic IS needed, understandWithLLM makes a real Claude call
+ * (forced tool output), given the conversation so far and any in-flight
+ * (pending) intent so it can merge a follow-up ("20", "make it 30") into
+ * what's already being built. If no key is configured, or a live call
+ * fails, the router's own engine (classifyFresh/tryMergePending — also what
+ * every "skip Anthropic" route above is answered from) is used instead —
+ * reduced to recognizable keywords rather than open-ended phrasing, and
+ * honest about that limit.
  *
  * Server-only — never bundle this (or an API key) into client code.
  */
@@ -179,21 +189,32 @@ async function understandWithLLM(
     ],
   });
 
+  if (msg.usage) {
+    const cost = estimateCostUsd(model, msg.usage.input_tokens, msg.usage.output_tokens);
+    console.log([
+      "[AskPayAI Router]", "anthropic_call=true", `model=${model}`,
+      `input_tokens=${msg.usage.input_tokens}`, `output_tokens=${msg.usage.output_tokens}`,
+      ...(cost != null ? [`est_cost_usd=${cost.toFixed(5)}`] : []),
+    ].join("\n"));
+  }
+
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!tool) return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you say a bit more?" };
   return coerce(tool.input as Record<string, unknown>);
 }
 
 /**
- * Key-free fallback — reuses PayAI's existing production detectors so the
- * product still works with zero external dependency, at reduced (keyword-
- * matched, not open-ended) capability. Only a light merge with a pending
- * intent: if a bare number/token answers exactly the one missing slot, fill
- * it; anything less direct falls back to a fresh classification.
+ * Resolves a follow-up against an already-known pending intent — filling a
+ * missing slot ("50" after "How much?") or correcting a complete one
+ * ("actually make it 75"). Deliberately synchronous and side-effect-free:
+ * this is the piece routeRequest() trusts to skip Anthropic for a follow-up
+ * even on a money-moving intent, since it's only ever a small, unambiguous
+ * substitution into a request Anthropic (or a confidently-matched
+ * deterministic detector) already classified once — never a fresh guess.
+ * Returns null when the message doesn't clearly answer/correct anything,
+ * so the caller can fall through to a fresh classification instead.
  */
-async function understandDeterministic(text: string, pending: Understanding | null): Promise<Understanding> {
-  const { detectSwapIntent, parseScheduleIntent, detectQueryIntent, parseIntentDeterministic } = await import("@/lib/agent/brain");
-
+function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   if (pending && pending.outcome === "incomplete") {
     const missing = REQUIRED_SLOTS[pending.kind].filter((k) => !pending.slots[k]);
     // Trailing punctuation ("50.", "yes!") shouldn't block recognizing the
@@ -257,6 +278,19 @@ async function understandDeterministic(text: string, pending: Understanding | nu
       }
     }
   }
+
+  return null;
+}
+
+/**
+ * Fresh (non-follow-up) classification via PayAI's existing production
+ * detectors — reduced (keyword-matched, not open-ended) capability, and
+ * honest about that limit. Used both as the key-free fallback and, via
+ * routeRequest(), as the router's own "can I handle this locally" engine
+ * for read-only queries.
+ */
+async function classifyFresh(text: string): Promise<Understanding> {
+  const { detectSwapIntent, parseScheduleIntent, detectQueryIntent, parseIntentDeterministic } = await import("@/lib/agent/brain");
 
   const swap = detectSwapIntent(text);
   if (swap) {
@@ -346,15 +380,197 @@ async function understandDeterministic(text: string, pending: Understanding | nu
   return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you tell me more?" };
 }
 
+/* ── The router ────────────────────────────────────────────────────────────
+ * routeRequest() decides, BEFORE any Anthropic call, whether one is needed
+ * at all. It is deliberately small and deterministic — not a parallel
+ * keyword classifier competing with the real natural-language layer, just a
+ * front gate that recognizes the messages the application can already
+ * answer with total confidence (a greeting, a fixed fact, a follow-up that
+ * unambiguously merges into a known pending intent, or a read-only query
+ * the existing deterministic detectors resolve) and lets everything else —
+ * including every FRESH money-moving request — through to real semantic
+ * understanding. */
+
+export const ROUTE_CATEGORIES = [
+  "simple_chat",
+  "deterministic_query",
+  "wallet_query",
+  "transaction_query",
+  "follow_up",
+  "actionable_operation",
+  "ambiguous",
+] as const;
+export type RouteCategory = (typeof ROUTE_CATEGORIES)[number];
+
+export interface RouteResult {
+  route: RouteCategory;
+  /** Whether understand() needs to make a real Anthropic call for this. */
+  anthropic: boolean;
+  /** Set (and authoritative) whenever anthropic is false. */
+  understanding: Understanding | null;
+  /** The deterministic engine's own best guess either way — used as the
+   *  fallback if anthropic is true but no key is configured, or a live call
+   *  fails. Never used as the primary answer when anthropic is true. */
+  fallback: Understanding;
+}
+
+const READONLY_KINDS = new Set<AskIntentKind>([
+  "wallet_balance", "token_balance", "transaction_history", "wallet_activity",
+  "transaction_status", "transaction_details", "automation_management",
+]);
+const TRANSACTION_KINDS = new Set<AskIntentKind>([
+  "transaction_history", "wallet_activity", "transaction_status", "transaction_details",
+]);
+
+const GREETING_RE = /^(hi|hello|hey|yo|howdy|good\s*(morning|afternoon|evening)|sup|what'?s\s*up)[!.? ]*$/i;
+const THANKS_RE = /^(thanks|thank\s*you|thx|ty|appreciate\s*it|cheers)[!.? ]*$/i;
+const FAREWELL_RE = /^(bye|goodbye|see\s*ya|see\s*you|later|farewell|take\s*care)[!.? ]*$/i;
+
+/** A signal that an actionable request might be riding along in the same
+ *  message as a greeting/fact/time question ("what is USDC, and can you
+ *  send 50 of it to 0x...?"). GREETING/THANKS/FAREWELL are already anchored
+ *  to the WHOLE message so they can't be hijacked this way, but the FACTS
+ *  and time/date checks below match a substring anywhere in the text — this
+ *  guards them so a compound message always falls through to real
+ *  classification instead of silently answering only the fact half and
+ *  dropping the actionable half. */
+const ACTIONABLE_SIGNAL_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|recurring|automate)\b|0x[a-fA-F0-9]{40}|\d+(?:\.\d+)?\s*(?:MON|USDC)\b/i;
+
+/** Ordinary conversation with no operation implied — answered locally,
+ *  never worth an Anthropic call. */
+function matchSimpleChat(text: string): string | null {
+  const t = text.trim();
+  if (GREETING_RE.test(t)) return "Hey! I'm Ask PayAI — tell me what you'd like to do: send a payment, swap tokens, check a balance, or set up an automation.";
+  if (THANKS_RE.test(t)) return "Anytime! Let me know if there's anything else.";
+  if (FAREWELL_RE.test(t)) return "See you around!";
+  return null;
+}
+
+/** Fixed, honest facts about the product — the answer never depends on the
+ *  user's own data or context, so there's nothing for an LLM to reason
+ *  about. Kept intentionally short and accurate to what's actually true
+ *  elsewhere in the product, not a marketing pitch. */
+const FACTS: { re: RegExp; reply: string }[] = [
+  { re: /\bwhat\s+is\s+payai\b/i, reply: "PayAI is a non-custodial AI payment platform on Monad — you describe a payment in plain English, and your own wallet signs it. PayAI never holds your funds or asks for your seed phrase." },
+  { re: /\bhow\s+does\s+payai\s+work\b/i, reply: "You tell PayAI what you want to do — send, swap, or schedule a payment — in your own words. PayAI parses it, shows you a preview, and only moves anything once you explicitly confirm and sign with your own wallet." },
+  { re: /\bwhat\s+is\s+mon\b/i, reply: "MON is the native token of Monad, the network PayAI runs on — it's used to pay network fees and can be sent or swapped like any other supported asset." },
+  { re: /\bwhat\s+is\s+usdc\b/i, reply: "USDC is a USD-pegged stablecoin — one of the two assets PayAI supports sending and swapping today, alongside MON." },
+];
+
+/** Deterministic, non-personal facts (product info, time/date) — answered
+ *  locally. Distinct from simple_chat only for router/logging clarity. */
+function matchDeterministicFact(text: string): string | null {
+  if (ACTIONABLE_SIGNAL_RE.test(text)) return null;
+  const t = text.trim();
+  for (const f of FACTS) if (f.re.test(t)) return f.reply;
+  if (/\bwhat\s+time\s+is\s+it\b/i.test(t)) {
+    return `It's ${new Date().toISOString().slice(11, 16)} UTC right now — check your device's clock for your local time.`;
+  }
+  if (/\bwhat'?s\s+(today'?s\s+)?date\b|\bwhat\s+day\s+is\s+it\b/i.test(t)) {
+    return `Today is ${new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })} (UTC).`;
+  }
+  return null;
+}
+
+// "Was THAT successful?" needs conversation history to know what "that"
+// refers to — the deterministic transaction_status/transaction_details
+// heuristics match on generic words (it/that/this/payment/transaction) and
+// can't tell a self-contained query ("show my LATEST transaction", safe to
+// resolve locally — it names what it means) from a bare pronoun leaning on
+// context that may point at something other than "the most recent one".
+// Only the self-contained shape is trusted locally; a bare pronoun WITH
+// real prior conversation to (possibly wrongly) default away from goes to
+// Anthropic, which can actually read the referent back out of that history.
+const SELF_CONTAINED_TX_RE = /\b(latest|last|recent|most\s+recent)\b/i;
+const REFERENTIAL_PRONOUN_RE = /\b(that|it|this)\b/i;
+
+/** Decides whether this message needs Anthropic before anything is spent on
+ *  it. See the module-level comment above for the categories and the
+ *  reasoning behind which ones skip a real call. */
+export async function routeRequest(text: string, pending: Understanding | null, history: ConversationTurn[] = []): Promise<RouteResult> {
+  const chatReply = matchSimpleChat(text);
+  if (chatReply) {
+    const u: Understanding = { kind: "chat", outcome: "chat", reply: chatReply };
+    return { route: "simple_chat", anthropic: false, understanding: u, fallback: u };
+  }
+  const factReply = matchDeterministicFact(text);
+  if (factReply) {
+    const u: Understanding = { kind: "chat", outcome: "chat", reply: factReply };
+    return { route: "deterministic_query", anthropic: false, understanding: u, fallback: u };
+  }
+
+  const merged = tryMergePending(text, pending);
+  if (merged) return { route: "follow_up", anthropic: false, understanding: merged, fallback: merged };
+
+  const fresh = await classifyFresh(text);
+  // classifyFresh only ever actually returns an actionable kind (complete or
+  // incomplete) or "unclear" — this check also narrows fresh.kind to
+  // AskIntentKind for the Set lookups below.
+  if (fresh.outcome !== "incomplete" && fresh.outcome !== "complete") {
+    return { route: "ambiguous", anthropic: true, understanding: null, fallback: fresh };
+  }
+  if (
+    (fresh.kind === "transaction_status" || fresh.kind === "transaction_details") &&
+    history.length > 0 && REFERENTIAL_PRONOUN_RE.test(text) && !SELF_CONTAINED_TX_RE.test(text)
+  ) {
+    return { route: "ambiguous", anthropic: true, understanding: null, fallback: fresh };
+  }
+  if (READONLY_KINDS.has(fresh.kind)) {
+    const route: RouteCategory = TRANSACTION_KINDS.has(fresh.kind) ? "transaction_query" : "wallet_query";
+    return { route, anthropic: false, understanding: fresh, fallback: fresh };
+  }
+  // A FRESH send_payment/swap/schedule_payment/recurring_payment/
+  // distribution always gets a real Anthropic read, even when the
+  // deterministic engine thinks it already has every field — a clean
+  // "Send 50 USDC to 0x..." is exactly as easy for a human to read as it is
+  // for a keyword matcher, but money-moving intent deserves real semantic
+  // understanding, not a locally-guessed shortcut. A FOLLOW-UP correcting
+  // an already-Anthropic-vetted pending operation is the different, safe
+  // case handled above by tryMergePending.
+  return { route: "actionable_operation", anthropic: true, understanding: null, fallback: fresh };
+}
+
+/** Rough, dev-facing cost estimate — never shown to users, only logged.
+ *  Rates are USD per 1M tokens; unrecognized models log token counts only. */
+const MODEL_PRICING_PER_MILLION: Record<string, { input: number; output: number }> = {
+  "claude-opus-4-8": { input: 5, output: 25 },
+  "claude-opus-4-7": { input: 5, output: 25 },
+  "claude-opus-4-6": { input: 5, output: 25 },
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-sonnet-5": { input: 3, output: 15 },
+  "claude-sonnet-4-6": { input: 3, output: 15 },
+  "claude-haiku-4-5": { input: 1, output: 5 },
+};
+
+function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number | null {
+  const rate = MODEL_PRICING_PER_MILLION[model];
+  if (!rate) return null;
+  return (inputTokens * rate.input + outputTokens * rate.output) / 1_000_000;
+}
+
+/** Structured, dev-facing observability only — never returned to the client
+ *  (understand()'s return value is just the Understanding). Matches the
+ *  product's own log-line format so these are easy to grep/aggregate. */
+function logRouterDecision(routed: RouteResult) {
+  const lines = [`[AskPayAI Router]`, `route=${routed.route}`, `anthropic=${routed.anthropic}`];
+  const kind = (routed.understanding ?? routed.fallback).kind;
+  if (kind !== "chat" && kind !== "unclear" && kind !== "unsupported") lines.push(`intent=${kind}`);
+  console.log(lines.join("\n"));
+}
+
 export async function understand(
   text: string,
   history: ConversationTurn[],
   pending: Understanding | null,
 ): Promise<Understanding> {
-  if (!process.env.ANTHROPIC_API_KEY) return understandDeterministic(text, pending);
+  const routed = await routeRequest(text, pending, history);
+  logRouterDecision(routed);
+  if (!routed.anthropic) return routed.understanding!;
+
+  if (!process.env.ANTHROPIC_API_KEY) return routed.fallback;
   try {
     return await understandWithLLM(text, history, pending);
   } catch {
-    return understandDeterministic(text, pending);
+    return routed.fallback;
   }
 }

@@ -44,7 +44,11 @@ describe("understand — LLM path", () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "swap", outcome: "complete", slots: { fromAsset: "USDC", toAsset: "MON", amount: "20" } }));
     const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "swap" as const, outcome: "incomplete" as const, slots: { fromAsset: "USDC", toAsset: "MON", amount: null }, question: "How much USDC?" };
-    await understand("20", [{ role: "user", content: "I want to swap some USDC." }, { role: "assistant", content: "How much USDC would you like to swap, and what token would you like to receive?" }], pending);
+    // A bare number here would be resolved locally by the router (see the
+    // "deterministic follow-ups skip Anthropic entirely" describe block
+    // below) — this phrasing is deliberately not a bare value the local
+    // merge logic recognizes, so it still exercises the real LLM request.
+    await understand("a bit more than usual", [{ role: "user", content: "I want to swap some USDC." }, { role: "assistant", content: "How much USDC would you like to swap, and what token would you like to receive?" }], pending);
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
     const call = mockCreate.mock.calls[0][0] as { system: string; messages: { content: string }[]; tool_choice: unknown };
@@ -54,7 +58,7 @@ describe("understand — LLM path", () => {
     expect(userContent).toContain("Pending intent");
     expect(userContent).toContain("swap");
     expect(userContent).toContain("How much USDC would you like to swap");
-    expect(userContent).toContain('New message: "20"');
+    expect(userContent).toContain('New message: "a bit more than usual"');
     expect(call.tool_choice).toEqual({ type: "tool", name: "submit_understanding" });
   });
 

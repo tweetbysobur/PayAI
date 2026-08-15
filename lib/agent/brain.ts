@@ -329,12 +329,20 @@ export function parseIntentDeterministic(rawText: string): ParsedIntent {
  * Parse an intent. Uses the deterministic PayAI intent engine by default;
  * if ANTHROPIC_API_KEY is set, the LLM refines/normalizes the same fields.
  * The LLM path is intentionally optional so the product runs key-free.
+ *
+ * `skipLLM` opts out of refinement even when a key is configured — for text
+ * that's already unambiguous and machine-generated (Ask PayAI's own
+ * canonical reconstruction from an already-Anthropic-classified intent,
+ * e.g. "Send 50 USDC to 0x1234...5678"), there is nothing left for an LLM
+ * to refine, and calling it anyway would just be a second paid API call for
+ * the same understanding Ask PayAI's own semantic layer already reached.
  */
 export async function parseIntent(
   rawText: string,
+  options?: { skipLLM?: boolean },
 ): Promise<{ intent: ParsedIntent; source: IntentSource }> {
   const base = parseIntentDeterministic(rawText);
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY || options?.skipLLM) {
     return { intent: base, source: "deterministic" };
   }
   // LLM refinement is additive and best-effort; on any failure we keep the

@@ -128,6 +128,21 @@ describe("send_payment — respondToSendPayment (preview only, never executes)",
     }
   });
 
+  it("sends skipLLMRefinement so /api/agent never spends a second Anthropic call re-parsing text Ask PayAI's own semantic layer already classified", async () => {
+    const { calls, restore } = mockFetch(() => ({
+      decision: "ready_to_sign",
+      intent: { action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, purpose: null, network: "monad", summary: "Send 50 USDC", confidence: 1 },
+      guardrail: { allowed: true, violations: [] }, compliance: { status: "approved", summary: "ok", checks: [] }, risk: { score: 5, level: "low", factors: [] },
+      unsignedTx: { to: ADDR, data: "0x", value: "0x1", from: WALLET }, confirmRawText: `Send 50 USDC to ${ADDR}`, requestId: "req-skip",
+    }));
+    try {
+      await respondToSendPayment(`Send 50 USDC to ${ADDR}`, WALLET);
+      expect(calls[0].body).toMatchObject({ skipLLMRefinement: true });
+    } finally {
+      restore();
+    }
+  });
+
   it("valid MON payment intent → ready_to_sign becomes a 'ready' operation card, never auto-executed", async () => {
     const { calls, restore } = mockFetch(() => ({
       decision: "ready_to_sign",

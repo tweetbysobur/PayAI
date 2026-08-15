@@ -33,9 +33,9 @@ export async function POST(req: NextRequest) {
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
 
-  let body: { intent?: string; walletAddress?: string; idempotencyKey?: string };
+  let body: { intent?: string; walletAddress?: string; idempotencyKey?: string; skipLLMRefinement?: boolean };
   try {
-    body = (await req.json()) as { intent?: string; walletAddress?: string; idempotencyKey?: string };
+    body = (await req.json()) as { intent?: string; walletAddress?: string; idempotencyKey?: string; skipLLMRefinement?: boolean };
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -214,8 +214,12 @@ export async function POST(req: NextRequest) {
 
   const trace: TraceEntry[] = [];
 
-  // 1. Understand.
-  const { intent, source } = await parseIntent(text);
+  // 1. Understand. skipLLMRefinement is set by Ask PayAI's own dispatch
+  // functions for text they built themselves (already-classified, canonical
+  // "Send 50 USDC to 0x..." reconstructions) — refining an unambiguous,
+  // machine-generated string would just be a second paid Anthropic call for
+  // an understanding Ask PayAI's semantic layer already reached once.
+  const { intent, source } = await parseIntent(text, { skipLLM: body.skipLLMRefinement === true });
   trace.push({
     step: "intent",
     status: "ok",

@@ -74,7 +74,12 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
     const r = await fetch("/api/agent", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intent: rawText, walletAddress, idempotencyKey }),
+      // The text reaching this point is always Ask PayAI's own canonical
+      // reconstruction from an already-classified intent (see
+      // lib/ask/intent/orchestrate.ts's dispatchSendPayment) — never raw,
+      // ambiguous user wording. Nothing left for a second Anthropic call to
+      // refine, so skip it (see brain.ts's parseIntent skipLLM option).
+      body: JSON.stringify({ intent: rawText, walletAddress, idempotencyKey, skipLLMRefinement: true }),
     });
     json = await r.json();
   } catch {
