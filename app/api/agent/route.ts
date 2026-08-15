@@ -144,7 +144,10 @@ export async function POST(req: NextRequest) {
       const plan = await provider.buildPlan(swap.fromToken, swap.toToken, swap.amount, walletAddress as `0x${string}`);
       return NextResponse.json({
         decision: "swap_ready",
-        provider: provider.name,
+        // getSwapProvider() is an aggregator (Uniswap v3 + Kuru) — the plan
+        // itself carries which one actually won this request; provider.name
+        // alone would always just say "PayAI".
+        provider: plan.provider ?? provider.name,
         swap: plan,
         confirmRawText: text,
         success: false,
