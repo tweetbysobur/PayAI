@@ -1,0 +1,57 @@
+name: Verify deployed contracts on MonadVision
+
+# Manual-only utility: submits already-deployed PayAI contract source to
+# MonadVision's Sourcify-based verifier so their explorer pages show a
+# public "verified" badge. Never runs on push/PR -- purely opt-in, and has
+# zero effect on anything live: verification only publishes already-public
+# source code against an already-deployed address, needs no private key,
+# and cannot alter contract state or behavior.
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Write a minimal foundry.toml pointing at the existing Hardhat contracts dir
+        run: |
+          cat > foundry.toml <<'EOF'
+          [profile.default]
+          src = "contracts"
+          out = "out"
+          solc_version = "0.8.24"
+          optimizer = true
+          optimizer_runs = 200
+          EOF
+
+      - name: Verify MerchantRegistry (0xadf04A50a2319D8B57245Db2aEB101DAb517AA72)
+        continue-on-error: true
+        run: |
+          forge verify-contract \
+            --rpc-url https://rpc.monad.xyz \
+            --verifier sourcify \
+            --verifier-url 'https://sourcify-api-monad.blockvision.org/' \
+            --chain-id 143 \
+            --watch \
+            0xadf04A50a2319D8B57245Db2aEB101DAb517AA72 \
+            contracts/MerchantRegistry.sol:MerchantRegistry
+
+      - name: Verify AutomationVault (0x87D42314d1BAf2386fB9ff3dF398b543bc64cA47)
+        continue-on-error: true
+        run: |
+          forge verify-contract \
+            --rpc-url https://rpc.monad.xyz \
+            --verifier sourcify \
+            --verifier-url 'https://sourcify-api-monad.blockvision.org/' \
+            --chain-id 143 \
+            --watch \
+            --constructor-args 0x0000000000000000000000008eed298c65887bb53a61e28c19a7252b9dc2364f00000000000000000000000025b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a \
+            0x87D42314d1BAf2386fB9ff3dF398b543bc64cA47 \
+            contracts/AutomationVault.sol:AutomationVault
