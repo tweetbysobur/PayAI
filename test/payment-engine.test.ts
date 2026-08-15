@@ -37,20 +37,25 @@ describe("runValidation", () => {
   });
 
   it("flags a large undocumented transfer for review (soft fail)", () => {
-    const r = runValidation(req({ amount: 300, purpose: null }));
+    const r = runValidation(req({ amount: 20_000_000, purpose: null }));
     expect(r.status).toBe("review");
     expect(r.checks.find((c) => c.id === "travel_rule")!.passed).toBe(false);
   });
 
   it("approves a large transfer once a purpose is documented", () => {
-    const r = runValidation(req({ amount: 300, purpose: "invoice #42" }));
+    const r = runValidation(req({ amount: 20_000_000, purpose: "invoice #42" }));
+    expect(r.status).toBe("approved");
+  });
+
+  it("approves an ordinary large transfer without a purpose (below the raised default threshold)", () => {
+    const r = runValidation(req({ amount: 300, purpose: null }));
     expect(r.status).toBe("approved");
   });
 });
 
 describe("assessRisk", () => {
   it("scores a large raw-address transfer as high risk", () => {
-    const r = assessRisk(req({ amount: 600, recipient: ADDR, purpose: null }));
+    const r = assessRisk(req({ amount: 20_000_000, recipient: ADDR, purpose: null }));
     expect(r.level).toBe("high");
     expect(r.score).toBeGreaterThanOrEqual(60);
   });

@@ -29,7 +29,7 @@ import { isSanctionedAddress, sanctionsListLoaded } from "./sanctions";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /** Above this amount, travel-rule documentation (a purpose) is expected. */
-const TRAVEL_RULE_THRESHOLD = Number(process.env.PAYAI_TRAVEL_RULE_THRESHOLD || "250");
+const TRAVEL_RULE_THRESHOLD = Number(process.env.PAYAI_TRAVEL_RULE_THRESHOLD || "10000000");
 /** Name-substring denylist — catches obvious tells before address screening. */
 const DENYLIST = (process.env.PAYAI_DENYLIST || "sanctioned,blocked,ofac")
   .split(",")
