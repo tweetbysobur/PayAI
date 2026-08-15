@@ -1,8 +1,28 @@
 # MerchantRegistry replacement — migration plan
 
-Status: **not started**. Nothing in this document has been executed. This is
-the plan for the one deployment we're deliberately holding back — see
-"Deployable now vs. requires this migration" below.
+Status: **appears to have been executed, on or around 2026-08-14 — this
+status line was simply never updated.** This document said "not started"
+for a day after it stopped being true. Evidence, not direct confirmation
+(no sandbox session has ever had the mainnet write access this migration
+needs, so nothing here ran it):
+`contracts/scripts/verify-e2e-proof-readonly.js`, added 2026-08-14 (the day
+after this doc's last edit), hardcodes `0xf723BE80...508AF` /
+`0xadf04A50...7AA72` as defaults and describes them in its own comments as
+"the CURRENT PaymentExecutor" / "the final cutover address" / wiring "set
+up during today's cutover" — past tense, stated as fact. Those same two
+addresses are independently confirmed live via `GET /api/onchain` on the
+running app (see `contracts/LIVE_CONTRACTS.md`) — they match exactly.
+
+If you're reading this to decide whether to run the migration below:
+**don't, without confirming first** — rerunning
+`deploy-and-migrate-merchant-registry.js` against an already-migrated
+registry would deploy a second, redundant one. Confirm current state first
+(`check-registry-roles-readonly.js` or `verify-e2e-proof-readonly.js`
+against a real payment tx, from an environment with mainnet RPC access)
+before treating anything below as still-pending work.
+
+The original plan (kept below for reference / in case the migration needs
+re-running for a different reason later):
 
 ## Why this is its own migration, not a normal redeploy
 
