@@ -227,23 +227,37 @@ describe("respondToUnderstanding — trade dispatches to /api/ask/trade and neve
     route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad" as const, quotedAt: Date.now(),
   };
 
-  it("a successful quote builds a trade_preview card with status 'success' (never 'ready') and carries context forward", async () => {
-    const { calls, restore } = mockFetch(() => ({ ok: true, data: TRADE_DATA }));
+  it("a successful quote with no wallet builds a trade_preview card with status 'success' (informational-only, no execution to sign) and carries context forward", async () => {
+    const { calls, restore } = mockFetch(() => ({ ok: true, ...TRADE_DATA }));
     try {
       const u: Understanding = { kind: "trade", outcome: "complete", slots: { tradeAction: "buy", amount: "50", amountType: "exact_input", fromAsset: "USDC", toAsset: TOKEN } };
       const r = await respondToUnderstanding(u, null);
       expect(calls[0].url).toBe("/api/ask/trade");
       expect(calls[0].body).toMatchObject({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
       expect(r.message.operation?.intent.kind).toBe("trade_preview");
-      expect(r.message.operation?.status).toBe("success"); // NOT "ready" -- see tradePreviewCard's own doc on why
+      expect(r.message.operation?.status).toBe("success"); // no wallet -- no execution field, informational only
+      if (r.message.operation?.intent.kind === "trade_preview") expect(r.message.operation.intent.execution).toBeUndefined();
       expect(r.message.content).toMatch(/50 USDC/);
       expect(r.message.content).toMatch(/12345 RANDO/);
       expect(r.nextPending).toEqual(u);
     } finally { restore(); }
   });
 
+  it("a successful quote WITH a connected wallet builds a 'ready' card carrying the execution request", async () => {
+    const { restore } = mockFetch(() => ({ ok: true, ...TRADE_DATA }));
+    try {
+      const u: Understanding = { kind: "trade", outcome: "complete", slots: { tradeAction: "buy", amount: "50", amountType: "exact_input", fromAsset: "USDC", toAsset: TOKEN } };
+      const r = await respondToUnderstanding(u, "0xWallet");
+      expect(r.message.operation?.status).toBe("ready");
+      expect(r.message.operation?.confirmLabel).toBe("Confirm trade");
+      if (r.message.operation?.intent.kind === "trade_preview") {
+        expect(r.message.operation.intent.execution?.request).toMatchObject({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+      }
+    } finally { restore(); }
+  });
+
   it("a high-impact trade includes a visible warning in the lead text", async () => {
-    const { restore } = mockFetch(() => ({ ok: true, data: { ...TRADE_DATA, highPriceImpact: true } }));
+    const { restore } = mockFetch(() => ({ ok: true, ...TRADE_DATA, highPriceImpact: true }));
     try {
       const u: Understanding = { kind: "trade", outcome: "complete", slots: { tradeAction: "buy", amount: "50", amountType: "exact_input", fromAsset: "USDC", toAsset: TOKEN } };
       const r = await respondToUnderstanding(u, null);

@@ -15,7 +15,7 @@ import { useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import {
-  classifyMessage, executeSwapIntent, handoffToAutomations, respondToUnderstanding,
+  classifyMessage, executeSwapIntent, executeTradeIntent, handoffToAutomations, respondToUnderstanding,
   type ConversationTurn,
 } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
@@ -32,6 +32,10 @@ function nextId(prefix: string): string {
 export function retryTextFor(op: NonNullable<AskMessage["operation"]>): string | null {
   if (op.intent.kind === "payment" && op.intent.execution) return op.intent.execution.confirmRawText;
   if (op.intent.kind === "swap" && op.intent.execution) return `Swap ${op.intent.fromAmount} ${op.intent.fromToken} to ${op.intent.toToken}`;
+  if (op.intent.kind === "trade_preview") {
+    const d = op.intent.data;
+    return `${d.action === "buy" ? "Buy" : "Sell"} ${d.spend.amount} ${d.spend.token} for ${d.receive.token}`;
+  }
   return null;
 }
 
@@ -50,7 +54,7 @@ export const AFFIRMATION_RE = new RegExp(`^${AFFIRMATION_WORD}(?:\\s*,?\\s*${AFF
  *  the two real, wallet-signed money-moving cards Ask PayAI can show.
  *  Everything else (a schedule/recurring handoff) has no signature step
  *  here to confirm at all — it hands off to the real Automations creator. */
-const CONFIRMABLE_KINDS = new Set<Operation["intent"]["kind"]>(["payment", "swap"]);
+const CONFIRMABLE_KINDS = new Set<Operation["intent"]["kind"]>(["payment", "swap", "trade_preview"]);
 
 /** The most recent still-unsigned, server-approved payment or swap card —
  *  the only thing a bare "yes" is ever allowed to authorize. Undefined when
@@ -100,6 +104,21 @@ export function useAskChat() {
     const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
     setMessages((m) => [...m, notice]);
     const understanding: Understanding = { kind: "swap", outcome: "complete", slots: { amount: intent.fromAmount, fromAsset: intent.fromToken, toAsset: intent.toToken } };
+    const { message } = await respondToUnderstanding(understanding, wallet.address);
+    setMessages((m) => [...m, message]);
+  }
+
+  /** Re-quotes a trade whose preview has gone stale — built entirely from
+   *  the expired card's own already-known action/pair/amount, so this never
+   *  needs a fresh Anthropic call just to ask for the exact same thing
+   *  again. Mirrors requoteExpiredSwap above. */
+  async function requoteExpiredTrade(intent: Extract<Operation["intent"], { kind: "trade_preview" }>) {
+    const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
+    setMessages((m) => [...m, notice]);
+    const req = intent.execution?.request;
+    const understanding: Understanding = req
+      ? { kind: "trade", outcome: "complete", slots: { tradeAction: req.action, fromAsset: req.inputToken, toAsset: req.outputToken, amount: req.amount, amountType: req.amountType, slippage: req.slippage } }
+      : { kind: "trade", outcome: "complete", slots: { tradeAction: intent.data.action, fromAsset: intent.data.spend.token, toAsset: intent.data.receive.token, amount: intent.data.spend.amount, amountType: "exact_input", slippage: null } };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
     setMessages((m) => [...m, message]);
   }
@@ -203,6 +222,25 @@ export function useAskChat() {
       }
       setOp({ ...op, status: "confirming" });
       const result = await executeSwapIntent(op, wallet, wallet.address, setProgressFor);
+      clearProgressFor();
+      setOp(result);
+      return;
+    }
+    if (op.intent.kind === "trade_preview" && op.intent.execution) {
+      if (!wallet.address) {
+        setOp({ ...op, status: "error", error: { message: "Your wallet disconnected — reconnect and try again.", code: "NO_WALLET" } });
+        return;
+      }
+      // Same reasoning as swap above: never execute a stale quote — get a
+      // fresh one instead (no Anthropic call needed, the trade's own
+      // already-known fields are enough).
+      if (isQuoteStale(op.intent.data.quotedAt)) {
+        setOp({ ...op, status: "error", error: { message: "That quote has expired.", code: "QUOTE_EXPIRED" } });
+        await requoteExpiredTrade(op.intent);
+        return;
+      }
+      setOp({ ...op, status: "confirming" });
+      const result = await executeTradeIntent(op, wallet, wallet.address, setProgressFor);
       clearProgressFor();
       setOp(result);
       return;

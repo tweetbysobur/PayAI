@@ -1,12 +1,20 @@
 /**
- * Trade Quote & Validation — Step 3 of the PayAI Trading Engine. Turns a
- * structured trade request (action, input/output token, amount + how to
- * interpret it) into a real, validated quote preview. STRICTLY
- * PRE-EXECUTION: this module never builds an unsigned transaction, never
- * touches a wallet's signer, and is never called from anywhere that could
- * lead to one — see lib/ask/intent/orchestrate.ts's dispatchTrade, the only
- * caller, and components/ask/OperationCard.tsx's TradePreviewBody, whose
- * "Confirm trade" affordance is wired to nothing.
+ * Trade Quote & Validation — Steps 3+4 of the PayAI Trading Engine.
+ *
+ * previewTrade() (Step 3) turns a structured trade request into a real,
+ * validated quote preview — read-only, never touches a wallet's signer.
+ *
+ * prepareTradeExecution() (Step 4) is the ONLY function in this module that
+ * builds an unsigned transaction, and it still never signs or submits
+ * anything — it re-quotes fresh (never trusts the caller's earlier preview),
+ * compares against what the caller says it's currently showing, and only
+ * returns real unsigned steps when nothing material has changed. Signing
+ * itself happens exclusively in lib/ask/intent/orchestrate.ts's
+ * executeTradeIntent, through the SAME wallet the rest of the app already
+ * uses (wallet.sendTransaction/waitForReceipt) — nothing here ever sees a
+ * private key, and nothing here is reachable except from an explicit
+ * "Confirm trade" click on an already-previewed card (see
+ * components/ask/OperationCard.tsx's TradePreviewBody).
  *
  * Reuses, never duplicates:
  *  - lib/monad/tokenRegistry's resolveToken() / lib/monad/swap's
@@ -34,7 +42,10 @@ import "server-only";
 import type { Address } from "viem";
 import { getNetwork } from "./config";
 import { resolveToken } from "./tokenRegistry";
-import { bestQuote, DEFAULT_SLIPPAGE, MAX_PRICE_IMPACT, MAX_SLIPPAGE, quoteUniswapDirect, resolveSwapSide } from "./swap";
+import {
+  bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
+  quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
+} from "./swap";
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 
@@ -274,4 +285,115 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
     network: "Monad",
     quotedAt: Date.now(),
   };
+}
+
+export interface TradeExecutionStep {
+  kind: "approve" | "swap";
+  label: string;
+  tx: { to: string; data: string; value: string };
+}
+
+export interface TradeExecutionReady {
+  ok: true;
+  status: "ready";
+  preview: TradePreviewOk;
+  steps: TradeExecutionStep[];
+}
+
+/** Nothing was built — the fresh quote moved enough (or the route changed)
+ *  that executing against what the user was previously shown would be
+ *  executing a materially different trade than the one they approved. */
+export interface TradeExecutionChanged {
+  ok: true;
+  status: "changed";
+  preview: TradePreviewOk;
+}
+
+export type TradeExecutionResult = TradeExecutionReady | TradeExecutionChanged | TradePreviewErr;
+
+/** What the caller says it's CURRENTLY showing the user — compared against
+ *  a brand-new quote to decide whether anything material moved. */
+export interface PreviousQuoteSnapshot {
+  receiveAmount: string;
+  provider: string;
+}
+
+/** "Material" means: the route/provider changed, OR the receive amount
+ *  moved by more than the request's OWN slippage tolerance would already
+ *  protect against on-chain. Anything within that tolerance is exactly what
+ *  slippage protection exists for — re-confirming it too would just be
+ *  friction the spec doesn't ask for ("Do not silently execute a
+ *  materially different trade" implies a threshold, not zero tolerance). */
+function isMaterialChange(fresh: TradePreviewOk, previous: PreviousQuoteSnapshot | null | undefined, slippageFraction: number): boolean {
+  if (!previous) return false;
+  if (fresh.route.provider !== previous.provider) return true;
+  const freshOut = Number(fresh.receive.amount);
+  const prevOut = Number(previous.receiveAmount);
+  if (!Number.isFinite(freshOut) || !Number.isFinite(prevOut) || prevOut <= 0) return true;
+  return Math.abs(freshOut - prevOut) / prevOut > slippageFraction;
+}
+
+/**
+ * The Step 4 entry point: re-quotes `req` completely fresh (ignoring
+ * whatever the caller previously saw), and — only if nothing material
+ * changed since `previous` — builds the real unsigned transaction steps for
+ * it. Every validation previewTrade() already does (route exists, balance
+ * sufficient, slippage valid, network correct, exact_output still
+ * unsupported) applies here too, since this calls previewTrade() itself
+ * rather than re-implementing any of it.
+ *
+ * Verified pairs reuse getSwapProvider().buildPlan() directly — the EXACT
+ * function the existing, already-signed-in-production Smart Swap feature
+ * uses, so a verified-token trade executes through literally the same code
+ * path (approve logic, native wrap/unwrap, minAmountOut protection,
+ * Kuru-or-Uniswap selection) as an ordinary swap. Arbitrary/unverified
+ * pairs use buildUniswapPlanDirect() (Uniswap only — Kuru's own market list
+ * is small and curated-symbol-keyed, so it was never reachable for these
+ * pairs at the quote stage either; see previewTrade's own doc).
+ */
+export async function prepareTradeExecution(
+  req: TradePreviewRequest, previous?: PreviousQuoteSnapshot | null,
+): Promise<TradeExecutionResult> {
+  if (!req.walletAddress) return { ok: false, message: "Connect your wallet to trade." };
+
+  const preview = await previewTrade(req);
+  if (!preview.ok) return preview;
+
+  const slippageFraction = parseFloat(preview.slippage) / 100;
+  if (isMaterialChange(preview, previous, slippageFraction)) {
+    return { ok: true, status: "changed", preview };
+  }
+
+  let inputSide: ResolvedTradeSide;
+  let outputSide: ResolvedTradeSide;
+  try {
+    // Re-resolved (not carried over from previewTrade's own internals) so
+    // the addresses that actually go into the transaction are re-derived
+    // from the exact same request strings previewTrade() just used —
+    // cheap, since a curated symbol resolves statically and an
+    // already-seen address is already permanently cached in tokenRegistry.
+    inputSide = await resolveTradeSide(req.inputToken);
+    outputSide = await resolveTradeSide(req.outputToken);
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Couldn't prepare that trade." };
+  }
+
+  const wallet = req.walletAddress as Address;
+  try {
+    let steps: UnsignedStep[];
+    if (inputSide.verified && outputSide.verified) {
+      const plan = await getSwapProvider().buildPlan(inputSide.symbol, outputSide.symbol, Number(preview.spend.amount), wallet, slippageFraction);
+      steps = plan.steps;
+    } else {
+      const direct = await buildUniswapPlanDirect(
+        inputSide.address, inputSide.symbol, inputSide.decimals, inputSide.isNative,
+        outputSide.address, outputSide.symbol, outputSide.decimals, outputSide.isNative,
+        preview.spend.amount, slippageFraction, wallet,
+      );
+      steps = direct.steps;
+    }
+    return { ok: true, status: "ready", preview, steps };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : "Couldn't prepare that trade for signing." };
+  }
 }

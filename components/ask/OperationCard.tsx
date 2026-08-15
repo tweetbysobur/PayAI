@@ -60,7 +60,7 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
   distribution: "distribution",
   wallet_operation: "",
   token_intelligence: "",
-  trade_preview: "",
+  trade_preview: "trade",
 };
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
@@ -107,14 +107,15 @@ export function OperationCard({
   const meta = KIND_META[intent.kind];
   const Icon = meta.icon;
   const title = intent.kind === "wallet_operation" ? WALLET_OP_LABEL[intent.operation] : meta.title;
-  // Info surfaces (balance, history, an explainer, a token lookup, a trade
-  // preview) never moved money, so "Sent"/"Preview"/etc. from the real
-  // confirm funnel would misdescribe them — they get their own neutral
-  // label, and (for trade_preview specifically) never route through
-  // CardFooter's real "Confirm with passkey" button at all — see
-  // orchestrate.ts's tradePreviewCard for exactly why that matters here.
-  const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence" || intent.kind === "trade_preview";
-  const chip = intent.kind === "trade_preview"
+  // Info surfaces (balance, history, an explainer, a token lookup) never
+  // moved money, so "Sent"/"Preview"/etc. from the real confirm funnel would
+  // misdescribe them — they get their own neutral label. A trade preview is
+  // "info" too, but only until a wallet is connected: `execution` is only
+  // ever attached once there's a real signer to build against (see
+  // orchestrate.ts's tradePreviewCard) — once it's there, this card is a
+  // real confirm-funnel card like payment/swap, not an info surface.
+  const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence" || (intent.kind === "trade_preview" && !intent.execution);
+  const chip = intent.kind === "trade_preview" && isInfo
     ? { label: "Pre-execution", tone: "border-warning/30 bg-warning/10 text-warning" }
     : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
@@ -471,14 +472,14 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
 }
 
 /**
- * A real, just-fetched trade quote — PRE-EXECUTION ONLY. Every value here
- * comes from lib/monad/tradeQuote.ts's actual quote (see
- * orchestrate.ts's dispatchTrade), never a hardcoded example. The "Confirm
- * trade" button below is intentionally disabled and wired to nothing —
- * Step 3 stops at preview; nothing about this component can sign or move
- * funds (see tradePreviewCard's own doc for why status:"success" rather
- * than "ready" is what actually enforces that, not just this button's
- * disabled attribute).
+ * A real, just-fetched trade quote. Every value here comes from
+ * lib/monad/tradeQuote.ts's actual quote (see orchestrate.ts's
+ * dispatchTrade), never a hardcoded example. When a wallet is connected
+ * (intent.execution present), this renders inside the real confirm funnel —
+ * CardFooter's "Confirm trade" button drives executeTradeIntent, which
+ * re-quotes fresh and never signs the numbers shown here directly (see that
+ * function's own doc). With no wallet connected, there's nothing to execute
+ * against yet, so this stays informational-only (see OperationCard's isInfo).
  */
 function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { kind: "trade_preview" }> }) {
   const d = intent.data;
@@ -523,17 +524,14 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
         <Row label="DEX">{d.route.provider}</Row>
         <Row label="Slippage">{d.slippage}</Row>
         <Row label="Network">{d.network}</Row>
-        <Row label="Status">Ready for confirmation</Row>
       </div>
 
-      <button
-        type="button"
-        disabled
-        title="Trade execution arrives in a future step — this preview never signs or moves funds."
-        className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg bg-input px-3 py-2 text-xs font-medium text-muted-foreground"
-      >
-        <Lock size={13} /> Confirm trade — coming soon
-      </button>
+      {!intent.execution && (
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-input/30 px-3 py-2">
+          <Lock size={13} className="shrink-0 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">Connect your wallet to trade this route.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -572,6 +570,20 @@ function ResultSummary({ intent }: { intent: Operation["intent"] }) {
       </div>
     );
   }
+  if (intent.kind === "trade_preview") {
+    const d = intent.data;
+    return (
+      <div className="mb-3 flex items-center justify-center gap-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
+          <TokenLogo token={d.spend.token} size={18} /> {d.spend.amount} {d.spend.token}
+        </span>
+        <ArrowLeftRight size={14} className="shrink-0 text-muted-foreground" />
+        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
+          <TokenLogo token={d.receive.token} size={18} /> ≈ {d.receive.amount} {d.receive.token}
+        </span>
+      </div>
+    );
+  }
   return null;
 }
 
@@ -583,6 +595,7 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
         <div>
           <p className="text-sm font-semibold text-foreground">
             {intent.kind === "swap" ? "Swap complete"
+              : intent.kind === "trade_preview" ? "Trade completed"
               : intent.kind === "distribution" ? "Distribution sent"
               : intent.kind === "recurring_payment" ? "Automation created"
               : intent.kind === "scheduled_payment" ? "Payment scheduled"
