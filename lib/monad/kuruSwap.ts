@@ -160,11 +160,10 @@ async function resolveKuruMarket(fromToken: SwapToken, toToken: SwapToken): Prom
 
   if (baseAssetAddress === zeroAddress && quoteAssetAddress === zeroAddress) return null; // unregistered market
 
-  // Sequential, matching swap.ts's own rawQuote() -- resolveSwapSide's first
-  // call ever triggers a dynamic import of ./tokenRegistry, and resolving
-  // both sides concurrently before that import settles is unnecessary here.
-  const fromSide = await resolveSwapSide(fromToken);
-  const toSide = await resolveSwapSide(toToken);
+  // Concurrent, matching swap.ts's own rawQuote() -- the two sides don't
+  // depend on each other, so there's no reason to pay two sequential RPC
+  // round-trips for them.
+  const [fromSide, toSide] = await Promise.all([resolveSwapSide(fromToken), resolveSwapSide(toToken)]);
 
   // A symbol matches a market side only if it's genuinely native MON against
   // a native (zero-address) leg, or its registry-resolved address matches

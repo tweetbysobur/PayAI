@@ -271,9 +271,10 @@ async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: numb
     throw new Error(`Slippage tolerance must be between 0% and ${(MAX_SLIPPAGE * 100).toFixed(0)}%.`);
   }
   const pub = getPublicClient();
-  // Registry-resolved, so quoting works for any verified token pair.
-  const inSide = await resolveSwapSide(fromToken);
-  const outSide = await resolveSwapSide(toToken);
+  // Registry-resolved, so quoting works for any verified token pair. The two
+  // sides don't depend on each other, so resolve them concurrently rather
+  // than paying two sequential RPC round-trips.
+  const [inSide, outSide] = await Promise.all([resolveSwapSide(fromToken), resolveSwapSide(toToken)]);
   const tokenIn = inSide.routeAddress;
   const tokenOut = outSide.routeAddress;
   const amountInWei = parseUnits(String(amountIn), inSide.decimals);
