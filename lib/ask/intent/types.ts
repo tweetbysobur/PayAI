@@ -29,6 +29,13 @@ export const ASK_INTENT_KINDS = [
   // deterministically (an EVM address in the message) — see classify.ts's
   // detectTokenLookup() — never by asking Anthropic to spot an address.
   "token_lookup",
+  // Trade intent + quote preview (Step 3) — STILL read-only/pre-execution:
+  // this only ever produces a real quote and a preview card, never a
+  // signature request. Distinct from "swap" above (which is the existing,
+  // EXECUTABLE MON/USDC-style pipeline) specifically so this new capability
+  // can target an arbitrary, uncurated token by contract address without
+  // touching that already-working, already-hardened execution path at all.
+  "trade",
 ] as const;
 
 export type AskIntentKind = (typeof ASK_INTENT_KINDS)[number];
@@ -62,6 +69,21 @@ export interface AskSlots {
    *  prior token_lookup, once the conversation has already identified one) —
    *  always a regex-matched literal from the text, never guessed. */
   tokenAddress?: string | null;
+  /** "trade" intent only: buy = acquiring fromAsset→toAsset's OUTPUT side,
+   *  sell = disposing of the INPUT side. fromAsset/toAsset (above) carry the
+   *  actual two assets — a symbol, an address, or (for whichever side isn't
+   *  explicitly named) the token already identified via conversation context. */
+  tradeAction?: "buy" | "sell" | null;
+  /** "trade" intent only: how `amount` should be interpreted. exact_output
+   *  ("I want exactly 100 tokens") is recognized but never resolved to a
+   *  quote yet — see classify.ts's own note on why, and orchestrate.ts's
+   *  dispatchTrade for the honest "not supported yet" reply this produces. */
+  amountType?: "exact_input" | "exact_output" | "usd" | "percentage" | "balance_all" | null;
+  /** "trade" intent only: a slippage tolerance the user explicitly asked
+   *  for, as a plain number of percent (e.g. "1" for 1%) — never invented,
+   *  left null to mean "use PayAI's own default". Validated against the
+   *  existing MAX_SLIPPAGE ceiling before use, never silently clamped. */
+  slippage?: string | null;
 }
 
 /**

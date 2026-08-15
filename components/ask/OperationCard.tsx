@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
   CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight,
-  Coins, ShieldCheck,
+  Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
@@ -46,6 +46,7 @@ const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title:
   distribution: { icon: Users, title: "Distribution" },
   wallet_operation: { icon: Wallet, title: "" }, // overridden per-operation below
   token_intelligence: { icon: Coins, title: "Token Info" },
+  trade_preview: { icon: TrendingUp, title: "Trade Preview" },
 };
 
 /** What "Review ___" should say — a swap isn't a payment, a distribution
@@ -59,6 +60,7 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
   distribution: "distribution",
   wallet_operation: "",
   token_intelligence: "",
+  trade_preview: "",
 };
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
@@ -105,11 +107,16 @@ export function OperationCard({
   const meta = KIND_META[intent.kind];
   const Icon = meta.icon;
   const title = intent.kind === "wallet_operation" ? WALLET_OP_LABEL[intent.operation] : meta.title;
-  // Info surfaces (balance, history, an explainer, a token lookup) never
-  // moved money, so "Sent"/"Preview"/etc. would misdescribe them — they get
-  // their own neutral label instead of borrowing a transactional one.
-  const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence";
-  const chip = isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
+  // Info surfaces (balance, history, an explainer, a token lookup, a trade
+  // preview) never moved money, so "Sent"/"Preview"/etc. from the real
+  // confirm funnel would misdescribe them — they get their own neutral
+  // label, and (for trade_preview specifically) never route through
+  // CardFooter's real "Confirm with passkey" button at all — see
+  // orchestrate.ts's tradePreviewCard for exactly why that matters here.
+  const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence" || intent.kind === "trade_preview";
+  const chip = intent.kind === "trade_preview"
+    ? { label: "Pre-execution", tone: "border-warning/30 bg-warning/10 text-warning" }
+    : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
   return (
     <motion.div
@@ -240,6 +247,8 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
       return <WalletOperationBody intent={intent} />;
     case "token_intelligence":
       return <TokenIntelligenceBody intent={intent} />;
+    case "trade_preview":
+      return <TradePreviewBody intent={intent} />;
   }
 }
 
@@ -457,6 +466,74 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
       <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
         View contract <ExternalLink size={11} />
       </a>
+    </div>
+  );
+}
+
+/**
+ * A real, just-fetched trade quote — PRE-EXECUTION ONLY. Every value here
+ * comes from lib/monad/tradeQuote.ts's actual quote (see
+ * orchestrate.ts's dispatchTrade), never a hardcoded example. The "Confirm
+ * trade" button below is intentionally disabled and wired to nothing —
+ * Step 3 stops at preview; nothing about this component can sign or move
+ * funds (see tradePreviewCard's own doc for why status:"success" rather
+ * than "ready" is what actually enforces that, not just this button's
+ * disabled attribute).
+ */
+function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { kind: "trade_preview" }> }) {
+  const d = intent.data;
+  const isStale = Date.now() - d.quotedAt > 60_000; // matches the existing swap card's own staleness window
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-center gap-3 rounded-xl border border-border bg-input/30 px-3 py-3">
+        <div className="text-center">
+          <p className="mb-1 text-[11px] text-muted-foreground">Spend</p>
+          <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+            <TokenLogo token={d.spend.token} size={18} /> {d.spend.amount}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{d.spend.token}</p>
+        </div>
+        <ArrowLeftRight size={15} className="shrink-0 text-muted-foreground" />
+        <div className="text-center">
+          <p className="mb-1 text-[11px] text-muted-foreground">Receive</p>
+          <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+            <TokenLogo token={d.receive.token} size={18} /> {d.receive.amount}
+          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{d.receive.token}</p>
+        </div>
+      </div>
+
+      {d.highPriceImpact && (
+        <div className="mb-2.5 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0 text-warning" />
+          <p className="text-xs text-warning">This trade would move the pool price significantly — double-check the amount before proceeding in a future step.</p>
+        </div>
+      )}
+      {isStale && (
+        <div className="mb-2.5 rounded-lg border border-border bg-input/30 px-3 py-2">
+          <p className="text-xs text-muted-foreground">This quote is more than a minute old — prices may have moved. Ask again for a fresh one.</p>
+        </div>
+      )}
+
+      <div className="divide-y divide-border/60">
+        <Row label="Rate">{d.rate}</Row>
+        <Row label="Minimum received">{d.minimumReceived}</Row>
+        <Row label="Price impact">{d.priceImpact ?? "Unavailable"}</Row>
+        <Row label="Route">{d.route.path.join(" → ")}</Row>
+        <Row label="DEX">{d.route.provider}</Row>
+        <Row label="Slippage">{d.slippage}</Row>
+        <Row label="Network">{d.network}</Row>
+        <Row label="Status">Ready for confirmation</Row>
+      </div>
+
+      <button
+        type="button"
+        disabled
+        title="Trade execution arrives in a future step — this preview never signs or moves funds."
+        className="mt-3 flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-lg bg-input px-3 py-2 text-xs font-medium text-muted-foreground"
+      >
+        <Lock size={13} /> Confirm trade — coming soon
+      </button>
     </div>
   );
 }

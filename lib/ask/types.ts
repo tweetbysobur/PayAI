@@ -213,6 +213,46 @@ export interface TokenIntelligenceIntent extends IntentBase {
   data?: TokenData;
 }
 
+/** Which real DEX served the quote, and the actual hop path it returned —
+ *  always a direct [input, output] pair with this app's current
+ *  infrastructure (neither Uniswap's QuoterV2 call nor Kuru's simulate call
+ *  used anywhere in this codebase does multi-hop routing), so a multi-hop
+ *  path is never fabricated here — see lib/monad/tradeQuote's own doc. */
+export interface TradeRoute {
+  provider: string;
+  path: string[];
+}
+
+/** Everything shown on a trade preview — every field computed from a real,
+ *  just-fetched quote (see lib/monad/tradeQuote.ts), never a hardcoded
+ *  example. PRE-EXECUTION ONLY: nothing about this type or its card ever
+ *  signs, approves, or moves funds — see OperationCard's TradePreviewBody
+ *  for the disabled confirm affordance this renders with. */
+export interface TradePreviewData {
+  action: "buy" | "sell";
+  spend: { amount: string; token: string };
+  receive: { amount: string; token: string };
+  rate: string;
+  minimumReceived: string;
+  priceImpact: string | null;
+  /** True when priceImpact exceeds swap.ts's existing MAX_PRICE_IMPACT —
+   *  still shown (this step never blocks on it, only the real execution
+   *  path in Step 4 will), just flagged clearly rather than buried. */
+  highPriceImpact: boolean;
+  route: TradeRoute;
+  slippage: string;
+  network: "Monad";
+  /** Date.now() when this quote was fetched — a confirm long after this is
+   *  a stale price; see useAskChat's staleness handling for the existing
+   *  swap card, which this mirrors. */
+  quotedAt: number;
+}
+
+export interface TradePreviewIntent extends IntentBase {
+  kind: "trade_preview";
+  data: TradePreviewData;
+}
+
 export type Intent =
   | PaymentIntent
   | ScheduledPaymentIntent
@@ -220,7 +260,8 @@ export type Intent =
   | SwapIntent
   | DistributionIntent
   | WalletOperationIntent
-  | TokenIntelligenceIntent;
+  | TokenIntelligenceIntent
+  | TradePreviewIntent;
 
 /**
  * Where an Operation sits in the mandatory funnel:
