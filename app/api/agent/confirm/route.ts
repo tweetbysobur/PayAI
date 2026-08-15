@@ -130,9 +130,9 @@ export async function POST(req: NextRequest) {
   const risk = assessRisk(request);
   trace.push({ step: "risk", status: risk.level === "low" ? "ok" : risk.level === "medium" ? "warn" : "blocked", detail: `Risk ${risk.score}/100 (${risk.level}).` });
 
-  if (compliance.status !== "approved" || risk.level === "high") {
+  if (compliance.status === "rejected") {
     await releaseRequest(confirmKey);
-    return NextResponse.json({ error: "This request no longer clears compliance/risk for wallet settlement." }, { status: 409 });
+    return NextResponse.json({ error: "This request no longer clears compliance for wallet settlement." }, { status: 409 });
   }
 
   const { getChain, getStablecoin, explorerTx, getTransport } = await import("@/lib/monad/config");
