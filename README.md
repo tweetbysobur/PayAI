@@ -193,7 +193,7 @@ Optional knobs:
 
 ```bash
 ANTHROPIC_API_KEY=...                  # enables Claude parsing; omit for the free rule-based parser
-PAYAI_TRAVEL_RULE_THRESHOLD=250        # amount above which a transfer should state a purpose
+PAYAI_TRAVEL_RULE_THRESHOLD=10000000   # amount above which a transfer should state a purpose (soft note only, never blocks)
 PAYAI_DENYLIST=sanctioned,blocked,ofac # name-substring screen
 PAYAI_ADDRESS_DENYLIST=0x...           # exact address screen
 ```
