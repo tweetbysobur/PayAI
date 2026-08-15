@@ -45,6 +45,15 @@ Execution mode is `PAYAI_MODE`: `simulation` (default, mocked settlement, no
 funds move — safe for local dev) or `monad` (real on-chain). Production runs
 `monad`.
 
+> **Never answer "what contract is live" from `contracts/deployed-*.json`.**
+> Those are a historical deploy log (five separate deploys as of Aug 2026,
+> none of which match production) — the app reads
+> `MONAD_MAINNET_PAYMENT_EXECUTOR` / `_MERCHANT_REGISTRY` / `_AUTOMATION_VAULT`
+> from Vercel's env directly, which is not guaranteed to match any JSON file
+> here. To get the real live addresses, hit `GET /api/onchain` and
+> `GET /api/automation-config` on the running app (or have someone who can
+> reach it paste back the JSON) — see `contracts/LIVE_CONTRACTS.md`.
+
 ## Conventions & guardrails
 
 - **Non-custodial.** Interactive payments are signed by the user's wallet.
