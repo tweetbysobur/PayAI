@@ -527,13 +527,18 @@ describe("inspectAddress — Nad.Fun (Step 6): status, availability, and route d
     expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: "500000", progressPct: null });
   });
 
-  it("a graduated token never probes bonding-curve capacity, and reports availableToBuy: null", async () => {
+  it("a graduated token's bonding-curve capacity/progress are never SURFACED, even though (Latency Task 3) the reads now fire unconditionally", async () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
     readContractImpl = () => 0n;
     getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
-    nadFunAvailableBuyTokensImpl = async () => { throw new Error("must not be probed once graduated"); };
-    getNadFunProgressImpl = async () => { throw new Error("must not be probed once graduated"); };
+    // These now DO get called concurrently with getNadFunStatus (see the
+    // Latency report) -- a real Lens response is stubbed here to prove the
+    // call succeeding doesn't leak into the output; a prior version of this
+    // test asserted the calls never happened at all, which was true only
+    // because of the sequential wait this task deliberately removed.
+    nadFunAvailableBuyTokensImpl = async () => ({ availableToBuy: "999999", requiredMon: "1" });
+    getNadFunProgressImpl = async () => 100;
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
@@ -765,6 +770,62 @@ describe("inspectAddress — Step 7: market cap, FDV, liquidity, progress, creat
     expect(r.data.market.marketCapUsd).toBe("2,000,000");
     expect(r.data.market.liquidity).toBeNull();
     expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: null, progressPct: null });
+    expect(r.data.creator).toBeNull();
+  });
+});
+
+describe("inspectAddress — Latency Task 3: availableBuyTokens/getProgress no longer wait for status", () => {
+  it("nadFunAvailableBuyTokens and getNadFunProgress are called BEFORE getNadFunStatus resolves, not after", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+
+    const order: string[] = [];
+    let releaseStatus: () => void = () => {};
+    const statusGate = new Promise<void>((resolve) => { releaseStatus = resolve; });
+
+    getNadFunStatusImpl = async () => {
+      order.push("status:start");
+      await statusGate; // deliberately held open, so anything that waited for THIS to resolve first would deadlock/never record its own start before status finishes
+      order.push("status:end");
+      return { recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" };
+    };
+    nadFunAvailableBuyTokensImpl = async () => {
+      order.push("availability:start"); // must be recorded before status:end if these are truly concurrent
+      return { availableToBuy: "500", requiredMon: "1" };
+    };
+    getNadFunProgressImpl = async () => {
+      order.push("progress:start");
+      return 42;
+    };
+
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const pending = inspectAddress(TOKEN);
+    // Give the concurrent reads a microtask turn to start before status
+    // resolves -- if availableBuyTokens/getProgress were still gated behind
+    // status (the old sequential behavior), neither would have recorded
+    // "start" yet at this point.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).toContain("availability:start");
+    expect(order).toContain("progress:start");
+    expect(order).not.toContain("status:end");
+
+    releaseStatus();
+    const r = await pending;
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: "500", progressPct: 42 });
+  });
+
+  it("getNadFunCreatorInfo stays gated on a CONFIRMED recognized status -- it is a getLogs call, not a cheap Lens view read, so it is not fired speculatively", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true });
+    readContractImpl = () => 0n;
+    // getNadFunStatusImpl defaults to unrecognized.
+    getNadFunCreatorInfoImpl = async () => { throw new Error("must not be probed for a token the Lens doesn't recognize"); };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
     expect(r.data.creator).toBeNull();
   });
 });

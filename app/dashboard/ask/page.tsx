@@ -71,7 +71,7 @@ function AskComingSoon() {
 
 function AskPayAIChat() {
   const {
-    wallet, messages, input, setInput, thinking, progress,
+    wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
   } = useAskChat();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -120,7 +120,7 @@ function AskPayAIChat() {
                   progressLabel={m.operation ? progress[m.operation.id] : undefined}
                 />
               ))}
-              {thinking && <ThinkingRow />}
+              {thinking && <ThinkingRow label={thinkingLabel} />}
             </div>
           )}
         </div>

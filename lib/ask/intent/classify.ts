@@ -292,7 +292,7 @@ async function understandWithLLM(
  *  conversation-context requirement without ever needing an Anthropic call:
  *  once a token_lookup is pending, a plain question using one of these words
  *  and naming no NEW address just re-resolves the SAME address. */
-const TOKEN_FOLLOWUP_RE = /\b(price|worth|value|liquidity|liquid|volume|tradable|trade(?:able)?|pair|pairs|route|routes|supply|decimals|holders|verified|legit|scam|contract|market\s*cap|mcap)\b/i;
+const TOKEN_FOLLOWUP_RE = /\b(price|worth|value|liquidity|liquid|volume|tradable|trade(?:able)?|pair|pairs|route|routes|supply|decimals|holders|verified|legit|scam|contract|market\s*cap|mcap|fdv|status|progress|graduated|bonding\s*curve|creator|pool)\b/i;
 
 /** "How much would I get for 50?" / "what would 50 get me" / "quote 50" —
  *  requires BOTH the phrase AND an actual number, so "how much USDC do I

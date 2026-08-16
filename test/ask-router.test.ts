@@ -142,6 +142,69 @@ describe("router — transaction follow-ups that need conversation context to re
   });
 });
 
+describe("router — Latency Task 6: market/token/trade follow-ups never spend an Anthropic call", () => {
+  const TOKEN = "0x1234567890abcdef1234567890abcdef12345678";
+  const pendingTokenLookup: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
+
+  // The task brief's own exact phrase list — verbatim.
+  const marketFollowUps = [
+    "What's the price of this?",
+    "What's the market cap?",
+    "What's the FDV?",
+    "What's the liquidity?",
+    "Is this token tradable?",
+    "What's the status of this token?",
+  ];
+  for (const text of marketFollowUps) {
+    it(`"${text}" (as a follow-up to an already-identified token) resolves locally, never Anthropic`, async () => {
+      const r = await routeRequest(text, pendingTokenLookup);
+      expect(r.anthropic).toBe(false);
+      expect(r.route).toBe("follow_up");
+      expect(r.understanding?.kind).toBe("token_lookup");
+    });
+  }
+
+  it('"How much do I get for 2 MON?" merges the amount question, never Anthropic', async () => {
+    const r = await routeRequest("How much do I get for 2 MON?", pendingTokenLookup);
+    expect(r.anthropic).toBe(false);
+    expect(r.route).toBe("follow_up");
+  });
+
+  it('a FRESH message pasting a real CA alongside a market question is always deterministic, regardless of wording ("what is the FDV of 0x...?")', async () => {
+    const r = await routeRequest(`What's the FDV of ${TOKEN}?`, null);
+    expect(r.anthropic).toBe(false);
+    expect(r.understanding?.kind).toBe("token_lookup");
+  });
+
+  // "Buy 2 MON of this" / "Sell 100 tokens" are deliberately NOT included
+  // here. The task brief listed them as expected to stay Anthropic-free, but
+  // this codebase's routeRequest() has an existing, deliberate, already-
+  // tested security rule (see the block above, "a fresh, unambiguous send/
+  // swap request still goes to Anthropic even when the deterministic engine
+  // could fully parse it", and classify.ts's own comment on the final
+  // actionable_operation branch): every FRESH money-moving request — a
+  // trade included, not just a payment — always gets a real Anthropic
+  // semantic read before being treated as actionable, specifically so a
+  // locally-guessed shortcut never authorizes moving funds. Making trade
+  // requests skip that here would be weakening the existing trade security
+  // model, which every latency task this session has been explicitly told
+  // not to do. That rule is confirmed intentional and preserved as-is —
+  // see test/ask-router.test.ts's existing "a fresh, unambiguous send/swap
+  // request..." block for the send_payment/swap precedent this trade
+  // behavior already matches.
+  it("a FRESH trade request (\"Buy 2 MON of this\") against a pending token still deliberately goes to Anthropic — a money-moving intent, never a locally-guessed shortcut", async () => {
+    const r = await routeRequest("Buy 2 MON of this", pendingTokenLookup);
+    expect(r.route).toBe("actionable_operation");
+    expect(r.anthropic).toBe(true);
+  });
+
+  it('"Sell 100 tokens" is the same deliberate case — a fresh trade request, not a market-data question', async () => {
+    const r = await routeRequest("Sell 100 tokens", pendingTokenLookup);
+    expect(r.route).toBe("actionable_operation");
+    expect(r.anthropic).toBe(true);
+  });
+});
+
 describe("router — logging never leaks to the client, only structured dev observability", () => {
   it("understand() logs a router decision line without throwing or altering its return value", async () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
