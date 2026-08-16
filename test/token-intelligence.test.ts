@@ -62,6 +62,16 @@ vi.mock("@/lib/monad/prices", () => ({
   getUsdPrice: (address: string) => getUsdPriceImpl(address),
 }));
 
+interface StubNadFunStatus { recognized: boolean; isGraduated: boolean; isLocked: boolean; status: "bonding_curve" | "graduated" | "locked" | "unsupported" }
+let getNadFunStatusImpl: (token: string) => Promise<StubNadFunStatus> = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+let nadFunAvailableBuyTokensImpl: (token: string, decimals: number) => Promise<{ availableToBuy: string; requiredMon: string } | null> = async () => null;
+let nadFunQuoteImpl: (token: string, decimals: number, amount: string, isBuy: boolean) => Promise<{ provider: "Nad.Fun"; router: string; amountOut: string; isBuy: boolean } | null> = async () => null;
+vi.mock("@/lib/monad/nadfun", () => ({
+  getNadFunStatus: (token: string) => getNadFunStatusImpl(token),
+  nadFunAvailableBuyTokens: (token: string, decimals: number) => nadFunAvailableBuyTokensImpl(token, decimals),
+  nadFunQuote: (token: string, decimals: number, amount: string, isBuy: boolean) => nadFunQuoteImpl(token, decimals, amount, isBuy),
+}));
+
 afterEach(async () => {
   vi.restoreAllMocks();
   const { clearMarketDataCache } = await import("@/lib/monad/tokenIntelligence");
@@ -75,6 +85,9 @@ afterEach(async () => {
   quoteUniswapDirectImpl = async () => null;
   resolveSwapSideImpl = async (symbol: string) => ({ symbol, routeAddress: symbol === "USDC" ? STABLECOIN.address : "0xwmon00000000000000000000000000000000000", decimals: symbol === "USDC" ? 6 : 18, isNative: symbol !== "USDC" });
   getUsdPriceImpl = async () => null;
+  getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+  nadFunAvailableBuyTokensImpl = async () => null;
+  nadFunQuoteImpl = async () => null;
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -455,5 +468,95 @@ describe("inspectAddress — market-data caching (routes + price snapshot)", () 
     if (a.kind !== "token" || b.kind !== "token") throw new Error("expected token");
     expect(a.data.market.routes[0]?.estimatedOutput).toBe("111");
     expect(b.data.market.routes[0]?.estimatedOutput).toBe("222");
+  });
+});
+
+describe("inspectAddress — Nad.Fun (Step 6): status, availability, and route discovery", () => {
+  it("a bonding-curve token with NO Uniswap pool yet is still correctly reported as tradable, via a Nad.Fun route", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    // quoteUniswapDirectImpl defaults to null -- no pool exists pre-graduation.
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunQuoteImpl = async (_token, _decimals, _amount, isBuy) => (isBuy ? null : { provider: "Nad.Fun", router: "0xrouter", amountOut: "0.42", isBuy: false });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.isTradable).toBe(true);
+    expect(r.data.market.routes).toContainEqual({ provider: "Nad.Fun", inputToken: "MEOW", outputToken: "MON", estimatedOutput: "0.42", priceImpact: null, available: true });
+  });
+
+  it("Nad.Fun and Uniswap can BOTH serve the MON pair at once (a newly-graduated token) -- both routes show up, neither replaces the other", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    quoteUniswapDirectImpl = async (_tokenIn, _d1, tokenOut) =>
+      tokenOut.toLowerCase() === "0xwmon00000000000000000000000000000000000" ? { amountOut: "0.40", priceImpact: "0.50%" } : null;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    nadFunQuoteImpl = async (_token, _decimals, _amount, isBuy) => (isBuy ? null : { provider: "Nad.Fun", router: "0xrouter", amountOut: "0.42", isBuy: false });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    const monRoutes = r.data.market.routes.filter((route) => route.outputToken === "MON");
+    expect(monRoutes.map((route) => route.provider).sort()).toEqual(["Nad.Fun", "Uniswap v3"]);
+  });
+
+  it("nadFun status is populated with bonding-curve capacity for a pre-graduation token", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunAvailableBuyTokensImpl = async () => ({ availableToBuy: "500000", requiredMon: "12.5" });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: "500000" });
+  });
+
+  it("a graduated token never probes bonding-curve capacity, and reports availableToBuy: null", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    nadFunAvailableBuyTokensImpl = async () => { throw new Error("must not be probed once graduated"); };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun).toEqual({ status: "graduated", isLocked: false, availableToBuy: null });
+  });
+
+  it("a locked (curve paused at target, pre-graduation) token reports isLocked: true", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: true, status: "locked" });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun?.status).toBe("locked");
+    expect(r.data.nadFun?.isLocked).toBe(true);
+  });
+
+  it("a token never recognized by Nad.Fun reports nadFun: null, not a fabricated 'unsupported' object", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true });
+    readContractImpl = () => 0n;
+    // getNadFunStatusImpl defaults to { recognized: false, ... }.
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun).toBeNull();
+  });
+
+  it("a token with no liquidity anywhere (Uniswap AND Nad.Fun) is still honestly reported non-tradable", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    // quoteUniswapDirectImpl and nadFunQuoteImpl both default to null/no route.
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.isTradable).toBe(false);
+    expect(r.data.market.routes).toEqual([]);
   });
 });

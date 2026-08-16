@@ -46,6 +46,7 @@ import {
   bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
   quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
 } from "./swap";
+import { buildNadFunBuyPlan, buildNadFunSellPlan, nadFunQuote } from "./nadfun";
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 
@@ -202,9 +203,35 @@ interface RawRoute {
   priceImpact: string | null;
 }
 
-/** The real quote: bestQuote() (symbol-safe, both sides verified) or
+/** True when exactly one side of this pair is native MON — the only shape a
+ *  Nad.Fun trade can ever take (its bonding curve and post-graduation DEX
+ *  pool both pair a token against MON, never against another ERC-20). Both
+ *  sides MON, or neither, is never a Nad.Fun pair. */
+function nadFunSides(input: ResolvedTradeSide, output: ResolvedTradeSide): { tokenSide: ResolvedTradeSide; isBuy: boolean } | null {
+  const inputIsMon = input.isNative && input.symbol.toUpperCase() === "MON";
+  const outputIsMon = output.isNative && output.symbol.toUpperCase() === "MON";
+  if (inputIsMon === outputIsMon) return null;
+  return inputIsMon ? { tokenSide: output, isBuy: true } : { tokenSide: input, isBuy: false };
+}
+
+/** Nad.Fun route discovery — tried BEFORE the generic Uniswap-direct probe
+ *  below for any MON<->arbitrary-token pair, since a bonding-curve token has
+ *  no Uniswap pool at all until it graduates (see lib/monad/nadfun.ts's own
+ *  doc). Returns null immediately for any pair Nad.Fun can't possibly serve
+ *  (either both sides or neither is MON) or that its Lens doesn't recognize
+ *  — the caller falls through to Uniswap exactly as it always did. */
+async function getNadFunRoute(input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string): Promise<RawRoute | null> {
+  const sides = nadFunSides(input, output);
+  if (!sides) return null;
+  const q = await nadFunQuote(sides.tokenSide.address, sides.tokenSide.decimals, amount, sides.isBuy);
+  return q ? { provider: "Nad.Fun", amountOut: q.amountOut, priceImpact: null } : null;
+}
+
+/** The real quote: bestQuote() (symbol-safe, both sides verified), Nad.Fun
+ *  (a bonding-curve or newly-graduated MON<->token pair), or
  *  quoteUniswapDirect() (address-based, at least one side arbitrary) — the
- *  exact same two primitives Step 2's market intelligence already uses. */
+ *  exact same primitives Step 2's market intelligence and Step 6's Nad.Fun
+ *  provider already use. */
 async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string): Promise<RawRoute | null> {
   if (input.verified && output.verified) {
     try {
@@ -214,6 +241,8 @@ async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide
       return null;
     }
   }
+  const nadFun = await getNadFunRoute(input, output, amount);
+  if (nadFun) return nadFun;
   const direct = await quoteUniswapDirect(input.address, input.decimals, output.address, output.decimals, amount);
   return direct ? { provider: "Uniswap v3", amountOut: direct.amountOut, priceImpact: direct.priceImpact } : null;
 }
@@ -383,6 +412,21 @@ export async function prepareTradeExecution(
     let steps: UnsignedStep[];
     if (inputSide.verified && outputSide.verified) {
       const plan = await getSwapProvider().buildPlan(inputSide.symbol, outputSide.symbol, Number(preview.spend.amount), wallet, slippageFraction);
+      steps = plan.steps;
+    } else if (preview.route.provider === "Nad.Fun") {
+      // isMaterialChange() above already refused to proceed if the route
+      // (provider) moved since the caller's last-seen preview, so by this
+      // point preview.route.provider === "Nad.Fun" is exactly what was just
+      // freshly re-quoted a few lines above via getTradeRoute() — this
+      // re-derives buy-vs-sell the same cheap way getNadFunRoute() did
+      // rather than threading extra state through, and buildNadFunBuyPlan/
+      // buildNadFunSellPlan re-quote AGAIN via the Lens themselves before
+      // building calldata, so what gets signed is never older than this call.
+      const sides = nadFunSides(inputSide, outputSide);
+      if (!sides) return { ok: false, message: "Couldn't prepare that Nad.Fun trade." };
+      const plan = sides.isBuy
+        ? await buildNadFunBuyPlan(sides.tokenSide.address, sides.tokenSide.symbol, sides.tokenSide.decimals, preview.spend.amount, slippageFraction, wallet)
+        : await buildNadFunSellPlan(sides.tokenSide.address, sides.tokenSide.symbol, sides.tokenSide.decimals, preview.spend.amount, slippageFraction, wallet);
       steps = plan.steps;
     } else {
       const direct = await buildUniswapPlanDirect(

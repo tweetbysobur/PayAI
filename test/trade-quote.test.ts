@@ -60,6 +60,20 @@ vi.mock("@/lib/monad/swap", () => ({
   MAX_PRICE_IMPACT: 0.15,
 }));
 
+interface StubNadFunQuote { provider: "Nad.Fun"; router: string; amountOut: string; isBuy: boolean }
+let nadFunQuoteImpl: (token: string, decimals: number, amount: string, isBuy: boolean) => Promise<StubNadFunQuote | null> = async () => null;
+let buildNadFunBuyPlanImpl: (token: string, symbol: string, decimals: number, amountInMon: string, slippage: number, wallet: string) => Promise<{ steps: StubStep[]; amountOut: string; router: string }> =
+  async () => { throw new Error("buildNadFunBuyPlan not stubbed"); };
+let buildNadFunSellPlanImpl: (token: string, symbol: string, decimals: number, amountInToken: string, slippage: number, wallet: string) => Promise<{ steps: StubStep[]; amountOut: string; router: string }> =
+  async () => { throw new Error("buildNadFunSellPlan not stubbed"); };
+vi.mock("@/lib/monad/nadfun", () => ({
+  nadFunQuote: (token: string, decimals: number, amount: string, isBuy: boolean) => nadFunQuoteImpl(token, decimals, amount, isBuy),
+  buildNadFunBuyPlan: (token: string, symbol: string, decimals: number, amountInMon: string, slippage: number, wallet: string) =>
+    buildNadFunBuyPlanImpl(token, symbol, decimals, amountInMon, slippage, wallet),
+  buildNadFunSellPlan: (token: string, symbol: string, decimals: number, amountInToken: string, slippage: number, wallet: string) =>
+    buildNadFunSellPlanImpl(token, symbol, decimals, amountInToken, slippage, wallet),
+}));
+
 let getTokenBalanceImpl: (owner: string, token: string, decimals: number, isNative: boolean) => Promise<number> = async () => 0;
 vi.mock("@/lib/monad/balance", () => ({
   getTokenBalance: (owner: string, token: string, decimals: number, isNative: boolean) => getTokenBalanceImpl(owner, token, decimals, isNative),
@@ -85,6 +99,9 @@ afterEach(() => {
   getUsdPriceImpl = async () => null;
   buildPlanImpl = async () => { throw new Error("buildPlan not stubbed"); };
   buildUniswapPlanDirectImpl = async () => { throw new Error("buildUniswapPlanDirect not stubbed"); };
+  nadFunQuoteImpl = async () => null;
+  buildNadFunBuyPlanImpl = async () => { throw new Error("buildNadFunBuyPlan not stubbed"); };
+  buildNadFunSellPlanImpl = async () => { throw new Error("buildNadFunSellPlan not stubbed"); };
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -151,6 +168,67 @@ describe("previewTrade — buying/selling an arbitrary Monad token", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.route.provider).toBe("Kuru");
+  });
+});
+
+describe("previewTrade — Nad.Fun (bonding-curve / newly-graduated tokens)", () => {
+  it("buying an arbitrary token with MON prefers a recognized Nad.Fun route over Uniswap", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(decimals).toBe(18);
+      expect(amount).toBe("1");
+      expect(isBuy).toBe(true);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true };
+    };
+    quoteUniswapDirectImpl = async () => { throw new Error("Uniswap must not be probed once Nad.Fun serves the pair"); };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route).toEqual({ provider: "Nad.Fun", path: ["MON", "MEOW"] });
+    expect(r.receive).toEqual({ amount: "9000", token: "MEOW" });
+  });
+
+  it("selling an arbitrary token for MON quotes the sell direction (isBuy: false)", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async (_token, _decimals, amount, isBuy) => {
+      expect(amount).toBe("1000");
+      expect(isBuy).toBe(false);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "0.5", isBuy: false };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "sell", inputToken: TOKEN, outputToken: "MON", amount: "1000", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.provider).toBe("Nad.Fun");
+    expect(r.receive).toEqual({ amount: "0.5", token: "MON" });
+  });
+
+  it("falls through to Uniswap when Nad.Fun's Lens doesn't recognize the token", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    nadFunQuoteImpl = async () => null; // not a Nad.Fun token
+    quoteUniswapDirectImpl = async () => ({ amountOut: "500", priceImpact: null });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.provider).toBe("Uniswap v3");
+  });
+
+  it("neither side is MON — Nad.Fun is never even queried (it only ever pairs a token against MON)", async () => {
+    const TOKEN_B = "0xbbbbccccddddeeeeffff000011112222333344a4";
+    resolveTokenImpl = async (address) =>
+      address.toLowerCase() === TOKEN.toLowerCase()
+        ? { address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false }
+        : { address: TOKEN_B, symbol: "OTHER", name: "Other Token", decimals: 18, verified: false };
+    nadFunQuoteImpl = async () => { throw new Error("Nad.Fun must never be probed for a non-MON pair"); };
+    quoteUniswapDirectImpl = async () => ({ amountOut: "10", priceImpact: null });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: TOKEN, outputToken: TOKEN_B, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.route.provider).toBe("Uniswap v3");
   });
 });
 
@@ -505,5 +583,71 @@ describe("prepareTradeExecution — re-quotes fresh and only builds real steps w
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.message).toMatch(/exact-output/i);
+  });
+});
+
+describe("prepareTradeExecution — Nad.Fun buy/sell", () => {
+  it("a Nad.Fun buy (MON -> token) builds through buildNadFunBuyPlan, never Uniswap or the curated aggregator", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 10; // enough MON
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true });
+    buildPlanImpl = async () => { throw new Error("must not use the curated aggregator"); };
+    buildUniswapPlanDirectImpl = async () => { throw new Error("must not fall back to Uniswap once Nad.Fun served the preview"); };
+    buildNadFunBuyPlanImpl = async (token, symbol, decimals, amountInMon, slippage, wallet) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(symbol).toBe("MEOW");
+      expect(decimals).toBe(18);
+      expect(amountInMon).toBe("1");
+      expect(wallet).toBe(WALLET);
+      return { steps: [{ kind: "swap", label: "Buy MEOW on Nad.Fun", tx: { to: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", data: "0xdead", value: "0xde0b6b3a7640000" } }], amountOut: "9000", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+    if (r.status !== "ready") return;
+    expect(r.steps).toHaveLength(1);
+    expect(r.steps[0].tx.to).toBe("0x6F6B8F1a20703309951a5127c45B49b1CD981A22");
+  });
+
+  it("a Nad.Fun sell (token -> MON) builds through buildNadFunSellPlan", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 5000; // enough MEOW
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "0.5", isBuy: false });
+    buildNadFunSellPlanImpl = async (token, symbol, decimals, amountInToken, _slippage, wallet) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(amountInToken).toBe("1000");
+      expect(wallet).toBe(WALLET);
+      return {
+        steps: [
+          { kind: "approve", label: "Approve MEOW for Nad.Fun", tx: { to: TOKEN, data: "0xapprove", value: "0x0" } },
+          { kind: "swap", label: "Sell MEOW on Nad.Fun", tx: { to: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", data: "0xdead", value: "0x0" } },
+        ],
+        amountOut: "0.5",
+        router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22",
+      };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: TOKEN, outputToken: "MON", amount: "1000", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("ready");
+    if (r.status !== "ready") return;
+    expect(r.steps).toHaveLength(2);
+    expect(r.steps[0].kind).toBe("approve");
+    expect(r.steps[1].kind).toBe("swap");
+  });
+
+  it("a build-time Nad.Fun failure (e.g. the Lens no longer recognizes the token) is reported honestly", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 10; // enough MON
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true });
+    buildNadFunBuyPlanImpl = async () => { throw new Error("No active Nad.Fun trading route found for MEOW right now."); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no active nad\.fun/i);
   });
 });

@@ -57,6 +57,7 @@ import { getPublicClient } from "./wallet";
 import { getNetwork, getStablecoin, explorerAddress } from "./config";
 import { resolveToken, type TokenInfo } from "./tokenRegistry";
 import { candidateProviders, MAX_PRICE_IMPACT, quoteUniswapDirect, resolveSwapSide } from "./swap";
+import { getNadFunStatus, nadFunAvailableBuyTokens, nadFunQuote, type NadFunStatusLabel } from "./nadfun";
 import { getUsdPrice } from "./prices";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -135,6 +136,19 @@ export interface TokenMarketData {
   lastUpdated: number;
 }
 
+/** Nad.Fun status for a token, when the Lens recognizes it — see
+ *  lib/monad/nadfun.ts's getNadFunStatus for exactly what each status means
+ *  and how it's derived. `null` (not a "false" status) when this token isn't
+ *  Nad.Fun-managed at all, so the UI can omit the whole section rather than
+ *  show a status for a token that was never on Nad.Fun. */
+export interface TokenNadFunInfo {
+  status: NadFunStatusLabel;
+  isLocked: boolean;
+  /** Bonding-curve buy capacity, human units — only present pre-graduation
+   *  (see nadFunAvailableBuyTokens's own doc for why it's null otherwise). */
+  availableToBuy: string | null;
+}
+
 export interface TokenIntelligence {
   isToken: true;
   isTradable: boolean;
@@ -151,6 +165,7 @@ export interface TokenIntelligence {
   /** Present only when a specific amount was actually requested (e.g. "how
    *  much would I get for 50?") — absent, not null, when nothing was asked. */
   quote?: QuotedAmount | null;
+  nadFun: TokenNadFunInfo | null;
 }
 
 export type TokenInspection =
@@ -221,21 +236,41 @@ async function routesForVerifiedToken(info: TokenInfo, quoteAssets: readonly str
   return attempts.filter((r): r is TokenRoute => r !== null);
 }
 
+/** Address-based probe against Nad.Fun (Step 6) — a bonding-curve token has
+ *  no Uniswap pool at all until it graduates, so without this a perfectly
+ *  tradable token would read as "no route found" against MON. Added
+ *  alongside (never instead of) the Uniswap probe below, so a graduated
+ *  token that trades on both shows both — the same "list every provider
+ *  that actually serves this pair" principle routesForVerifiedToken already
+ *  applies. `amount` here is 1 unit of the TOKEN, so this always quotes a
+ *  SELL (token -> MON), matching what "how much is this worth" means for
+ *  every other route in this list. */
+async function probeNadFunAgainstMon(address: Address, symbol: string, decimals: number, amount: string): Promise<TokenRoute | null> {
+  const q = await nadFunQuote(address, decimals, amount, false);
+  if (!q) return null;
+  return { provider: "Nad.Fun", inputToken: symbol, outputToken: "MON", estimatedOutput: q.amountOut, priceImpact: null, available: true };
+}
+
 /** Same discovery, but address-based for a token with no curated symbol to
- *  safely route by — Uniswap only (Kuru's own market list is small and
+ *  safely route by — Uniswap (any pair) plus Nad.Fun (MON pairs only; see
+ *  probeNadFunAgainstMon) — Kuru's own market list is small and
  *  symbol-keyed against curated tokens; see this module's Step 2 report for
  *  why that's an honest, documented gap rather than something faked here). */
 async function routesForArbitraryToken(
   address: Address, symbol: string, decimals: number, quoteAssets: readonly string[], amount: string,
 ): Promise<TokenRoute[]> {
   const attempts = await Promise.all(
-    quoteAssets.map(async (quoteAsset): Promise<TokenRoute | null> => {
-      try {
-        const side = await resolveSwapSide(quoteAsset);
-        return await probeUniswapPair(address, symbol, decimals, side.routeAddress, quoteAsset, side.decimals, amount);
-      } catch {
-        return null; // the quote asset itself isn't resolvable -- no route
-      }
+    quoteAssets.flatMap((quoteAsset): Promise<TokenRoute | null>[] => {
+      const uniswap = (async () => {
+        try {
+          const side = await resolveSwapSide(quoteAsset);
+          return await probeUniswapPair(address, symbol, decimals, side.routeAddress, quoteAsset, side.decimals, amount);
+        } catch {
+          return null; // the quote asset itself isn't resolvable -- no route
+        }
+      })();
+      if (quoteAsset.toUpperCase() !== "MON") return [uniswap];
+      return [uniswap, probeNadFunAgainstMon(address, symbol, decimals, amount)];
     }),
   );
   return attempts.filter((r): r is TokenRoute => r !== null);
@@ -368,11 +403,19 @@ export async function inspectAddress(
   }
 
   const addr = address as Address;
-  const [totalSupply, userBalance, market] = await Promise.all([
+  const [totalSupply, userBalance, market, nadFunStatus] = await Promise.all([
     readTotalSupply(pub, addr, info.decimals),
     walletAddress ? readBalance(pub, addr, walletAddress as Address, info.decimals) : Promise.resolve(null),
     probeMarket(info, addr),
+    getNadFunStatus(addr),
   ]);
+  const nadFun: TokenNadFunInfo | null = nadFunStatus.recognized
+    ? {
+        status: nadFunStatus.status,
+        isLocked: nadFunStatus.isLocked,
+        availableToBuy: nadFunStatus.status === "bonding_curve" ? (await nadFunAvailableBuyTokens(addr, info.decimals))?.availableToBuy ?? null : null,
+      }
+    : null;
 
   let quote: QuotedAmount | null | undefined;
   if (quoteRequest?.amount) {
@@ -397,6 +440,7 @@ export async function inspectAddress(
       explorerUrl: explorerAddress(address),
       market,
       ...(quote !== undefined ? { quote } : {}),
+      nadFun,
     },
   };
 }
