@@ -205,6 +205,31 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
     setDrafts(parsed);
   }
 
+  /** Pasting a list should land it in the recipient list immediately —
+   *  requiring a separate "Add to list" click after every paste was the
+   *  friction being reported. `onPaste` fires BEFORE the browser has
+   *  actually inserted the clipboard text into the field, so the parse is
+   *  deferred one frame; `e.currentTarget` is captured now and read later
+   *  (safe — it's the real DOM node, not the pooled synthetic event) rather
+   *  than closing over the `pasteText` state, which could still be stale by
+   *  the time the callback runs. The button stays for anyone who types or
+   *  hand-edits the box instead of pasting into it. */
+  function handlePasteBoxPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const el = e.currentTarget;
+    requestAnimationFrame(() => {
+      const parsed = parseRecipientsPaste(el.value);
+      if (parsed.length > 0) setDrafts(parsed);
+    });
+  }
+
+  /** Catches hand-typed or hand-edited addresses (no paste event to hook)
+   *  once the user is done with the field, so leaving it in ANY way — tab,
+   *  click away, or paste — always leaves the list in sync with the box. */
+  function handlePasteBoxBlur() {
+    const parsed = parseRecipientsPaste(pasteText);
+    if (parsed.length > 0) setDrafts(parsed);
+  }
+
   function handleCsvFile(file: File) {
     file.text()
       .then((text) => {
@@ -477,8 +502,10 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     <div className="mt-4">
                       {inputTab === "paste" && (
                         <div>
+                          <p className="mb-1.5 text-xs text-muted-foreground">One address per line — pasting adds them to the list automatically.</p>
                           <textarea
                             value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                            onPaste={handlePasteBoxPaste} onBlur={handlePasteBoxBlur}
                             placeholder={"0xabc...\n0xdef... , alice.nad\n0x123..."}
                             rows={5}
                             className="w-full rounded-lg border border-border bg-input p-3 text-base text-foreground outline-none transition focus:border-primary/50 focus:ring-2 focus:ring-ring sm:text-sm"
