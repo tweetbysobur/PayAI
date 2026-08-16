@@ -193,6 +193,23 @@ export async function resolveSwapSide(symbol: string): Promise<ResolvedSwapSide>
   if (sym === "MON") {
     return { symbol: "MON", routeAddress: UNISWAP_MAINNET.wmon, decimals: 18, isNative: true };
   }
+  // USDC is resolved the same zero-RPC way MON is, straight from env config
+  // (the exact source getStablecoin()/prices.ts already trust) rather than
+  // through getVerifiedTokens() below. That function resolves EVERY curated
+  // token (symbol/name/decimals reads for each) just to answer "what's
+  // USDC's address" -- and USDC is the busiest quote asset there is: every
+  // arbitrary-token lookup in tokenIntelligence.ts probes it, so this was
+  // the dominant cost behind a slow "paste a contract address" response.
+  // Falls through to the registry lookup on any config error, so a
+  // misconfigured deploy still fails exactly the way it always did.
+  if (sym === "USDC") {
+    try {
+      const stablecoin = getStablecoin();
+      return { symbol: "USDC", routeAddress: stablecoin.address, decimals: stablecoin.decimals, isNative: false };
+    } catch {
+      /* fall through to the registry lookup below */
+    }
+  }
   const match = (await getVerifiedTokens()).find((t) => t.symbol.toUpperCase() === sym && !/^0x0+$/.test(t.address));
   if (!match) {
     throw new Error(`${sym} isn't a token PayAI can swap yet. Try MON, USDC, USDT0, AUSD, WETH, or WBTC.`);

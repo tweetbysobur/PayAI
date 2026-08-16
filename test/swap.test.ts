@@ -41,10 +41,15 @@ vi.mock("@/lib/monad/config", () => ({
   getStablecoin: () => ({ address: "0x1234567890123456789012345678901234567890", decimals: 6 }),
 }));
 
+let getVerifiedTokensCalls = 0;
 vi.mock("@/lib/monad/tokenRegistry", () => ({
-  getVerifiedTokens: async () => [
-    { address: "0x1234567890123456789012345678901234567890", symbol: "USDC", name: "USD Coin", decimals: 6, verified: true },
-  ],
+  getVerifiedTokens: async () => {
+    getVerifiedTokensCalls += 1;
+    return [
+      { address: "0x1234567890123456789012345678901234567890", symbol: "USDC", name: "USD Coin", decimals: 6, verified: true },
+      { address: "0xe7cd86e13ac4309349f30b3435a9d337750fc82d", symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true },
+    ];
+  },
 }));
 
 const EXACT_INPUT_SINGLE_ABI = [
@@ -202,5 +207,37 @@ describe("quoteUniswapDirect — the general address-based probe reused by token
     const impactPct = parseFloat(r!.priceImpact!);
     expect(impactPct).toBeGreaterThan(8);
     expect(impactPct).toBeLessThan(12);
+  });
+});
+
+describe("resolveSwapSide — USDC (like MON) resolves without the full curated-registry fan-out", () => {
+  it("MON never calls getVerifiedTokens (existing behavior, unchanged)", async () => {
+    getVerifiedTokensCalls = 0;
+    const { resolveSwapSide } = await import("@/lib/monad/swap");
+    const side = await resolveSwapSide("mon");
+    expect(side.isNative).toBe(true);
+    expect(getVerifiedTokensCalls).toBe(0);
+  });
+
+  it("USDC resolves straight from getStablecoin() -- zero calls to getVerifiedTokens, the RPC-heavy full curated-list fan-out", async () => {
+    getVerifiedTokensCalls = 0;
+    const { resolveSwapSide } = await import("@/lib/monad/swap");
+    const side = await resolveSwapSide("usdc");
+    expect(side).toEqual({ symbol: "USDC", routeAddress: "0x1234567890123456789012345678901234567890", decimals: 6, isNative: false });
+    expect(getVerifiedTokensCalls).toBe(0);
+  });
+
+  it("a non-special-cased curated symbol (e.g. USDT0) still resolves via the registry, unaffected", async () => {
+    getVerifiedTokensCalls = 0;
+    const { resolveSwapSide } = await import("@/lib/monad/swap");
+    const side = await resolveSwapSide("usdt0");
+    expect(side.routeAddress.toLowerCase()).toBe("0xe7cd86e13ac4309349f30b3435a9d337750fc82d");
+    expect(getVerifiedTokensCalls).toBe(1);
+  });
+
+  it("an unrecognized symbol is still rejected honestly, not silently defaulted", async () => {
+    getVerifiedTokensCalls = 0;
+    const { resolveSwapSide } = await import("@/lib/monad/swap");
+    await expect(resolveSwapSide("NOTATHING")).rejects.toThrow(/isn't a token PayAI can swap yet/i);
   });
 });
