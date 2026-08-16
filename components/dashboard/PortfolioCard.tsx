@@ -38,8 +38,8 @@ function amount(n: number | null): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
 }
 
-export function PortfolioCard({ address }: { address: string | null }) {
-  const { holdings, loading, totalUsd } = usePortfolio(address);
+export function PortfolioCard({ address, locked }: { address: string | null; locked?: boolean }) {
+  const { holdings, loading, totalUsd } = usePortfolio(address, locked);
   const { copy, copied } = useCopy();
   const [hideZero, setHideZero] = useState(true);
   const [query, setQuery] = useState("");

@@ -220,7 +220,7 @@ export default function Wallets() {
 
       {wallet.readAddress && (
         <div className="mb-4">
-          <PortfolioCard address={wallet.readAddress} />
+          <PortfolioCard address={wallet.readAddress} locked={wallet.isLocked} />
         </div>
       )}
 
