@@ -13,10 +13,18 @@ interface ReadCall { address: string; functionName: string; args: unknown[] }
 let onRead: (call: ReadCall) => unknown = () => {
   throw new Error("readContract not stubbed for this call");
 };
+let onGetLogs: (args: { address: string; args?: Record<string, unknown> }) => unknown[] = () => {
+  throw new Error("getLogs not stubbed for this call");
+};
+let onGetBlock: (args: { blockNumber: bigint }) => { timestamp: bigint } = () => {
+  throw new Error("getBlock not stubbed for this call");
+};
 
 vi.mock("@/lib/monad/wallet", () => ({
   getPublicClient: () => ({
     readContract: async ({ address, functionName, args }: ReadCall) => onRead({ address, functionName, args: args ?? [] }),
+    getLogs: async (args: { address: string; args?: Record<string, unknown> }) => onGetLogs(args),
+    getBlock: async (args: { blockNumber: bigint }) => onGetBlock(args),
   }),
 }));
 
@@ -36,6 +44,8 @@ afterEach(() => {
   vi.restoreAllMocks();
   network = "mainnet";
   onRead = () => { throw new Error("readContract not stubbed for this call"); };
+  onGetLogs = () => { throw new Error("getLogs not stubbed for this call"); };
+  onGetBlock = () => { throw new Error("getBlock not stubbed for this call"); };
 });
 
 describe("getNadFunStatus — detection by contract address only", () => {
@@ -317,5 +327,162 @@ describe("exact-output (Step 6 investigation) — quote + plan verified against 
     onRead = () => [ATTACKER, 1_000000000000000000n];
     const { buildNadFunExactOutBuyPlan } = await loadNadFun();
     await expect(buildNadFunExactOutBuyPlan(TOKEN as `0x${string}`, "MEOW", 18, "9000", 0.01, WALLET as `0x${string}`)).rejects.toThrow(/no active nad\.fun/i);
+  });
+});
+
+describe("getNadFunProgress — bonding-curve completion (Step 7)", () => {
+  it("scales the Lens's raw basis points to a 0-100 percentage", async () => {
+    onRead = ({ functionName }) => {
+      expect(functionName).toBe("getProgress");
+      return 7842n; // 78.42%
+    };
+    const { getNadFunProgress } = await loadNadFun();
+    const p = await getNadFunProgress(TOKEN as `0x${string}`);
+    expect(p).toBe(78.42);
+  });
+
+  it("100% and 0% are represented exactly, never rounded to something else", async () => {
+    onRead = () => 10000n;
+    const { getNadFunProgress } = await loadNadFun();
+    expect(await getNadFunProgress(TOKEN as `0x${string}`)).toBe(100);
+  });
+
+  it("a revert (unrecognized token) is null, never a fabricated 0", async () => {
+    onRead = () => { throw new Error("execution reverted"); };
+    const { getNadFunProgress } = await loadNadFun();
+    expect(await getNadFunProgress(TOKEN as `0x${string}`)).toBeNull();
+  });
+
+  it("unavailable outside mainnet", async () => {
+    network = "testnet";
+    onRead = () => { throw new Error("must not read the chain off mainnet"); };
+    const { getNadFunProgress } = await loadNadFun();
+    expect(await getNadFunProgress(TOKEN as `0x${string}`)).toBeNull();
+  });
+});
+
+describe("getNadFunCurveReserves — real bonding-curve reserves, never availableBuyTokens (Step 7)", () => {
+  it("reads BondingCurve.curves() and reports the REAL (not virtual) reserves in human units", async () => {
+    const { __testing } = await loadNadFun();
+    onRead = ({ address, functionName }) => {
+      expect(address).toBe(__testing.NADFUN_MAINNET.bondingCurve);
+      expect(functionName).toBe("curves");
+      return [
+        10_000000000000000000n, // realMonReserve: 10 MON
+        500000_000000000000000000n, // realTokenReserve: 500000 tokens
+        180000_000000000000000000n, // virtualMonReserve
+        1073000191_000000000000000000n, // virtualTokenReserve
+        0n, 0n, 0n, 0n, // k, targetTokenAmount, initVirtualMonReserve, initVirtualTokenReserve (unused here)
+      ];
+    };
+    const { getNadFunCurveReserves } = await loadNadFun();
+    const r = await getNadFunCurveReserves(TOKEN as `0x${string}`, 18);
+    expect(r).toEqual({ realMon: "10", realToken: "500000", virtualMon: "180000", virtualToken: "1073000191" });
+  });
+
+  it("a revert (unrecognized token) is null", async () => {
+    onRead = () => { throw new Error("execution reverted"); };
+    const { getNadFunCurveReserves } = await loadNadFun();
+    expect(await getNadFunCurveReserves(TOKEN as `0x${string}`, 18)).toBeNull();
+  });
+});
+
+describe("getNadFunGraduatedPoolLiquidity — the ACTUAL DEX pool, found via the factory (Step 7)", () => {
+  const POOL = "0x1111222233334444555566667777888899990000";
+
+  it("finds the WMON/token pair via the factory and orders reserves correctly (WMON as token0)", async () => {
+    const { __testing } = await loadNadFun();
+    onRead = ({ address, functionName, args }) => {
+      if (functionName === "getPair") {
+        expect(address).toBe(__testing.NADFUN_MAINNET.dexFactory);
+        expect((args[0] as string).toLowerCase()).toBe(__testing.NADFUN_MAINNET.wmon.toLowerCase());
+        return POOL;
+      }
+      if (functionName === "getReserves") { expect(address).toBe(POOL); return [50_000000000000000000n, 2500_000000000000000000n, 0]; }
+      if (functionName === "token0") return __testing.NADFUN_MAINNET.wmon;
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunGraduatedPoolLiquidity } = await loadNadFun();
+    const r = await getNadFunGraduatedPoolLiquidity(TOKEN as `0x${string}`, 18);
+    expect(r).toEqual({ pool: POOL, monReserve: "50", tokenReserve: "2500" });
+  });
+
+  it("orders reserves correctly when the token is token0 instead (WMON is token1)", async () => {
+    onRead = ({ functionName }) => {
+      if (functionName === "getPair") return POOL;
+      if (functionName === "getReserves") return [2500_000000000000000000n, 50_000000000000000000n, 0]; // [token, wmon]
+      if (functionName === "token0") return TOKEN; // token0 is the arbitrary token, not WMON
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunGraduatedPoolLiquidity } = await loadNadFun();
+    const r = await getNadFunGraduatedPoolLiquidity(TOKEN as `0x${string}`, 18);
+    expect(r).toEqual({ pool: POOL, monReserve: "50", tokenReserve: "2500" });
+  });
+
+  it("no pool yet (pre-graduation) -> null, never a fabricated liquidity figure", async () => {
+    onRead = ({ functionName }) => {
+      if (functionName === "getPair") return "0x0000000000000000000000000000000000000000";
+      throw new Error("must not read reserves when no pool exists");
+    };
+    const { getNadFunGraduatedPoolLiquidity } = await loadNadFun();
+    expect(await getNadFunGraduatedPoolLiquidity(TOKEN as `0x${string}`, 18)).toBeNull();
+  });
+
+  it("an RPC failure at any step is null, never thrown", async () => {
+    onRead = () => { throw new Error("RPC unreachable"); };
+    const { getNadFunGraduatedPoolLiquidity } = await loadNadFun();
+    expect(await getNadFunGraduatedPoolLiquidity(TOKEN as `0x${string}`, 18)).toBeNull();
+  });
+});
+
+describe("getNadFunCreatorInfo — creator + pool + creation time from CurveCreate, permanently cached (Step 7)", () => {
+  const CREATOR = "0x2222333344445555666677778888999900001111";
+  const CURVE_POOL = "0x3333444455556666777788889999000011112222";
+
+  it("reads the token's one CurveCreate log and its block timestamp", async () => {
+    const { __testing } = await loadNadFun();
+    onGetLogs = ({ address, args }) => {
+      expect(address).toBe(__testing.NADFUN_MAINNET.bondingCurve);
+      expect((args?.token as string | undefined)?.toLowerCase()).toBe(TOKEN.toLowerCase());
+      return [{ args: { creator: CREATOR, token: TOKEN, pool: CURVE_POOL }, blockNumber: 12345n }];
+    };
+    onGetBlock = ({ blockNumber }) => { expect(blockNumber).toBe(12345n); return { timestamp: 1_700_000_000n }; };
+    const { getNadFunCreatorInfo } = await loadNadFun();
+    const r = await getNadFunCreatorInfo(TOKEN as `0x${string}`);
+    expect(r).toEqual({ creator: CREATOR, curvePool: CURVE_POOL, createdAt: 1_700_000_000_000 });
+  });
+
+  it("is cached permanently -- a second call for the same token never re-queries the chain", async () => {
+    let calls = 0;
+    onGetLogs = () => { calls += 1; return [{ args: { creator: CREATOR, token: TOKEN, pool: CURVE_POOL }, blockNumber: 1n }]; };
+    onGetBlock = () => ({ timestamp: 1n });
+    const { getNadFunCreatorInfo, clearNadFunCreatorCache } = await loadNadFun();
+    clearNadFunCreatorCache();
+    await getNadFunCreatorInfo(TOKEN as `0x${string}`);
+    await getNadFunCreatorInfo(TOKEN as `0x${string}`);
+    expect(calls).toBe(1);
+  });
+
+  it("no CurveCreate log found (not a Nad.Fun token) -> null, never fabricated", async () => {
+    onGetLogs = () => [];
+    const { getNadFunCreatorInfo, clearNadFunCreatorCache } = await loadNadFun();
+    clearNadFunCreatorCache();
+    expect(await getNadFunCreatorInfo(TOKEN as `0x${string}`)).toBeNull();
+  });
+
+  it("the provider rejecting the log range (or any other failure) fails open to null, never throws and breaks the rest of a lookup", async () => {
+    onGetLogs = () => { throw new Error("block range too large"); };
+    const { getNadFunCreatorInfo, clearNadFunCreatorCache } = await loadNadFun();
+    clearNadFunCreatorCache();
+    await expect(getNadFunCreatorInfo(TOKEN as `0x${string}`)).resolves.toBeNull();
+  });
+
+  it("a block-timestamp read failure still returns creator/pool, just with createdAt: null", async () => {
+    onGetLogs = () => [{ args: { creator: CREATOR, token: TOKEN, pool: CURVE_POOL }, blockNumber: 5n }];
+    onGetBlock = () => { throw new Error("block not found"); };
+    const { getNadFunCreatorInfo, clearNadFunCreatorCache } = await loadNadFun();
+    clearNadFunCreatorCache();
+    const r = await getNadFunCreatorInfo(TOKEN as `0x${string}`);
+    expect(r).toEqual({ creator: CREATOR, curvePool: CURVE_POOL, createdAt: null });
   });
 });

@@ -39,8 +39,10 @@ vi.mock("@/lib/monad/config", () => ({
 let resolveTokenImpl: (address: string) => Promise<{ address: string; symbol: string; name: string; decimals: number; verified: boolean }> = async () => {
   throw new Error("not an ERC-20");
 };
+const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 vi.mock("@/lib/monad/tokenRegistry", () => ({
   resolveToken: (address: string) => resolveTokenImpl(address),
+  NATIVE_TOKEN_ADDRESS: "0x0000000000000000000000000000000000000000",
 }));
 
 type MockProvider = { name: string; quote: (from: string, to: string, amountIn: number) => Promise<{ amountOut: number; priceImpact: number | null }> };
@@ -66,10 +68,18 @@ interface StubNadFunStatus { recognized: boolean; isGraduated: boolean; isLocked
 let getNadFunStatusImpl: (token: string) => Promise<StubNadFunStatus> = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
 let nadFunAvailableBuyTokensImpl: (token: string, decimals: number) => Promise<{ availableToBuy: string; requiredMon: string } | null> = async () => null;
 let nadFunQuoteImpl: (token: string, decimals: number, amount: string, isBuy: boolean) => Promise<{ provider: "Nad.Fun"; router: string; amountOut: string; isBuy: boolean } | null> = async () => null;
+let getNadFunProgressImpl: (token: string) => Promise<number | null> = async () => null;
+let getNadFunCurveReservesImpl: (token: string, decimals: number) => Promise<{ realMon: string; realToken: string; virtualMon: string; virtualToken: string } | null> = async () => null;
+let getNadFunGraduatedPoolLiquidityImpl: (token: string, decimals: number) => Promise<{ pool: string; monReserve: string; tokenReserve: string } | null> = async () => null;
+let getNadFunCreatorInfoImpl: (token: string) => Promise<{ creator: string; curvePool: string; createdAt: number | null } | null> = async () => null;
 vi.mock("@/lib/monad/nadfun", () => ({
   getNadFunStatus: (token: string) => getNadFunStatusImpl(token),
   nadFunAvailableBuyTokens: (token: string, decimals: number) => nadFunAvailableBuyTokensImpl(token, decimals),
   nadFunQuote: (token: string, decimals: number, amount: string, isBuy: boolean) => nadFunQuoteImpl(token, decimals, amount, isBuy),
+  getNadFunProgress: (token: string) => getNadFunProgressImpl(token),
+  getNadFunCurveReserves: (token: string, decimals: number) => getNadFunCurveReservesImpl(token, decimals),
+  getNadFunGraduatedPoolLiquidity: (token: string, decimals: number) => getNadFunGraduatedPoolLiquidityImpl(token, decimals),
+  getNadFunCreatorInfo: (token: string) => getNadFunCreatorInfoImpl(token),
 }));
 
 afterEach(async () => {
@@ -88,6 +98,10 @@ afterEach(async () => {
   getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
   nadFunAvailableBuyTokensImpl = async () => null;
   nadFunQuoteImpl = async () => null;
+  getNadFunProgressImpl = async () => null;
+  getNadFunCurveReservesImpl = async () => null;
+  getNadFunGraduatedPoolLiquidityImpl = async () => null;
+  getNadFunCreatorInfoImpl = async () => null;
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -510,7 +524,7 @@ describe("inspectAddress — Nad.Fun (Step 6): status, availability, and route d
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
-    expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: "500000" });
+    expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: "500000", progressPct: null });
   });
 
   it("a graduated token never probes bonding-curve capacity, and reports availableToBuy: null", async () => {
@@ -519,10 +533,11 @@ describe("inspectAddress — Nad.Fun (Step 6): status, availability, and route d
     readContractImpl = () => 0n;
     getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
     nadFunAvailableBuyTokensImpl = async () => { throw new Error("must not be probed once graduated"); };
+    getNadFunProgressImpl = async () => { throw new Error("must not be probed once graduated"); };
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
-    expect(r.data.nadFun).toEqual({ status: "graduated", isLocked: false, availableToBuy: null });
+    expect(r.data.nadFun).toEqual({ status: "graduated", isLocked: false, availableToBuy: null, progressPct: null });
   });
 
   it("a locked (curve paused at target, pre-graduation) token reports isLocked: true", async () => {
@@ -558,5 +573,198 @@ describe("inspectAddress — Nad.Fun (Step 6): status, availability, and route d
     if (r.kind !== "token") throw new Error("expected token");
     expect(r.data.isTradable).toBe(false);
     expect(r.data.market.routes).toEqual([]);
+  });
+});
+
+describe("inspectAddress — Step 7: market cap, FDV, liquidity, progress, creator, pool", () => {
+  function totalSupplyReader(supplyWei: bigint) {
+    return ({ functionName }: { functionName: string }) => (functionName === "totalSupply" ? supplyWei : 0n);
+  }
+
+  it("market cap and FDV are both price x totalSupply -- deliberately equal (no verified circulating-supply source)", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = totalSupplyReader(1_000_000_000n * 10n ** 18n); // 1B tokens
+    getUsdPriceImpl = async (addr) => (addr.toLowerCase() === TOKEN.toLowerCase() ? 0.002 : null); // token price only
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.marketCapUsd).toBe("2,000,000");
+    expect(r.data.market.fdvUsd).toBe(r.data.market.marketCapUsd);
+  });
+
+  it("no usable price -> market cap and FDV are honestly null, never a fabricated figure", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = totalSupplyReader(1_000_000_000n * 10n ** 18n);
+    // getUsdPriceImpl defaults to null.
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.marketCapUsd).toBeNull();
+    expect(r.data.market.fdvUsd).toBeNull();
+  });
+
+  it("no readable totalSupply -> market cap and FDV are null even with a real price", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = ({ functionName }) => { if (functionName === "totalSupply") throw new Error("revert"); return 0n; };
+    getUsdPriceImpl = async () => 1;
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.totalSupply).toBeNull();
+    expect(r.data.market.marketCapUsd).toBeNull();
+  });
+
+  it("bonding-curve liquidity: real (not virtual) curve reserves, labeled distinctly, never combined with a DEX figure", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getNadFunCurveReservesImpl = async () => ({ realMon: "10", realToken: "500000", virtualMon: "180000", virtualToken: "1073000191" });
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 2 : null); // MON = $2
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.liquidity).toEqual({ label: "Bonding Curve Liquidity", mon: "20", usd: "40", pool: null });
+  });
+
+  it("graduated DEX liquidity: real pool reserves, distinct label, includes the pool address", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getNadFunGraduatedPoolLiquidityImpl = async () => ({ pool: "0x9999888877776666555544443333222211110000", monReserve: "50", tokenReserve: "2500" });
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 2 : null);
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.liquidity).toEqual({
+      label: "DEX Liquidity", mon: "100", usd: "200", pool: "0x9999888877776666555544443333222211110000",
+    });
+  });
+
+  it("a non-Nad.Fun token has no liquidity figure -- honestly null, never a v3-pool guess", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true });
+    readContractImpl = () => 0n;
+    // getNadFunStatusImpl defaults to unrecognized.
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.liquidity).toBeNull();
+  });
+
+  it("bonding-curve progress is surfaced 0-100, and reused from the Lens, never re-derived from a guessed formula", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getNadFunProgressImpl = async () => 78.42;
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.nadFun?.progressPct).toBe(78.42);
+  });
+
+  it("creator, pool (bonding-curve pool pre-graduation) and creation time come from the one CurveCreate log", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getNadFunCreatorInfoImpl = async () => ({ creator: "0xcccc111122223333444455556666777788889999", curvePool: "0xdddd111122223333444455556666777788889999", createdAt: 1_700_000_000_000 });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.creator).toBe("0xcccc111122223333444455556666777788889999");
+    expect(r.data.pool).toBe("0xdddd111122223333444455556666777788889999"); // the bonding-curve pool -- no DEX pool exists yet
+    expect(r.data.createdAt).toBe(1_700_000_000_000);
+  });
+
+  it("once graduated, the ACTIVE pool shown is the DEX pool, never the obsolete bonding-curve pool", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getNadFunCreatorInfoImpl = async () => ({ creator: "0xcccc111122223333444455556666777788889999", curvePool: "0xOLD_BONDING_CURVE_POOL_00000000000000000", createdAt: 1 });
+    getNadFunGraduatedPoolLiquidityImpl = async () => ({ pool: "0xNEW_DEX_POOL_0000000000000000000000000000", monReserve: "50", tokenReserve: "2500" });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.pool).toBe("0xNEW_DEX_POOL_0000000000000000000000000000");
+    expect(r.data.pool).not.toBe("0xOLD_BONDING_CURVE_POOL_00000000000000000");
+  });
+
+  it("a non-Nad.Fun token has creator/pool/createdAt all null -- absent, not a failed lookup", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true });
+    readContractImpl = () => 0n;
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.creator).toBeNull();
+    expect(r.data.pool).toBeNull();
+    expect(r.data.createdAt).toBeNull();
+  });
+
+  it("volume/buy-volume/sell-volume/transaction counts/holders are honestly unavailable -- never approximated from a partial window", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.volume24h).toBeNull();
+    expect(r.data.market.buyVolume24h).toBeNull();
+    expect(r.data.market.sellVolume24h).toBeNull();
+    expect(r.data.market.transactions24h).toBeNull();
+    expect(r.data.market.buys24h).toBeNull();
+    expect(r.data.market.sells24h).toBeNull();
+    expect(r.data.market.holders).toBeNull();
+  });
+
+  it("Part 9 #27: two different contracts with the SAME symbol never share market data -- identity is the address, not the symbol", async () => {
+    const TOKEN_B = "0xbbbbccccddddeeeeffff000011112222333344a4";
+    resolveTokenImpl = async (address: string) =>
+      address.toLowerCase() === TOKEN.toLowerCase()
+        ? { address: TOKEN, symbol: "MEOW", name: "Real Meow", decimals: 18, verified: false }
+        : { address: TOKEN_B, symbol: "MEOW", name: "Fake Meow (different contract, same symbol)", decimals: 18, verified: false };
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    codeAt[TOKEN_B.toLowerCase()] = "0x6080604052";
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async (token: string) =>
+      token.toLowerCase() === TOKEN.toLowerCase()
+        ? { recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" }
+        : { recognized: false, isGraduated: false, isLocked: false, status: "unsupported" };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const a = await inspectAddress(TOKEN);
+    const b = await inspectAddress(TOKEN_B);
+    if (a.kind !== "token" || b.kind !== "token") throw new Error("expected token");
+    expect(a.data.name).toBe("Real Meow");
+    expect(a.data.nadFun).not.toBeNull();
+    expect(b.data.name).toBe("Fake Meow (different contract, same symbol)");
+    expect(b.data.nadFun).toBeNull(); // NOT treated as the same token just because the symbol matches
+  });
+
+  it("an RPC failure on the Nad.Fun-specific reads degrades honestly (null fields) rather than breaking the whole lookup", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = totalSupplyReader(1_000_000_000n * 10n ** 18n);
+    getUsdPriceImpl = async (addr) => (addr.toLowerCase() === TOKEN.toLowerCase() ? 0.002 : null);
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getNadFunCurveReservesImpl = async () => null; // simulates the underlying RPC/read failure
+    getNadFunProgressImpl = async () => null;
+    getNadFunCreatorInfoImpl = async () => null;
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    // The token is still identified and priced -- only the Nad.Fun-specific
+    // extras that genuinely failed are missing, nothing fabricated in their place.
+    expect(r.data.market.marketCapUsd).toBe("2,000,000");
+    expect(r.data.market.liquidity).toBeNull();
+    expect(r.data.nadFun).toEqual({ status: "bonding_curve", isLocked: false, availableToBuy: null, progressPct: null });
+    expect(r.data.creator).toBeNull();
   });
 });

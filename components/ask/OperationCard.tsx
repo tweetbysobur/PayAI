@@ -428,13 +428,29 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
       </div>
 
       {d.nadFun && (
-        <div className="mb-2.5 flex items-center gap-1.5">
-          <span className="rounded-full border border-border bg-input px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Nad.Fun</span>
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
-            {NADFUN_STATUS_LABEL[d.nadFun.status]}
-          </span>
-          {d.nadFun.availableToBuy && (
-            <span className="text-[11px] text-muted-foreground">{d.nadFun.availableToBuy} {d.symbol} left on curve</span>
+        <div className="mb-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full border border-border bg-input px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Nad.Fun</span>
+            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
+              {NADFUN_STATUS_LABEL[d.nadFun.status]}
+            </span>
+            {d.nadFun.availableToBuy && (
+              <span className="text-[11px] text-muted-foreground">{d.nadFun.availableToBuy} {d.symbol} left on curve</span>
+            )}
+          </div>
+          {/* Progress only makes sense pre-graduation — a graduated token has
+              no curve left to fill, so this row simply doesn't render for one
+              (progressPct is null by construction; see tokenIntelligence.ts). */}
+          {d.nadFun.progressPct != null && (
+            <div className="mt-1.5">
+              <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Bonding Curve</span>
+                <span className="tabular-nums text-foreground">{d.nadFun.progressPct.toFixed(2)}%</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-input">
+                <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, d.nadFun.progressPct))}%` }} />
+              </div>
+            </div>
           )}
         </div>
       )}
@@ -446,6 +462,7 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
         </div>
         <p className="text-lg font-semibold tabular-nums text-foreground">
           {d.market.price ? `$${d.market.price}` : UNAVAILABLE}
+          {d.market.priceMon && <span className="ml-1.5 text-xs font-normal text-muted-foreground">≈ {d.market.priceMon} MON</span>}
         </p>
         {/* A route can exist even when price is null (too thin to price
             honestly) — say so, rather than let "Unavailable" read as "not
@@ -471,8 +488,13 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
       )}
 
       <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+        <MiniStat label="Market Cap" value={d.market.marketCapUsd ? `$${d.market.marketCapUsd}` : UNAVAILABLE} />
+        <MiniStat label="FDV" value={d.market.fdvUsd ? `$${d.market.fdvUsd}` : UNAVAILABLE} />
+        <MiniStat
+          label={d.market.liquidity?.label ?? "Liquidity"}
+          value={d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : UNAVAILABLE}
+        />
         <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
-        <MiniStat label="Liquidity" value={d.market.liquidity ?? UNAVAILABLE} />
         <MiniStat label="24h Volume" value={d.market.volume24h ?? UNAVAILABLE} />
         <MiniStat label="Total Supply" value={d.totalSupply ?? UNAVAILABLE} />
       </div>
@@ -514,8 +536,15 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
         <Row label="Decimals">{d.decimals}</Row>
         <Row label="Network">Monad</Row>
         <Row label="Available markets">{d.market.quoteAssetsChecked.join(", ") || "None checked"}</Row>
-        <Row label="DEX">{d.market.routes.length > 0 ? Array.from(new Set(d.market.routes.map((r) => r.provider))).join(", ") : "None"}</Row>
+        <Row label="Route">{d.market.routes.length > 0 ? Array.from(new Set(d.market.routes.map((r) => r.provider))).join(", ") : "No active route"}</Row>
         <Row label="Status">{d.isTradable ? "Tradable" : "Not tradable"}</Row>
+        {/* Creator/pool/created only ever come from a Nad.Fun CurveCreate
+            log (see tokenIntelligence.ts) -- absent, not "Unavailable", for
+            every other token rather than implying a lookup was attempted
+            and failed. */}
+        {d.createdAt != null && <Row label="Created">{new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Row>}
+        {d.creator && <Row label="Creator">{short(d.creator)}</Row>}
+        {d.pool && <Row label="Pool">{short(d.pool)}</Row>}
       </div>
 
       <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">

@@ -81,6 +81,65 @@ const LENS_ABI = [
     inputs: [{ name: "_token", type: "address" }],
     outputs: [{ name: "availableBuyToken", type: "uint256" }, { name: "requiredMonAmount", type: "uint256" }],
   },
+  {
+    type: "function", name: "getProgress", stateMutability: "view",
+    inputs: [{ name: "_token", type: "address" }],
+    outputs: [{ name: "progress", type: "uint256" }],
+  },
+] as const;
+
+/** BondingCurve's `curves` mapping getter — the token's REAL reserves, not
+ *  just its buy capacity (see `availableBuyTokens`, a different concept:
+ *  Step 7's brief is explicit that the two must never be conflated). Field
+ *  names/order verified against IBondingCurve.json in the official repo. */
+const BONDING_CURVE_ABI = [
+  {
+    type: "function", name: "curves", stateMutability: "view",
+    inputs: [{ name: "token", type: "address" }],
+    outputs: [
+      { name: "realMonReserve", type: "uint256" }, { name: "realTokenReserve", type: "uint256" },
+      { name: "virtualMonReserve", type: "uint256" }, { name: "virtualTokenReserve", type: "uint256" },
+      { name: "k", type: "uint256" }, { name: "targetTokenAmount", type: "uint256" },
+      { name: "initVirtualMonReserve", type: "uint256" }, { name: "initVirtualTokenReserve", type: "uint256" },
+    ],
+  },
+] as const;
+
+/** CurveCreate — fired exactly once per token, ever, at creation. `creator`,
+ *  `token` and `pool` are all indexed, so a single token's event is a
+ *  targeted topic-filtered lookup, not a full-history scan. Verified
+ *  verbatim against IBondingCurve.json's event list in the official repo. */
+const CURVE_CREATE_EVENT = {
+  type: "event", name: "CurveCreate", anonymous: false,
+  inputs: [
+    { name: "creator", type: "address", indexed: true },
+    { name: "token", type: "address", indexed: true },
+    { name: "pool", type: "address", indexed: true },
+    { name: "name", type: "string", indexed: false },
+    { name: "symbol", type: "string", indexed: false },
+    { name: "tokenURI", type: "string", indexed: false },
+    { name: "virtualMon", type: "uint256", indexed: false },
+    { name: "virtualToken", type: "uint256", indexed: false },
+    { name: "targetTokenAmount", type: "uint256", indexed: false },
+  ],
+} as const;
+
+/**
+ * Nad.Fun's DEX side is a straight fork of Uniswap V2 (verified against
+ * Naddotfun/contracts/src/uniswap/{UniswapV2Factory,UniswapV2Pair}.sol —
+ * `UniswapV2Factory.getPair` is a public `mapping(address => mapping(address
+ * => address))`, `UniswapV2Pair.getReserves()`/`token0()`/`token1()` are the
+ * standard, unmodified interface), so the universal Uniswap V2 ABI is used
+ * here rather than a bespoke Nad.Fun one — the same standing this codebase
+ * already gives plain ERC-20 `balanceOf`/`allowance` elsewhere.
+ */
+const DEX_FACTORY_ABI = [
+  { type: "function", name: "getPair", stateMutability: "view", inputs: [{ name: "", type: "address" }, { name: "", type: "address" }], outputs: [{ name: "", type: "address" }] },
+] as const;
+const UNISWAP_V2_PAIR_ABI = [
+  { type: "function", name: "getReserves", stateMutability: "view", inputs: [], outputs: [{ name: "_reserve0", type: "uint112" }, { name: "_reserve1", type: "uint112" }, { name: "_blockTimestampLast", type: "uint32" }] },
+  { type: "function", name: "token0", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+  { type: "function", name: "token1", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
 ] as const;
 
 /**
@@ -237,6 +296,194 @@ export async function nadFunAvailableBuyTokens(token: Address, tokenDecimals: nu
     const [availableToken, requiredMon] = result;
     return { availableToBuy: formatUnits(availableToken, tokenDecimals), requiredMon: formatUnits(requiredMon, 18) };
   } catch {
+    return null;
+  }
+}
+
+/**
+ * Bonding-curve completion, 0-100. The official ABI repo's README states
+ * `getProgress()` returns basis points (10000 = 100%) — that unit
+ * convention itself comes from the task brief / referenced docs, not
+ * independently re-derived here (GitBook, where it's presumably spelled
+ * out in prose, is unreachable from this environment — see this module's
+ * top-of-file doc). The ABI only confirms the function exists and returns
+ * a single uint256; the /100 scaling is trusted from that stated
+ * convention. Null once graduated or unrecognized, never a fabricated 0
+ * or 100.
+ */
+export async function getNadFunProgress(token: Address): Promise<number | null> {
+  if (getNetwork() !== "mainnet") return null;
+  const pub = getPublicClient();
+  try {
+    const bps = (await pub.readContract({
+      address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "getProgress", args: [token],
+    })) as bigint;
+    return Number(bps) / 100;
+  } catch {
+    return null;
+  }
+}
+
+export interface NadFunCurveReserves {
+  /** Real (actually deposited) reserves — what the curve is genuinely
+   *  holding right now, human units. */
+  realMon: string;
+  realToken: string;
+  /** Virtual reserves — the curve's pricing-formula baseline, human units.
+   *  Included because they're part of the same verified read, but real
+   *  reserves are what "bonding-curve liquidity" below is computed from. */
+  virtualMon: string;
+  virtualToken: string;
+}
+
+/**
+ * The bonding curve's actual reserves for `token`, via `BondingCurve.curves`
+ * — a single, direct view read, not derived from `CurveSync` event history
+ * (the brief raised `CurveSync` as one option; the curve's own current-state
+ * getter is the more direct, equally-official source for CURRENT reserves,
+ * and avoids scanning event logs for a value the contract already exposes
+ * live). Returns null for a token the curve doesn't recognize (a revert),
+ * never a fabricated zero.
+ */
+export async function getNadFunCurveReserves(token: Address, tokenDecimals: number): Promise<NadFunCurveReserves | null> {
+  if (getNetwork() !== "mainnet") return null;
+  const pub = getPublicClient();
+  try {
+    const result = (await pub.readContract({
+      address: NADFUN_MAINNET.bondingCurve, abi: BONDING_CURVE_ABI, functionName: "curves", args: [token],
+    })) as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint];
+    const [realMonReserve, realTokenReserve, virtualMonReserve, virtualTokenReserve] = result;
+    return {
+      realMon: formatUnits(realMonReserve, 18),
+      realToken: formatUnits(realTokenReserve, tokenDecimals),
+      virtualMon: formatUnits(virtualMonReserve, 18),
+      virtualToken: formatUnits(virtualTokenReserve, tokenDecimals),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface NadFunPoolLiquidity {
+  pool: Address;
+  /** Real MON sitting in the graduated DEX pool right now, human units —
+   *  "DEX Liquidity", deliberately labeled distinctly from bonding-curve
+   *  liquidity (see this module's own doc — the brief is explicit these
+   *  must never be combined into one number). */
+  monReserve: string;
+  tokenReserve: string;
+}
+
+/**
+ * The GRADUATED DEX pool's real reserves for `token`, found via the
+ * official Uniswap-V2-fork factory (`getPair(WMON, token)`) rather than
+ * trusting `CurveCreate`'s `pool` field — that field is the BONDING-CURVE
+ * pool, which the brief explicitly warns against showing as the active DEX
+ * pool post-graduation. Returns null when no pool exists yet (pre-
+ * graduation) or the pair can't be read, never a fabricated value.
+ */
+export async function getNadFunGraduatedPoolLiquidity(token: Address, tokenDecimals: number): Promise<NadFunPoolLiquidity | null> {
+  if (getNetwork() !== "mainnet") return null;
+  const pub = getPublicClient();
+  try {
+    const pool = (await pub.readContract({
+      address: NADFUN_MAINNET.dexFactory, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [NADFUN_MAINNET.wmon, token],
+    })) as Address;
+    if (!pool || /^0x0+$/.test(pool)) return null; // no pool exists yet
+    const [reserves, token0] = await Promise.all([
+      pub.readContract({ address: pool, abi: UNISWAP_V2_PAIR_ABI, functionName: "getReserves" }) as Promise<readonly [bigint, bigint, number]>,
+      pub.readContract({ address: pool, abi: UNISWAP_V2_PAIR_ABI, functionName: "token0" }) as Promise<Address>,
+    ]);
+    const [reserve0, reserve1] = reserves;
+    const wmonIsToken0 = token0.toLowerCase() === NADFUN_MAINNET.wmon.toLowerCase();
+    const monReserveWei = wmonIsToken0 ? reserve0 : reserve1;
+    const tokenReserveWei = wmonIsToken0 ? reserve1 : reserve0;
+    return { pool, monReserve: formatUnits(monReserveWei, 18), tokenReserve: formatUnits(tokenReserveWei, tokenDecimals) };
+  } catch {
+    return null;
+  }
+}
+
+export interface NadFunCreatorInfo {
+  creator: Address;
+  /** The BONDING-CURVE pool from `CurveCreate` — distinct from, and often
+   *  stale after, the graduated DEX pool (see getNadFunGraduatedPoolLiquidity). */
+  curvePool: Address;
+  /** Unix ms the token was created, from the CurveCreate log's own block —
+   *  a real on-chain timestamp, not an estimate. Null only if the block
+   *  itself couldn't be read (the creator/pool are still valid in that
+   *  case; this one extra field just stays honestly unavailable). */
+  createdAt: number | null;
+}
+
+/** Permanent — a token's `CurveCreate` event never changes once it exists
+ *  (a token is created exactly once), matching tokenRegistry.ts's own
+ *  "immutable on-chain fact -> cache forever" precedent. */
+const creatorCache = new Map<string, NadFunCreatorInfo | null>();
+
+/** Test-only escape hatch, matching tokenIntelligence.ts's own
+ *  clearMarketDataCache() precedent — a module-level cache otherwise
+ *  leaks one test's mocked value into the next test run against the same
+ *  address. Not called anywhere in application code. */
+export function clearNadFunCreatorCache(): void {
+  creatorCache.clear();
+}
+
+/**
+ * The token's creator and original bonding-curve pool, from its ONE
+ * `CurveCreate` log ever emitted — found via a topic-filtered `getLogs`
+ * call (all three addresses in the event are indexed, so this is a
+ * targeted lookup for this exact token, not a scan of unrelated activity).
+ *
+ * Best-effort and fails open: this sandbox has no live RPC access to
+ * confirm whether the configured provider accepts an unbounded
+ * (`fromBlock: "earliest"`) range for a single indexed-topic query, or
+ * requires a bounded/chunked range instead — see this module's own
+ * doc and the Step 7 report. Any failure (including a provider rejecting
+ * the range) returns null rather than fabricating creator/pool data or
+ * throwing and breaking the rest of a token lookup. Cached permanently on
+ * success — the cost of a wide historical scan, if the provider allows
+ * one at all, is paid at most once per token, ever.
+ */
+export async function getNadFunCreatorInfo(token: Address): Promise<NadFunCreatorInfo | null> {
+  if (getNetwork() !== "mainnet") return null;
+  const key = token.toLowerCase();
+  if (creatorCache.has(key)) return creatorCache.get(key) ?? null;
+  const pub = getPublicClient();
+  try {
+    const logs = await pub.getLogs({
+      address: NADFUN_MAINNET.bondingCurve,
+      event: CURVE_CREATE_EVENT,
+      args: { token },
+      fromBlock: "earliest",
+      toBlock: "latest",
+    });
+    const log = logs[0];
+    if (!log || !("args" in log) || !log.args) {
+      creatorCache.set(key, null);
+      return null;
+    }
+    const args = log.args as { creator?: Address; pool?: Address };
+    if (!args.creator || !args.pool) {
+      creatorCache.set(key, null);
+      return null;
+    }
+    let createdAt: number | null = null;
+    if (log.blockNumber != null) {
+      try {
+        const block = await pub.getBlock({ blockNumber: log.blockNumber });
+        createdAt = Number(block.timestamp) * 1000;
+      } catch {
+        /* block read failed -- creator/pool are still good, just no timestamp */
+      }
+    }
+    const info: NadFunCreatorInfo = { creator: args.creator, curvePool: args.pool, createdAt };
+    creatorCache.set(key, info);
+    return info;
+  } catch {
+    // Provider rejected the range, RPC hiccup, or genuinely no such event —
+    // all indistinguishable from here, and all handled the same honest way.
+    creatorCache.set(key, null);
     return null;
   }
 }
