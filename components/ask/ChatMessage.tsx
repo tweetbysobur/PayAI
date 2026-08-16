@@ -35,7 +35,7 @@ export function ChatMessageRow({
       <div className={`flex min-w-0 max-w-[88%] flex-col gap-2 sm:max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
         {message.content && (
           <div
-            className={`whitespace-pre-wrap break-words rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+            className={`whitespace-pre-wrap [overflow-wrap:anywhere] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
               isUser
                 ? "rounded-tr-sm bg-primary text-primary-foreground"
                 : "rounded-tl-sm border border-border bg-panel text-foreground"
