@@ -89,18 +89,24 @@ export async function getUsdPrice(address: string, decimals: number): Promise<nu
 
   const quoteUnitPrice = async (units: string): Promise<number | null> => {
     const amountIn = parseUnits(units, decimals);
-    let best: bigint | null = null;
-    for (const fee of FEE_TIERS) {
-      try {
+    // The 3 fee tiers are independent probes -- query them concurrently
+    // (matches swap.ts's quoteUniswapDirect/buildUniswapPlanDirect) rather
+    // than one RPC round-trip at a time. A sequential loop here was the
+    // dominant cost in a cold token lookup: 3 round-trips back-to-back per
+    // probe, twice (this "1 unit" probe and the "10 unit" one below), before
+    // Promise.all even gets a chance to overlap them with each other.
+    const settled = await Promise.allSettled(
+      FEE_TIERS.map(async (fee) => {
         const { result } = await pub.simulateContract({
           address: QUOTER, abi: QUOTER_ABI, functionName: "quoteExactInputSingle",
           args: [{ tokenIn: routeAddress, tokenOut: USDC, amountIn, fee, sqrtPriceLimitX96: 0n }],
         });
-        const out = (result as readonly [bigint, bigint, number, bigint])[0];
-        if (out > 0n && (best === null || out > best)) best = out;
-      } catch {
-        /* no pool at this tier — try the next */
-      }
+        return (result as readonly [bigint, bigint, number, bigint])[0];
+      }),
+    );
+    let best: bigint | null = null;
+    for (const r of settled) {
+      if (r.status === "fulfilled" && r.value > 0n && (best === null || r.value > best)) best = r.value;
     }
     if (best === null) return null;
     // Normalise back to a per-1-unit price so the two probes are comparable.
