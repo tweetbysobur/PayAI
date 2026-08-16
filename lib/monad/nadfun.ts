@@ -286,15 +286,37 @@ export interface NadFunExactOutQuote {
  * Uniswap/Kuru's quoting primitives in this codebase (input-only), Nad.Fun's
  * ARE genuinely exact-output-capable, and this function and
  * buildNadFunExactOutBuyPlan/buildNadFunExactOutSellPlan below are real,
- * working, tested implementations against the verified ABI.
+ * working, tested implementations against the verified ABI (calldata shape
+ * and selector are 100% confirmed — see NADFUN_ROUTER_ABI's own doc).
  *
- * Deliberately NOT wired into lib/monad/tradeQuote.ts's main preview/execute
- * flow yet: that flow rejects `exact_output` once, up front, for every
- * provider (see resolveAmountInInputUnits's own doc) before routing is even
- * known, and every other provider genuinely can't do it — special-casing
- * Nad.Fun there means restructuring shared logic all providers depend on.
- * Per the brief's own "do not enable automatically", this is held at the
- * module level, verified and tested, ready for that follow-up.
+ * ONE runtime behavior could not be independently confirmed for the
+ * deployed v3 router specifically: whether `exactOutBuy`'s `amountInMax`
+ * (sent as `msg.value`, since the exact `amountIn` needed isn't knowable
+ * until execution) gets refunded back to the caller when the actual cost
+ * comes in under the cap. What was checked:
+ *   - GitBook prose docs: unreachable from this sandbox (network policy).
+ *   - The Monad block explorer and Sourcify, either of which would show the
+ *     deployed contract's verified source directly: both also blocked by
+ *     this sandbox's network policy.
+ *   - Naddotfun/contracts (their actual Solidity source, `main` branch,
+ *     untagged/unversioned): real code, but for a DIFFERENT, older router —
+ *     its `buy`/`sell`/`exactOutBuy` all take flat parameters, not the
+ *     struct-tuple shape the v3 ABI (and this module) use, so it's a
+ *     different contract, not directly authoritative for v3. It DOES show
+ *     the team's own established pattern for this exact situation, though:
+ *     `require(msg.value >= amountInMax)`, compute the real `amountIn`,
+ *     then `if (amountInMax - amountIn > 0) safeTransferNative(msg.sender,
+ *     rest)` — the same WNative/fee-vault/`_swap` architecture as the v3
+ *     interface, consistent with continuous evolution of one codebase by
+ *     one team rather than an unrelated project. That makes a refund the
+ *     well-evidenced expectation, not a blind guess — but it is inference
+ *     from an adjacent version, not confirmation of the deployed one.
+ *
+ * This is why exact-output stays out of the main flow below rather than
+ * being flipped on based on that inference: the module-level functions
+ * are correct and ready, but enabling them for real money is a call for a
+ * session (or a person) with unblocked access to the block explorer to
+ * confirm in under a minute, not something to assume from here.
  */
 export async function nadFunQuoteExactOut(token: Address, tokenDecimals: number, amountOut: string, isBuy: boolean): Promise<NadFunExactOutQuote | null> {
   if (getNetwork() !== "mainnet") return null;
