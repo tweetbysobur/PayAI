@@ -199,6 +199,16 @@ export interface TokenMarketData {
   lastUpdated: number;
 }
 
+/** Nad.Fun status for a token the Lens recognizes — mirrors
+ *  lib/monad/tokenIntelligence's TokenNadFunInfo (itself mirroring
+ *  lib/monad/nadfun's getNadFunStatus). Absent/null, not a false status,
+ *  when the token was never on Nad.Fun at all. */
+export interface TokenNadFunInfo {
+  status: "bonding_curve" | "graduated" | "locked" | "unsupported";
+  isLocked: boolean;
+  availableToBuy: string | null;
+}
+
 /** Everything real and known about one identified ERC-20 token — populated
  *  entirely by lib/monad/tokenIntelligence's on-chain reads, never invented. */
 export interface TokenData {
@@ -214,6 +224,9 @@ export interface TokenData {
   /** Present only when a specific amount was actually requested (e.g. "how
    *  much would I get for 50?") — absent, not null, when nothing was asked. */
   quote?: QuotedAmount | null;
+  /** Optional (not every caller populates it) so existing token-lookup
+   *  fixtures/tests stay valid without updating every literal. */
+  nadFun?: TokenNadFunInfo | null;
 }
 
 /** Read-only lookup of an arbitrary Monad address — never signs, never

@@ -237,8 +237,10 @@ interface RawQuote {
 }
 
 /** Never let a positive output quote floor to a zero enforced minimum --
- *  that would sign a swap with no real slippage protection at all. */
-function minOutWei(amountOutWei: bigint, slippage: number): bigint {
+ *  that would sign a swap with no real slippage protection at all. Exported
+ *  so other providers behind the seam (e.g. nadfun.ts) apply the exact same
+ *  slippage-floor protection rather than redefining it. */
+export function minOutWei(amountOutWei: bigint, slippage: number): bigint {
   const bps = BigInt(Math.round((1 - slippage) * 1_000_000));
   const floored = (amountOutWei * bps) / 1_000_000n;
   return floored === 0n && amountOutWei > 0n ? 1n : floored;

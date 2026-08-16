@@ -47,6 +47,21 @@ function agoLabel(at: number): string {
   return `${Math.round(secs / 60)}m ago`;
 }
 
+/** Nad.Fun status labels, matching the task brief's own wording exactly —
+ *  never fabricated, straight from lib/monad/nadfun's getNadFunStatus. */
+const NADFUN_STATUS_LABEL: Record<string, string> = {
+  bonding_curve: "Bonding Curve",
+  graduated: "Graduated",
+  locked: "Locked",
+  unsupported: "No active route",
+};
+const NADFUN_STATUS_TONE: Record<string, string> = {
+  bonding_curve: "border-primary/30 bg-primary/10 text-primary-ink",
+  graduated: "border-success/30 bg-success/10 text-success",
+  locked: "border-warning/30 bg-warning/10 text-warning",
+  unsupported: "border-border bg-input text-muted-foreground",
+};
+
 const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title: string }> = {
   payment: { icon: Send, title: "Payment" },
   scheduled_payment: { icon: Clock3, title: "Scheduled Payment" },
@@ -411,6 +426,18 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
           {d.isTradable ? "Tradable" : "No route found"}
         </span>
       </div>
+
+      {d.nadFun && (
+        <div className="mb-2.5 flex items-center gap-1.5">
+          <span className="rounded-full border border-border bg-input px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Nad.Fun</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
+            {NADFUN_STATUS_LABEL[d.nadFun.status]}
+          </span>
+          {d.nadFun.availableToBuy && (
+            <span className="text-[11px] text-muted-foreground">{d.nadFun.availableToBuy} {d.symbol} left on curve</span>
+          )}
+        </div>
+      )}
 
       <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
         <div className="mb-0.5 flex items-center justify-between gap-2">
