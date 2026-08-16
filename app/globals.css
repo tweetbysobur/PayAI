@@ -6,6 +6,13 @@
  */
 :root {
   color-scheme: dark;
+  /* JS-readable mirror of the CSS env() value — env() itself can't be read
+     via getComputedStyle from a class name, only from a property that
+     resolves to it. Used by CommandBar's floating trigger so its default
+     (never-dragged) resting position clears a phone's home-indicator area
+     instead of just a fixed 24px, which on a notched device can sit inside
+     the safe area itself. */
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
 
   --background: 240 7% 4%;         /* #09090b — deep background */
   --panel: 240 4% 7%;              /* #111113 — surface */
