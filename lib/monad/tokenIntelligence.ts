@@ -55,9 +55,12 @@ import "server-only";
 import { formatUnits, type Address } from "viem";
 import { getPublicClient } from "./wallet";
 import { getNetwork, getStablecoin, explorerAddress } from "./config";
-import { resolveToken, type TokenInfo } from "./tokenRegistry";
+import { NATIVE_TOKEN_ADDRESS, resolveToken, type TokenInfo } from "./tokenRegistry";
 import { candidateProviders, MAX_PRICE_IMPACT, quoteUniswapDirect, resolveSwapSide } from "./swap";
-import { getNadFunStatus, nadFunAvailableBuyTokens, nadFunQuote, type NadFunStatusLabel } from "./nadfun";
+import {
+  getNadFunCreatorInfo, getNadFunCurveReserves, getNadFunGraduatedPoolLiquidity, getNadFunProgress,
+  getNadFunStatus, nadFunAvailableBuyTokens, nadFunQuote, type NadFunStatus, type NadFunStatusLabel,
+} from "./nadfun";
 import { getUsdPrice } from "./prices";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -103,6 +106,23 @@ export interface QuotedAmount {
   route: TokenRoute | null;
 }
 
+/** Bonding-curve or graduated-DEX liquidity — Step 7's brief is explicit
+ *  these are different concepts that must never be combined into one
+ *  number or mislabeled as each other. `mon`/`usd` are the TOTAL value on
+ *  both sides of the pool (2x one side, the standard TVL convention),
+ *  never just the buy-capacity figure (see nadfun.ts's own
+ *  availableBuyTokens doc for why that's a separate thing entirely). */
+export interface TokenLiquidity {
+  label: "Bonding Curve Liquidity" | "DEX Liquidity";
+  mon: string;
+  usd: string | null;
+  /** The pool this was read from — the graduated DEX pair for "DEX
+   *  Liquidity", or null for "Bonding Curve Liquidity" (the curve itself
+   *  holds the reserves; there's no separate pool contract to name until
+   *  graduation actually happens). */
+  pool: string | null;
+}
+
 /** Every field here is either a real, freshly-read value or explicitly
  *  `null` — never a fabricated 0 or "$0.00". `price` comes from
  *  lib/monad/prices's getUsdPrice(), which already refuses to price a pool
@@ -111,14 +131,42 @@ export interface QuotedAmount {
  *  a bug, it's "a route was found, but it isn't liquid enough to price
  *  honestly," which the caller can and should show as such (see the spec's
  *  own "Liquidity data unavailable, but a trading route was found").
- *  liquidity/volume24h/priceChange24h are always null today: no
- *  indexer/subgraph is wired into this app (see this module's own
- *  investigation, documented in the Step 2 report, not restated in code). */
+ *
+ *  marketCapUsd/fdvUsd (Step 7): both computed as `price × totalSupply` —
+ *  the SAME formula, deliberately. This app has no verified source that
+ *  distinguishes a Nad.Fun (or any arbitrary Monad) token's circulating
+ *  supply from its total supply — no vesting/lock contract was found in
+ *  the official Token.sol interface, and none is claimed anywhere reached
+ *  during verification. Per the brief's own "if a reliable calculation
+ *  cannot be established, return unavailable rather than inventing a
+ *  value," these are reported as genuinely equal rather than fabricating
+ *  an artificial difference between them; both are null together whenever
+ *  price or totalSupply is unavailable. See the Step 7 report for the
+ *  full reasoning.
+ *
+ *  volume24h/buyVolume24h/sellVolume24h/transactions24h/buys24h/sells24h/
+ *  holders are always null today (see the Step 7 report's explicit
+ *  reasoning: no indexer/subgraph exists, and this build environment has
+ *  no live RPC access to verify a true 24h on-chain event scan is safe to
+ *  ship — Monad's block time makes a naive full scan a real latency risk,
+ *  and the brief explicitly forbids approximating "24h" from a smaller,
+ *  arbitrarily truncated window). */
 export interface TokenMarketData {
   price: string | null;
   priceQuoteAsset: string | null;
-  liquidity: string | null;
+  /** Price in native MON per 1 token — reused directly from `routes`
+   *  (whichever route quotes against MON) rather than a second RPC call. */
+  priceMon: string | null;
+  marketCapUsd: string | null;
+  fdvUsd: string | null;
+  liquidity: TokenLiquidity | null;
   volume24h: string | null;
+  buyVolume24h: string | null;
+  sellVolume24h: string | null;
+  transactions24h: number | null;
+  buys24h: number | null;
+  sells24h: number | null;
+  holders: number | null;
   priceChange24h: string | null;
   /** Which quote assets were actually probed — transparency about what
    *  "no pairs found" does and doesn't mean (e.g. AUSD was never checked). */
@@ -147,6 +195,10 @@ export interface TokenNadFunInfo {
   /** Bonding-curve buy capacity, human units — only present pre-graduation
    *  (see nadFunAvailableBuyTokens's own doc for why it's null otherwise). */
   availableToBuy: string | null;
+  /** 0-100, from the official Lens's getProgress() (bps / 100) — only
+   *  meaningful pre-graduation, null otherwise. See getNadFunProgress's
+   *  own doc for the one caveat on the bps-unit convention. */
+  progressPct: number | null;
 }
 
 export interface TokenIntelligence {
@@ -166,6 +218,20 @@ export interface TokenIntelligence {
    *  much would I get for 50?") — absent, not null, when nothing was asked. */
   quote?: QuotedAmount | null;
   nadFun: TokenNadFunInfo | null;
+  /** Only populated for a Nad.Fun-recognized token, from its one
+   *  `CurveCreate` log — see getNadFunCreatorInfo's own doc. Null for any
+   *  other token: no reliable, verified general-purpose "who deployed
+   *  this contract" source was found for an arbitrary Monad address. */
+  creator: string | null;
+  /** The relevant ACTIVE pool: the graduated DEX pair once one exists,
+   *  otherwise the original bonding-curve pool — never an obsolete
+   *  bonding-curve address shown after graduation (see the Step 7 brief's
+   *  explicit warning). Null for a non-Nad.Fun token. */
+  pool: string | null;
+  /** Unix ms, from the Nad.Fun creation block's own timestamp. Null for a
+   *  non-Nad.Fun token (no reliable general-purpose deployment-time source
+   *  was found; see the Step 7 report). */
+  createdAt: number | null;
 }
 
 export type TokenInspection =
@@ -340,7 +406,62 @@ export function clearMarketDataCache(): void {
   marketCache.clear();
 }
 
-async function probeMarket(info: TokenInfo, address: Address): Promise<TokenMarketData> {
+/** price × totalSupply, formatted like the price field itself. Both
+ *  marketCapUsd and fdvUsd use this SAME computation — see TokenMarketData's
+ *  own doc for why they're deliberately equal rather than fabricating a
+ *  circulating-vs-total distinction this app has no verified source for. */
+function computeUsdValuation(usdPrice: number | null, totalSupply: string | null): string | null {
+  if (usdPrice == null || totalSupply == null) return null;
+  const supply = Number(totalSupply);
+  if (!Number.isFinite(supply) || supply <= 0) return null;
+  const value = usdPrice * supply;
+  return value.toLocaleString(undefined, { maximumFractionDigits: value < 1 ? 8 : 2 });
+}
+
+/**
+ * Bonding-curve or graduated-DEX liquidity for a Nad.Fun-recognized token —
+ * a single direct read either way (curve reserves via `BondingCurve.curves`,
+ * or the DEX pool's reserves via the factory + pair), never derived from
+ * `availableBuyTokens` (a different concept — see TokenLiquidity's own doc)
+ * and never combining the two sources into one number. Null for a token
+ * Nad.Fun doesn't recognize: this app has no Uniswap-v3-compatible
+ * liquidity-depth read (v3 is concentrated liquidity, not simple x*y=k
+ * reserves), so an arbitrary Uniswap-routed token's liquidity stays
+ * honestly unavailable in this pass — see the Step 7 report.
+ */
+async function probeNadFunLiquidity(
+  address: Address, decimals: number, status: NadFunStatusLabel,
+): Promise<TokenLiquidity | null> {
+  if (status === "graduated") {
+    const pool = await getNadFunGraduatedPoolLiquidity(address, decimals);
+    if (!pool) return null;
+    const monTotal = Number(pool.monReserve) * 2;
+    const monUsd = await getUsdPrice(NATIVE_TOKEN_ADDRESS, 18);
+    return {
+      label: "DEX Liquidity",
+      mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+      usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
+      pool: pool.pool,
+    };
+  }
+  if (status === "bonding_curve" || status === "locked") {
+    const reserves = await getNadFunCurveReserves(address, decimals);
+    if (!reserves) return null;
+    const monTotal = Number(reserves.realMon) * 2;
+    const monUsd = await getUsdPrice(NATIVE_TOKEN_ADDRESS, 18);
+    return {
+      label: "Bonding Curve Liquidity",
+      mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+      usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
+      pool: null,
+    };
+  }
+  return null;
+}
+
+async function probeMarket(
+  info: TokenInfo, address: Address, totalSupply: string | null, nadFunStatus: NadFunStatus,
+): Promise<TokenMarketData> {
   const key = address.toLowerCase();
   const hit = marketCache.get(key);
   if (hit && Date.now() - hit.at < MARKET_TTL_MS) return hit.data;
@@ -352,16 +473,27 @@ async function probeMarket(info: TokenInfo, address: Address): Promise<TokenMark
     return true;
   });
 
-  const [routes, usdPrice] = await Promise.all([
+  const [routes, usdPrice, liquidity] = await Promise.all([
     discoverRoutes(info, address, QUOTE_ASSETS, "1"),
     getUsdPrice(address, info.decimals),
+    nadFunStatus.recognized ? probeNadFunLiquidity(address, info.decimals, nadFunStatus.status) : Promise.resolve(null),
   ]);
 
+  const valuation = computeUsdValuation(usdPrice, totalSupply);
   const data: TokenMarketData = {
     price: usdPrice != null ? usdPrice.toFixed(usdPrice < 1 ? 8 : 4) : null,
     priceQuoteAsset: usdPrice != null ? "USD" : null,
-    liquidity: null,
+    priceMon: routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null,
+    marketCapUsd: valuation,
+    fdvUsd: valuation,
+    liquidity,
     volume24h: null,
+    buyVolume24h: null,
+    sellVolume24h: null,
+    transactions24h: null,
+    buys24h: null,
+    sells24h: null,
+    holders: null,
     priceChange24h: null,
     quoteAssetsChecked,
     routes,
@@ -403,19 +535,45 @@ export async function inspectAddress(
   }
 
   const addr = address as Address;
-  const [totalSupply, userBalance, market, nadFunStatus] = await Promise.all([
+  // totalSupply and nadFunStatus resolve first — probeMarket's own cached
+  // computation (marketCapUsd/fdvUsd, bonding-curve-vs-DEX liquidity) needs
+  // both, so it's called after rather than run fully in parallel with them.
+  // Reading totalSupply once here and threading it through (rather than a
+  // second, separate read inside probeMarket) is what keeps this a single
+  // call instead of a duplicate one.
+  const [totalSupply, nadFunStatus] = await Promise.all([
     readTotalSupply(pub, addr, info.decimals),
-    walletAddress ? readBalance(pub, addr, walletAddress as Address, info.decimals) : Promise.resolve(null),
-    probeMarket(info, addr),
     getNadFunStatus(addr),
   ]);
-  const nadFun: TokenNadFunInfo | null = nadFunStatus.recognized
-    ? {
-        status: nadFunStatus.status,
-        isLocked: nadFunStatus.isLocked,
-        availableToBuy: nadFunStatus.status === "bonding_curve" ? (await nadFunAvailableBuyTokens(addr, info.decimals))?.availableToBuy ?? null : null,
-      }
-    : null;
+  const [userBalance, market] = await Promise.all([
+    walletAddress ? readBalance(pub, addr, walletAddress as Address, info.decimals) : Promise.resolve(null),
+    probeMarket(info, addr, totalSupply, nadFunStatus),
+  ]);
+
+  let nadFun: TokenNadFunInfo | null = null;
+  let creator: string | null = null;
+  let pool: string | null = null;
+  let createdAt: number | null = null;
+  if (nadFunStatus.recognized) {
+    const [availability, progressPct, creatorInfo] = await Promise.all([
+      nadFunStatus.status === "bonding_curve" ? nadFunAvailableBuyTokens(addr, info.decimals) : Promise.resolve(null),
+      nadFunStatus.status !== "graduated" ? getNadFunProgress(addr) : Promise.resolve(null),
+      getNadFunCreatorInfo(addr),
+    ]);
+    nadFun = {
+      status: nadFunStatus.status,
+      isLocked: nadFunStatus.isLocked,
+      availableToBuy: availability?.availableToBuy ?? null,
+      progressPct,
+    };
+    creator = creatorInfo?.creator ?? null;
+    createdAt = creatorInfo?.createdAt ?? null;
+    // The RELEVANT active pool: the graduated DEX pair once one exists
+    // (already resolved inside probeMarket's liquidity read, reused here
+    // rather than re-fetched), otherwise the original bonding-curve pool —
+    // never an obsolete bonding-curve address shown after graduation.
+    pool = market.liquidity?.label === "DEX Liquidity" ? market.liquidity.pool : creatorInfo?.curvePool ?? null;
+  }
 
   let quote: QuotedAmount | null | undefined;
   if (quoteRequest?.amount) {
@@ -439,6 +597,9 @@ export async function inspectAddress(
       userBalance,
       explorerUrl: explorerAddress(address),
       market,
+      creator,
+      pool,
+      createdAt,
       ...(quote !== undefined ? { quote } : {}),
       nadFun,
     },

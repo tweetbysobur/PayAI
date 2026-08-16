@@ -176,19 +176,42 @@ export interface QuotedAmount {
   route: TokenRoute | null;
 }
 
+/** Bonding-curve or graduated-DEX liquidity — mirrors
+ *  lib/monad/tokenIntelligence's TokenLiquidity. Never combines the two
+ *  sources or mislabels one as the other. */
+export interface TokenLiquidity {
+  label: "Bonding Curve Liquidity" | "DEX Liquidity";
+  mon: string;
+  usd: string | null;
+  pool: string | null;
+}
+
 /** Real market data only — every field is either a genuine freshly-read
  *  value or `null`, never a fabricated 0 or "$0.00" standing in for
  *  "unavailable". `price` can be null even when `routes` is non-empty — a
  *  route can exist but be too shallow to price honestly (see
- *  lib/monad/prices's getUsdPrice, which this reuses). liquidity/volume24h/
- *  priceChange24h are null until this app has an indexer to source them
- *  from (see lib/monad/tokenIntelligence). `signals` are descriptive tags
- *  only, never a verdict ("scam"/"safe" is never inferred from these). */
+ *  lib/monad/prices's getUsdPrice, which this reuses). marketCapUsd/fdvUsd
+ *  are deliberately equal (price × totalSupply, no verified circulating-
+ *  supply source exists — see lib/monad/tokenIntelligence's own doc).
+ *  volume24h/buyVolume24h/sellVolume24h/transactions24h/buys24h/sells24h/
+ *  holders are null until this app has an indexer to source them from (see
+ *  lib/monad/tokenIntelligence and the Step 7 report). `signals` are
+ *  descriptive tags only, never a verdict ("scam"/"safe" is never inferred
+ *  from these). */
 export interface TokenMarketData {
   price: string | null;
   priceQuoteAsset: string | null;
-  liquidity: string | null;
+  priceMon: string | null;
+  marketCapUsd: string | null;
+  fdvUsd: string | null;
+  liquidity: TokenLiquidity | null;
   volume24h: string | null;
+  buyVolume24h: string | null;
+  sellVolume24h: string | null;
+  transactions24h: number | null;
+  buys24h: number | null;
+  sells24h: number | null;
+  holders: number | null;
   priceChange24h: string | null;
   quoteAssetsChecked: string[];
   routes: TokenRoute[];
@@ -207,6 +230,7 @@ export interface TokenNadFunInfo {
   status: "bonding_curve" | "graduated" | "locked" | "unsupported";
   isLocked: boolean;
   availableToBuy: string | null;
+  progressPct: number | null;
 }
 
 /** Everything real and known about one identified ERC-20 token — populated
@@ -227,6 +251,9 @@ export interface TokenData {
   /** Optional (not every caller populates it) so existing token-lookup
    *  fixtures/tests stay valid without updating every literal. */
   nadFun?: TokenNadFunInfo | null;
+  creator?: string | null;
+  pool?: string | null;
+  createdAt?: number | null;
 }
 
 /** Read-only lookup of an arbitrary Monad address — never signs, never
