@@ -231,7 +231,7 @@ export function CommandBar() {
                         progressLabel={m.operation ? chat.progress[m.operation.id] : undefined}
                       />
                     ))}
-                    {chat.thinking && <ThinkingRow />}
+                    {chat.thinking && <ThinkingRow label={chat.thinkingLabel} />}
                   </div>
                 )}
               </div>

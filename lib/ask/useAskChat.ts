@@ -133,11 +133,24 @@ export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
   return null;
 }
 
+/** Same shape as classify.ts's own EVM_ADDRESS_RE, duplicated (not imported)
+ *  deliberately: classify.ts pulls in the Anthropic SDK and other
+ *  server-only weight this client bundle shouldn't carry just for one
+ *  regex. Used only to pick a more specific loading label — never to
+ *  change what gets sent or how it's classified server-side. */
+const CLIENT_EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
+
 export function useAskChat() {
   const wallet = useWallet();
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
+  // Latency Task 9: a plain "..." dots row reads as frozen on a slower
+  // connection. A pasted contract address is the one case cheap and
+  // reliable enough to label client-side before the backend has said
+  // anything at all — never a guessed VALUE, just which kind of lookup is
+  // in flight. Null (the generic dots, unchanged) for everything else.
+  const [thinkingLabel, setThinkingLabel] = useState<string | null>(null);
   // The in-flight, not-yet-complete (or just-completed) intent — carried
   // into the next turn so "20", "MON", or "actually make it 30" is
   // understood as continuing/correcting THIS request rather than starting
@@ -240,6 +253,7 @@ export function useAskChat() {
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
+    setThinkingLabel(null); // cleared up front so a stale label from a previous turn never leaks into this one
 
     // Natural-language confirmation of an already-previewed payment or swap.
     // Checked BEFORE anything is sent to the AI: whether this message
@@ -283,6 +297,7 @@ export function useAskChat() {
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
     setMessages((m) => [...m, userMsg]);
     setInput("");
+    setThinkingLabel(CLIENT_EVM_ADDRESS_RE.test(trimmed) ? "Looking up token…" : null);
     setThinking(true);
     try {
       const history: ConversationTurn[] = [...messages, userMsg]
@@ -420,7 +435,7 @@ export function useAskChat() {
   }
 
   return {
-    wallet, messages, input, setInput, thinking, progress,
+    wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
   };
 }

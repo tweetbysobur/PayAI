@@ -535,19 +535,34 @@ export async function inspectAddress(
   }
 
   const addr = address as Address;
-  // totalSupply and nadFunStatus resolve first — probeMarket's own cached
-  // computation (marketCapUsd/fdvUsd, bonding-curve-vs-DEX liquidity) needs
-  // both, so it's called after rather than run fully in parallel with them.
-  // Reading totalSupply once here and threading it through (rather than a
-  // second, separate read inside probeMarket) is what keeps this a single
-  // call instead of a duplicate one.
-  const [totalSupply, nadFunStatus] = await Promise.all([
+  // Latency Task 3: nadFunAvailableBuyTokens() and getNadFunProgress() used
+  // to wait for getNadFunStatus() to resolve first, purely because the old
+  // code decided whether to CALL them based on the status it returned — an
+  // unnecessary sequential RPC round trip. Both read the SAME Lens contract
+  // as isGraduated()/isLocked() and, per lib/monad/nadfun.ts's own verified
+  // behavior, fail the identical way (a caught revert -> null) for a token
+  // the Lens doesn't recognize at all — so there is nothing unsafe about
+  // firing all four concurrently and deciding AFTER they resolve whether the
+  // now-known status actually makes each one meaningful. For a genuinely
+  // non-Nad.Fun token this costs two harmless, already-parallel extra reads
+  // (no added latency, since they finish alongside isGraduated/isLocked);
+  // for a Nad.Fun token — the case this product is actively promoting right
+  // now — it removes a whole sequential hop. getNadFunCreatorInfo() is
+  // deliberately NOT included here: it's a `getLogs` call, not a simple Lens
+  // view read, and its cost/range-limit behavior against the real production
+  // RPC provider is unverified (see the Step 7 report) — it stays gated on
+  // a CONFIRMED recognized status rather than fired speculatively for every
+  // token this app has never seen before.
+  const [totalSupply, nadFunStatus, availabilityRaw, progressRaw] = await Promise.all([
     readTotalSupply(pub, addr, info.decimals),
     getNadFunStatus(addr),
+    nadFunAvailableBuyTokens(addr, info.decimals),
+    getNadFunProgress(addr),
   ]);
-  const [userBalance, market] = await Promise.all([
+  const [userBalance, market, creatorInfo] = await Promise.all([
     walletAddress ? readBalance(pub, addr, walletAddress as Address, info.decimals) : Promise.resolve(null),
     probeMarket(info, addr, totalSupply, nadFunStatus),
+    nadFunStatus.recognized ? getNadFunCreatorInfo(addr) : Promise.resolve(null),
   ]);
 
   let nadFun: TokenNadFunInfo | null = null;
@@ -555,16 +570,14 @@ export async function inspectAddress(
   let pool: string | null = null;
   let createdAt: number | null = null;
   if (nadFunStatus.recognized) {
-    const [availability, progressPct, creatorInfo] = await Promise.all([
-      nadFunStatus.status === "bonding_curve" ? nadFunAvailableBuyTokens(addr, info.decimals) : Promise.resolve(null),
-      nadFunStatus.status !== "graduated" ? getNadFunProgress(addr) : Promise.resolve(null),
-      getNadFunCreatorInfo(addr),
-    ]);
     nadFun = {
       status: nadFunStatus.status,
       isLocked: nadFunStatus.isLocked,
-      availableToBuy: availability?.availableToBuy ?? null,
-      progressPct,
+      // Only trusted for the status it's actually meaningful for — the read
+      // itself already happened above regardless of status; this is purely
+      // about what's SHOWN, exactly matching the old gating logic's outcome.
+      availableToBuy: nadFunStatus.status === "bonding_curve" ? availabilityRaw?.availableToBuy ?? null : null,
+      progressPct: nadFunStatus.status !== "graduated" ? progressRaw : null,
     };
     creator = creatorInfo?.creator ?? null;
     createdAt = creatorInfo?.createdAt ?? null;
