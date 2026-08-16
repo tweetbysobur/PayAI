@@ -113,7 +113,15 @@ export async function resolveTokenMeta(
   }
 }
 
-export function usePortfolio(address: string | null) {
+/**
+ * `locked` is optional and only matters for callers passing an embedded
+ * wallet's `readAddress`: that string stays identical through a lock/unlock
+ * cycle (it's the remembered address, not the live one), so unlocking is
+ * otherwise invisible to the effects below and holdings sit stale until the
+ * next background sync. Passing `isLocked` makes the true→false transition
+ * trigger an immediate re-read.
+ */
+export function usePortfolio(address: string | null, locked?: boolean) {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
@@ -133,7 +141,7 @@ export function usePortfolio(address: string | null) {
       .then((j) => { if (!cancelled) setDiscovered(Array.isArray(j?.tokens) ? j.tokens : []); })
       .catch(() => { /* discovery is additive — the base tokens still render */ });
     return () => { cancelled = true; };
-  }, [address, nonce]);
+  }, [address, nonce, locked]);
 
   const tracked = useMemo(() => {
     const seen = new Map<string, { address: string; decimals: number }>();

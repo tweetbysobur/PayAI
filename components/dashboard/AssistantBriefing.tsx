@@ -108,7 +108,7 @@ export function useAssistantContext(): { ctx: AssistantContext | null; loading: 
   // Balances come from the hook the dashboard already runs, not from the
   // briefing endpoint: a chain read there would gate every other fact behind
   // the slowest one, and the browser has these numbers anyway.
-  const balances = useWalletBalances(wallet.readAddress);
+  const balances = useWalletBalances(wallet.readAddress, wallet.isLocked);
   const [ctx, setCtx] = useState<AssistantContext | null>(null);
   const [loading, setLoading] = useState(true);
   const address = wallet.readAddress;

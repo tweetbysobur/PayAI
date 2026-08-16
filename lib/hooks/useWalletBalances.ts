@@ -20,8 +20,16 @@ const ERC20_BALANCE_ABI = [
  * read-only, no signer needed, runs entirely client-side against the public
  * RPC. Distinct from the platform's own agent wallet (shown separately via
  * /api/health) — this is the user's own funds, not the app's hot wallet.
+ *
+ * `locked` is optional and only matters for callers passing an embedded
+ * wallet's `readAddress`: that address is deliberately the SAME string while
+ * locked and right after unlocking (it's the remembered address, not the
+ * live one), so an unlock is otherwise invisible to the `[address]` effect
+ * below — the balance shown would just sit on whatever was last fetched
+ * until the next background sync tick, minutes later. Passing `isLocked`
+ * makes the true→false transition trigger an immediate refetch.
  */
-export function useWalletBalances(address: string | null): WalletBalances {
+export function useWalletBalances(address: string | null, locked?: boolean): WalletBalances {
   const [mon, setMon] = useState<string | null>(null);
   const [usdc, setUsdc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,7 +67,7 @@ export function useWalletBalances(address: string | null): WalletBalances {
       }
     })();
     return () => { cancelled = true; };
-  }, [address, nonce]);
+  }, [address, nonce, locked]);
 
   return { mon, usdc, loading, refresh };
 }

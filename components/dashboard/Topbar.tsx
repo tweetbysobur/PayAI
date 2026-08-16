@@ -66,7 +66,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
   // readAddress throughout, not address: a locked wallet still has an owner,
   // an identity and a balance. Only signing is gone, so only signing-shaped
   // actions disappear — who you are must not.
-  const balances = useWalletBalances(wallet.readAddress);
+  const balances = useWalletBalances(wallet.readAddress, wallet.isLocked);
   const identity = useIdentity(wallet.readAddress);
   // Prefer the PayAI username, then a .nad domain, then a SHORT address. The
   // full 42-character address never belongs in a top bar — on a phone it
