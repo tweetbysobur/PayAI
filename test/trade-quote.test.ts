@@ -230,6 +230,32 @@ describe("previewTrade — Nad.Fun (bonding-curve / newly-graduated tokens)", ()
     if (!r.ok) return;
     expect(r.route.provider).toBe("Uniswap v3");
   });
+
+  it("Part 5 NL coverage: \"sell half of my tokens\" (a percentage amount) resolves to real units BEFORE routing, then flows through Nad.Fun exactly like exact_input does", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 2000; // holds 2000 MEOW -> "half" = 1000
+    nadFunQuoteImpl = async (_token, _decimals, amount, isBuy) => {
+      expect(amount).toBe("1000"); // the real resolved amount, not "50" (the percentage)
+      expect(isBuy).toBe(false);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "0.5", isBuy: false };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "sell", inputToken: TOKEN, outputToken: "MON", amount: "50", amountType: "percentage", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.spend).toEqual({ amount: "1000", token: "MEOW" });
+    expect(r.route.provider).toBe("Nad.Fun");
+  });
+
+  it("Part 4 scenario E: a MON pair with no route on EITHER Nad.Fun or Uniswap is honestly reported as no route, never fabricated", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    // nadFunQuoteImpl and quoteUniswapDirectImpl both default to null/no route.
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
 });
 
 describe("previewTrade — amount types", () => {
@@ -649,5 +675,45 @@ describe("prepareTradeExecution — Nad.Fun buy/sell", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.message).toMatch(/no active nad\.fun/i);
+  });
+
+  it("Part 8 regression: a token graduating between preview and confirm (Nad.Fun -> Uniswap) is a material change — refuses to build, never silently executes on the stale provider", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 10; // enough MON
+    // The token just graduated: the Lens no longer serves it as a bonding-curve
+    // quote (nadFunQuote now returns null), so the fresh re-quote inside
+    // prepareTradeExecution correctly falls through to Uniswap this time.
+    nadFunQuoteImpl = async () => null;
+    quoteUniswapDirectImpl = async () => ({ amountOut: "9500", priceImpact: "0.10%" });
+    buildUniswapPlanDirectImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    buildNadFunBuyPlanImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET },
+      { receiveAmount: "9000", provider: "Nad.Fun" }, // the card the user confirmed was still showing Nad.Fun
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("changed");
+    if (r.status !== "changed") return;
+    expect(r.preview.route.provider).toBe("Uniswap v3");
+  });
+
+  it("Part 8 regression: the reverse transition (Uniswap -> Nad.Fun, e.g. a bonding-curve token becomes newly detected) is also a material change", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 10;
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9200", isBuy: true });
+    buildUniswapPlanDirectImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    buildNadFunBuyPlanImpl = async () => { throw new Error("must not build steps for a materially changed quote"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution(
+      { action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET },
+      { receiveAmount: "9000", provider: "Uniswap v3" },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.status).toBe("changed");
+    if (r.status !== "changed") return;
+    expect(r.preview.route.provider).toBe("Nad.Fun");
   });
 });
