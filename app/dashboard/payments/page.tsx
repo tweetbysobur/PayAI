@@ -349,11 +349,19 @@ export default function Payments() {
             </Card>
           )}
 
-          {/* Receipt / result */}
+          {/* Receipt / result — a plain div, not another <Card>: Card is
+              already a motion.div that animates its own mount, and this is
+              the single densest card on the page (icon, amount, receipt
+              breakdown, compliance list, on-chain proof). Wrapping it in a
+              second enter animation on top of Card's own used to double the
+              framer-motion work for exactly this card, which is what made it
+              the most noticeably janky screen on slower mobile devices. This
+              still gets its own enter/exit fade via AnimatePresence below —
+              just once, not twice. */}
           <AnimatePresence>
             {c.res && !c.pendingConfirm && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
-                <Card className="p-6 text-center">
+                <div className="rounded-xl border border-border bg-panel p-6 text-center">
                   <motion.div
                     initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
                     className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
@@ -490,7 +498,7 @@ export default function Payments() {
                       </button>
                     </div>
                   )}
-                </Card>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
