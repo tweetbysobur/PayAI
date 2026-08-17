@@ -555,9 +555,33 @@ export interface NadFunExactOutQuote {
  *     then `if (amountInMax - amountIn > 0) safeTransferNative(msg.sender,
  *     rest)` — the same WNative/fee-vault/`_swap` architecture as the v3
  *     interface, consistent with continuous evolution of one codebase by
- *     one team rather than an unrelated project. That makes a refund the
- *     well-evidenced expectation, not a blind guess — but it is inference
- *     from an adjacent version, not confirmation of the deployed one.
+ *     one team rather than an unrelated project.
+ *   - Naddotfun/nadfun-v2-intergration (their own current V2 integration
+ *     docs, ROUTER_INTEGRATION.md + abi/NadFunRouter.json — a different
+ *     repo from the one above, found on a later pass): this is prose, not
+ *     inferred from code. It states outright: "Exact-output native flows
+ *     use `amountInMax` as `msg.value` and refund unused input," and
+ *     separately, for `createWithNative`: "Excess native is refunded."
+ *     The ABI confirms `exactOutBuy`/`exactOutBuyWithNative`/`exactOutSell`/
+ *     `exactOutSellToNative` are real functions on that router. Checked
+ *     twice independently — once asking directly about refunds, once with
+ *     a neutral "quote the raw text" prompt that never mentioned refunds —
+ *     because a fetch of an adjacent repo earlier in this same pass had
+ *     returned content that belonged to a different repository entirely,
+ *     so this was re-verified harder than the first finding above. Both
+ *     passes, plus the raw ABI, agreed.
+ *
+ *     This is real and official, but it is still NOT the deployed v3
+ *     router: V2's `NadFunRouter` is one unified contract (mainnet
+ *     0x8986C8fD44eb85294A725a7e61AF35E76bA26F91) that internally routes
+ *     curve-vs-DEX itself, at a different address with a different shape
+ *     than v3's split BondingCurveRouter/DexRouter that the Lens contract
+ *     selects between and this module actually calls. It raises the refund
+ *     from "inferred from an unversioned older repo's code pattern" to
+ *     "the team's own current prose documentation for the adjacent
+ *     version" — a materially stronger signal of design intent — but it is
+ *     still the adjacent version's documented behavior, not a confirmation
+ *     of the specific v3 bytecode deployed at the addresses above.
  *
  * This is why exact-output stays out of the main flow below rather than
  * being flipped on based on that inference: the module-level functions
