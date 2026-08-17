@@ -192,7 +192,7 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
         <>
           <div className="mb-2.5 flex items-center gap-2">
             <TokenLogo token={intent.token} size={22} />
-            <span className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{intent.amount}</span>
+            <span className="text-xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-2xl">{intent.amount}</span>
             <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
           </div>
           <div className="divide-y divide-border/60">
@@ -214,7 +214,7 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
         <>
           <div className="mb-2.5 flex items-center gap-2">
             <TokenLogo token={intent.token} size={22} />
-            <span className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{intent.amount}</span>
+            <span className="text-xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-2xl">{intent.amount}</span>
             <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
             <span className="text-xs text-muted-foreground">/ {FREQUENCY_LABEL[intent.frequency].toLowerCase()}</span>
           </div>
@@ -234,14 +234,14 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
         <>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-input/30 px-3 py-3">
             <div className="text-center">
-              <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+              <p className="flex items-center justify-center gap-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
                 <TokenLogo token={intent.fromToken} size={18} /> {intent.fromAmount}
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">{intent.fromToken}</p>
             </div>
             <ArrowLeftRight size={15} className="shrink-0 text-muted-foreground" />
             <div className="text-center">
-              <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+              <p className="flex items-center justify-center gap-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
                 <TokenLogo token={intent.toToken} size={18} /> ≈ {intent.toAmountEstimate ?? "—"}
               </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">{intent.toToken}</p>
@@ -258,7 +258,7 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
         <>
           <div className="mb-2.5 flex items-center gap-2">
             <TokenLogo token={intent.token} size={22} />
-            <span className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{intent.totalAmount}</span>
+            <span className="text-xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-2xl">{intent.totalAmount}</span>
             <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
           </div>
           <div className="divide-y divide-border/60">
@@ -298,7 +298,7 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
           {rows.map((b) => (
             <div key={b.token} className="rounded-lg border border-border bg-input/30 px-3 py-2.5">
               <div className="flex items-center gap-1.5"><TokenLogo token={b.token} size={15} /><span className="text-xs text-muted-foreground">{b.token}</span></div>
-              <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{b.amount}</p>
+              <p className="mt-1 text-base font-semibold tabular-nums text-foreground sm:text-lg">{b.amount}</p>
             </div>
           ))}
         </div>
@@ -460,7 +460,7 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
           <p className="text-xs text-muted-foreground">Price</p>
           <p className="text-[10px] text-muted-foreground">Updated {agoLabel(d.market.lastUpdated)}</p>
         </div>
-        <p className="text-lg font-semibold tabular-nums text-foreground">
+        <p className="text-base font-semibold tabular-nums text-foreground sm:text-lg">
           {d.market.price ? `$${d.market.price}` : UNAVAILABLE}
           {d.market.priceMon && <span className="ml-1.5 text-xs font-normal text-muted-foreground">≈ {d.market.priceMon} MON</span>}
         </p>
@@ -572,7 +572,7 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
       <div className="mb-3 flex items-center justify-center gap-3 rounded-xl border border-border bg-input/30 px-3 py-3">
         <div className="text-center">
           <p className="mb-1 text-[11px] text-muted-foreground">Spend</p>
-          <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+          <p className="flex items-center justify-center gap-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
             <TokenLogo token={d.spend.token} size={18} /> {d.spend.amount}
           </p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{d.spend.token}</p>
@@ -580,7 +580,7 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
         <ArrowLeftRight size={15} className="shrink-0 text-muted-foreground" />
         <div className="text-center">
           <p className="mb-1 text-[11px] text-muted-foreground">Receive</p>
-          <p className="flex items-center justify-center gap-1.5 text-lg font-semibold tracking-tight text-foreground">
+          <p className="flex items-center justify-center gap-1.5 text-base font-semibold tracking-tight text-foreground sm:text-lg">
             <TokenLogo token={d.receive.token} size={18} /> {d.receive.amount}
           </p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{d.receive.token}</p>
@@ -631,7 +631,7 @@ function ResultSummary({ intent }: { intent: Operation["intent"] }) {
     return (
       <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
         <TokenLogo token={intent.token} size={20} />
-        <span className="text-lg font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">{intent.amount}</span>
+        <span className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-lg">{intent.amount}</span>
         <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
         <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate text-sm font-medium text-foreground">
