@@ -620,10 +620,21 @@ export async function PATCH(req: NextRequest) {
     if (row.status !== "active" && row.status !== "scheduled") {
       return NextResponse.json({ error: "Only an active automation can be run now." }, { status: 409 });
     }
+    // verifyMutation() above already required a non-empty body.signature to
+    // reach here — this re-check exists only to narrow the type for the hash
+    // below, not because the runtime case is actually reachable.
+    if (!body.signature) return NextResponse.json({ error: "Confirm this action in your wallet." }, { status: 401 });
     // Distinct from the cron's due-slot key (`sch:{id}:{nextRun}`) so a manual
     // trigger never collides with — or gets silently absorbed by — whatever
     // the scheduler is doing with this same automation's regular occurrence.
-    const requestId = `sch:${id}:manual:${Date.now()}`;
+    // Keyed off the wallet signature, not Date.now(): the signature is
+    // already unique per explicit user action (signMutation mints a fresh
+    // timestamp/signature on every real click — see automations/page.tsx),
+    // but stable across a retry of that same signed request, so a duplicate
+    // delivery of the identical proof collides on this key instead of
+    // minting a brand new one every time and defeating claimRequest below —
+    // the same signature-keyed pattern already used for automation-create.
+    const requestId = `sch:${id}:manual:${createHash("sha256").update(body.signature).digest("hex")}`;
     const claim = await claimRequest<{ outcome: string; txHash?: string }>(requestId);
     if (!claim.claimed) return NextResponse.json({ error: "This automation is already running. Please wait." }, { status: 409 });
     try {

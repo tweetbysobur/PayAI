@@ -19,6 +19,7 @@ import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { getStablecoin } from "./config";
 import { getVerifiedTokens } from "./tokenRegistry";
+import { toParseableAmount, normalizeDecimalString } from "./verify";
 
 /** A token SYMBOL. Any verified Monad token, resolved via resolveSwapSide()
  *  against the on-chain registry — no longer a two-token union. */
@@ -311,7 +312,10 @@ export async function quoteUniswapDirect(
 ): Promise<DirectQuoteResult | null> {
   if (getNetwork() !== "mainnet") return null;
   const pub = getPublicClient();
-  const amountIn = parseUnits(amount, tokenInDecimals);
+  // normalizeDecimalString guards against a caller having produced `amount`
+  // via String()/.toString() on a computed number upstream (percentage-of-
+  // balance, a USD conversion) — see its own doc for why.
+  const amountIn = parseUnits(normalizeDecimalString(amount, tokenInDecimals), tokenInDecimals);
   const settled = await Promise.allSettled(
     FEE_TIERS.map(async (fee) => {
       const { result } = await pub.simulateContract({
@@ -371,7 +375,9 @@ export async function buildUniswapPlanDirect(
   if (getNetwork() !== "mainnet") throw new Error("Trading is only available on Monad mainnet right now.");
 
   const pub = getPublicClient();
-  const amountInWei = parseUnits(amount, tokenInDecimals);
+  // normalizeDecimalString guards against a caller having produced `amount`
+  // via String()/.toString() on a computed number upstream — see its own doc.
+  const amountInWei = parseUnits(normalizeDecimalString(amount, tokenInDecimals), tokenInDecimals);
   const settled = await Promise.allSettled(
     FEE_TIERS.map(async (fee) => {
       const { result } = await pub.simulateContract({
@@ -464,7 +470,11 @@ async function rawQuote(fromToken: SwapToken, toToken: SwapToken, amountIn: numb
   const [inSide, outSide] = await Promise.all([resolveSwapSide(fromToken), resolveSwapSide(toToken)]);
   const tokenIn = inSide.routeAddress;
   const tokenOut = outSide.routeAddress;
-  const amountInWei = parseUnits(String(amountIn), inSide.decimals);
+  // toParseableAmount, not String() — a sub-1-unit amountIn below the input
+  // token's own precision floor stringifies to exponential notation, which
+  // parseUnits rejects outright, and every quote/execute path funnels
+  // through this one function.
+  const amountInWei = parseUnits(toParseableAmount(amountIn, inSide.decimals), inSide.decimals);
 
   // Quote every fee tier in parallel; pools that don't exist revert and are
   // simply skipped. The tier with the largest output is the real best route.

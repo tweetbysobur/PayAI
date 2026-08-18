@@ -49,6 +49,7 @@ import {
 import { buildNadFunBuyPlan, buildNadFunSellPlan, nadFunQuote } from "./nadfun";
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
+import { toParseableAmount } from "./verify";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -291,7 +292,16 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
     }
   }
 
-  const amountStr = String(amountResult.amount);
+  // String()/.toString() on a computed amount (percentage-of-balance, a
+  // USD/price division) switches to exponential notation below 1e-6 — e.g.
+  // "1e-7" — which reads badly as a trade amount AND breaks every quoting
+  // call downstream (nadFunQuote/quoteUniswapDirect eventually hand this
+  // straight to viem's parseUnits, which rejects it outright). Only
+  // reformat in that case; toFixed(decimals) is exact-precision-safe here
+  // specifically because it only ever fires on values already this small,
+  // and it leaves every normal-sized amount's display untouched.
+  const rawAmountStr = String(amountResult.amount);
+  const amountStr = /e/i.test(rawAmountStr) ? toParseableAmount(amountResult.amount, inputSide.decimals) : rawAmountStr;
   const route = await getTradeRoute(inputSide, outputSide, amountStr);
   if (!route) return { ok: false, message: `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
 

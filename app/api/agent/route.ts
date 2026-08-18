@@ -391,12 +391,16 @@ export async function POST(req: NextRequest) {
       // + amount encoded in calldata, zero value). Building the wrong one
       // silently moves the wrong asset — so branch explicitly on the token.
       const { parseEther, parseUnits, encodeFunctionData } = await import("viem");
+      const { toParseableAmount } = await import("@/lib/monad/verify");
       let unsignedTx: { to: string; data: string; value: string; from: string };
       if (intent.token === "MON") {
         unsignedTx = {
           to: intent.recipient,
           data: "0x",
-          value: `0x${parseEther(String(intent.amount)).toString(16)}`,
+          // toParseableAmount, not String() — a sub-1e-6 MON amount
+          // stringifies to exponential notation, which parseEther rejects,
+          // and this is the main build path for every user-signed payment.
+          value: `0x${parseEther(toParseableAmount(intent.amount, 18)).toString(16)}`,
           from: walletAddress,
         };
       } else {
@@ -405,7 +409,7 @@ export async function POST(req: NextRequest) {
         const data = encodeFunctionData({
           abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }],
           functionName: "transfer",
-          args: [intent.recipient as `0x${string}`, parseUnits(String(intent.amount), usdc.decimals)],
+          args: [intent.recipient as `0x${string}`, parseUnits(toParseableAmount(intent.amount, usdc.decimals), usdc.decimals)],
         });
         unsignedTx = { to: usdc.address, data, value: "0x0", from: walletAddress };
       }

@@ -28,6 +28,7 @@ import { encodeFunctionData, formatUnits, parseUnits, zeroAddress, type Address 
 import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { resolveSwapSide, ERC20_ABI, DEFAULT_SLIPPAGE, MAX_SLIPPAGE, type SwapToken, type SwapQuote, type SwapPlan, type UnsignedStep, type SwapProvider } from "./swap";
+import { toParseableAmount } from "./verify";
 
 /* ── Verified Monad-mainnet Kuru deployment ────────────────────────────────
  * Source: Kuru's own "Contract Addresses" documentation, supplied directly
@@ -291,7 +292,10 @@ const kuruProvider: SwapProvider = {
     const debitAddress = debitIsBase ? m.baseAssetAddress : m.quoteAssetAddress;
     const debitDecimals = debitIsBase ? m.baseDecimals : m.quoteDecimals;
     const debitIsNative = debitIsBase ? m.baseIsNative : m.quoteIsNative;
-    const amountInWei = parseUnits(String(amountIn), debitDecimals);
+    // toParseableAmount, not String() — a sub-1-unit amountIn below the
+    // debit token's own precision floor stringifies to exponential notation,
+    // which parseUnits rejects outright.
+    const amountInWei = parseUnits(toParseableAmount(amountIn, debitDecimals), debitDecimals);
 
     const steps: UnsignedStep[] = [];
     if (!debitIsNative) {

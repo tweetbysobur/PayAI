@@ -65,3 +65,40 @@ export function isNativeTransferTo(
 export function toBaseUnits(amount: number, decimals: number): bigint {
   return BigInt(Math.round(amount * 10 ** decimals));
 }
+
+/**
+ * A JS number as a plain decimal string, safe to hand to viem's
+ * parseEther/parseUnits — which parse text, not numbers, and throw outright
+ * ("not a valid decimal number") on whatever `String()`/`.toString()`
+ * produces for very small values. Number.prototype.toString() switches to
+ * exponential notation below 1e-6 (`String(0.0000001)` is `"1e-7"`, not
+ * `"0.0000001"`), so every parseEther(amount.toString())-shaped call is one
+ * sub-micro-unit amount away from crashing an otherwise-valid request.
+ * toFixed(decimals) never emits exponential notation, so it's the fix at
+ * every one of those call sites — not toBaseUnits/BigInt(Math.round(...))
+ * above, which multiplies by 10**decimals in floating point first and would
+ * silently lose precision on an 18-decimal MON amount anywhere near this
+ * app's own per-transaction cap.
+ */
+export function toParseableAmount(amount: number, decimals: number): string {
+  return amount.toFixed(decimals);
+}
+
+/**
+ * Defensive counterpart for functions that already take a decimal STRING
+ * (not a number) as their public API — e.g. Nad.Fun's/quoteUniswapDirect's
+ * quoting calls, which accept a pre-formatted amount because their callers
+ * sometimes have one ready-made. If that string came from `String()`/
+ * `.toString()` on a computed number upstream (a percentage-of-balance or a
+ * USD/price division, say), it can carry the same exponential-notation
+ * problem toParseableAmount() guards against above, just one hop removed.
+ * Only reformats when the string actually looks exponential — an
+ * already-well-formed decimal string (the overwhelmingly common case) is
+ * returned untouched, so this never trims legitimate extra precision a
+ * caller had a reason to include.
+ */
+export function normalizeDecimalString(amount: string, decimals: number): string {
+  if (!/e/i.test(amount)) return amount;
+  const n = Number(amount);
+  return Number.isFinite(n) ? n.toFixed(decimals) : amount;
+}

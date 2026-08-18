@@ -37,6 +37,7 @@ import { encodeFunctionData, formatUnits, parseUnits, type Address } from "viem"
 import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { ERC20_ABI, MAX_SLIPPAGE, minOutWei, type UnsignedStep } from "./swap";
+import { normalizeDecimalString } from "./verify";
 
 /** Official Monad-mainnet Nad.Fun contracts, from the official ABI repo's
  *  README (github.com/Naddotfun/contract-v3-abi) — re-verified directly
@@ -508,7 +509,7 @@ export async function nadFunQuote(token: Address, tokenDecimals: number, amountI
   const decimalsIn = isBuy ? 18 : tokenDecimals; // spending MON to buy, or spending the token to sell
   let amountInWei: bigint;
   try {
-    amountInWei = parseUnits(amountIn, decimalsIn);
+    amountInWei = parseUnits(normalizeDecimalString(amountIn, decimalsIn), decimalsIn);
   } catch {
     return null;
   }
@@ -595,7 +596,7 @@ export async function nadFunQuoteExactOut(token: Address, tokenDecimals: number,
   const decimalsOut = isBuy ? tokenDecimals : 18;
   let amountOutWei: bigint;
   try {
-    amountOutWei = parseUnits(amountOut, decimalsOut);
+    amountOutWei = parseUnits(normalizeDecimalString(amountOut, decimalsOut), decimalsOut);
   } catch {
     return null;
   }
@@ -632,7 +633,7 @@ export async function buildNadFunBuyPlan(
 ): Promise<NadFunPlanResult> {
   assertTradable(slippage);
   const pub = getPublicClient();
-  const amountInWei = parseUnits(amountInMon, 18);
+  const amountInWei = parseUnits(normalizeDecimalString(amountInMon, 18), 18);
   const q = await lensGetAmountOut(pub, token, amountInWei, true);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
@@ -661,7 +662,7 @@ export async function buildNadFunSellPlan(
 ): Promise<NadFunPlanResult> {
   assertTradable(slippage);
   const pub = getPublicClient();
-  const amountInWei = parseUnits(amountInToken, tokenDecimals);
+  const amountInWei = parseUnits(normalizeDecimalString(amountInToken, tokenDecimals), tokenDecimals);
   const q = await lensGetAmountOut(pub, token, amountInWei, false);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
@@ -710,7 +711,7 @@ export async function buildNadFunExactOutBuyPlan(
 ): Promise<NadFunExactOutPlanResult> {
   assertTradable(slippage);
   const pub = getPublicClient();
-  const amountOutWei = parseUnits(amountOutToken, tokenDecimals);
+  const amountOutWei = parseUnits(normalizeDecimalString(amountOutToken, tokenDecimals), tokenDecimals);
   const q = await lensGetAmountIn(pub, token, amountOutWei, true);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
@@ -737,7 +738,7 @@ export async function buildNadFunExactOutSellPlan(
 ): Promise<NadFunExactOutPlanResult> {
   assertTradable(slippage);
   const pub = getPublicClient();
-  const amountOutWei = parseUnits(amountOutMon, 18);
+  const amountOutWei = parseUnits(normalizeDecimalString(amountOutMon, 18), 18);
   const q = await lensGetAmountIn(pub, token, amountOutWei, false);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
