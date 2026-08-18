@@ -485,4 +485,23 @@ describe("getNadFunCreatorInfo — creator + pool + creation time from CurveCrea
     const r = await getNadFunCreatorInfo(TOKEN as `0x${string}`);
     expect(r).toEqual({ creator: CREATOR, curvePool: CURVE_POOL, createdAt: null });
   });
+
+  // Regression: this was the live bug behind "pasting a token CA takes
+  // minutes to answer." A provider that ACCEPTS an unbounded
+  // (fromBlock: "earliest") range instead of rejecting it can just take a
+  // very long time to respond — nothing throws, so the "provider rejects
+  // the range" test above (which stubs an immediate throw) never exercised
+  // this path at all. getLogs here never resolves; if the 5s withTimeout
+  // guard were removed, this test would hang forever instead of completing.
+  it("a getLogs call that never resolves (provider accepts the unbounded range but is just slow) falls open to null within the 5s timeout, instead of hanging the whole token lookup", async () => {
+    onGetLogs = () => new Promise(() => {}) as unknown as unknown[];
+    const { getNadFunCreatorInfo, clearNadFunCreatorCache } = await loadNadFun();
+    clearNadFunCreatorCache();
+
+    vi.useFakeTimers();
+    const pending = getNadFunCreatorInfo(TOKEN as `0x${string}`);
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(pending).resolves.toBeNull();
+    vi.useRealTimers();
+  });
 });
