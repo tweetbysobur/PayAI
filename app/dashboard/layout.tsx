@@ -50,7 +50,15 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
     <div className="flex h-dvh overflow-hidden bg-background">
       <Sidebar />
       <MobileNavDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <div className="flex flex-1 flex-col">
+      {/* min-w-0: a flex child's default min-width is `auto` (its content's
+          natural width), not 0 — so on a phone, anything inside Topbar that
+          didn't fit on one line (see Topbar's own fix) could still force
+          THIS column wider than the viewport, dragging everything below it
+          — the balance cards, every dashboard page's content — off-screen
+          along with it, since they're stacked in the same column. This is
+          the standard fix for that flexbox default, independent of
+          whatever any child's own content happens to need. */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <Topbar health={health} notifications={notifications} onOpenNotifications={markSeen} onMenuClick={() => setMobileNavOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
