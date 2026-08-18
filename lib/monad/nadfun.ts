@@ -38,6 +38,7 @@ import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
 import { ERC20_ABI, MAX_SLIPPAGE, minOutWei, type UnsignedStep } from "./swap";
 import { normalizeDecimalString } from "./verify";
+import { withTimeout } from "./rpcTimeout";
 
 /** Official Monad-mainnet Nad.Fun contracts, from the official ABI repo's
  *  README (github.com/Naddotfun/contract-v3-abi) — re-verified directly
@@ -436,15 +437,18 @@ export function clearNadFunCreatorCache(): void {
  * call (all three addresses in the event are indexed, so this is a
  * targeted lookup for this exact token, not a scan of unrelated activity).
  *
- * Best-effort and fails open: this sandbox has no live RPC access to
- * confirm whether the configured provider accepts an unbounded
- * (`fromBlock: "earliest"`) range for a single indexed-topic query, or
- * requires a bounded/chunked range instead — see this module's own
- * doc and the Step 7 report. Any failure (including a provider rejecting
- * the range) returns null rather than fabricating creator/pool data or
- * throwing and breaking the rest of a token lookup. Cached permanently on
- * success — the cost of a wide historical scan, if the provider allows
- * one at all, is paid at most once per token, ever.
+ * Best-effort and fails open, and now genuinely bounded, not just in
+ * theory: this sandbox never had live RPC access to confirm whether the
+ * configured provider accepts an unbounded (`fromBlock: "earliest"`) range
+ * for a single indexed-topic query or requires a bounded/chunked range
+ * instead — and on production RPC, it turned out to accept the range and
+ * take minutes to answer rather than reject it, which is a failure mode a
+ * try/catch alone does nothing for (nothing ever throws). withTimeout below
+ * caps that at 5s and falls open to "no creator/pool data" past it — see
+ * rpcTimeout.ts's own doc. Any failure still returns null rather than
+ * fabricating creator/pool data or breaking the rest of a token lookup.
+ * Cached permanently on success — the cost of a wide historical scan, if
+ * the provider allows one at all, is paid at most once per token, ever.
  */
 export async function getNadFunCreatorInfo(token: Address): Promise<NadFunCreatorInfo | null> {
   if (getNetwork() !== "mainnet") return null;
@@ -452,13 +456,28 @@ export async function getNadFunCreatorInfo(token: Address): Promise<NadFunCreato
   if (creatorCache.has(key)) return creatorCache.get(key) ?? null;
   const pub = getPublicClient();
   try {
-    const logs = await pub.getLogs({
-      address: NADFUN_MAINNET.bondingCurve,
-      event: CURVE_CREATE_EVENT,
-      args: { token },
-      fromBlock: "earliest",
-      toBlock: "latest",
-    });
+    // withTimeout, not just this function's own try/catch: an unbounded
+    // (fromBlock: "earliest") getLogs range doesn't necessarily error on a
+    // real provider — some accept it and just take a very long time to
+    // actually scan the chain's full history, which a catch block does
+    // nothing for since nothing ever throws. That was live: a token lookup
+    // could take minutes instead of seconds. 5s is generous for a targeted,
+    // indexed-topic query; past that, fail open exactly like every other
+    // failure mode here already does, and let the cache absorb the cost of
+    // a slow-but-eventually-successful scan the next time this token is
+    // looked up (see withTimeout's own doc — the abandoned call can still
+    // finish and this module's own cache would just never see it).
+    const logs = await withTimeout(
+      pub.getLogs({
+        address: NADFUN_MAINNET.bondingCurve,
+        event: CURVE_CREATE_EVENT,
+        args: { token },
+        fromBlock: "earliest",
+        toBlock: "latest",
+      }),
+      5000,
+      [],
+    );
     const log = logs[0];
     if (!log || !("args" in log) || !log.args) {
       creatorCache.set(key, null);

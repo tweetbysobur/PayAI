@@ -14,6 +14,7 @@ import { formatEther, formatUnits } from "viem";
 import { getPublicClient } from "./wallet";
 import { getPaymentExecutor, getStablecoin, explorerTx, explorerAddress, getChain } from "./config";
 import { PAYMENT_EXECUTOR_ABI } from "./abi";
+import { withTimeout } from "./rpcTimeout";
 
 const ERC20_BALANCE_ABI = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "o", type: "address" }], outputs: [{ type: "uint256" }] },
@@ -87,13 +88,22 @@ async function fetchPaymentEvents(address: `0x${string}`): Promise<WalletPayment
 
   async function pull(role: "agent" | "merchant"): Promise<RawLog[]> {
     try {
-      return (await pub.getLogs({
-        address: executorAddr,
-        event: event as never,
-        args: { [role]: address } as never,
-        fromBlock: "earliest",
-        toBlock: "latest",
-      })) as unknown as RawLog[];
+      // withTimeout: a provider that accepts this unbounded range instead of
+      // rejecting it can just take a very long time to answer on a chain
+      // with millions of blocks — nothing throws, so the catch below (which
+      // only handles a rejected range) does nothing for that case. Same fix
+      // as lib/monad/nadfun.ts's getNadFunCreatorInfo, same root cause.
+      return await withTimeout(
+        pub.getLogs({
+          address: executorAddr,
+          event: event as never,
+          args: { [role]: address } as never,
+          fromBlock: "earliest",
+          toBlock: "latest",
+        }) as unknown as Promise<RawLog[]>,
+        5000,
+        [],
+      );
     } catch {
       // Full-range scan failed (RPC block-range limit) — fall back to the most recent ~50k blocks.
       try {
