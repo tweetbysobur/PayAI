@@ -168,14 +168,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Transaction was not sent from the declared wallet." }, { status: 409 });
   }
 
-  const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits } = await import("@/lib/monad/verify");
+  const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits, toParseableAmount } = await import("@/lib/monad/verify");
   const recipient = intent.recipient;
   let matched = false;
   if (intent.token === "MON") {
     // Native transfer: recipient/amount live on the tx itself (to/value), not
     // in a receipt log. parseEther matches what the build path encoded.
+    // toParseableAmount, not String()/.toString() — those switch to
+    // exponential notation below 1e-6 and parseEther throws on it, which
+    // (being outside this branch's own try/catch, below) would otherwise
+    // crash the request after the on-chain payment had already settled.
     const { parseEther } = await import("viem");
-    const wanted = parseEther(String(intent.amount));
+    const wanted = parseEther(toParseableAmount(intent.amount, 18));
     try {
       const tx = await client.getTransaction({ hash: txHash as `0x${string}` });
       matched = isNativeTransferTo(tx, recipient, wanted);

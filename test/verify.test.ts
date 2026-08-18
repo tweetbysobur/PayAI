@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { hasErc20TransferTo, isNativeTransferTo, toBaseUnits, TRANSFER_TOPIC, type ReceiptLog } from "@/lib/monad/verify";
+import { parseEther, parseUnits } from "viem";
+import { hasErc20TransferTo, isNativeTransferTo, normalizeDecimalString, toBaseUnits, toParseableAmount, TRANSFER_TOPIC, type ReceiptLog } from "@/lib/monad/verify";
 
 const USDC = "0x2919eAbbef3A56d9975821031e2C2764BBB085da";
 const RECIPIENT = "0xA7286aC0b5b9070C248D4CAFa8c068940e6C659D";
@@ -24,6 +25,45 @@ describe("toBaseUnits", () => {
     expect(toBaseUnits(1, 6)).toBe(1_000_000n);
     expect(toBaseUnits(2.5, 6)).toBe(2_500_000n);
     expect(toBaseUnits(0.01, 6)).toBe(10_000n);
+  });
+});
+
+describe("toParseableAmount", () => {
+  it("regression: a sub-1e-6 amount that String()/.toString() would render in exponential notation now parses cleanly", () => {
+    // This is the exact failure the audit found: String(0.0000001) is
+    // "1e-7", and viem's parseEther/parseUnits reject that outright with
+    // "not a valid decimal number." toParseableAmount is the fix at every
+    // parseEther(amount.toString())-shaped call site in the codebase.
+    expect(String(0.0000001)).toBe("1e-7"); // documents the bug this guards against
+    expect(() => parseEther(toParseableAmount(0.0000001, 18))).not.toThrow();
+    expect(parseEther(toParseableAmount(0.0000001, 18))).toBe(100_000_000_000n);
+  });
+
+  it("round-trips a normal amount exactly", () => {
+    expect(parseEther(toParseableAmount(1.5, 18))).toBe(parseEther("1.5"));
+    expect(parseUnits(toParseableAmount(10, 6), 6)).toBe(parseUnits("10", 6));
+  });
+
+  it("truncates to the token's own decimal precision rather than throwing on extra digits", () => {
+    expect(() => parseUnits(toParseableAmount(1.123456789, 6), 6)).not.toThrow();
+  });
+});
+
+describe("normalizeDecimalString", () => {
+  it("passes an already-well-formed decimal string through untouched, preserving full precision", () => {
+    expect(normalizeDecimalString("1.123456789012345678", 18)).toBe("1.123456789012345678");
+    expect(normalizeDecimalString("1.5", 18)).toBe("1.5");
+  });
+
+  it("regression: reformats a String(tinyNumber)-produced exponential string so parseUnits/parseEther no longer throw", () => {
+    const asExponential = String(0.0000001); // "1e-7" — what a naive .toString() call upstream would have produced
+    expect(() => parseEther(asExponential)).toThrow();
+    expect(() => parseEther(normalizeDecimalString(asExponential, 18))).not.toThrow();
+    expect(parseEther(normalizeDecimalString(asExponential, 18))).toBe(100_000_000_000n);
+  });
+
+  it("leaves a non-numeric or malformed string alone rather than silently swallowing it", () => {
+    expect(normalizeDecimalString("not-a-number", 18)).toBe("not-a-number");
   });
 });
 

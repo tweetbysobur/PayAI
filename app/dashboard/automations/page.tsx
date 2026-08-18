@@ -22,6 +22,7 @@ import { useModalA11y } from "@/lib/hooks/useModalA11y";
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
+import { toParseableAmount } from "@/lib/monad/verify";
 import { ReservationRecovery } from "@/components/dashboard/ReservationRecovery";
 import { calculateFee } from "@/lib/payment/feeEngine";
 import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
@@ -1763,9 +1764,12 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config || !tokenInfo) return;
     const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
     const decimals = tokenInfo.decimals;
-    const perRun = parseUnits(String(amountNum), decimals);
-    const budget = parseUnits(String(walletBudgetAmount), decimals);
-    const reservedBudget = parseUnits(String(reservedBudgetAmount), decimals);
+    // toParseableAmount, not String() — a sub-1-unit amount below the
+    // token's own precision floor stringifies to exponential notation,
+    // which parseUnits rejects outright.
+    const perRun = parseUnits(toParseableAmount(amountNum, decimals), decimals);
+    const budget = parseUnits(toParseableAmount(walletBudgetAmount, decimals), decimals);
+    const reservedBudget = parseUnits(toParseableAmount(reservedBudgetAmount, decimals), decimals);
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();

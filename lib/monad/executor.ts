@@ -14,6 +14,7 @@ import "server-only";
 import { formatEther, parseEther, parseUnits, type Hash } from "viem";
 import { explorerTx, getChain, getStablecoin } from "./config";
 import { getAgentAccount, getPublicClient, getWalletClient } from "./wallet";
+import { toParseableAmount } from "./verify";
 
 /** Minimal ERC-20 ABI — transfer + reads we need. */
 export const ERC20_ABI = [
@@ -121,7 +122,10 @@ export async function estimateGas(input: TransferInput): Promise<GasEstimate> {
   const token = input.tokenAddress ? { address: input.tokenAddress, decimals: input.tokenDecimals ?? 18 } : getStablecoin();
   const chain = getChain();
   const client = getPublicClient();
-  const value = parseUnits(input.amount.toString(), token.decimals);
+  // toParseableAmount, not .toString() — a sub-1-unit amount below the
+  // token's own precision floor stringifies to exponential notation, which
+  // parseUnits rejects outright.
+  const value = parseUnits(toParseableAmount(input.amount, token.decimals), token.decimals);
 
   const [gasLimit, gasPriceWei] = await withRetry(() =>
     Promise.all([
@@ -161,7 +165,10 @@ export async function executeTransfer(input: TransferInput): Promise<MonadTxResu
 
   const wallet = getWalletClient();
   const client = getPublicClient();
-  const value = parseUnits(input.amount.toString(), token.decimals);
+  // toParseableAmount, not .toString() — a sub-1-unit amount below the
+  // token's own precision floor stringifies to exponential notation, which
+  // parseUnits rejects outright.
+  const value = parseUnits(toParseableAmount(input.amount, token.decimals), token.decimals);
 
   try {
     // Simulate first so a doomed transfer fails before broadcasting (no gas spent).
@@ -209,7 +216,8 @@ export async function estimateNativeGas(input: { to: `0x${string}`; amount: numb
 
   const chain = getChain();
   const client = getPublicClient();
-  const value = parseEther(input.amount.toString());
+  // toParseableAmount, not .toString() — see the parseUnits call above.
+  const value = parseEther(toParseableAmount(input.amount, 18));
 
   const [gasLimit, gasPriceWei] = await withRetry(() =>
     Promise.all([
@@ -242,7 +250,8 @@ export async function executeNativeTransfer(input: { to: `0x${string}`; amount: 
 
   const wallet = getWalletClient();
   const client = getPublicClient();
-  const value = parseEther(input.amount.toString());
+  // toParseableAmount, not .toString() — see the parseUnits call above.
+  const value = parseEther(toParseableAmount(input.amount, 18));
 
   try {
     // Not retried: a transient failure here might mean the broadcast actually

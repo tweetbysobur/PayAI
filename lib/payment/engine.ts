@@ -361,9 +361,12 @@ const monadProvider: PaymentProvider = {
         if (isNative) {
           const { executeNativeViaExecutor } = await import("../monad/contracts");
           const { parseEther } = await import("viem");
+          // toParseableAmount, not .toString() — a sub-1e-6 MON amount
+          // stringifies to exponential notation, which parseEther rejects.
+          const { toParseableAmount } = await import("../monad/verify");
           const r = await executeNativeViaExecutor({
             merchant: to,
-            amountWei: parseEther(amount.toString()),
+            amountWei: parseEther(toParseableAmount(amount, 18)),
             riskScore: req.riskScore ?? 0,
             decisionMeta,
             ref: req.invoiceRef ?? req.purpose ?? null,
