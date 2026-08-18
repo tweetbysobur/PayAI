@@ -100,7 +100,15 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
+      {/* flex-wrap + justify-end: a safety net, not the primary fix — the
+          elements below are sized to fit one row on a phone on their own
+          (see the identity chip's hidden-below-sm handle text), but this
+          means a row that still doesn't fit wraps onto a second line
+          instead of silently overflowing past the screen edge. The
+          ancestor shell (app/dashboard/layout.tsx) clips with
+          overflow-hidden, not overflow-x-auto, so uncontained overflow
+          here was invisible content loss, not a scrollbar. */}
+      <div className="flex flex-wrap items-center justify-end gap-2 gap-y-2 sm:gap-3">
         {wallet.address && wallet.isWrongNetwork ? (
           <Button
             variant="secondary"
@@ -114,7 +122,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                 .finally(() => setBusy(false));
             }}
           >
-            {busy ? "Switching…" : "Wrong network — switch to Monad"}
+            {busy ? "Switching…" : <><span className="sm:hidden">Wrong network</span><span className="hidden sm:inline">Wrong network — switch to Monad</span></>}
           </Button>
         ) : wallet.address ? null : (
           /* No balance pill here on purpose. The dashboard already shows MON
@@ -162,7 +170,14 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               aria-expanded={showWalletMenu}
             >
               <Identicon address={wallet.readAddress} size={20} />
-              {handle.hasUsername ? handle.display : identity.display}
+              {/* The handle/address text is the widest part of this chip —
+                  dropped on phones (same "hide on mobile, sm: restores it"
+                  pattern as the network pill above) so the chip doesn't
+                  compete with "Unlock wallet" for room when both render at
+                  once, which is exactly the locked-embedded-wallet state.
+                  Identity isn't lost, just not spelled out here — the
+                  avatar plus the menu this opens still say who you are. */}
+              <span className="hidden sm:inline">{handle.hasUsername ? handle.display : identity.display}</span>
               {/* A locked wallet is still yours — say so quietly rather than
                   making your own identity vanish from the bar. */}
               {wallet.isLocked && <Lock size={11} className="text-muted-foreground" aria-label="Locked" />}
