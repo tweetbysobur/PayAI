@@ -8,6 +8,7 @@ import { VALID_TEMPLATE_CATEGORIES } from "@/lib/automation/templates";
 import { computeDistribution, findDuplicateInputs, type DistributionMethod } from "@/lib/automation/bulk";
 import { resolveToken, NATIVE_TOKEN_ADDRESS, type TokenInfo } from "@/lib/monad/tokenRegistry";
 import { createHash } from "node:crypto";
+import { hashSignature } from "@/lib/platform/idempotency";
 
 /**
  * Resolve the token for a creation request. `tokenAddress` (sent by the
@@ -301,7 +302,7 @@ async function handleBulkCreate(
   if (!signed) return NextResponse.json({ error: "Wallet confirmation could not be verified." }, { status: 401 });
 
   const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
-  const createKey = `automation-create:${createHash("sha256").update(body.signature).digest("hex")}`;
+  const createKey = `automation-create:${hashSignature(body.signature)}`;
   const claim = await claimRequest<{ automationId: string }>(createKey);
   if (!claim.claimed) {
     if (claim.status === "done" && claim.result) {
@@ -471,8 +472,7 @@ export async function POST(req: NextRequest) {
   // retried request would silently create a second live recurring payment
   // with identical terms instead of returning the one that already exists.
   const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
-  const { createHash } = await import("node:crypto");
-  const createKey = `automation-create:${createHash("sha256").update(body.signature).digest("hex")}`;
+  const createKey = `automation-create:${hashSignature(body.signature)}`;
   const claim = await claimRequest<{ automationId: string }>(createKey);
   if (!claim.claimed) {
     if (claim.status === "done" && claim.result) {
@@ -634,7 +634,7 @@ export async function PATCH(req: NextRequest) {
     // delivery of the identical proof collides on this key instead of
     // minting a brand new one every time and defeating claimRequest below —
     // the same signature-keyed pattern already used for automation-create.
-    const requestId = `sch:${id}:manual:${createHash("sha256").update(body.signature).digest("hex")}`;
+    const requestId = `sch:${id}:manual:${hashSignature(body.signature)}`;
     const claim = await claimRequest<{ outcome: string; txHash?: string }>(requestId);
     if (!claim.claimed) return NextResponse.json({ error: "This automation is already running. Please wait." }, { status: 409 });
     try {

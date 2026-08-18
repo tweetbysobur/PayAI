@@ -52,6 +52,23 @@ export function computeRequestId(parts: Record<string, unknown>): string {
 }
 
 /**
+ * Deterministic id from a wallet signature — for any mutation whose proof
+ * of authorization is itself the thing worth deduping on. A wallet
+ * signature is minted fresh per real user action (the message it signs
+ * embeds a fresh timestamp — see app/dashboard/automations/page.tsx's
+ * signMutation()), but stable across a retry of that exact same signed
+ * request, so hashing it gives a key that collides on a duplicate delivery
+ * of one signed proof without needing a client-supplied idempotency key or
+ * a coarse time bucket that could also swallow two genuinely distinct
+ * actions. Used by app/api/automations/route.ts for automation-create and
+ * for the "Execute Now" manual trigger — Date.now() was used there before,
+ * which is never deterministic and defeats claimRequest() entirely.
+ */
+export function hashSignature(signature: string): string {
+  return createHash("sha256").update(signature).digest("hex");
+}
+
+/**
  * Atomically claim a request id. Returns:
  *   - { claimed: true }                  → caller should execute now.
  *   - { claimed: false, status: "done" } → caller should return `result` as-is (replay).
