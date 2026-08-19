@@ -112,6 +112,7 @@ function AskPayAIChat() {
                   walletAddress={wallet.address}
                   onAdvanceOperation={advanceOperation}
                   onCancelOperation={cancelOperation}
+                  onQuickAction={send}
                   // Only offer "Try again" where retrying actually does
                   // something — a schedule/recurring handoff card (or any
                   // future kind without a canonical retry text) would

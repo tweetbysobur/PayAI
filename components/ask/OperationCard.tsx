@@ -5,8 +5,8 @@ import { motion } from "motion/react";
 import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
-  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight,
-  Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock,
+  CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight, ArrowDownRight,
+  Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
@@ -109,6 +109,7 @@ export function OperationCard({
   onAdvance,
   onCancel,
   onRetry,
+  onQuickAction,
   progressLabel,
 }: {
   operation: Operation;
@@ -120,6 +121,13 @@ export function OperationCard({
    *  the request from scratch (not resending a stale signed artifact) is the
    *  caller's job; this only signals the click. */
   onRetry?: (operationId: string) => void;
+  /** Sends a follow-up message as if the user had typed it — the same
+   *  `send()` the empty-state capability tiles already use. Powers the
+   *  Buy/Sell/Refresh quick actions on a token intelligence card so a user
+   *  who just pasted a fresh CA can act without typing anything (TG-bot
+   *  style). Never builds or signs a transaction directly — it only ever
+   *  re-enters the normal classify -> confirm funnel. */
+  onQuickAction?: (text: string) => void;
   /** What's actually happening right now during "confirming" — signature
    *  requested vs. signed-and-broadcasting vs. on-chain confirmation vs.
    *  finalizing. Undefined falls back to a generic "waiting for signature"
@@ -163,7 +171,7 @@ export function OperationCard({
         ) : status === "success" && operation.result && !isInfo ? (
           <SuccessBody intent={intent} result={operation.result} />
         ) : (
-          <IntentBody intent={intent} />
+          <IntentBody intent={intent} onQuickAction={onQuickAction} />
         )}
       </div>
 
@@ -184,7 +192,7 @@ export function OperationCard({
   );
 }
 
-function IntentBody({ intent }: { intent: Operation["intent"] }) {
+function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; onQuickAction?: (text: string) => void }) {
   switch (intent.kind) {
     case "payment":
     case "scheduled_payment":
@@ -271,7 +279,7 @@ function IntentBody({ intent }: { intent: Operation["intent"] }) {
     case "wallet_operation":
       return <WalletOperationBody intent={intent} />;
     case "token_intelligence":
-      return <TokenIntelligenceBody intent={intent} />;
+      return <TokenIntelligenceBody intent={intent} onQuickAction={onQuickAction} />;
     case "trade_preview":
       return <TradePreviewBody intent={intent} />;
   }
@@ -397,7 +405,13 @@ const SIGNAL_LABEL: Record<string, string> = {
  *  lib/monad/tokenIntelligence's real on-chain reads (see
  *  orchestrate.ts's dispatchTokenLookup). Never a confirm funnel: there's
  *  nothing to sign here, just information. */
-function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"], { kind: "token_intelligence" }> }) {
+function TokenIntelligenceBody({
+  intent,
+  onQuickAction,
+}: {
+  intent: Extract<Operation["intent"], { kind: "token_intelligence" }>;
+  onQuickAction?: (text: string) => void;
+}) {
   if (intent.status === "wallet") {
     return <p className="text-sm text-muted-foreground">This address is a wallet address, not a token contract.</p>;
   }
@@ -426,6 +440,44 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
           {d.isTradable ? "Tradable" : "No route found"}
         </span>
       </div>
+
+      {/* Quick actions — same idea as a Telegram trading bot's inline
+          buttons: a fresh CA paste shouldn't require typing a follow-up.
+          Each button only ever calls onQuickAction (== useAskChat's send()),
+          the exact function the empty-state capability tiles already use —
+          it re-enters the normal classify -> confirm funnel, never signs
+          anything directly. Buy/Sell need a real route; Refresh re-runs
+          this same lookup regardless. */}
+      {onQuickAction && (
+        <div className="mb-2.5 flex items-center gap-2">
+          {d.isTradable && (
+            <>
+              <button
+                type="button"
+                onClick={() => onQuickAction("Buy this token")}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20"
+              >
+                <ArrowUpRight size={13} /> Buy
+              </button>
+              <button
+                type="button"
+                onClick={() => onQuickAction("Sell this token")}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger transition hover:bg-danger/20"
+              >
+                <ArrowDownRight size={13} /> Sell
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => onQuickAction(intent.address)}
+            aria-label="Refresh token info"
+            className={`flex items-center justify-center gap-1.5 rounded-xl border border-border bg-input/30 px-3 py-2 text-xs font-medium text-muted-foreground transition hover:text-foreground ${d.isTradable ? "" : "flex-1"}`}
+          >
+            <RefreshCw size={13} /> Refresh
+          </button>
+        </div>
+      )}
 
       {d.nadFun && (
         <div className="mb-2.5">

@@ -13,6 +13,7 @@ export function ChatMessageRow({
   onAdvanceOperation,
   onCancelOperation,
   onRetryOperation,
+  onQuickAction,
   progressLabel,
 }: {
   message: AskMessage;
@@ -20,6 +21,9 @@ export function ChatMessageRow({
   onAdvanceOperation: (operationId: string) => void;
   onCancelOperation: (operationId: string) => void;
   onRetryOperation?: (operationId: string) => void;
+  /** Sends a follow-up as if typed — powers the Buy/Sell/Refresh quick
+   *  actions on a token intelligence card. See OperationCard's own doc. */
+  onQuickAction?: (text: string) => void;
   /** What's happening RIGHT NOW if this message's card is mid-execution —
    *  see useAskChat's `progress` map. Undefined outside "confirming". */
   progressLabel?: string;
@@ -51,6 +55,7 @@ export function ChatMessageRow({
             onAdvance={onAdvanceOperation}
             onCancel={onCancelOperation}
             onRetry={onRetryOperation}
+            onQuickAction={onQuickAction}
             progressLabel={progressLabel}
           />
         )}
