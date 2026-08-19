@@ -64,6 +64,18 @@ vi.mock("@/lib/monad/prices", () => ({
   getUsdPrice: (address: string) => getUsdPriceImpl(address),
 }));
 
+interface StubDexScreenerSnapshot {
+  volume24h: number;
+  transactions24h: number | null;
+  buys24h: number | null;
+  sells24h: number | null;
+  priceChange24h: number | null;
+}
+let getDexScreenerSnapshotImpl: (address: string) => Promise<StubDexScreenerSnapshot | null> = async () => null;
+vi.mock("@/lib/monad/dexscreener", () => ({
+  getDexScreenerSnapshot: (address: string) => getDexScreenerSnapshotImpl(address),
+}));
+
 interface StubNadFunStatus { recognized: boolean; isGraduated: boolean; isLocked: boolean; status: "bonding_curve" | "graduated" | "locked" | "unsupported" }
 let getNadFunStatusImpl: (token: string) => Promise<StubNadFunStatus> = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
 let nadFunAvailableBuyTokensImpl: (token: string, decimals: number) => Promise<{ availableToBuy: string; requiredMon: string } | null> = async () => null;
@@ -102,6 +114,7 @@ afterEach(async () => {
   getNadFunCurveReservesImpl = async () => null;
   getNadFunGraduatedPoolLiquidityImpl = async () => null;
   getNadFunCreatorInfoImpl = async () => null;
+  getDexScreenerSnapshotImpl = async () => null;
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -275,16 +288,61 @@ describe("inspectAddress — real trading-pair and route discovery", () => {
     expect(r.data.market.signals).toContain("no_liquidity");
   });
 
-  it("liquidity/volume24h/priceChange24h are always reported as null, never a fabricated zero -- no indexer is wired in", async () => {
+  it("liquidity/volume24h/priceChange24h are null, never a fabricated zero, when no external data is available", async () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
     readContractImpl = () => 0n;
+    // getDexScreenerSnapshotImpl already defaults to null (no pairs indexed for this token).
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
     expect(r.data.market.liquidity).toBeNull();
     expect(r.data.market.volume24h).toBeNull();
     expect(r.data.market.priceChange24h).toBeNull();
+  });
+
+  it("volume24h/transactions24h/buys24h/sells24h/priceChange24h are filled from DexScreener when it has data for this token", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "PEPE", name: "Pepe Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getDexScreenerSnapshotImpl = async () => ({
+      volume24h: 123_456.789, transactions24h: 42, buys24h: 30, sells24h: 12, priceChange24h: 0.0512,
+    });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.volume24h).toBe("123,456.79");
+    expect(r.data.market.transactions24h).toBe(42);
+    expect(r.data.market.buys24h).toBe(30);
+    expect(r.data.market.sells24h).toBe(12);
+    expect(r.data.market.priceChange24h).toBe("+5.12%");
+    // Never fabricated, even with DexScreener data available: no source for
+    // a buy/sell volume split or holder counts.
+    expect(r.data.market.buyVolume24h).toBeNull();
+    expect(r.data.market.sellVolume24h).toBeNull();
+    expect(r.data.market.holders).toBeNull();
+  });
+
+  it("a negative 24h price move formats with a minus sign, not a double sign or a bare magnitude", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "PEPE", name: "Pepe Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getDexScreenerSnapshotImpl = async () => ({ volume24h: 1, transactions24h: 1, buys24h: 1, sells24h: 0, priceChange24h: -0.031 });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.priceChange24h).toBe("-3.10%");
+  });
+
+  it("DexScreener is queried by the token's own contract address, never a curated symbol", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "PEPE", name: "Pepe Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    let queried: string | null = null;
+    getDexScreenerSnapshotImpl = async (address) => { queried = address; return null; };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    await inspectAddress(TOKEN);
+    expect((queried as string | null)?.toLowerCase()).toBe(TOKEN.toLowerCase());
   });
 
   it("a route existing but genuinely too shallow to price honestly is NOT reported as untradable -- 'liquidity data unavailable, but a trading route was found'", async () => {
@@ -713,11 +771,12 @@ describe("inspectAddress — Step 7: market cap, FDV, liquidity, progress, creat
     expect(r.data.createdAt).toBeNull();
   });
 
-  it("volume/buy-volume/sell-volume/transaction counts/holders are honestly unavailable -- never approximated from a partial window", async () => {
+  it("buy-volume/sell-volume/holders are honestly unavailable regardless -- never approximated or split from a partial source; volume/transactions/buys/sells are null too when DexScreener has no data for this token yet (e.g. a fresh bonding-curve launch)", async () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
     readContractImpl = () => 0n;
     getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    // getDexScreenerSnapshotImpl already defaults to null (no pairs indexed yet).
     const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
     const r = await inspectAddress(TOKEN);
     if (r.kind !== "token") throw new Error("expected token");
