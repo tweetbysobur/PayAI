@@ -296,3 +296,91 @@ describe("respondToUnderstanding — trade dispatches to /api/ask/trade and neve
     } finally { globalThis.fetch = original; }
   });
 });
+
+/** Understanding is a union; only the slot-carrying variants have `slots`.
+ *  Narrow explicitly so a test that accidentally gets `unclear` fails loudly
+ *  on the kind assertion rather than on a type error. */
+function slotsOf(u: Understanding): Record<string, unknown> {
+  if (!("slots" in u)) throw new Error(`expected a slot-carrying understanding, got ${u.kind}`);
+  return u.slots as unknown as Record<string, unknown>;
+}
+
+describe("a trade never puts the same asset on both sides", () => {
+  /**
+   * applyTradeContext fills whichever side the user didn't name. It defaulted
+   * that side to USDC unconditionally, which is right until USDC is already
+   * the OTHER side: "sell half my USDC" named USDC as what's being sold and
+   * then defaulted the receiving side to USDC too. The result looked complete
+   * and was unroutable — an ordinary sell came back "no route found".
+   *
+   * This runs on Anthropic's output as well as the key-free fallback, so it
+   * was reachable in production, not just offline.
+   */
+  const SELLS = ["sell half my USDC", "sell all my USDC", "sell 100 USDC"];
+  for (const text of SELLS) {
+    it(`"${text}" sells USDC into MON, not into USDC`, async () => {
+      const { understand } = await import("@/lib/ask/intent/classify");
+      const u = await understand(text, [], null);
+      expect(u.kind).toBe("trade");
+      const s = slotsOf(u);
+      expect(s.fromAsset).toBe("USDC");
+      expect(s.toAsset).toBe("MON");
+    });
+  }
+
+  it("keeps USDC as the counter-asset when the traded asset is not USDC", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const s = slotsOf(await understand("sell half my MON", [], null));
+    expect(s.fromAsset).toBe("MON");
+    expect(s.toAsset).toBe("USDC");
+  });
+
+  it("buy/sell resolves across MON, WMON and USDC, with WMON normalized to MON", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const cases: [string, string, string, string][] = [
+      ["buy 10 MON with USDC", "buy", "MON", "USDC"],
+      ["buy 10 WMON with USDC", "buy", "MON", "USDC"],
+      ["sell 5 WMON for USDC", "sell", "MON", "USDC"],
+      ["buy 100 USDC with MON", "buy", "USDC", "MON"],
+      ["sell 100 USDC for MON", "sell", "USDC", "MON"],
+    ];
+    for (const [text, action, from, to] of cases) {
+      const u = await understand(text, [], null);
+      expect(u.kind, text).toBe("trade");
+      const s = slotsOf(u);
+      expect(s.tradeAction, text).toBe(action);
+      expect(s.fromAsset, text).toBe(from);
+      expect(s.toAsset, text).toBe(to);
+      expect(s.fromAsset, text).not.toBe(s.toAsset);
+    }
+  });
+});
+
+describe("the Ask PayAI tile phrase did not capture real swaps", () => {
+  /**
+   * TRADE_SIGNAL_RE gained a clause so the "Trade a token" tile resolves in
+   * the key-free fallback instead of dead-ending at `unclear`. detectTradeFresh
+   * runs BEFORE detectSwapIntent, so an over-broad clause there would quietly
+   * divert genuine swaps. It is anchored at both ends for exactly that reason.
+   */
+  it("routes the tile phrase to trade", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    for (const t of ["trade a token", "Trade a token", "trade token", "trade tokens"]) {
+      expect((await understand(t, [], null)).kind, t).toBe("trade");
+    }
+  });
+
+  it("leaves a real swap that merely opens with the word alone", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    for (const t of ["trade tokens for USDC", "trade 50 USDC for MON"]) {
+      expect((await understand(t, [], null)).kind, t).toBe("swap");
+    }
+  });
+
+  it("leaves ordinary swap phrasings untouched", async () => {
+    const { understand } = await import("@/lib/ask/intent/classify");
+    for (const t of ["swap 100 USDC for MON", "exchange 20 USDC for MON", "convert 10 MON into USDC"]) {
+      expect((await understand(t, [], null)).kind, t).toBe("swap");
+    }
+  });
+});

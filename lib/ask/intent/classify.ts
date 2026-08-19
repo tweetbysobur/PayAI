@@ -164,15 +164,31 @@ function contextTokenFrom(pending: Understanding | null): string | null {
  *     asset elsewhere in the product (Step 2's own quote-asset default,
  *     lib/monad/prices's numeraire) — easily corrected afterward ("actually
  *     get MON instead"), so a low-risk default rather than an extra question. */
+/**
+ * The asset to put on a side the user never named. USDC is the natural quote
+ * asset — except when USDC is already the OTHER side, which this used to
+ * ignore. "Sell half my USDC" names USDC as what's being sold, then defaulted
+ * the receiving side to USDC too, producing a complete-looking USDC->USDC
+ * trade that no router can quote; the user got "no route found" for an
+ * ordinary sell. MON is the counter-asset in that one case (it is the chain's
+ * native asset and the other half of the deepest pair).
+ *
+ * A contract address on the other side never matches "USDC", so it correctly
+ * keeps the USDC default.
+ */
+function counterAssetFor(otherSide: string | null | undefined): string {
+  return otherSide && otherSide.toUpperCase() === "USDC" ? "MON" : "USDC";
+}
+
 function applyTradeContext(slots: AskSlots, contextTokenAddress: string | null): AskSlots {
   if (slots.tradeAction !== "buy" && slots.tradeAction !== "sell") return slots;
   const next = { ...slots };
   if (next.tradeAction === "buy") {
     if (!next.toAsset && contextTokenAddress) next.toAsset = contextTokenAddress;
-    if (!next.fromAsset && next.amountType === "usd") next.fromAsset = "USDC";
+    if (!next.fromAsset && next.amountType === "usd") next.fromAsset = counterAssetFor(next.toAsset);
   } else {
     if (!next.fromAsset && contextTokenAddress) next.fromAsset = contextTokenAddress;
-    if (!next.toAsset) next.toAsset = "USDC";
+    if (!next.toAsset) next.toAsset = counterAssetFor(next.fromAsset);
   }
   return next;
 }
@@ -318,14 +334,16 @@ const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
  *  (and wrongly) capture "this" as a literal token symbol for phrasing like
  *  "swap 100 USDC into this token".
  *
- *  The one exception to "bare trade doesn't match" is an opening imperative
- *  naming a token — "Trade a token", the Ask PayAI empty state's own tile. It
- *  is anchored to the start and requires the word "token" straight after, so
- *  it cannot fire on a tradability question ("can I trade it?", "is this
- *  tradable?") or a market one ("trade volume?"), which is exactly what the
- *  paragraph above is protecting. Every phrasing here still reaches Anthropic
- *  in production — this only decides how well the key-free fallback copes. */
-const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*trade\s+(?:a\s+|an\s+)?tokens?\b/i;
+ *  The one exception to "bare trade doesn't match" is the Ask PayAI empty
+ *  state's own tile, "Trade a token", whose label is sent verbatim as a
+ *  message. It is anchored at BOTH ends, so it matches that phrase and
+ *  nothing else: a tradability question ("can I trade it?"), a market one
+ *  ("trade volume?") and, importantly, a real swap that merely opens with the
+ *  word ("trade tokens for USDC", "trade 50 USDC for MON") all still fall
+ *  through to detectSwapIntent exactly as before. Every phrasing here reaches
+ *  Anthropic in production regardless — this only decides how well the
+ *  key-free fallback copes with one specific button. */
+const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*trade\s+(?:a\s+|an\s+)?tokens?\s*[.!?]?\s*$/i;
 
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
