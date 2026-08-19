@@ -145,6 +145,19 @@ describe("the capability shortcuts still send only their label", () => {
   it("no longer says 'swap' — trade is the capability that handles buy/sell on any token", () => {
     expect(src).not.toMatch(/label: "Swap/);
   });
+
+  it("the Trade hint describes scope, never a worked example with a figure in it", () => {
+    // A concrete "buy $50 of X" reads as a command to copy rather than a
+    // description of what the tile reaches, and it puts an arbitrary amount
+    // in front of someone who hasn't chosen one yet — flagged directly against
+    // this exact tile. Matches the register of the other three hints (Automate:
+    // "Set it once, it runs on its own.", Check balance: "See everything your
+    // wallet holds.") — describing what happens, not what to type.
+    expect(src).toMatch(/label: "Trade a token", hint: "[^"]*"/);
+    const hint = /label: "Trade a token", hint: "([^"]*)"/.exec(src)?.[1] ?? "";
+    expect(hint).not.toMatch(/\$\d/);
+    expect(hint).not.toMatch(/\bTry:/i);
+  });
 });
 
 describe("every shortcut label is actually understood, not just nice copy", () => {

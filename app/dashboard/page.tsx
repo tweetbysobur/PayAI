@@ -20,6 +20,7 @@ import { useCopy } from "@/lib/hooks/useCopy";
 const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal").then((m) => m.ReceiveModal), { ssr: false });
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { WelcomeCard } from "@/components/dashboard/WelcomeCard";
+import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
@@ -261,6 +262,17 @@ export default function Overview() {
           );
         })}
       </div>
+
+      {/* Everything this wallet holds, at its real dollar value — not just the
+          MON/USDC tiles above. Reuses the exact PortfolioCard/usePortfolio
+          pair already proven on the Wallets page: holdings are DISCOVERED
+          from on-chain transfers, not a maintained list, so a token bought
+          through Ask PayAI's trade flow (a memecoin, a Nad.Fun launch,
+          anything) shows up here on its own with a real price or an honest
+          "—", never a fabricated number. */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.3 }} className="mb-5">
+        <PortfolioCard address={wallet.readAddress} locked={wallet.isLocked} />
+      </motion.div>
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* Recent transactions */}

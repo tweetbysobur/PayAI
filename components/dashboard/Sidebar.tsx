@@ -37,7 +37,7 @@ export const NAV: { href: string; label: string; icon: NavIcon; section: string 
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
-  { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments" },
+  { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments", soon: true },
   { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Settings" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
   { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },
