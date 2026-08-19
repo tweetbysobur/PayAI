@@ -11,6 +11,11 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Stub the server-only build guard for plain node execution
+        run: |
+          mkdir -p node_modules/server-only
+          echo '{"name":"server-only","main":"index.js"}' > node_modules/server-only/package.json
+          echo 'module.exports = {};' > node_modules/server-only/index.js
       - name: Probe Moyaki (YAKI) token
         env:
           MONAD_NETWORK: mainnet
