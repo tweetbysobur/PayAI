@@ -28,6 +28,25 @@ import { NATIVE_TOKENS, SUPPORTED_NETWORKS, SUPPORTED_TOKENS } from "./types";
 import { isSanctionedAddress, sanctionsListLoaded } from "./sanctions";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+/**
+ * The zero address as a RECIPIENT. Note ADDR_RE happily matches it — it is 40
+ * valid hex characters — so "looks like an address" is not enough on its own.
+ *
+ * Sending here is unrecoverable. A native MON transfer to 0x0 succeeds and the
+ * funds are gone permanently (most ERC-20s revert on a zero-address transfer,
+ * but the native path has no such protection), and nobody ever means to do it:
+ * it is a paste error, a truncated value, or an unresolved lookup that
+ * defaulted. The .nads resolver already refuses to return it, but a directly
+ * typed or pasted address never goes through the resolver at all.
+ *
+ * Deliberately NOT extended to 0x…dEaD and similar burn addresses: those are
+ * also unrecoverable, but sending to them can be intentional, and this is a
+ * hard block, not a warning.
+ *
+ * NATIVE_TOKEN_ADDRESS is the same value, but that is the *token* sentinel for
+ * native MON and is unrelated — this only ever applies to req.recipient.
+ */
+const ZERO_RECIPIENT_RE = /^0x0{40}$/i;
 /** Above this amount, travel-rule documentation (a purpose) is expected. */
 const TRAVEL_RULE_THRESHOLD = Number(process.env.PAYAI_TRAVEL_RULE_THRESHOLD || "10000000");
 /** Name-substring denylist — catches obvious tells before address screening. */
@@ -96,16 +115,22 @@ export function runValidation(req: PaymentRequest): ComplianceResult {
   // 4. Recipient resolvable (hard, transfers only).
   if (isTransfer) {
     const hasRecipient = !!req.recipient;
+    // The zero address passes ADDR_RE — see ZERO_RECIPIENT_RE — and a native
+    // transfer to it burns the funds with no way back, so it fails this check
+    // rather than reading as a "valid wallet address".
+    const burnsFunds = hasRecipient && ZERO_RECIPIENT_RE.test(req.recipient!);
     checks.push({
       id: "recipient",
       label: "Recipient resolvable",
-      passed: hasRecipient,
+      passed: hasRecipient && !burnsFunds,
       severity: "hard",
-      detail: hasRecipient
-        ? ADDR_RE.test(req.recipient!)
-          ? "Valid wallet address."
-          : `Named payee "${req.recipient}" (resolved via directory).`
-        : "No recipient provided.",
+      detail: !hasRecipient
+        ? "No recipient provided."
+        : burnsFunds
+          ? "Recipient is the zero address — funds sent there are permanently unrecoverable."
+          : ADDR_RE.test(req.recipient!)
+            ? "Valid wallet address."
+            : `Named payee "${req.recipient}" (resolved via directory).`,
     });
   }
 
@@ -243,7 +268,7 @@ const monadProvider: PaymentProvider = {
       const sim = await simulationProvider.execute(req);
       return { ...sim, mode: "monad", detail: `${sim.detail} (off-chain — links are not on-chain).` };
     }
-    if (!req.recipient || !/^0x[0-9a-fA-F]{40}$/.test(req.recipient)) {
+    if (!req.recipient || !ADDR_RE.test(req.recipient)) {
       return {
         status: "failed",
         mode: "monad",
@@ -252,6 +277,20 @@ const monadProvider: PaymentProvider = {
         token: req.token,
         recipient: req.recipient ?? undefined,
         detail: "On-chain transfer needs a valid 0x recipient address (named payees require directory resolution).",
+      };
+    }
+    // Last-resort backstop. runValidation already fails this as a hard check,
+    // but execute() is reachable on its own and a burn is irreversible, so it
+    // is not left to an upstream caller to have gotten right.
+    if (ZERO_RECIPIENT_RE.test(req.recipient)) {
+      return {
+        status: "failed",
+        mode: "monad",
+        network: req.network,
+        amount: req.amount ?? undefined,
+        token: req.token,
+        recipient: req.recipient,
+        detail: "Refusing to send to the zero address — those funds would be permanently unrecoverable.",
       };
     }
     if (!req.requestId) {
