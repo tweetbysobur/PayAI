@@ -25,29 +25,26 @@
  *    lib/monad/tradeQuote.ts (Step 3's trade quoting) so this fee-tier-loop-
  *    plus-price-impact logic lives in exactly one place, not two.
  *
- * Step 5 — external market-data provider: investigated DexScreener (this
- * app's previously identified candidate) plus CoinGecko/GeckoTerminal/
- * DefiLlama as alternatives. All four were UNREACHABLE from this
- * development/build environment — every outbound request to
- * api.dexscreener.com, docs.dexscreener.com, api.coingecko.com,
- * api.geckoterminal.com, and api.llama.fi was rejected by the sandbox's own
- * egress policy (403 policy denial at the network layer, confirmed via the
- * proxy's own status log — not a transient failure or a provider-side
- * block). That means the exact endpoint, response schema, rate limits, and
- * failure behavior could NOT be verified firsthand, so per this step's own
- * instruction ("do not guess any endpoint, do not invent an API response,
- * do not integrate a provider based only on search results") no external
- * provider is integrated. Market data stays exactly what Steps 1-2 already
- * built: real on-chain reads (price via prices.ts's DEX quote, routes via
- * candidateProviders()/quoteUniswapDirect()) — this already IS the
- * "external market data -> on-chain -> unavailable" fallback chain Step 5
- * asks for, just with the external leg absent rather than stubbed, so nulls
- * were never faked as zeros or invented as a fabricated provider response.
- * liquidity/volume24h/priceChange24h/pairAddress remain honestly
- * unavailable (null) for the same reason — an indexer/subgraph, not a
- * single-price DEX quote, is what would compute these, and no such source
- * could be verified either. If egress to a real provider is ever opened up,
- * `probeMarket` below is the one integration point.
+ * Step 5 (original) — external market-data provider: investigated
+ * DexScreener plus CoinGecko/GeckoTerminal/DefiLlama as alternatives. All
+ * four were UNREACHABLE from this development/build environment at the
+ * time (403 policy denial at the sandbox's own egress layer), so per that
+ * step's own instruction ("do not guess any endpoint... do not integrate a
+ * provider based only on search results") none was integrated then.
+ *
+ * Later revisit: verified DexScreener's real public API against a working
+ * open-source client's actual request code and response types (not search
+ * results) — see lib/monad/dexscreener.ts's own doc for exactly what was
+ * confirmed. volume24h/transactions24h/buys24h/sells24h/priceChange24h now
+ * come from there, fed into `probeMarket` below (still the one integration
+ * point). Deliberately still NOT integrated for anything this app already
+ * has a real on-chain source for (price, liquidity, market cap) — two
+ * sources disagreeing on the same number would be confusing, not additive.
+ * buyVolume24h/sellVolume24h/holders remain honestly unavailable: DexScreener
+ * reports total volume and transaction counts per window, not volume split
+ * by side, and no holder-count source was found anywhere — splitting volume
+ * by the buy/sell transaction ratio would be an invented approximation, not
+ * a real number, so it stays null rather than guessed.
  *
  * Server-only.
  */
@@ -62,6 +59,7 @@ import {
   getNadFunStatus, nadFunAvailableBuyTokens, nadFunQuote, type NadFunStatus, type NadFunStatusLabel,
 } from "./nadfun";
 import { getUsdPrice } from "./prices";
+import { getDexScreenerSnapshot } from "./dexscreener";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -260,6 +258,15 @@ async function readBalance(pub: ReturnType<typeof getPublicClient>, address: Add
 
 function fmtImpact(impact: number | null): string | null {
   return impact != null ? `${(impact * 100).toFixed(2)}%` : null;
+}
+
+/** Signed percentage display for a 24h price move, e.g. 0.0512 -> "+5.12%",
+ *  -0.031 -> "-3.10%" — the sign itself is the whole point here (unlike
+ *  fmtImpact above, always a magnitude), so toFixed's own minus sign is
+ *  kept and a "+" is added for anything non-negative. */
+function fmtSignedPct(fraction: number): string {
+  const pct = fraction * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
 }
 
 /** Address-based single-pair probe against Uniswap — works for ANY token
@@ -473,10 +480,11 @@ async function probeMarket(
     return true;
   });
 
-  const [routes, usdPrice, liquidity] = await Promise.all([
+  const [routes, usdPrice, liquidity, dexScreener] = await Promise.all([
     discoverRoutes(info, address, QUOTE_ASSETS, "1"),
     getUsdPrice(address, info.decimals),
     nadFunStatus.recognized ? probeNadFunLiquidity(address, info.decimals, nadFunStatus.status) : Promise.resolve(null),
+    getDexScreenerSnapshot(address),
   ]);
 
   const valuation = computeUsdValuation(usdPrice, totalSupply);
@@ -487,14 +495,17 @@ async function probeMarket(
     marketCapUsd: valuation,
     fdvUsd: valuation,
     liquidity,
-    volume24h: null,
+    volume24h: dexScreener != null ? dexScreener.volume24h.toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
+    // DexScreener reports total volume and transaction counts per window,
+    // never volume split by side — see dexscreener.ts's own doc for why
+    // these stay null rather than an invented buy/sell split.
     buyVolume24h: null,
     sellVolume24h: null,
-    transactions24h: null,
-    buys24h: null,
-    sells24h: null,
+    transactions24h: dexScreener?.transactions24h ?? null,
+    buys24h: dexScreener?.buys24h ?? null,
+    sells24h: dexScreener?.sells24h ?? null,
     holders: null,
-    priceChange24h: null,
+    priceChange24h: dexScreener?.priceChange24h != null ? fmtSignedPct(dexScreener.priceChange24h) : null,
     quoteAssetsChecked,
     routes,
     signals: computeSignals(routes, usdPrice, quoteAssetsChecked),

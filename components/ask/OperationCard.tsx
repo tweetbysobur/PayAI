@@ -495,8 +495,14 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
           value={d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : UNAVAILABLE}
         />
         <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
-        <MiniStat label="24h Volume" value={d.market.volume24h ?? UNAVAILABLE} />
+        <MiniStat label="24h Volume" value={d.market.volume24h ? `$${d.market.volume24h}` : UNAVAILABLE} />
         <MiniStat label="Total Supply" value={d.totalSupply ?? UNAVAILABLE} />
+        {d.market.transactions24h != null && (
+          <MiniStat
+            label="24h Transactions"
+            value={`${d.market.buys24h?.toLocaleString() ?? "—"} buys · ${d.market.sells24h?.toLocaleString() ?? "—"} sells`}
+          />
+        )}
       </div>
 
       {d.userBalance != null && (
