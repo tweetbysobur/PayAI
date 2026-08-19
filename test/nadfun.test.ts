@@ -142,6 +142,79 @@ describe("getNadFunStatus — detection by contract address only", () => {
     expect(r.status).toBe("graduated"); // never "bonding_curve" — there is no curve
   });
 
+  it("regression (graduated BOB): recognized from its Lens quote when BOTH storage signals are gone", async () => {
+    // Measured live against BOB, a real graduated Nad.Fun token:
+    //   curves()        -> all zero          (storage IS cleared at graduation)
+    //   getPair(WMON,.) -> execution reverted (that factory read is broken)
+    //   getAmountOut    -> a real amount, routed to the Nad.Fun dex router
+    // Both existence signals missed at once, so every graduated token came
+    // back unrecognized -- no liquidity, no phase -- while its quote worked.
+    const { __testing } = await loadNadFun();
+    onRead = ({ functionName }) => {
+      if (functionName === "isGraduated") return true;
+      if (functionName === "isLocked") return true;
+      if (functionName === "curves") return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n];
+      if (functionName === "getPair") throw new Error("execution reverted");
+      if (functionName === "getAmountOut") return [__testing.NADFUN_MAINNET.dexRouter, 3735000000000000n];
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(r.recognized).toBe(true);
+    expect(r.status).toBe("graduated");
+  });
+
+  it("the recognition quote is a SELL, so a locked or sold-out curve still counts", async () => {
+    // A curve paused at its target has no buy to quote but always has a sell.
+    const { __testing } = await loadNadFun();
+    let sawSell = false;
+    onRead = ({ functionName, args }) => {
+      if (functionName === "isGraduated") return false;
+      if (functionName === "isLocked") return true;
+      if (functionName === "curves") return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n];
+      if (functionName === "getPair") throw new Error("execution reverted");
+      if (functionName === "getAmountOut") {
+        if (args[2] === true) throw new Error("execution reverted: cannot buy a locked curve");
+        sawSell = true;
+        return [__testing.NADFUN_MAINNET.bondingCurveRouter, 1n];
+      }
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(sawSell).toBe(true);
+    expect(r.recognized).toBe(true);
+    expect(r.status).toBe("locked");
+  });
+
+  it("a quote naming a router that is NOT Nad.Fun's proves nothing and is ignored", async () => {
+    // The allowlist is what makes the quote proof rather than a guess.
+    onRead = ({ functionName }) => {
+      if (functionName === "isGraduated") return false;
+      if (functionName === "isLocked") return false;
+      if (functionName === "curves") return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n];
+      if (functionName === "getPair") throw new Error("execution reverted");
+      if (functionName === "getAmountOut") return [ATTACKER, 999n];
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunStatus } = await loadNadFun();
+    expect((await getNadFunStatus(TOKEN as `0x${string}`)).recognized).toBe(false);
+  });
+
+  it("regression (WMON) still holds with the third signal added", async () => {
+    // WMON's recognition quote reverts outright, so nothing changes for it.
+    onRead = ({ functionName }) => {
+      if (functionName === "isGraduated") return false;
+      if (functionName === "isLocked") return false;
+      if (functionName === "curves") return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n];
+      if (functionName === "getPair") return "0x0000000000000000000000000000000000000000";
+      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { getNadFunStatus } = await loadNadFun();
+    expect((await getNadFunStatus(TOKEN as `0x${string}`)).recognized).toBe(false);
+  });
+
   it("survives a partial RPC failure: one signal reverting doesn't drop a token the other signal proves is real", async () => {
     stub({ curve: null, pair: REAL_PAIR });
     const { getNadFunStatus } = await loadNadFun();

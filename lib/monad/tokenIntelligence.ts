@@ -524,6 +524,26 @@ async function probeMarket(
   const priceMon = routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null;
   const usdPrice = directUsdPrice ?? deriveUsdFromMon(priceMon, monUsdPrice);
 
+  // On-chain first, DexScreener only where on-chain genuinely yields nothing.
+  // A GRADUATED Nad.Fun token has no curve reserves left to read and its
+  // dexFactory.getPair() reverts (both verified live against BOB), so the
+  // on-chain path returns null and there is no second number to contradict —
+  // the original "one source only" rule was about avoiding disagreement, and
+  // with nothing to disagree with, showing the real indexed figure beats
+  // showing "Unavailable" next to a token the card is actively quoting.
+  const liquidityResolved: TokenLiquidity | null =
+    liquidity ??
+    (dexScreener?.liquidityUsd != null
+      ? {
+          label: "DEX Liquidity",
+          mon: monUsdPrice != null && monUsdPrice > 0
+            ? (dexScreener.liquidityUsd / monUsdPrice).toLocaleString(undefined, { maximumFractionDigits: 4 })
+            : "—",
+          usd: dexScreener.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+          pool: null,
+        }
+      : null);
+
   const valuation = computeUsdValuation(usdPrice, totalSupply);
   const data: TokenMarketData = {
     price: usdPrice != null ? usdPrice.toFixed(usdPrice < 1 ? 8 : 4) : null,
@@ -531,7 +551,7 @@ async function probeMarket(
     priceMon,
     marketCapUsd: valuation,
     fdvUsd: valuation,
-    liquidity,
+    liquidity: liquidityResolved,
     volume24h: dexScreener != null ? dexScreener.volume24h.toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
     // DexScreener reports total volume and transaction counts per window,
     // never volume split by side — see dexscreener.ts's own doc for why

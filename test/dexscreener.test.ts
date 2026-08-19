@@ -68,6 +68,9 @@ describe("getDexScreenerSnapshot", () => {
         buys24h: 30,
         sells24h: 12,
         priceChange24h: 0.0512, // fraction, not the raw percent -- see this module's own doc
+        // The chosen pair's own liquidity, surfaced as a fallback for
+        // graduated Nad.Fun tokens whose on-chain pool read reverts.
+        liquidityUsd: 50_000,
       });
     } finally { restore(); }
   });

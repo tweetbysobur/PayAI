@@ -209,6 +209,12 @@ export interface NadFunStatus {
   status: NadFunStatusLabel;
 }
 
+/** Probe size for getNadFunStatus's sell-side recognition quote: 1 token in
+ *  its smallest 18-dp unit. Never shown to anyone — it only has to be large
+ *  enough that a real pool doesn't round the output to a reverting zero, and
+ *  small enough that no pool is too thin to answer it. */
+const RECOGNITION_SELL_PROBE_WEI = 10n ** 18n;
+
 /** One read, reduced to "did it answer" — a revert here is information
  *  (this contract has nothing for that token), not a failure to propagate. */
 async function tryRead<T>(p: Promise<T>): Promise<T | null> {
@@ -247,15 +253,35 @@ async function tryRead<T>(p: Promise<T>): Promise<T | null> {
  *     Nad.Fun DEX pool. (This is Nad.Fun's factory, not a generic Uniswap one,
  *     so a pair here is Nad.Fun's own liquidity.)
  *
- * Taking the union also settles a question this sandbox could never verify
- * on-chain: whether a curve's storage is cleared when it graduates (the usual
- * Solidity `delete`-for-gas-refund pattern). If it is cleared, the pool signal
- * covers graduated tokens; if it isn't, the curve signal does. The answer
- * doesn't change the outcome either way, which is the point of using both.
- *
  * Neither signal can fire for WMON: its curve storage is all-zero (verified),
  * and `getPair(WMON, WMON)` is a self-pair, which a Uniswap-V2-style factory
  * never creates.
+ *
+ * ── Why a third signal was needed ────────────────────────────────────────────
+ * Those two were chosen partly to sidestep a question this sandbox could not
+ * then verify: whether a curve's storage is cleared at graduation. It is.
+ * Measured live against BOB (0x21E3…7777), a real graduated Nad.Fun token:
+ *
+ *   curves(BOB)          -> all zero          (storage cleared at graduation)
+ *   getPair(WMON, BOB)   -> execution reverted (this factory read is broken)
+ *   isGraduated/isLocked -> true / true
+ *   getProgress          -> 0x2710 = 100%
+ *   getAmountOut(sell)   -> router 0x0B79…b137, a real amount
+ *
+ * So BOTH existence signals missed at once, and every graduated token came
+ * back unrecognized — no liquidity, no phase, no curve data — while its Lens
+ * quote worked perfectly. That is the worst possible failure for someone
+ * pasting a contract address to decide whether to buy.
+ *
+ * The Lens quote is therefore the third signal, and the strongest of the
+ * three: it is the same read this module already trusts to ROUTE REAL MONEY
+ * (see lensGetAmountOut and the module's own top doc). It is taken on the
+ * SELL side deliberately — a curve that is locked, sold out, or graduated has
+ * no buy to quote but always has a sell — and it counts only when the router
+ * it names is one of Nad.Fun's own two allowlisted routers. A quote naming an
+ * allowlisted Nad.Fun router IS proof the token is Nad.Fun-managed; nothing
+ * else can produce one. WMON stays excluded because that read reverts for it
+ * outright (verified).
  *
  * Priority when both flags are set: graduated wins. `isLocked` (the
  * `CurveTokenLocked` event in the official ABI) reads as a bonding-curve-
@@ -270,23 +296,36 @@ export async function getNadFunStatus(token: Address): Promise<NadFunStatus> {
   if (getNetwork() !== "mainnet") return unrecognized;
   const pub = getPublicClient();
 
-  // One round trip: the two phase flags and the two existence signals are
+  // One round trip: the phase flags and all three existence signals are
   // independent reads, so they go out together rather than gating each other.
-  const [isGraduated, isLocked, curve, pool] = await Promise.all([
+  const [isGraduated, isLocked, curve, pool, quote] = await Promise.all([
     tryRead(pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isGraduated", args: [token] }) as Promise<boolean>),
     tryRead(pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isLocked", args: [token] }) as Promise<boolean>),
     tryRead(pub.readContract({ address: NADFUN_MAINNET.bondingCurve, abi: BONDING_CURVE_ABI, functionName: "curves", args: [token] }) as Promise<readonly bigint[]>),
     tryRead(pub.readContract({ address: NADFUN_MAINNET.dexFactory, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [NADFUN_MAINNET.wmon, token] }) as Promise<Address>),
+    tryRead(pub.readContract({
+      address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "getAmountOut",
+      args: [token, RECOGNITION_SELL_PROBE_WEI, false],
+    }) as Promise<readonly [Address, bigint]>),
   ]);
 
   const hasCurve = Array.isArray(curve) && curve.some((v) => typeof v === "bigint" && v > 0n);
   const hasPool = typeof pool === "string" && !/^0x0+$/.test(pool);
-  if (!hasCurve && !hasPool) return unrecognized;
+  // Only an allowlisted Nad.Fun router counts — see this function's own doc.
+  const hasQuote =
+    Array.isArray(quote) &&
+    typeof quote[0] === "string" &&
+    ALLOWED_ROUTERS.has(quote[0].toLowerCase()) &&
+    typeof quote[1] === "bigint" &&
+    quote[1] > 0n;
+
+  if (!hasCurve && !hasPool && !hasQuote) return unrecognized;
 
   const graduated = isGraduated === true;
   const locked = isLocked === true;
-  // No curve storage but a live Nad.Fun pool means the curve phase is behind
-  // it, whatever the flags say — report what's actually true of it now.
+  // Graduation wins over `locked` (see above), and either beats inferring the
+  // phase from storage. With no curve storage left, the curve phase is behind
+  // it whatever else is true — that is what graduation looks like on-chain.
   const status: NadFunStatusLabel = graduated ? "graduated" : locked ? "locked" : hasCurve ? "bonding_curve" : "graduated";
   return { recognized: true, isGraduated: graduated, isLocked: locked, status };
 }
