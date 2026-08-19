@@ -29,6 +29,26 @@ describe("runValidation", () => {
     expect(r.checks.find((c) => c.id === "sanctions")!.passed).toBe(false);
   });
 
+  it("rejects the zero address as a recipient (hard fail) — it passes the 0x-address shape but burns the funds", () => {
+    // 40 valid hex characters, so the address regex accepts it. A native MON
+    // transfer there succeeds and the money is gone for good, and nobody ever
+    // means to do it — it's a paste error or an unresolved lookup that
+    // defaulted. Must never read as "Valid wallet address."
+    const r = runValidation(req({ recipient: "0x0000000000000000000000000000000000000000" }));
+    expect(r.status).toBe("rejected");
+    const check = r.checks.find((c) => c.id === "recipient")!;
+    expect(check.passed).toBe(false);
+    expect(check.severity).toBe("hard");
+    expect(check.detail).toMatch(/unrecoverable/i);
+  });
+
+  it("still accepts a normal address that merely starts with zeros", () => {
+    // The guard keys on all-zero, not on a leading-zero prefix — a real
+    // address can legitimately begin with many zeros.
+    const r = runValidation(req({ recipient: "0x0000000000000000000000000000000000000001" }));
+    expect(r.checks.find((c) => c.id === "recipient")!.passed).toBe(true);
+  });
+
   it("rejects an unsupported network (hard fail)", () => {
     // cast: exercising the guard for an out-of-set network
     const r = runValidation(req({ network: "solana" as PaymentRequest["network"] }));
