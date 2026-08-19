@@ -209,31 +209,53 @@ export interface NadFunStatus {
   status: NadFunStatusLabel;
 }
 
-/** Arbitrary, small-but-nonzero probe amount for the `getAmountOut` read
- *  `getNadFunStatus` uses below purely as a recognition test — never quoted
- *  or shown to a caller, so its exact size doesn't matter beyond "big enough
- *  that a real curve/pool doesn't round it to a reverting zero output." */
-const RECOGNITION_PROBE_WEI = 10n ** 16n; // 0.01 MON
+/** One read, reduced to "did it answer" — a revert here is information
+ *  (this contract has nothing for that token), not a failure to propagate. */
+async function tryRead<T>(p: Promise<T>): Promise<T | null> {
+  try {
+    return await p;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Identifies whether `token` is Nad.Fun-managed and which phase it's in, by
- * CONTRACT ADDRESS only — never by symbol, per this module's brief. A read
- * that reverts (the Lens doesn't know this token) is treated as "not
- * recognized", never guessed as any particular phase.
+ * CONTRACT ADDRESS only — never by symbol, per this module's brief.
  *
- * `isGraduated`/`isLocked` alone can NOT prove recognition: the Lens returns
- * a harmless `(false, false)` — no revert — for literally any address it has
- * never seen, which was confirmed live against WMON (wrapped native MON, never
- * a Nad.Fun token): `isGraduated`/`isLocked` both read false with no error,
- * while `getAmountOut`/`getProgress` genuinely reverted and `BondingCurve
- * .curves()` came back all-zero. That false-positive made WMON display as a
- * bonding-curve token with $0 liquidity. `getAmountOut` is used here instead
- * as the actual recognition test — it's the same Lens read this module's own
- * quoting already trusts as the routing source of truth across EVERY phase,
- * bonding-curve through graduated (see this module's top-of-file doc on why
- * `isGraduated()` alone was never trusted for routing either), and it's
- * confirmed to genuinely revert for an address the Lens has no curve/pool
- * data for at all.
+ * ── Why the flags alone can't decide this ────────────────────────────────────
+ * `isGraduated`/`isLocked` do NOT revert for an address the Lens has never
+ * seen — they return a harmless `(false, false)`. Confirmed live against WMON
+ * (wrapped native MON, never a Nad.Fun token): both read false with no error,
+ * while `getAmountOut`/`getProgress` reverted and `BondingCurve.curves()` came
+ * back all-zero. Trusting the non-revert made WMON present as a bonding-curve
+ * token with $0 liquidity.
+ *
+ * ── Recognition is about EXISTENCE, not tradability ──────────────────────────
+ * The tempting fix — probe `getAmountOut` and treat a revert as "not Nad.Fun"
+ * — is wrong in the other direction. That read is a *buy* quote, and a curve
+ * that is locked (paused at its target, pending graduation) or simply sold out
+ * has no buy to quote, so it can revert for a perfectly real Nad.Fun token —
+ * precisely the `locked` phase this module explicitly models. That trades a
+ * false positive for a false negative.
+ *
+ * So recognition asks whether Nad.Fun holds STATE for this token, via two
+ * independent existence signals, either of which is proof on its own:
+ *   - `BondingCurve.curves(token)` has any non-zero field — it has, or had, a
+ *     real bonding curve.
+ *   - Nad.Fun's OWN dex factory has a `getPair(WMON, token)` — it has a
+ *     Nad.Fun DEX pool. (This is Nad.Fun's factory, not a generic Uniswap one,
+ *     so a pair here is Nad.Fun's own liquidity.)
+ *
+ * Taking the union also settles a question this sandbox could never verify
+ * on-chain: whether a curve's storage is cleared when it graduates (the usual
+ * Solidity `delete`-for-gas-refund pattern). If it is cleared, the pool signal
+ * covers graduated tokens; if it isn't, the curve signal does. The answer
+ * doesn't change the outcome either way, which is the point of using both.
+ *
+ * Neither signal can fire for WMON: its curve storage is all-zero (verified),
+ * and `getPair(WMON, WMON)` is a self-pair, which a Uniswap-V2-style factory
+ * never creates.
  *
  * Priority when both flags are set: graduated wins. `isLocked` (the
  * `CurveTokenLocked` event in the official ABI) reads as a bonding-curve-
@@ -247,19 +269,26 @@ export async function getNadFunStatus(token: Address): Promise<NadFunStatus> {
   const unrecognized: NadFunStatus = { recognized: false, isGraduated: false, isLocked: false, status: "unsupported" };
   if (getNetwork() !== "mainnet") return unrecognized;
   const pub = getPublicClient();
-  try {
-    const [isGraduated, isLocked] = await Promise.all([
-      pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isGraduated", args: [token] }) as Promise<boolean>,
-      pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isLocked", args: [token] }) as Promise<boolean>,
-      pub.readContract({
-        address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "getAmountOut", args: [token, RECOGNITION_PROBE_WEI, true],
-      }),
-    ]);
-    const status: NadFunStatusLabel = isGraduated ? "graduated" : isLocked ? "locked" : "bonding_curve";
-    return { recognized: true, isGraduated, isLocked, status };
-  } catch {
-    return unrecognized;
-  }
+
+  // One round trip: the two phase flags and the two existence signals are
+  // independent reads, so they go out together rather than gating each other.
+  const [isGraduated, isLocked, curve, pool] = await Promise.all([
+    tryRead(pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isGraduated", args: [token] }) as Promise<boolean>),
+    tryRead(pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isLocked", args: [token] }) as Promise<boolean>),
+    tryRead(pub.readContract({ address: NADFUN_MAINNET.bondingCurve, abi: BONDING_CURVE_ABI, functionName: "curves", args: [token] }) as Promise<readonly bigint[]>),
+    tryRead(pub.readContract({ address: NADFUN_MAINNET.dexFactory, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [NADFUN_MAINNET.wmon, token] }) as Promise<Address>),
+  ]);
+
+  const hasCurve = Array.isArray(curve) && curve.some((v) => typeof v === "bigint" && v > 0n);
+  const hasPool = typeof pool === "string" && !/^0x0+$/.test(pool);
+  if (!hasCurve && !hasPool) return unrecognized;
+
+  const graduated = isGraduated === true;
+  const locked = isLocked === true;
+  // No curve storage but a live Nad.Fun pool means the curve phase is behind
+  // it, whatever the flags say — report what's actually true of it now.
+  const status: NadFunStatusLabel = graduated ? "graduated" : locked ? "locked" : hasCurve ? "bonding_curve" : "graduated";
+  return { recognized: true, isGraduated: graduated, isLocked: locked, status };
 }
 
 interface LensAmountOut { router: Address; amountOutWei: bigint }
@@ -307,10 +336,23 @@ export interface NadFunAvailability {
   requiredMon: string;
 }
 
-/** Bonding-curve buy capacity for `token` — how much is left before it hits
- *  its graduation target, per the official `availableBuyTokens` Lens read.
- *  Returns null when unreadable (already graduated, or not a Nad.Fun token
- *  at all) rather than a fabricated 0. */
+/**
+ * Bonding-curve buy capacity for `token` — how much is left before it hits
+ * its graduation target, per the official `availableBuyTokens` Lens read.
+ * Returns null when the read reverts, rather than a fabricated 0.
+ *
+ * Caveat the caller MUST respect: a revert is not the only way this read says
+ * "nothing here". The Lens answers `(0, 0)` without reverting for an address
+ * it has never seen — verified live against WMON — and that is indistinguish-
+ * able from the legitimate `(0, 0)` of a real curve that has sold out. Both
+ * are returned as "0" on purpose, because collapsing them to null would throw
+ * away the real sold-out signal, which is genuine information about a real
+ * token.
+ *
+ * Disambiguating the two is therefore not this function's job and cannot be
+ * done from its return value: gate on getNadFunStatus().recognized first, as
+ * tokenIntelligence.ts does, and only then is a "0" here meaningful.
+ */
 export async function nadFunAvailableBuyTokens(token: Address, tokenDecimals: number): Promise<NadFunAvailability | null> {
   if (getNetwork() !== "mainnet") return null;
   const pub = getPublicClient();
@@ -367,8 +409,18 @@ export interface NadFunCurveReserves {
  * (the brief raised `CurveSync` as one option; the curve's own current-state
  * getter is the more direct, equally-official source for CURRENT reserves,
  * and avoids scanning event logs for a value the contract already exposes
- * live). Returns null for a token the curve doesn't recognize (a revert),
- * never a fabricated zero.
+ * live). Returns null for a token the curve holds nothing for, never a
+ * fabricated zero.
+ *
+ * "Holds nothing" is NOT signalled by a revert, which is what this function
+ * originally assumed. `curves` is a plain mapping getter, so an address the
+ * curve has never seen reads back as an all-zero struct rather than throwing —
+ * verified live against WMON. Taken at face value that produced a confident
+ * "Bonding Curve Liquidity: 0 MON / $0.00" for a token that has no bonding
+ * curve at all, which is precisely the fabricated zero the line above promises
+ * not to emit. An all-zero struct is therefore treated as absence: a curve
+ * that genuinely exists always carries non-zero virtual reserves and a
+ * non-zero target, since those are set at creation and never drain to zero.
  */
 export async function getNadFunCurveReserves(token: Address, tokenDecimals: number): Promise<NadFunCurveReserves | null> {
   if (getNetwork() !== "mainnet") return null;
@@ -377,6 +429,7 @@ export async function getNadFunCurveReserves(token: Address, tokenDecimals: numb
     const result = (await pub.readContract({
       address: NADFUN_MAINNET.bondingCurve, abi: BONDING_CURVE_ABI, functionName: "curves", args: [token],
     })) as readonly [bigint, bigint, bigint, bigint, bigint, bigint, bigint, bigint];
+    if (result.every((v) => v === 0n)) return null; // no curve here — see above
     const [realMonReserve, realTokenReserve, virtualMonReserve, virtualTokenReserve] = result;
     return {
       realMon: formatUnits(realMonReserve, 18),

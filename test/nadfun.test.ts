@@ -49,13 +49,25 @@ afterEach(() => {
 });
 
 describe("getNadFunStatus — detection by contract address only", () => {
-  it("bonding-curve token: not graduated, not locked", async () => {
+  /** A live bonding curve: non-zero reserves, and no graduated DEX pair yet. */
+  const LIVE_CURVE = [1_000n, 2_000n, 3_000n, 4_000n, 5_000n, 6_000n, 7_000n, 8_000n];
+  const NO_PAIR = "0x0000000000000000000000000000000000000000";
+  const REAL_PAIR = "0x1234123412341234123412341234123412341234";
+
+  /** Recognition reads Nad.Fun's own STATE for the token, so every case below
+   *  has to say what that state is — a curve, a pool, or neither. */
+  function stub({ graduated = false, locked = false, curve = LIVE_CURVE as readonly bigint[] | null, pair = NO_PAIR as string | null }) {
     onRead = ({ functionName }) => {
-      if (functionName === "isGraduated") return false;
-      if (functionName === "isLocked") return false;
-      if (functionName === "getAmountOut") return [ATTACKER, 1n]; // router value unused by getNadFunStatus, just must not throw
+      if (functionName === "isGraduated") return graduated;
+      if (functionName === "isLocked") return locked;
+      if (functionName === "curves") { if (curve === null) throw new Error("execution reverted"); return curve; }
+      if (functionName === "getPair") { if (pair === null) throw new Error("execution reverted"); return pair; }
       throw new Error(`unexpected: ${functionName}`);
     };
+  }
+
+  it("bonding-curve token: not graduated, not locked", async () => {
+    stub({});
     const { getNadFunStatus, __testing } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r).toEqual({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
@@ -63,58 +75,79 @@ describe("getNadFunStatus — detection by contract address only", () => {
   });
 
   it("graduated token", async () => {
-    onRead = ({ functionName }) => {
-      if (functionName === "isGraduated") return true;
-      if (functionName === "isLocked") return false;
-      if (functionName === "getAmountOut") return [ATTACKER, 1n];
-      throw new Error(`unexpected: ${functionName}`);
-    };
+    stub({ graduated: true, pair: REAL_PAIR });
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r.status).toBe("graduated");
   });
 
   it("locked (pre-graduation curve paused at target) token", async () => {
-    onRead = ({ functionName }) => {
-      if (functionName === "isGraduated") return false;
-      if (functionName === "isLocked") return true;
-      if (functionName === "getAmountOut") return [ATTACKER, 1n];
-      throw new Error(`unexpected: ${functionName}`);
-    };
+    stub({ locked: true });
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r.status).toBe("locked");
   });
 
   it("graduated wins over locked when somehow both are set", async () => {
-    onRead = ({ functionName }) => {
-      if (functionName === "isGraduated") return true;
-      if (functionName === "isLocked") return true;
-      if (functionName === "getAmountOut") return [ATTACKER, 1n];
-      throw new Error(`unexpected: ${functionName}`);
-    };
+    stub({ graduated: true, locked: true });
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r.status).toBe("graduated");
   });
 
-  it("an address the Lens doesn't recognize (reverts) is honestly unsupported, never guessed", async () => {
+  it("an address Nad.Fun holds no state for at all (every read reverts) is honestly unsupported, never guessed", async () => {
     onRead = () => { throw new Error("execution reverted"); };
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r).toEqual({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
   });
 
-  it("regression: a non-Nad.Fun token (e.g. WMON) where isGraduated/isLocked harmlessly read false-by-default is NOT recognized, because getAmountOut genuinely reverts for it", async () => {
-    onRead = ({ functionName }) => {
-      if (functionName === "isGraduated") return false;
-      if (functionName === "isLocked") return false;
-      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
-      throw new Error(`unexpected: ${functionName}`);
-    };
+  it("regression (WMON): isGraduated/isLocked harmlessly read false-by-default for an address the Lens never saw, so an all-zero curve and no pair must still read as NOT a Nad.Fun token", async () => {
+    // Exactly what WMON returns live: no revert on the flags, an all-zero
+    // curve struct, and no Nad.Fun pair. Previously this reported
+    // bonding_curve, which rendered as "Bonding Curve Liquidity: $0".
+    stub({ curve: [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n], pair: NO_PAIR });
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r).toEqual({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+  });
+
+  it("a LOCKED curve stays recognized even though it has no buy quote to give — recognition is about existence, not tradability", async () => {
+    // The reason recognition is not a getAmountOut probe: a curve paused at
+    // its target can't be bought, so a buy quote reverts for a perfectly
+    // real Nad.Fun token. Its curve storage is still there.
+    stub({ locked: true, curve: LIVE_CURVE, pair: NO_PAIR });
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(r.recognized).toBe(true);
+    expect(r.status).toBe("locked");
+  });
+
+  it("a graduated token whose curve storage was cleared on graduation is still recognized, via its Nad.Fun pool", async () => {
+    // Whether Nad.Fun deletes curve storage at graduation was never
+    // verifiable from this environment. Either answer is fine: the pool
+    // signal carries recognition when the curve signal is gone.
+    stub({ graduated: true, curve: [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n], pair: REAL_PAIR });
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(r.recognized).toBe(true);
+    expect(r.status).toBe("graduated");
+  });
+
+  it("a live Nad.Fun pool with no curve storage reads as graduated even if the flag lags", async () => {
+    stub({ graduated: false, locked: false, curve: [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n], pair: REAL_PAIR });
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(r.recognized).toBe(true);
+    expect(r.status).toBe("graduated"); // never "bonding_curve" — there is no curve
+  });
+
+  it("survives a partial RPC failure: one signal reverting doesn't drop a token the other signal proves is real", async () => {
+    stub({ curve: null, pair: REAL_PAIR });
+    const { getNadFunStatus } = await loadNadFun();
+    expect((await getNadFunStatus(TOKEN as `0x${string}`)).recognized).toBe(true);
+    stub({ curve: LIVE_CURVE, pair: null });
+    expect((await getNadFunStatus(TOKEN as `0x${string}`)).recognized).toBe(true);
   });
 
   it("unavailable outside mainnet — never probes the chain", async () => {
@@ -400,6 +433,27 @@ describe("getNadFunCurveReserves — real bonding-curve reserves, never availabl
     onRead = () => { throw new Error("execution reverted"); };
     const { getNadFunCurveReserves } = await loadNadFun();
     expect(await getNadFunCurveReserves(TOKEN as `0x${string}`, 18)).toBeNull();
+  });
+
+  it("an all-zero struct is null, not '0 MON' — `curves` is a mapping getter and does NOT revert for a token it has never seen", async () => {
+    // Verified live: BondingCurve.curves(WMON) returns eight zero words with
+    // no revert. Formatting that produced a confident "Bonding Curve
+    // Liquidity: 0 MON / $0.00" for a token with no bonding curve at all.
+    onRead = () => [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0n];
+    const { getNadFunCurveReserves } = await loadNadFun();
+    expect(await getNadFunCurveReserves(TOKEN as `0x${string}`, 18)).toBeNull();
+  });
+
+  it("a real curve drained to zero REAL reserves is still reported, because its virtual reserves and target are never zero", async () => {
+    // The all-zero check must key on the whole struct, not on realMon alone —
+    // a brand-new curve legitimately holds 0 real MON and must still read as
+    // an existing curve.
+    onRead = () => [0n, 0n, 180000_000000000000000000n, 1073000191_000000000000000000n, 1n, 2n, 3n, 4n];
+    const { getNadFunCurveReserves } = await loadNadFun();
+    const r = await getNadFunCurveReserves(TOKEN as `0x${string}`, 18);
+    expect(r).not.toBeNull();
+    expect(r?.realMon).toBe("0");
+    expect(r?.virtualMon).toBe("180000");
   });
 });
 
