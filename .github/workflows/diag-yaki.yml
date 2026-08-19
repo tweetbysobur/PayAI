@@ -16,9 +16,11 @@ jobs:
           MONAD_NETWORK: mainnet
           MONAD_MAINNET_USDC: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
         run: |
-          cat > /tmp/probe.mjs << 'SCRIPT'
+          cat > probe-yaki.mjs << 'SCRIPT'
           import { getNadFunStatus, nadFunQuote, nadFunAvailableBuyTokens, getNadFunProgress } from "./lib/monad/nadfun.ts";
           import { getPublicClient } from "./lib/monad/wallet.ts";
+          import { quoteUniswapDirect, resolveSwapSide } from "./lib/monad/swap.ts";
+          import { inspectAddress } from "./lib/monad/tokenIntelligence.ts";
 
           const TOKEN = "0xd4c5Be6DdA34bae2e80774Ca582A06CC4C6B7777";
           const ERC20_ABI = [
@@ -63,5 +65,23 @@ jobs:
           } catch (e) {
             console.log("nadFunProgress threw:", e.message);
           }
+
+          for (const quoteAsset of ["USDC", "MON"]) {
+            try {
+              const side = await resolveSwapSide(quoteAsset);
+              const direct = await quoteUniswapDirect(TOKEN, decimals, side.routeAddress, side.decimals, "1");
+              console.log(`quoteUniswapDirect(YAKI -> ${quoteAsset}):`, JSON.stringify(direct));
+            } catch (e) {
+              console.log(`quoteUniswapDirect(YAKI -> ${quoteAsset}) threw:`, e.message);
+            }
+          }
+
+          try {
+            const inspection = await inspectAddress(TOKEN, null, null);
+            console.log("inspectAddress:", JSON.stringify(inspection, null, 2));
+          } catch (e) {
+            console.log("inspectAddress threw:", e.message);
+          }
           SCRIPT
-          npx tsx /tmp/probe.mjs
+          npx tsx probe-yaki.mjs
+          rm -f probe-yaki.mjs
