@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { FileText, Search } from "lucide-react";
+import { motion } from "motion/react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { amountError, isValidAmount, addressError, isValidAddress } from "@/lib/validation";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -13,7 +14,40 @@ interface Onchain { configured: boolean; requests: OnchainRequest[] }
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 const PAGE_SIZE = 10;
 
-export default function Invoices() {
+/** Off the sidebar (see Sidebar.tsx's `soon: true` on this entry), but the
+ *  route itself still needs its own gate — a bookmarked or typed URL reaches
+ *  the page directly, past any nav badge. The real workspace below is fully
+ *  built and working (payment links, on-chain requests) and untouched; this
+ *  only decides which one renders, same pattern as Ask PayAI's own
+ *  COMING_SOON toggle in app/dashboard/ask/page.tsx. */
+const COMING_SOON = true;
+
+function InvoicesComingSoon() {
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col items-center justify-center rounded-2xl border border-border bg-panel/40 px-4 py-16 text-center">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}
+        className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"
+      >
+        <FileText size={26} />
+      </motion.div>
+      <motion.h1
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.35 }}
+        className="mt-4 text-2xl font-semibold tracking-tight text-foreground"
+      >
+        Invoices — coming soon
+      </motion.h1>
+      <motion.p
+        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.35 }}
+        className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground"
+      >
+        Shareable payment links and on-chain payment requests are being reworked. We&apos;ll have this back soon.
+      </motion.p>
+    </div>
+  );
+}
+
+function InvoicesWorkspace() {
   const wallet = useWallet();
   const [links, setLinks] = useState<PayLink[]>([]);
   const [amount, setAmount] = useState("");
@@ -202,4 +236,8 @@ export default function Invoices() {
       )}
     </div>
   );
+}
+
+export default function Invoices() {
+  return COMING_SOON ? <InvoicesComingSoon /> : <InvoicesWorkspace />;
 }

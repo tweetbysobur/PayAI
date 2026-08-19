@@ -25,8 +25,11 @@ import { AskLogo } from "@/components/AskMark";
  * `swap` is a mechanical MON/USDC-style exchange, while `trade` produces a
  * real quote preview for ANY Monad token and understands buy/sell direction,
  * dollar amounts and percentage-of-balance. The tile should open the richer
- * door. Its hint carries an actual spoken example rather than a description,
- * because the fastest way to teach "say it in your own words" is to show one.
+ * door, and its hint names that breadth — buy or sell, any token — rather than
+ * quoting a worked example with a figure in it. Every hint here describes what
+ * the tile reaches, never what to type: a concrete "buy $50 of X" reads as a
+ * command to copy, which is the opposite of "say it in your own words", and it
+ * puts an arbitrary amount in front of someone who has not chosen one yet.
  *
  * Every label here was run through the real classifier rather than assumed.
  * All four reach Anthropic in production (routeRequest returns anthropic=true),
@@ -45,7 +48,7 @@ export interface CapabilityShortcut {
 
 export const CAPABILITY_SHORTCUTS: CapabilityShortcut[] = [
   { label: "Send a payment", hint: "To any wallet or .nad name.", icon: Send },
-  { label: "Trade a token", hint: "Try: buy $50 of MON, or sell half my USDC.", icon: ArrowLeftRight },
+  { label: "Trade a token", hint: "Buy or sell any token on Monad.", icon: ArrowLeftRight },
   { label: "Automate a payment", hint: "Set it once, it runs on its own.", icon: Clock3 },
   { label: "Check my balance", hint: "See everything your wallet holds.", icon: Wallet },
 ];
