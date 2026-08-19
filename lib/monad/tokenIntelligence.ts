@@ -37,9 +37,31 @@
  * results) — see lib/monad/dexscreener.ts's own doc for exactly what was
  * confirmed. volume24h/transactions24h/buys24h/sells24h/priceChange24h now
  * come from there, fed into `probeMarket` below (still the one integration
- * point). Deliberately still NOT integrated for anything this app already
- * has a real on-chain source for (price, liquidity, market cap) — two
- * sources disagreeing on the same number would be confusing, not additive.
+ * point).
+ *
+ * Liquidity later joined them, but only as a FALLBACK, not a second source
+ * standing beside the first: whenever this app's own on-chain liquidity read
+ * genuinely returns nothing, not whenever it merely disagrees with
+ * DexScreener. On-chain always wins when it has an answer, so the two never
+ * compete for the same token. This was previously an unconditional "never" —
+ * two sources disagreeing on the same number would be confusing — but that
+ * reasoning covered less than it looked like: this app has no on-chain
+ * liquidity-depth read for an arbitrary Uniswap v3 pool at all (v3 is
+ * concentrated liquidity, not simple x*y=k reserves), so EVERY Uniswap-only
+ * token showed "Unavailable" for liquidity outright, and a GRADUATED Nad.Fun
+ * token's on-chain read reverts too (verified live against BOB — see
+ * probeMarket's own doc). Neither case has a real on-chain figure to
+ * disagree with, so DexScreener's own indexed figure is what actually shows
+ * now, clearly labeled, rather than a blank field next to a token the card
+ * is already quoting a live price for.
+ *
+ * marketCapUsd/fdvUsd also gained a fallback for the identical reason: price
+ * (and everything computed from it) previously came from Uniswap-v3-only
+ * quoting, so any token with no USDC pool — most bonding-curve and freshly-
+ * graduated Nad.Fun tokens — showed "Unavailable" for price, market cap AND
+ * fdv together, despite the card already displaying a live MON-denominated
+ * quote two rows away. See deriveUsdFromMon's own doc.
+ *
  * buyVolume24h/sellVolume24h/holders remain honestly unavailable: DexScreener
  * reports total volume and transaction counts per window, not volume split
  * by side, and no holder-count source was found anywhere — splitting volume
@@ -114,10 +136,11 @@ export interface TokenLiquidity {
   label: "Bonding Curve Liquidity" | "DEX Liquidity";
   mon: string;
   usd: string | null;
-  /** The pool this was read from — the graduated DEX pair for "DEX
-   *  Liquidity", or null for "Bonding Curve Liquidity" (the curve itself
-   *  holds the reserves; there's no separate pool contract to name until
-   *  graduation actually happens). */
+  /** The pool this was read from. Null for "Bonding Curve Liquidity" (the
+   *  curve itself holds the reserves; there's no separate pool contract to
+   *  name until graduation happens) or when the figure is DexScreener's
+   *  fallback and its response didn't include one. Otherwise the graduated
+   *  DEX pair's own address, from either source. */
   pool: string | null;
 }
 
@@ -524,12 +547,20 @@ async function probeMarket(
   const priceMon = routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null;
   const usdPrice = directUsdPrice ?? deriveUsdFromMon(priceMon, monUsdPrice);
 
-  // On-chain first, DexScreener only where on-chain genuinely yields nothing.
-  // A GRADUATED Nad.Fun token has no curve reserves left to read and its
-  // dexFactory.getPair() reverts (both verified live against BOB), so the
-  // on-chain path returns null and there is no second number to contradict —
-  // the original "one source only" rule was about avoiding disagreement, and
-  // with nothing to disagree with, showing the real indexed figure beats
+  // On-chain first, DexScreener only where on-chain genuinely yields nothing —
+  // which covers two different gaps, not just one:
+  //   - a GRADUATED Nad.Fun token has no curve reserves left to read and its
+  //     dexFactory.getPair() reverts (both verified live against BOB), so the
+  //     on-chain path fires and comes back null.
+  //   - `liquidity` above is Promise.resolve(null) outright for anything
+  //     Nad.Fun doesn't recognize — including a perfectly ordinary Uniswap
+  //     token like WMON — because this app has no v3-compatible
+  //     liquidity-depth read (v3 is concentrated liquidity, not simple x*y=k
+  //     reserves). That was a real, previously-undocumented gap: EVERY
+  //     Uniswap-only token showed "Unavailable" for liquidity, full stop.
+  // Either way there is no second on-chain number to contradict — the
+  // original "one source only" rule was about avoiding two disagreeing
+  // figures, and with nothing to disagree with, the real indexed figure beats
   // showing "Unavailable" next to a token the card is actively quoting.
   const liquidityResolved: TokenLiquidity | null =
     liquidity ??
@@ -540,7 +571,7 @@ async function probeMarket(
             ? (dexScreener.liquidityUsd / monUsdPrice).toLocaleString(undefined, { maximumFractionDigits: 4 })
             : "—",
           usd: dexScreener.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 }),
-          pool: null,
+          pool: dexScreener.pool,
         }
       : null);
 

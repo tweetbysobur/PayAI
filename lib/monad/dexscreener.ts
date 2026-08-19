@@ -51,6 +51,7 @@ interface DexScreenerTxnWindow {
 }
 
 interface DexScreenerPair {
+  pairAddress?: string;
   liquidity?: { usd?: number };
   volume?: { h24?: number };
   priceChange?: { h24?: number };
@@ -80,6 +81,10 @@ export interface DexScreenerSnapshot {
    * probeMarket): the on-chain figure still wins whenever it is available.
    */
   liquidityUsd: number | null;
+  /** The pool this snapshot's liquidity/volume/price-change came from —
+   *  DexScreener's own `pairAddress` for the pair selected above. Null only
+   *  when DexScreener's response omitted it, never guessed. */
+  pool: string | null;
 }
 
 /**
@@ -127,6 +132,7 @@ export async function getDexScreenerSnapshot(address: Address): Promise<DexScree
       // with -1 and treats a missing figure as 0, neither of which is a real
       // liquidity reading.
       liquidityUsd: bestLiquidity > 0 ? bestLiquidity : null,
+      pool: typeof best.pairAddress === "string" && best.pairAddress.length > 0 ? best.pairAddress : null,
     };
   } catch {
     return null;

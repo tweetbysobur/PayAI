@@ -28,6 +28,7 @@ const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
 
 function pair(overrides: Record<string, unknown> = {}) {
   return {
+    pairAddress: "0x5555666677778888999900001111222233334444",
     liquidity: { usd: 50_000 },
     volume: { h24: 12_345.67 },
     priceChange: { h24: 5.12 },
@@ -71,6 +72,7 @@ describe("getDexScreenerSnapshot", () => {
         // The chosen pair's own liquidity, surfaced as a fallback for
         // graduated Nad.Fun tokens whose on-chain pool read reverts.
         liquidityUsd: 50_000,
+        pool: "0x5555666677778888999900001111222233334444",
       });
     } finally { restore(); }
   });
@@ -140,6 +142,31 @@ describe("getDexScreenerSnapshot", () => {
       const { getDexScreenerSnapshot } = await import("@/lib/monad/dexscreener");
       const r = await getDexScreenerSnapshot(TOKEN as `0x${string}`);
       expect(r?.priceChange24h).toBeNull();
+    } finally { restore(); }
+  });
+
+  it("regression: surfaces the winning pair's own pairAddress as pool, not the first pair's", async () => {
+    const { restore } = mockFetch(() => ({
+      body: [
+        pair({ pairAddress: "0x1111111111111111111111111111111111111111", liquidity: { usd: 500 } }),
+        pair({ pairAddress: "0x2222222222222222222222222222222222222222", liquidity: { usd: 999_999 } }),
+      ],
+    }));
+    try {
+      const { getDexScreenerSnapshot } = await import("@/lib/monad/dexscreener");
+      const r = await getDexScreenerSnapshot(TOKEN as `0x${string}`);
+      expect(r?.pool).toBe("0x2222222222222222222222222222222222222222");
+    } finally { restore(); }
+  });
+
+  it("liquidityUsd and pool are null (never fabricated) when the response omits them", async () => {
+    const { restore } = mockFetch(() => ({ body: [pair({ liquidity: {}, pairAddress: undefined })] }));
+    try {
+      const { getDexScreenerSnapshot } = await import("@/lib/monad/dexscreener");
+      const r = await getDexScreenerSnapshot(TOKEN as `0x${string}`);
+      expect(r?.liquidityUsd).toBeNull();
+      expect(r?.pool).toBeNull();
+      expect(r?.volume24h).toBe(12_345.67); // the rest of the snapshot is unaffected
     } finally { restore(); }
   });
 
