@@ -13,7 +13,7 @@
  * source already scopes itself to the connected wallet, so the merged feed
  * inherits that: you see your own activity and nobody else's.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { walletEventHref, type WalletEventType } from "@/lib/wallet-service/types";

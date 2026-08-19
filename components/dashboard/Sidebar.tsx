@@ -40,7 +40,6 @@ export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; s
 /** Real fintech-dashboard sidebar — grouped sections, active-route highlight. */
 export function Sidebar() {
   const pathname = usePathname();
-  let lastSection: string | null = null;
 
   return (
     <aside className="hidden h-screen w-60 flex-col border-r border-border bg-panel/60 lg:flex">
@@ -53,10 +52,12 @@ export function Sidebar() {
       </Link>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {NAV.map((item) => {
+        {NAV.map((item, idx) => {
           const isFirstOverview = item.href === "/dashboard" && item.section === null;
-          const showSectionLabel = item.section !== lastSection && item.section !== null;
-          lastSection = item.section;
+          // Derived from the previous entry rather than a running variable
+          // mutated mid-render: NAV is static, so "is this the first item of
+          // its section" is a pure function of the index.
+          const showSectionLabel = item.section !== null && item.section !== (NAV[idx - 1]?.section ?? null);
           const active = pathname === item.href;
           const Icon = item.icon;
           return (

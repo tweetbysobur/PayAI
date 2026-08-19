@@ -1767,7 +1767,6 @@ function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; 
     // toParseableAmount, not String() — a sub-1-unit amount below the
     // token's own precision floor stringifies to exponential notation,
     // which parseUnits rejects outright.
-    const perRun = parseUnits(toParseableAmount(amountNum, decimals), decimals);
     const budget = parseUnits(toParseableAmount(walletBudgetAmount, decimals), decimals);
     const reservedBudget = parseUnits(toParseableAmount(reservedBudgetAmount, decimals), decimals);
     setSaving(true);

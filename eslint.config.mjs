@@ -20,6 +20,19 @@ const eslintConfig = [
       "react-hooks/purity": "warn",
       "react-hooks/preserve-manual-memoization": "warn",
       "react-hooks/immutability": "warn",
+
+      // Honor the `_` prefix this codebase already uses on deliberately
+      // unused bindings — the no-op notifyExternal(_event)/(_ticket) seams
+      // and `const { ok: _ok, ...data } = ...` discards. Those are
+      // intentional and self-documenting; without this they read as dead
+      // code and drown out the unused-variable warnings that are real.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        destructuredArrayIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+      }],
     },
   },
 ];

@@ -342,7 +342,6 @@ export async function getOnchainStats(): Promise<OnchainStats | null> {
   const executor = getPaymentExecutor();
   if (!executor) return null;
   const pub = getPublicClient();
-  const token = getStablecoin();
   const s = (await pub.readContract({ address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "stats" })) as readonly [bigint, bigint, bigint, bigint, bigint];
   return {
     payments: Number(s[0]),

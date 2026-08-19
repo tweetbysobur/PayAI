@@ -58,7 +58,7 @@ export function computeDistribution(
     // rounding goes to the FIRST recipient rather than being silently
     // dropped, so the sum of what's actually paid always equals the total.
     const per = Math.floor((totalBudget / drafts.length) * 1e8) / 1e8;
-    const rows = drafts.map((d, i) => ({ input: d.input, amount: per, note: d.note }));
+    const rows = drafts.map((d) => ({ input: d.input, amount: per, note: d.note }));
     const distributed = per * drafts.length;
     const remainder = Math.round((totalBudget - distributed) * 1e8) / 1e8;
     if (remainder !== 0) rows[0].amount = Math.round((rows[0].amount + remainder) * 1e8) / 1e8;

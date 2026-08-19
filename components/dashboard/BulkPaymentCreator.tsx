@@ -349,12 +349,6 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
       ? { type: "after_count" as const, totalRuns: Math.max(1, Math.floor(Number(endCount) || 1)) }
       : { type: "until_date" as const, untilMs: endUntilMs };
 
-  function cadenceLabel() {
-    if (cadence === "once") return "One time";
-    if (cadence === "custom") return `Every ${intervalCount} ${intervalUnit}`;
-    return cadence[0].toUpperCase() + cadence.slice(1);
-  }
-
   async function activate() {
     if (!wallet.address || !resolvedRows || !config || !tokenInfo) return;
     setSaving(true);
