@@ -316,8 +316,16 @@ const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
  *  question. Checked ahead of detectSwapIntent in classifyFresh too, since
  *  that detector also triggers on "swap"/"trade" and would otherwise happily
  *  (and wrongly) capture "this" as a literal token symbol for phrasing like
- *  "swap 100 USDC into this token". */
-const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b/i;
+ *  "swap 100 USDC into this token".
+ *
+ *  The one exception to "bare trade doesn't match" is an opening imperative
+ *  naming a token — "Trade a token", the Ask PayAI empty state's own tile. It
+ *  is anchored to the start and requires the word "token" straight after, so
+ *  it cannot fire on a tradability question ("can I trade it?", "is this
+ *  tradable?") or a market one ("trade volume?"), which is exactly what the
+ *  paragraph above is protecting. Every phrasing here still reaches Anthropic
+ *  in production — this only decides how well the key-free fallback copes. */
+const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*trade\s+(?:a\s+|an\s+)?tokens?\b/i;
 
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
@@ -759,7 +767,10 @@ function detectTokenLookup(text: string): Understanding | null {
  *  never worth an Anthropic call. */
 function matchSimpleChat(text: string): string | null {
   const t = text.trim();
-  if (GREETING_RE.test(t)) return "Hey! I'm Ask PayAI — tell me what you'd like to do: send a payment, swap tokens, check a balance, or set up an automation.";
+  // Mirrors the empty state's four on-ramps, in the same words — "trade a
+  // token" rather than "swap tokens", since trade is the capability that
+  // actually handles buy/sell on any Monad token.
+  if (GREETING_RE.test(t)) return "Hey! I'm Ask PayAI — tell me what you'd like to do: send a payment, trade a token, automate a payment, or check your balance.";
   if (THANKS_RE.test(t)) return "Anytime! Let me know if there's anything else.";
   if (FAREWELL_RE.test(t)) return "See you around!";
   return null;

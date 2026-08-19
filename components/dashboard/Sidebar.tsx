@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { ComponentType } from "react";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
-  Wallet, Settings, Repeat, Sparkles,
+  Wallet, Settings, Repeat,
   GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { AskMark } from "@/components/AskMark";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 
 // "Contact Support" used to live here too, pointing at the exact same
@@ -23,9 +25,14 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
 // its own page. They're now tabs on Transactions (see
 // app/dashboard/transactions/page.tsx) — one destination for everything
 // related to what's happened with your payments, instead of four.
-export const NAV: { href: string; label: string; icon: typeof LayoutDashboard; section: string | null; soon?: boolean }[] = [
+/** Widened from `typeof LayoutDashboard` (lucide's own icon type) so an entry
+ *  can carry a first-party mark as easily as a lucide glyph — Ask PayAI uses
+ *  its own. Only `size` is ever passed, which both satisfy. */
+type NavIcon = ComponentType<{ size?: number; className?: string }>;
+
+export const NAV: { href: string; label: string; icon: NavIcon; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
-  { href: "/dashboard/ask", label: "Ask PayAI", icon: Sparkles, section: null },
+  { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark, section: null },
   { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
   { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },

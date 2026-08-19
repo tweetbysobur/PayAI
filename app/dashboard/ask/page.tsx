@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Sparkles } from "lucide-react";
 import { motion } from "motion/react";
+import { AskMark, AskLogo } from "@/components/AskMark";
 import { AskEmptyState, CAPABILITY_SHORTCUTS } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
@@ -19,7 +19,7 @@ function AskComingSoon() {
     <div className="mx-auto flex h-full max-w-4xl flex-col">
       <div className="mb-3 flex shrink-0 items-center gap-2">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-          <Sparkles size={15} />
+          <AskMark size={16} />
         </span>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">Ask PayAI</h1>
       </div>
@@ -27,9 +27,9 @@ function AskComingSoon() {
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden rounded-2xl border border-border bg-panel/40 px-4 py-12">
         <motion.div
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}
-          className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"
+          className="text-primary"
         >
-          <Sparkles size={26} />
+          <AskLogo size={56} />
         </motion.div>
         <motion.h2
           initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.35 }}
@@ -85,7 +85,7 @@ function AskPayAIChat() {
       <div className="mb-3 flex shrink-0 items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-            <Sparkles size={15} />
+            <AskMark size={16} />
           </span>
           <h1 className="text-lg font-semibold tracking-tight text-foreground">Ask PayAI</h1>
         </div>
