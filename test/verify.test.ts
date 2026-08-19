@@ -26,6 +26,56 @@ describe("toBaseUnits", () => {
     expect(toBaseUnits(2.5, 6)).toBe(2_500_000n);
     expect(toBaseUnits(0.01, 6)).toBe(10_000n);
   });
+
+  it("regression: an 18-decimal amount is exact, not float-mangled", () => {
+    // This was BigInt(Math.round(amount * 10 ** decimals)). 10**18 is already
+    // ~100x past Number.MAX_SAFE_INTEGER, so the multiply happened in floating
+    // point: 1.1 came out as 1100000000000000128 wei, 999.999 was off by
+    // 32768. The vault reserved funds with viem's exact parseUnits and
+    // released them with this, so the release amount could land ABOVE the
+    // reserved balance and trip INSUFFICIENT_RESERVED_FUNDS — a Reserved-Funds
+    // automation for 1.1 MON refused to execute at all.
+    expect(BigInt(Math.round(1.1 * 10 ** 18))).toBe(1_100_000_000_000_000_128n); // the old behavior
+    expect(toBaseUnits(1.1, 18)).toBe(1_100_000_000_000_000_000n);
+    expect(toBaseUnits(999.999, 18)).toBe(999_999_000_000_000_000_000n);
+    expect(toBaseUnits(0.07, 18)).toBe(70_000_000_000_000_000n);
+    expect(toBaseUnits(1234.5678, 18)).toBe(1_234_567_800_000_000_000_000n);
+  });
+
+  it("matches what the vault actually reserved, so a release can never exceed it", () => {
+    // The deposit side (app/dashboard/automations) uses parseUnits on the same
+    // amount. These two must agree exactly or the guard misfires.
+    for (const amount of [1.1, 0.07, 12.34, 999.999, 1234.5678, 0.1]) {
+      expect(toBaseUnits(amount, 18)).toBe(parseUnits(toParseableAmount(amount, 18), 18));
+    }
+  });
+
+  it("agrees with viem's parseUnits across a fuzz sweep, including rounding past the token's precision", () => {
+    // toBaseUnits is hand-rolled string arithmetic because lib/monad/verify.ts
+    // is deliberately dependency-free (see its file header). This is what pins
+    // that hand-rolled version to the real thing.
+    let checked = 0;
+    for (const decimals of [0, 2, 6, 8, 18]) {
+      for (let i = 0; i < 400; i++) {
+        const amount = Math.random() * 10 ** (i % 7);
+        expect(toBaseUnits(amount, decimals)).toBe(parseUnits(toParseableAmount(amount, decimals), decimals));
+        checked++;
+      }
+    }
+    expect(checked).toBe(2000);
+  });
+
+  it("handles zero, integers and negatives", () => {
+    expect(toBaseUnits(0, 18)).toBe(0n);
+    expect(toBaseUnits(5, 18)).toBe(5_000_000_000_000_000_000n);
+    expect(toBaseUnits(-1.1, 18)).toBe(-1_100_000_000_000_000_000n);
+  });
+
+  it("rounds half up past the token's precision, exactly as parseUnits does", () => {
+    expect(toBaseUnits(1.5, 0)).toBe(2n);
+    expect(toBaseUnits(1.4, 0)).toBe(1n);
+    expect(toBaseUnits(1.1234565, 6)).toBe(1_123_457n);
+  });
 });
 
 describe("toParseableAmount", () => {
@@ -44,8 +94,24 @@ describe("toParseableAmount", () => {
     expect(parseUnits(toParseableAmount(10, 6), 6)).toBe(parseUnits("10", 6));
   });
 
-  it("truncates to the token's own decimal precision rather than throwing on extra digits", () => {
+  it("passes through extra precision rather than throwing on it — parseUnits rounds what the token can't hold", () => {
     expect(() => parseUnits(toParseableAmount(1.123456789, 6), 6)).not.toThrow();
+    expect(parseUnits(toParseableAmount(1.123456789, 6), 6)).toBe(1_123_457n);
+  });
+
+  it("regression: no longer smuggles float noise into an 18-decimal amount", () => {
+    // toFixed(18) prints the float's true binary value, not the decimal the
+    // user meant, so it attached junk wei to every ordinary amount:
+    expect((1.1).toFixed(18)).toBe("1.100000000000000089"); // documents the bug
+    // The plain string representation is well-formed here, so it is used as-is.
+    expect(toParseableAmount(1.1, 18)).toBe("1.1");
+    expect(parseEther(toParseableAmount(1.1, 18))).toBe(1_100_000_000_000_000_000n);
+    expect(parseEther(toParseableAmount(999.999, 18))).toBe(999_999_000_000_000_000_000n);
+  });
+
+  it("still falls back to toFixed for the exponential case it exists to fix", () => {
+    expect(toParseableAmount(0.0000001, 18)).not.toMatch(/e/i);
+    expect(parseEther(toParseableAmount(0.0000001, 18))).toBe(100_000_000_000n);
   });
 });
 

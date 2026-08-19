@@ -58,12 +58,40 @@ export function isNativeTransferTo(
 }
 
 /**
- * Convert a human amount to a token's base units. Amounts here are bounded by
- * the app's per-tx cap and token decimals ≤ 6 for stablecoins, so the product
- * stays well within Number's safe-integer range.
+ * Convert a human amount to a token's base units, exactly.
+ *
+ * This used to be `BigInt(Math.round(amount * 10 ** decimals))`, on the stated
+ * assumption that amounts were "bounded by the app's per-tx cap and token
+ * decimals ≤ 6 for stablecoins, so the product stays well within Number's
+ * safe-integer range". That assumption does not hold: 18-decimal MON goes
+ * through here, and 10**18 alone is already two orders of magnitude past
+ * Number.MAX_SAFE_INTEGER, so the multiply happens in floating point and the
+ * result is wrong for ordinary amounts — 1.1 became 1100000000000000128 wei
+ * instead of 1100000000000000000, 999.999 was off by 32768 wei.
+ *
+ * That is not cosmetic. The automation vault reserves funds with viem's exact
+ * parseUnits and released them with this function, so the release amount could
+ * come out ABOVE the reserved balance and trip the
+ * "INSUFFICIENT_RESERVED_FUNDS" guard — a Reserved-Funds automation for 1.1 MON
+ * simply refused to execute.
+ *
+ * The conversion is now done on the decimal string, so no float is ever
+ * multiplied. It is deliberately plain string arithmetic rather than a viem
+ * import: this module is dependency-free on purpose (see the file header) so it
+ * stays unit-testable against fixtures. Equivalence with parseUnits, including
+ * its round-half-up on digits past `decimals`, is pinned by a fuzz test in
+ * test/verify.test.ts that runs both side by side.
  */
 export function toBaseUnits(amount: number, decimals: number): bigint {
-  return BigInt(Math.round(amount * 10 ** decimals));
+  const s = toParseableAmount(amount, decimals);
+  const negative = s.startsWith("-");
+  const [intRaw, fracRaw = ""] = (negative ? s.slice(1) : s).split(".");
+  const frac = fracRaw.slice(0, decimals).padEnd(decimals, "0");
+  let units = BigInt((intRaw || "0") + frac);
+  // Digits beyond the token's precision round half up, matching parseUnits.
+  const dropped = fracRaw.slice(decimals);
+  if (dropped && Number(dropped[0]) >= 5) units += 1n;
+  return negative ? -units : units;
 }
 
 /**
@@ -74,14 +102,27 @@ export function toBaseUnits(amount: number, decimals: number): bigint {
  * exponential notation below 1e-6 (`String(0.0000001)` is `"1e-7"`, not
  * `"0.0000001"`), so every parseEther(amount.toString())-shaped call is one
  * sub-micro-unit amount away from crashing an otherwise-valid request.
- * toFixed(decimals) never emits exponential notation, so it's the fix at
- * every one of those call sites — not toBaseUnits/BigInt(Math.round(...))
- * above, which multiplies by 10**decimals in floating point first and would
- * silently lose precision on an 18-decimal MON amount anywhere near this
- * app's own per-transaction cap.
+ * toFixed(decimals) never emits exponential notation, so it's the fix for
+ * exactly that case.
+ *
+ * It is NOT used unconditionally, though, because toFixed has a problem of its
+ * own at 18 decimals: it prints the float's true binary value rather than the
+ * decimal the user meant. `(1.1).toFixed(18)` is "1.100000000000000089", which
+ * parses to 1100000000000000089 wei — 89 wei of pure float noise attached to
+ * every ordinary amount. `String(1.1)` is "1.1", which parses to exactly
+ * 1100000000000000000.
+ *
+ * So the plain string representation is used whenever it is well-formed, and
+ * toFixed only rescues the exponential case it was introduced for. That is the
+ * same "only reformat when it actually looks exponential" rule
+ * normalizeDecimalString below already applies to strings arriving from
+ * upstream, now applied consistently to numbers too. parseUnits tolerates more
+ * fraction digits than the token has (it rounds), so passing the exact string
+ * through is safe even when it carries more precision than `decimals`.
  */
 export function toParseableAmount(amount: number, decimals: number): string {
-  return amount.toFixed(decimals);
+  const s = String(amount);
+  return /e/i.test(s) ? amount.toFixed(decimals) : s;
 }
 
 /**
