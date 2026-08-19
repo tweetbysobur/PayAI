@@ -118,7 +118,7 @@ function nextWeekday(idx: number, from = new Date()): number {
 export function parseScheduleIntent(text: string): ScheduleParse | null {
   const t = text.toLowerCase();
   const isSchedule =
-    /\b(schedule|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
+    /\b(schedule|automate|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
     /\b(daily|weekly|monthly)\b/.test(t) ||
     /\b(tomorrow|next\s+(week|month)|on\s+\d{4}-\d{2}-\d{2}|in\s+\d+\s+(day|week|month)s?)\b/.test(t);
   if (!isSchedule) return null;
@@ -175,7 +175,7 @@ export function detectQueryIntent(text: string): QueryIntent | null {
   // no recurring-payment engine yet, so it would either misparse as a
   // same-second transfer with no real recipient, or worse, look like it
   // "scheduled" something that was never actually persisted anywhere.
-  if (/\b(schedule|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
+  if (/\b(schedule|automate|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
       /\bcancel\b.*\bscheduled?\b/.test(t)) {
     return "scheduled_payment";
   }

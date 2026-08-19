@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Sparkles, User } from "lucide-react";
+import { User } from "lucide-react";
+import { AskMark } from "@/components/AskMark";
 import { Identicon } from "@/components/Identicon";
 import { OperationCard } from "@/components/ask/OperationCard";
 import type { AskMessage } from "@/lib/ask/types";
@@ -30,7 +31,7 @@ export function ChatMessageRow({
       className={`flex items-start gap-2.5 ${isUser ? "flex-row-reverse" : ""}`}
     >
       <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full ${isUser ? "bg-input text-muted-foreground" : "bg-primary/12 text-primary-ink"}`}>
-        {isUser ? (walletAddress ? <Identicon address={walletAddress} size={28} /> : <User size={13} />) : <Sparkles size={13} />}
+        {isUser ? (walletAddress ? <Identicon address={walletAddress} size={28} /> : <User size={13} />) : <AskMark size={14} />}
       </span>
       <div className={`flex min-w-0 max-w-[88%] flex-col gap-2 sm:max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
         {message.content && (
@@ -67,7 +68,7 @@ export function ThinkingRow({ label }: { label?: string | null }) {
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-2.5">
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary-ink">
-        <Sparkles size={13} />
+        <AskMark size={14} />
       </span>
       <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border bg-panel px-4 py-3">
         {label && <span className="text-sm text-muted-foreground">{label}</span>}

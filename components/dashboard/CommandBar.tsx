@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence, useMotionValue } from "motion/react";
-import { Sparkles, X } from "lucide-react";
+import { X } from "lucide-react";
+import { AskMark } from "@/components/AskMark";
 import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
@@ -160,7 +161,7 @@ export function CommandBar() {
         title="Ask PayAI — drag to move"
         aria-label="Ask PayAI"
       >
-        <Sparkles size={16} />
+        <AskMark size={16} />
         {/* Icon-only below sm: on a phone-width viewport this pill's default
             (never-dragged) corner position already overlaps real page
             content often enough to be its own bug -- a narrower footprint
@@ -194,7 +195,7 @@ export function CommandBar() {
                   just compact enough for a popup. */}
               <div className="flex shrink-0 items-center gap-2.5 border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3.5">
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-                  <Sparkles size={15} />
+                  <AskMark size={15} />
                 </span>
                 <p className="flex-1 text-sm font-semibold text-foreground">Ask PayAI</p>
                 {chat.messages.length > 0 && (
