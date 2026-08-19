@@ -209,11 +209,31 @@ export interface NadFunStatus {
   status: NadFunStatusLabel;
 }
 
+/** Arbitrary, small-but-nonzero probe amount for the `getAmountOut` read
+ *  `getNadFunStatus` uses below purely as a recognition test — never quoted
+ *  or shown to a caller, so its exact size doesn't matter beyond "big enough
+ *  that a real curve/pool doesn't round it to a reverting zero output." */
+const RECOGNITION_PROBE_WEI = 10n ** 16n; // 0.01 MON
+
 /**
  * Identifies whether `token` is Nad.Fun-managed and which phase it's in, by
  * CONTRACT ADDRESS only — never by symbol, per this module's brief. A read
  * that reverts (the Lens doesn't know this token) is treated as "not
  * recognized", never guessed as any particular phase.
+ *
+ * `isGraduated`/`isLocked` alone can NOT prove recognition: the Lens returns
+ * a harmless `(false, false)` — no revert — for literally any address it has
+ * never seen, which was confirmed live against WMON (wrapped native MON, never
+ * a Nad.Fun token): `isGraduated`/`isLocked` both read false with no error,
+ * while `getAmountOut`/`getProgress` genuinely reverted and `BondingCurve
+ * .curves()` came back all-zero. That false-positive made WMON display as a
+ * bonding-curve token with $0 liquidity. `getAmountOut` is used here instead
+ * as the actual recognition test — it's the same Lens read this module's own
+ * quoting already trusts as the routing source of truth across EVERY phase,
+ * bonding-curve through graduated (see this module's top-of-file doc on why
+ * `isGraduated()` alone was never trusted for routing either), and it's
+ * confirmed to genuinely revert for an address the Lens has no curve/pool
+ * data for at all.
  *
  * Priority when both flags are set: graduated wins. `isLocked` (the
  * `CurveTokenLocked` event in the official ABI) reads as a bonding-curve-
@@ -231,6 +251,9 @@ export async function getNadFunStatus(token: Address): Promise<NadFunStatus> {
     const [isGraduated, isLocked] = await Promise.all([
       pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isGraduated", args: [token] }) as Promise<boolean>,
       pub.readContract({ address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "isLocked", args: [token] }) as Promise<boolean>,
+      pub.readContract({
+        address: NADFUN_MAINNET.lens, abi: LENS_ABI, functionName: "getAmountOut", args: [token, RECOGNITION_PROBE_WEI, true],
+      }),
     ]);
     const status: NadFunStatusLabel = isGraduated ? "graduated" : isLocked ? "locked" : "bonding_curve";
     return { recognized: true, isGraduated, isLocked, status };
