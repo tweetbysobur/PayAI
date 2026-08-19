@@ -9,6 +9,7 @@ import { computeDistribution, findDuplicateInputs, type DistributionMethod } fro
 import { resolveToken, NATIVE_TOKEN_ADDRESS, type TokenInfo } from "@/lib/monad/tokenRegistry";
 import { createHash } from "node:crypto";
 import { hashSignature } from "@/lib/platform/idempotency";
+import { toBaseUnits } from "@/lib/monad/verify";
 
 /**
  * Resolve the token for a creation request. `tokenAddress` (sent by the
@@ -327,7 +328,7 @@ async function handleBulkCreate(
   if (!isNative && executor) {
     try {
       const { getPublicClient } = await import("@/lib/monad/wallet");
-      const need = BigInt(Math.round(totalAmount * 10 ** resolvedToken.decimals));
+      const need = toBaseUnits(totalAmount, resolvedToken.decimals);
       const allowance = (await getPublicClient().readContract({
         address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
         functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
@@ -500,7 +501,7 @@ export async function POST(req: NextRequest) {
       const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
       const vault = getAutomationVault();
       if (!vault) return NextResponse.json({ error: "Reserved Funds is not available right now.", code: "VAULT_UNAVAILABLE" }, { status: 503 });
-      const need = BigInt(Math.round(amount * 10 ** resolvedToken.decimals));
+      const need = toBaseUnits(amount, resolvedToken.decimals);
       const reserved = (await getPublicClient().readContract({
         address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [requestId32(clientId)],
       })) as bigint;
@@ -526,7 +527,7 @@ export async function POST(req: NextRequest) {
     if (!isNative && executor) {
       try {
         const { getPublicClient } = await import("@/lib/monad/wallet");
-        const need = BigInt(Math.round(amount * 10 ** resolvedToken.decimals));
+        const need = toBaseUnits(amount, resolvedToken.decimals);
         const allowance = (await getPublicClient().readContract({
           address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
           functionName: "allowance", args: [walletAddress as `0x${string}`, executor],

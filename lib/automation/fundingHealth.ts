@@ -9,6 +9,7 @@
  */
 import "server-only";
 import type { ScheduledPayment } from "@/lib/platform/types";
+import { toBaseUnits } from "@/lib/monad/verify";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -29,7 +30,7 @@ export interface FundingHealth {
 export async function checkFundingHealth(s: ScheduledPayment): Promise<FundingHealth | null> {
   const decimals = s.tokenDecimals ?? 18;
   const needed = s.amount;
-  const neededUnits = BigInt(Math.round(needed * 10 ** decimals));
+  const neededUnits = toBaseUnits(needed, decimals);
 
   if (s.fundingMode === "reserved") {
     // A reservation is only ever released/refunded against the vault it was

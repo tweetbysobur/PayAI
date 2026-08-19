@@ -11,6 +11,7 @@ import { decodeEventLog, keccak256, stringToHex, toHex, type Hash } from "viem";
 import { explorerTx, getAutomationVault, getMerchantRegistry, getPaymentExecutor, getStablecoin } from "./config";
 import { getAgentAccount, getPublicClient, getWalletClient } from "./wallet";
 import { AUTOMATION_VAULT_ABI, MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI } from "./abi";
+import { toBaseUnits } from "./verify";
 
 export { MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI };
 
@@ -130,7 +131,7 @@ export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteRe
   const token = input.tokenAddress ? { address: input.tokenAddress, decimals: input.tokenDecimals ?? 18 } : getStablecoin();
   const pub = getPublicClient();
   const wallet = getWalletClient();
-  const value = BigInt(Math.round(input.amount * 10 ** token.decimals));
+  const value = toBaseUnits(input.amount, token.decimals);
   const reqIdBytes = requestId32(input.requestId);
 
   // Defense-in-depth: check on-chain before spending gas on a doomed retry.
@@ -245,7 +246,7 @@ export async function executePaymentFromViaExecutor(
   // decimals count here would pull a wildly wrong amount (too little for a
   // higher-decimal token, too much for a lower-decimal one).
   const decimals = input.tokenDecimals ?? getStablecoin().decimals;
-  const value = BigInt(Math.round(input.amount * 10 ** decimals));
+  const value = toBaseUnits(input.amount, decimals);
 
   const already = (await pub.readContract({
     address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "isRequestProcessed", args: [reqIdBytes],
@@ -302,7 +303,7 @@ export async function releaseFromVault(
   const wallet = getWalletClient();
   const autoIdBytes = requestId32(input.automationId);
   const reqIdBytes = requestId32(input.requestId);
-  const value = BigInt(Math.round(input.amount * 10 ** input.tokenDecimals));
+  const value = toBaseUnits(input.amount, input.tokenDecimals);
 
   const already = (await pub.readContract({
     address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "isReleaseProcessed", args: [reqIdBytes],
@@ -452,7 +453,7 @@ export async function createPaymentRequest(merchant: `0x${string}`, amount: numb
   const token = getStablecoin();
   const pub = getPublicClient();
   const wallet = getWalletClient();
-  const value = BigInt(Math.round(amount * 10 ** token.decimals));
+  const value = toBaseUnits(amount, token.decimals);
   const { request } = await pub.simulateContract({
     account, address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "createPaymentRequest",
     args: [merchant, token.address, value, ref32(ref)],

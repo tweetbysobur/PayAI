@@ -26,6 +26,7 @@ import type {
 } from "./types";
 import { NATIVE_TOKENS, SUPPORTED_NETWORKS, SUPPORTED_TOKENS } from "./types";
 import { isSanctionedAddress, sanctionsListLoaded } from "./sanctions";
+import { toBaseUnits } from "../monad/verify";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 /**
@@ -496,7 +497,7 @@ const monadProvider: PaymentProvider = {
       const anchor = await anchorPayment({
         recipient: to,
         token: anchorToken,
-        amount: BigInt(Math.round(amount * 10 ** anchorDecimals)),
+        amount: toBaseUnits(amount, anchorDecimals),
         riskScore: req.riskScore ?? 0,
         purpose: req.purpose,
         ref: req.invoiceRef ?? undefined,
