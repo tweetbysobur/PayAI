@@ -66,6 +66,20 @@ export interface DexScreenerSnapshot {
    *  app already uses for priceImpact (see swap.ts), not a pre-formatted
    *  string, so the caller controls presentation. */
   priceChange24h: number | null;
+  /**
+   * Pool liquidity in USD for the pair this snapshot came from — the most
+   * liquid pool for the token, already selected below.
+   *
+   * This module originally, deliberately, reported nothing for liquidity: the
+   * app had its own on-chain read and two sources disagreeing on one number is
+   * worse than one source. That reasoning holds only while the on-chain read
+   * actually works, and for a GRADUATED Nad.Fun token it does not — verified
+   * live against BOB, where `dexFactory.getPair(WMON, token)` reverts outright,
+   * so the on-chain path yields nothing to disagree with. Exposed here as a
+   * clearly-labelled FALLBACK for exactly that case (see tokenIntelligence's
+   * probeMarket): the on-chain figure still wins whenever it is available.
+   */
+  liquidityUsd: number | null;
 }
 
 /**
@@ -108,6 +122,11 @@ export async function getDexScreenerSnapshot(address: Address): Promise<DexScree
       buys24h: typeof buys === "number" ? buys : null,
       sells24h: typeof sells === "number" ? sells : null,
       priceChange24h: typeof best.priceChange?.h24 === "number" ? best.priceChange.h24 / 100 : null,
+      // bestLiquidity is this pair's own liquidity.usd (the value it was
+      // selected by). Guarded rather than passed through: the selector seeds
+      // with -1 and treats a missing figure as 0, neither of which is a real
+      // liquidity reading.
+      liquidityUsd: bestLiquidity > 0 ? bestLiquidity : null,
     };
   } catch {
     return null;
