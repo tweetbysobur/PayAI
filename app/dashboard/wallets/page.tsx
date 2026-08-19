@@ -362,7 +362,7 @@ export default function Wallets() {
               { label: "Average transaction", value: `${fmt(intel.averageTx)} USDC`, icon: TrendingUp },
               { label: "Transactions sent (nonce)", value: fmt(intel.txCountSent, 0), icon: TrendingUp },
               { label: ".nads domain", value: intel.domain ?? "Not set", icon: WalletIcon },
-            ].map((k, i) => (
+            ].map((k) => (
               <Card key={k.label} className="p-4">
                 <p className="text-lg font-semibold text-foreground [font-variant-numeric:tabular-nums]">{k.value}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{k.label}</p>

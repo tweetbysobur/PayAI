@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
@@ -570,9 +570,25 @@ function TokenIntelligenceBody({ intent }: { intent: Extract<Operation["intent"]
  * function's own doc). With no wallet connected, there's nothing to execute
  * against yet, so this stays informational-only (see OperationCard's isInfo).
  */
+/** Matches the existing swap card's own staleness window. */
+const QUOTE_STALE_AFTER_MS = 60_000;
+
 function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { kind: "trade_preview" }> }) {
   const d = intent.data;
-  const isStale = Date.now() - d.quotedAt > 60_000; // matches the existing swap card's own staleness window
+  // Staleness has to be a live value, not a render-time snapshot. This card
+  // sits in a chat transcript and can stay on screen indefinitely without
+  // anything re-rendering it, so a plain `Date.now() - quotedAt > window`
+  // computed during render would leave a minutes-old quote still presenting
+  // itself as fresh — in a trading flow, exactly when the warning matters
+  // most. One timer, scheduled for the precise moment the quote crosses the
+  // window and then done (no polling): a quote only ever goes stale, never
+  // back to fresh.
+  const [isStale, setIsStale] = useState(() => Date.now() - d.quotedAt > QUOTE_STALE_AFTER_MS);
+  useEffect(() => {
+    if (isStale) return;
+    const t = setTimeout(() => setIsStale(true), Math.max(0, d.quotedAt + QUOTE_STALE_AFTER_MS - Date.now()));
+    return () => clearTimeout(t);
+  }, [d.quotedAt, isStale]);
   return (
     <div>
       <div className="mb-3 flex items-center justify-center gap-3 rounded-xl border border-border bg-input/30 px-3 py-3">

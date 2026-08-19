@@ -27,7 +27,7 @@ import "server-only";
 import { encodeFunctionData, formatUnits, parseUnits, zeroAddress, type Address } from "viem";
 import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
-import { resolveSwapSide, ERC20_ABI, DEFAULT_SLIPPAGE, MAX_SLIPPAGE, type SwapToken, type SwapQuote, type SwapPlan, type UnsignedStep, type SwapProvider } from "./swap";
+import { resolveSwapSide, ERC20_ABI, DEFAULT_SLIPPAGE, MAX_SLIPPAGE, type SwapToken, type SwapQuote, type UnsignedStep, type SwapProvider } from "./swap";
 import { toParseableAmount } from "./verify";
 
 /* ── Verified Monad-mainnet Kuru deployment ────────────────────────────────

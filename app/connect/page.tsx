@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
-  Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, ExternalLink, Loader2,
+  Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, Loader2,
   ArrowRight, Smartphone, QrCode, ChevronDown, Lock, FileCheck2,
 } from "lucide-react";
 import { walletConnectAvailable } from "@/lib/wallet/walletconnect";

@@ -186,7 +186,8 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                                   // a Coming Soon workflow must not be able to
                                   // open a wizard by any path.
                                   if (!canLaunchWorkflow(t)) return;
-                                  t.category === "bulk" ? onSelectBulk(t) : onSelect(t);
+                                  if (t.category === "bulk") onSelectBulk(t);
+                                  else onSelect(t);
                                 }}
                                 className={`mt-3 w-full rounded-lg px-3 py-2 text-xs font-medium transition-colors ${
                                   launchable
