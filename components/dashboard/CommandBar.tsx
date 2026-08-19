@@ -224,6 +224,7 @@ export function CommandBar() {
                         walletAddress={chat.wallet.address}
                         onAdvanceOperation={chat.advanceOperation}
                         onCancelOperation={chat.cancelOperation}
+                        onQuickAction={chat.send}
                         // Only offer "Try again" where retrying actually does
                         // something — a schedule/recurring handoff card (or any
                         // future kind without a canonical retry text) would
