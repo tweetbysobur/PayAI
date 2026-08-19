@@ -53,6 +53,7 @@ describe("getNadFunStatus — detection by contract address only", () => {
     onRead = ({ functionName }) => {
       if (functionName === "isGraduated") return false;
       if (functionName === "isLocked") return false;
+      if (functionName === "getAmountOut") return [ATTACKER, 1n]; // router value unused by getNadFunStatus, just must not throw
       throw new Error(`unexpected: ${functionName}`);
     };
     const { getNadFunStatus, __testing } = await loadNadFun();
@@ -65,6 +66,7 @@ describe("getNadFunStatus — detection by contract address only", () => {
     onRead = ({ functionName }) => {
       if (functionName === "isGraduated") return true;
       if (functionName === "isLocked") return false;
+      if (functionName === "getAmountOut") return [ATTACKER, 1n];
       throw new Error(`unexpected: ${functionName}`);
     };
     const { getNadFunStatus } = await loadNadFun();
@@ -76,6 +78,7 @@ describe("getNadFunStatus — detection by contract address only", () => {
     onRead = ({ functionName }) => {
       if (functionName === "isGraduated") return false;
       if (functionName === "isLocked") return true;
+      if (functionName === "getAmountOut") return [ATTACKER, 1n];
       throw new Error(`unexpected: ${functionName}`);
     };
     const { getNadFunStatus } = await loadNadFun();
@@ -87,6 +90,7 @@ describe("getNadFunStatus — detection by contract address only", () => {
     onRead = ({ functionName }) => {
       if (functionName === "isGraduated") return true;
       if (functionName === "isLocked") return true;
+      if (functionName === "getAmountOut") return [ATTACKER, 1n];
       throw new Error(`unexpected: ${functionName}`);
     };
     const { getNadFunStatus } = await loadNadFun();
@@ -96,6 +100,18 @@ describe("getNadFunStatus — detection by contract address only", () => {
 
   it("an address the Lens doesn't recognize (reverts) is honestly unsupported, never guessed", async () => {
     onRead = () => { throw new Error("execution reverted"); };
+    const { getNadFunStatus } = await loadNadFun();
+    const r = await getNadFunStatus(TOKEN as `0x${string}`);
+    expect(r).toEqual({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+  });
+
+  it("regression: a non-Nad.Fun token (e.g. WMON) where isGraduated/isLocked harmlessly read false-by-default is NOT recognized, because getAmountOut genuinely reverts for it", async () => {
+    onRead = ({ functionName }) => {
+      if (functionName === "isGraduated") return false;
+      if (functionName === "isLocked") return false;
+      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
+      throw new Error(`unexpected: ${functionName}`);
+    };
     const { getNadFunStatus } = await loadNadFun();
     const r = await getNadFunStatus(TOKEN as `0x${string}`);
     expect(r).toEqual({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
