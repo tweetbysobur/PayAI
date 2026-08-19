@@ -51,7 +51,7 @@ const FOOTER_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
-      { label: "Support", href: "/dashboard/support", icon: LifeBuoy, internal: true },
+      { label: "Support", href: "/dashboard/help?tab=support", icon: LifeBuoy, internal: true },
       { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
       { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
     ],

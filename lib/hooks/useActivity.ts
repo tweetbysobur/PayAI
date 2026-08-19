@@ -167,7 +167,7 @@ export function useActivity(address: string | null, providerId?: string | null) 
             title: "Support request",
             detail: t.description,
             status: null,
-            href: "/dashboard/support",
+            href: "/dashboard/help?tab=support",
           }),
         ),
       )

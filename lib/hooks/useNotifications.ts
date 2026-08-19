@@ -122,7 +122,7 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
               title: "Support ticket submitted",
               detail: `Reference ${t.id} — ${t.description.slice(0, 80)}${t.description.length > 80 ? "…" : ""}`,
               at: t.createdAt,
-              href: "/dashboard/support",
+              href: "/dashboard/help?tab=support",
             }));
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
