@@ -1,0 +1,40 @@
+name: verify-production-token-lookup
+
+# Dispatch-only on purpose: this never runs on push. It exists so a
+# production token lookup can be exercised from a network that can
+# actually reach usepayai.xyz. Deleted once it has reported.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/ask/token for WMON and two controls
+        run: |
+          probe() {
+            echo ""
+            echo "################ $2"
+            echo "################ $1"
+            RESP=$(curl -sS --max-time 60 -X POST https://usepayai.xyz/api/ask/token \
+              -H 'content-type: application/json' \
+              -d "{\"address\":\"$1\"}")
+            echo "--- full response ---"
+            echo "$RESP" | jq . 2>/dev/null || echo "$RESP"
+            echo "--- the fields this check is about ---"
+            echo "status:    $(echo "$RESP" | jq -c '.status' 2>/dev/null)"
+            echo "symbol:    $(echo "$RESP" | jq -c '.data.symbol' 2>/dev/null)"
+            echo "nadFun:    $(echo "$RESP" | jq -c '.data.nadFun' 2>/dev/null)"
+            echo "liquidity: $(echo "$RESP" | jq -c '.data.liquidity' 2>/dev/null)"
+          }
+
+          # The reported bug: WMON is wrapped native MON and has never been a
+          # Nad.Fun token. It must NOT come back as a bonding-curve token, and
+          # must NOT show a fabricated "Bonding Curve Liquidity" of 0.
+          probe "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A" "WMON - the reported bug"
+          sleep 4
+          # Controls: ordinary verified tokens, also not Nad.Fun. These prove
+          # the endpoint is genuinely answering rather than failing closed.
+          probe "0x754704Bc059F8C67012fEd69BC8A327a5aafb603" "USDC - control"
+          sleep 4
+          probe "0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242" "WETH - control"
