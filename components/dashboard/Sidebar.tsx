@@ -6,15 +6,17 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
   Wallet, Settings, Repeat,
-  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, LifeBuoy,
+  GraduationCap, Rocket, BookOpen, Lock, HelpCircle,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { AskMark } from "@/components/AskMark";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 
 // "Contact Support" used to live here too, pointing at the exact same
-// /dashboard/support page the main nav's own "Support" item already covers —
-// a duplicate destination under a different label, not a second feature.
+// /dashboard/support page the main nav's own "Support" item already covered.
+// Support itself is now a tab inside Help Center (see
+// app/dashboard/help/page.tsx) rather than a competing top-level entry, so
+// neither ever needs a separate line here again.
 export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding"; external?: boolean }[] = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
   { label: "Wallet Security", icon: Lock, href: "/security" },
@@ -41,7 +43,6 @@ export const NAV: { href: string; label: string; icon: NavIcon; section: string 
   { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Settings" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
   { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },
-  { href: "/dashboard/support", label: "Support", icon: LifeBuoy, section: "Settings" },
 ] as const;
 
 /** Real fintech-dashboard sidebar — grouped sections, active-route highlight. */

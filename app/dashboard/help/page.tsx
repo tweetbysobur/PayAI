@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Card, Input, Badge } from "@/components/ui";
+import { SupportPanel } from "@/components/dashboard/SupportPanel";
 
 type CategoryId =
   | "getting_started" | "automation" | "wallet_automation" | "reserved_funds"
@@ -297,12 +298,15 @@ const ARTICLES: Article[] = [
     id: "faq-support",
     category: "faq",
     question: "Something's wrong — how do I get help?",
-    answer: ["Open the Support Center from the sidebar. It's the fastest way to reach the team, with your automation id or transaction hash attached automatically when relevant."],
+    answer: ["Switch to the Support tab above. It's the fastest way to reach the team, with your automation id or transaction hash attached automatically when relevant."],
   },
 ];
 
+type Tab = "articles" | "support";
+
 function HelpCenterInner() {
   const params = useSearchParams();
+  const [tab, setTab] = useState<Tab>(params.get("tab") === "support" ? "support" : "articles");
   const [query, setQuery] = useState(params.get("q") ?? "");
   const [activeCategory, setActiveCategory] = useState<CategoryId | "all">(
     (params.get("category") as CategoryId | null) ?? "all",
@@ -323,111 +327,144 @@ function HelpCenterInner() {
       <div>
         <h1 className="flex items-center gap-2.5 text-2xl font-semibold text-foreground"><BookOpen size={24} className="text-primary-ink" /> Help Center</h1>
         <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">
-          Search for how automations, refunds, fees, and security actually work in PayAI today.
+          Search for how automations, refunds, fees, and security actually work in PayAI today — or report a problem directly.
         </p>
       </div>
 
-      <div className="relative">
-        <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search help articles…"
-          className="w-full pl-10"
-        />
-      </div>
-
-      <div className="flex flex-wrap gap-2">
+      {/* Support used to be a separate top-level destination sitting right
+          next to this one in the sidebar — same subject, two competing
+          entries. It's a tab here now: one destination for "I have a
+          question" and "something's wrong", with the exact same report form,
+          ticket history, and deep-link prefill (automationId/category) that
+          app/dashboard/support/page.tsx used to own directly. */}
+      <div className="inline-flex rounded-lg border border-border bg-input/30 p-1">
         <button
-          onClick={() => setActiveCategory("all")}
-          className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-            activeCategory === "all" ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+          onClick={() => setTab("articles")}
+          aria-current={tab === "articles" ? "page" : undefined}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+            tab === "articles" ? "bg-panel text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          All topics
+          <BookOpen size={14} /> Browse Help
         </button>
-        {CATEGORIES.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setActiveCategory(c.id)}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-              activeCategory === c.id ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
-            }`}
-          >
-            <c.icon size={12} /> {c.label}
-          </button>
-        ))}
+        <button
+          onClick={() => setTab("support")}
+          aria-current={tab === "support" ? "page" : undefined}
+          className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-sm font-medium transition-colors ${
+            tab === "support" ? "bg-panel text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <LifeBuoy size={14} /> Support
+        </button>
       </div>
 
-      {activeCategory !== "all" && !query && (
-        <p className="text-xs text-muted-foreground">{CATEGORIES.find((c) => c.id === activeCategory)?.blurb}</p>
-      )}
-
-      <Card className="!p-0 overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-sm font-medium text-foreground">No articles match &quot;{query}&quot;</p>
-            <p className="mt-1 text-xs text-muted-foreground">Try a different search, or ask directly in the Support Center.</p>
+      {tab === "support" ? (
+        <SupportPanel />
+      ) : (
+        <>
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search help articles…"
+              className="w-full pl-10"
+            />
           </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {filtered.map((a) => {
-              const meta = CATEGORIES.find((c) => c.id === a.category)!;
-              const isOpen = expanded === a.id;
-              return (
-                <div key={a.id}>
-                  <button
-                    onClick={() => setExpanded(isOpen ? null : a.id)}
-                    className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-input/30"
-                    aria-expanded={isOpen}
-                  >
-                    <span className="flex items-center gap-3">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground"><meta.icon size={14} /></span>
-                      <span className="text-sm font-medium text-foreground">{a.question}</span>
-                    </span>
-                    <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  <AnimatePresence initial={false}>
-                    {isOpen && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.2, ease: "easeOut" }}
-                        className="overflow-hidden"
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setActiveCategory("all")}
+              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeCategory === "all" ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+              }`}
+            >
+              All topics
+            </button>
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCategory(c.id)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeCategory === c.id ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                }`}
+              >
+                <c.icon size={12} /> {c.label}
+              </button>
+            ))}
+          </div>
+
+          {activeCategory !== "all" && !query && (
+            <p className="text-xs text-muted-foreground">{CATEGORIES.find((c) => c.id === activeCategory)?.blurb}</p>
+          )}
+
+          <Card className="!p-0 overflow-hidden">
+            {filtered.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-sm font-medium text-foreground">No articles match &quot;{query}&quot;</p>
+                <p className="mt-1 text-xs text-muted-foreground">Try a different search, or ask directly in Support.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {filtered.map((a) => {
+                  const meta = CATEGORIES.find((c) => c.id === a.category)!;
+                  const isOpen = expanded === a.id;
+                  return (
+                    <div key={a.id}>
+                      <button
+                        onClick={() => setExpanded(isOpen ? null : a.id)}
+                        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-input/30"
+                        aria-expanded={isOpen}
                       >
-                        <div className="space-y-2 px-5 pb-4 pl-16">
-                          {a.answer.map((p, i) => (
-                            <p key={i} className="text-sm leading-relaxed text-muted-foreground">{p}</p>
-                          ))}
-                          {a.id === "sec-page" && (
-                            <Link href="/security" className="inline-flex items-center gap-1 text-sm font-medium text-primary-ink hover:underline">
-                              Read the Security & Trust page <ArrowRight size={13} />
-                            </Link>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
+                        <span className="flex items-center gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground"><meta.icon size={14} /></span>
+                          <span className="text-sm font-medium text-foreground">{a.question}</span>
+                        </span>
+                        <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {isOpen && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2, ease: "easeOut" }}
+                            className="overflow-hidden"
+                          >
+                            <div className="space-y-2 px-5 pb-4 pl-16">
+                              {a.answer.map((p, i) => (
+                                <p key={i} className="text-sm leading-relaxed text-muted-foreground">{p}</p>
+                              ))}
+                              {a.id === "sec-page" && (
+                                <Link href="/security" className="inline-flex items-center gap-1 text-sm font-medium text-primary-ink hover:underline">
+                                  Read the Security & Trust page <ArrowRight size={13} />
+                                </Link>
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
 
-      <Card className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><LifeBuoy size={16} /></span>
-          <div>
-            <p className="text-sm font-medium text-foreground">Still stuck?</p>
-            <p className="text-xs text-muted-foreground">Report an issue directly, with your automation or transaction attached.</p>
-          </div>
-        </div>
-        <Link href="/dashboard/support">
-          <Badge tone="primary">Open Support Center</Badge>
-        </Link>
-      </Card>
+          <Card className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><LifeBuoy size={16} /></span>
+              <div>
+                <p className="text-sm font-medium text-foreground">Still stuck?</p>
+                <p className="text-xs text-muted-foreground">Report an issue directly, with your automation or transaction attached.</p>
+              </div>
+            </div>
+            <button onClick={() => setTab("support")}>
+              <Badge tone="primary">Open Support</Badge>
+            </button>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

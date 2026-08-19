@@ -58,7 +58,7 @@ export default function Settings() {
       </div>
 
       <Card title="Support" className="mt-4">
-        <Link href="/dashboard/support" className="flex items-center justify-between gap-3 rounded-lg transition-colors hover:bg-input/40">
+        <Link href="/dashboard/help?tab=support" className="flex items-center justify-between gap-3 rounded-lg transition-colors hover:bg-input/40">
           <div className="flex items-center gap-3 p-1">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><LifeBuoy size={18} /></div>
             <div>

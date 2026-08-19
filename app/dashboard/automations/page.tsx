@@ -1289,7 +1289,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
             <div><p className="text-sm font-semibold text-foreground">{a.purpose ?? a.memo ?? "Automation"}</p><p className="text-xs text-muted-foreground">{money(a.amount, a.token)} · {cadenceLabel(a)}</p></div>
             <div className="flex items-center gap-1.5">
               <a
-                href={`/dashboard/support?automationId=${encodeURIComponent(a.id)}&category=${
+                href={`/dashboard/help?tab=support&automationId=${encodeURIComponent(a.id)}&category=${
                   a.fundingMode === "reserved" && a.reserveRefundStatus === "pending" && (a.status === "cancelled" || a.status === "failed")
                     ? "missing_refund" : "failed_automation"
                 }`}

@@ -148,7 +148,7 @@ export default function Security() {
           </div>
           <div className="flex items-center gap-2">
             <a href="mailto:security@usepayai.xyz" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90">Email us</a>
-            <Link href="/dashboard/support" className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">Contact support</Link>
+            <Link href="/dashboard/help?tab=support" className="rounded-lg border border-border px-4 py-2 text-sm text-foreground transition hover:bg-input">Contact support</Link>
           </div>
         </section>
       </div>
