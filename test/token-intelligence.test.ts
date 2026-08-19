@@ -887,4 +887,63 @@ describe("inspectAddress — Latency Task 3: availableBuyTokens/getProgress no l
     if (r.kind !== "token") throw new Error("expected token");
     expect(r.data.creator).toBeNull();
   });
+  it("regression: a Nad.Fun token with no USDC pool is priced (and valued) via its MON route, not left Unavailable", async () => {
+    // BOB, reported from production: a live Nad.Fun MON route and real
+    // DexScreener volume, yet Price / Market Cap / FDV all read "Unavailable".
+    // getUsdPrice quotes strictly TOKEN -> USDC on Uniswap v3, and a
+    // bonding-curve token has no USDC pool at all, so it returned null -- and
+    // because market cap and FDV are both price x totalSupply, that one
+    // missing price took the entire valuation block down with it.
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "BOB", name: "Bob", decimals: 18, verified: false });
+    readContractImpl = ({ functionName }) => (functionName === "totalSupply" ? 1_000_000_000n * 10n ** 18n : 0n);
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    // The MON route the card already displays under "Trading routes".
+    nadFunQuoteImpl = async (_t, _d, _a, isBuy) =>
+      (isBuy ? null : { provider: "Nad.Fun", router: "0xrouter", amountOut: "0.003718334490132714", isBuy: false });
+    // No USDC pool for BOB itself; MON is priceable normally.
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 0.0218530 : null);
+
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+
+    // 0.003718334490132714 MON x $0.021853 = ~$0.00008126
+    expect(r.data.market.price).toBe("0.00008126");
+    expect(r.data.market.priceQuoteAsset).toBe("USD");
+    expect(r.data.market.priceMon).toBe("0.003718334490132714");
+    // and the valuation block comes back with it
+    expect(r.data.market.marketCapUsd).not.toBeNull();
+    expect(r.data.market.fdvUsd).toBe(r.data.market.marketCapUsd);
+  });
+
+  it("a direct USDC quote always wins -- the MON derivation is only ever a fallback", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "BOB", name: "Bob", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunQuoteImpl = async (_t, _d, _a, isBuy) =>
+      (isBuy ? null : { provider: "Nad.Fun", router: "0xrouter", amountOut: "1", isBuy: false });
+    // A real USDC price of $5 alongside a MON route that would imply $2.
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 2 : 5);
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.price).toBe("5.0000"); // the direct quote, not 2
+  });
+
+  it("stays honestly unavailable when MON itself cannot be priced -- no half-derived number", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "BOB", name: "Bob", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunQuoteImpl = async (_t, _d, _a, isBuy) =>
+      (isBuy ? null : { provider: "Nad.Fun", router: "0xrouter", amountOut: "0.5", isBuy: false });
+    getUsdPriceImpl = async () => null; // including MON -- e.g. shallow-pool rejection
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.price).toBeNull();
+    expect(r.data.market.marketCapUsd).toBeNull();
+  });
 });

@@ -413,6 +413,37 @@ export function clearMarketDataCache(): void {
   marketCache.clear();
 }
 
+/**
+ * USD price for a token that has no USDC pool to quote against, derived from
+ * the MON route it DOES have: (token → MON) × (MON → USD).
+ *
+ * getUsdPrice() prices strictly by quoting TOKEN → USDC on Uniswap v3. That is
+ * the right primary source, but a bonding-curve or freshly-graduated Nad.Fun
+ * token typically has no Uniswap/USDC pool at all — only a MON pair — so it
+ * came back null. Because market cap and FDV are both price × totalSupply,
+ * one missing price took the whole valuation block down with it: a token
+ * showing a real, live MON quote and real DexScreener volume still rendered
+ * "Price: Unavailable / Market Cap: Unavailable / FDV: Unavailable".
+ *
+ * Both inputs here are real, independently-sourced numbers this app already
+ * trusts and already displays: the MON quote is the same route shown in the
+ * card's own "Trading routes" row, and MON's own USD price comes from
+ * getUsdPrice's normal Uniswap path (including its shallow-pool rejection, so
+ * an untrustworthy MON price yields null here rather than propagating). This
+ * is a unit conversion between two verified figures, not an estimate — and it
+ * is only ever a FALLBACK: a direct USDC quote always wins when one exists.
+ *
+ * Still null-safe end to end: no MON route, or no trustworthy MON price, and
+ * the field stays honestly unavailable exactly as before.
+ */
+function deriveUsdFromMon(priceMon: string | null, monUsdPrice: number | null): number | null {
+  if (priceMon == null || monUsdPrice == null) return null;
+  const perToken = Number(priceMon);
+  if (!Number.isFinite(perToken) || perToken <= 0) return null;
+  const usd = perToken * monUsdPrice;
+  return Number.isFinite(usd) && usd > 0 ? usd : null;
+}
+
 /** price × totalSupply, formatted like the price field itself. Both
  *  marketCapUsd and fdvUsd use this SAME computation — see TokenMarketData's
  *  own doc for why they're deliberately equal rather than fabricating a
@@ -480,18 +511,24 @@ async function probeMarket(
     return true;
   });
 
-  const [routes, usdPrice, liquidity, dexScreener] = await Promise.all([
+  const [routes, directUsdPrice, liquidity, dexScreener, monUsdPrice] = await Promise.all([
     discoverRoutes(info, address, QUOTE_ASSETS, "1"),
     getUsdPrice(address, info.decimals),
     nadFunStatus.recognized ? probeNadFunLiquidity(address, info.decimals, nadFunStatus.status) : Promise.resolve(null),
     getDexScreenerSnapshot(address),
+    // Already cached (60s) and read again by probeNadFunLiquidity below, so
+    // this costs nothing extra — see prices.ts's own module-level cache.
+    getUsdPrice(NATIVE_TOKEN_ADDRESS, 18),
   ]);
+
+  const priceMon = routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null;
+  const usdPrice = directUsdPrice ?? deriveUsdFromMon(priceMon, monUsdPrice);
 
   const valuation = computeUsdValuation(usdPrice, totalSupply);
   const data: TokenMarketData = {
     price: usdPrice != null ? usdPrice.toFixed(usdPrice < 1 ? 8 : 4) : null,
     priceQuoteAsset: usdPrice != null ? "USD" : null,
-    priceMon: routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null,
+    priceMon,
     marketCapUsd: valuation,
     fdvUsd: valuation,
     liquidity,
