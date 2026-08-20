@@ -389,11 +389,20 @@ async function discoverRoutes(info: TokenInfo, address: Address, quoteAssets: re
     : routesForArbitraryToken(address, info.symbol, info.decimals, candidates, amount);
 }
 
-/** Descriptive tags only (never "scam"/"safe" — see this module's doc). */
-function computeSignals(routes: TokenRoute[], usdPrice: number | null, quoteAssetsChecked: readonly string[]): string[] {
+/** Descriptive tags only (never "scam"/"safe" — see this module's doc).
+ *  `liquidityKnown` disambiguates two genuinely different situations that
+ *  both leave `routes` empty: a token this app has no liquidity signal for
+ *  at all ("no_liquidity"), versus one it can independently confirm has
+ *  real liquidity (a Nad.Fun on-chain read or DexScreener) despite no
+ *  executable route being found through this app's own quoting — verified
+ *  live against JAMES (0x43cF5407…d87777), a real ~$109k graduated pool
+ *  whose Lens quote fails for a reason unrelated to this app. Reporting
+ *  "no_liquidity" there would flatly contradict the Liquidity figure shown
+ *  right above it on the same card. */
+function computeSignals(routes: TokenRoute[], usdPrice: number | null, quoteAssetsChecked: readonly string[], liquidityKnown: boolean): string[] {
   const signals: string[] = [];
   if (routes.length === 0) {
-    signals.push("no_liquidity");
+    signals.push(liquidityKnown ? "no_route" : "no_liquidity");
     return signals; // the rest don't apply with nothing to measure
   }
   if (usdPrice === null) signals.push("quote_unavailable");
@@ -479,6 +488,26 @@ function computeUsdValuation(usdPrice: number | null, totalSupply: string | null
   return value.toLocaleString(undefined, { maximumFractionDigits: value < 1 ? 8 : 2 });
 }
 
+/** probeNadFunLiquidity's result: the liquidity figure shown on the card,
+ *  plus a spot price derived from the SAME reserves that figure came from
+ *  (never a second, independently-fetched number). Exists because the
+ *  Lens's own getAmountOut can fail to quote a token this app otherwise
+ *  fully recognizes and has real reserves for — verified live against
+ *  JAMES (0x43cF5407…d87777): recognized, a real ~$109k graduated pool,
+ *  yet `getAmountOut` reverts for a reason independent of this app's
+ *  config. Rather than show "Price: Unavailable" next to a real, indexed
+ *  pool, probeMarket falls back to pricing it directly off the reserves
+ *  already fetched for the liquidity figure — the same x*y=k math the pool
+ *  itself prices trades with. */
+interface NadFunLiquidityProbe {
+  liquidity: TokenLiquidity;
+  /** MON per token, or null if a reserve was zero. Real reserves for a
+   *  graduated pool; VIRTUAL reserves for a bonding-curve token, since those
+   *  (not the "collected so far" real reserves) are what actually prices
+   *  points on the curve. */
+  priceMon: number | null;
+}
+
 /**
  * Bonding-curve or graduated-DEX liquidity for a Nad.Fun-recognized token —
  * a single direct read either way (curve reserves via `BondingCurve.curves`,
@@ -492,17 +521,22 @@ function computeUsdValuation(usdPrice: number | null, totalSupply: string | null
  */
 async function probeNadFunLiquidity(
   address: Address, decimals: number, status: NadFunStatusLabel,
-): Promise<TokenLiquidity | null> {
+): Promise<NadFunLiquidityProbe | null> {
   if (status === "graduated") {
     const pool = await getNadFunGraduatedPoolLiquidity(address, decimals);
     if (!pool) return null;
-    const monTotal = Number(pool.monReserve) * 2;
+    const monReserve = Number(pool.monReserve);
+    const tokenReserve = Number(pool.tokenReserve);
+    const monTotal = monReserve * 2;
     const monUsd = await getUsdPrice(NATIVE_TOKEN_ADDRESS, 18);
     return {
-      label: "DEX Liquidity",
-      mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
-      usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
-      pool: pool.pool,
+      liquidity: {
+        label: "DEX Liquidity",
+        mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+        usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
+        pool: pool.pool,
+      },
+      priceMon: tokenReserve > 0 ? monReserve / tokenReserve : null,
     };
   }
   if (status === "bonding_curve" || status === "locked") {
@@ -510,11 +544,16 @@ async function probeNadFunLiquidity(
     if (!reserves) return null;
     const monTotal = Number(reserves.realMon) * 2;
     const monUsd = await getUsdPrice(NATIVE_TOKEN_ADDRESS, 18);
+    const virtualMon = Number(reserves.virtualMon);
+    const virtualToken = Number(reserves.virtualToken);
     return {
-      label: "Bonding Curve Liquidity",
-      mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
-      usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
-      pool: null,
+      liquidity: {
+        label: "Bonding Curve Liquidity",
+        mon: monTotal.toLocaleString(undefined, { maximumFractionDigits: 4 }),
+        usd: monUsd != null ? (monTotal * monUsd).toLocaleString(undefined, { maximumFractionDigits: 2 }) : null,
+        pool: null,
+      },
+      priceMon: virtualToken > 0 ? virtualMon / virtualToken : null,
     };
   }
   return null;
@@ -534,7 +573,7 @@ async function probeMarket(
     return true;
   });
 
-  const [routes, directUsdPrice, liquidity, dexScreener, monUsdPrice] = await Promise.all([
+  const [routes, directUsdPrice, nadFunLiquidity, dexScreener, monUsdPrice] = await Promise.all([
     discoverRoutes(info, address, QUOTE_ASSETS, "1"),
     getUsdPrice(address, info.decimals),
     nadFunStatus.recognized ? probeNadFunLiquidity(address, info.decimals, nadFunStatus.status) : Promise.resolve(null),
@@ -543,8 +582,17 @@ async function probeMarket(
     // this costs nothing extra — see prices.ts's own module-level cache.
     getUsdPrice(NATIVE_TOKEN_ADDRESS, 18),
   ]);
+  const liquidity = nadFunLiquidity?.liquidity ?? null;
 
-  const priceMon = routes.find((r) => r.outputToken === "MON")?.estimatedOutput ?? null;
+  // A real route quote wins when one exists. Otherwise, for a Nad.Fun-
+  // recognized token whose Lens quote itself failed (verified live against
+  // JAMES — see NadFunLiquidityProbe's own doc), fall back to the spot price
+  // implied by the SAME reserves already fetched for the liquidity figure,
+  // rather than show "Unavailable" next to a token with a real, indexed pool.
+  const priceMon = routes.find((r) => r.outputToken === "MON")?.estimatedOutput
+    ?? (nadFunLiquidity?.priceMon != null
+      ? nadFunLiquidity.priceMon.toFixed(nadFunLiquidity.priceMon < 1 ? 8 : 4)
+      : null);
   const usdPrice = directUsdPrice ?? deriveUsdFromMon(priceMon, monUsdPrice);
 
   // On-chain first, DexScreener only where on-chain genuinely yields nothing —
@@ -596,7 +644,7 @@ async function probeMarket(
     priceChange24h: dexScreener?.priceChange24h != null ? fmtSignedPct(dexScreener.priceChange24h) : null,
     quoteAssetsChecked,
     routes,
-    signals: computeSignals(routes, usdPrice, quoteAssetsChecked),
+    signals: computeSignals(routes, usdPrice, quoteAssetsChecked, liquidityResolved != null),
     lastUpdated: Date.now(),
   };
   marketCache.set(key, { data, at: Date.now() });
