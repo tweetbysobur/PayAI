@@ -395,6 +395,7 @@ const UNAVAILABLE = "Unavailable";
  *  signal tags — never a verdict ("scam"/"safe"), just what was observed. */
 const SIGNAL_LABEL: Record<string, string> = {
   no_liquidity: "No liquidity found",
+  no_route: "No trade route found",
   quote_unavailable: "Price unavailable",
   high_price_impact: "High price impact",
   very_low_liquidity: "Very low liquidity",
@@ -521,6 +522,15 @@ function TokenIntelligenceBody({
             tradable" when the routes list right below says otherwise. */}
         {!d.market.price && d.isTradable && (
           <p className="mt-0.5 text-[11px] text-muted-foreground">Liquidity data unavailable, but a trading route was found.</p>
+        )}
+        {/* The mirror case: a real, indexed Nad.Fun pool (price and liquidity
+            both real) that this app still couldn't find an executable route
+            through — verified live against JAMES, where the Lens's own quote
+            fails for a reason unrelated to this app. Without this, the price
+            shown right above directly contradicts "No trade route found"
+            below. */}
+        {d.market.price && !d.isTradable && d.nadFun && (
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Price estimated from the Nad.Fun pool&apos;s own reserves — no executable trade route was found yet.</p>
         )}
       </div>
 

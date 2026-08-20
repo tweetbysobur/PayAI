@@ -708,6 +708,65 @@ describe("inspectAddress — Step 7: market cap, FDV, liquidity, progress, creat
     });
   });
 
+  it("regression (JAMES): a graduated Nad.Fun token whose Lens quote fails still gets a real price, derived from the SAME pool reserves as its liquidity figure", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "JAMES", name: "The Busy Bull of Monad", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getNadFunGraduatedPoolLiquidityImpl = async () => ({ pool: "0x48c3bb34227aebe5205ebeaa1b960c53d7edb17b", monReserve: "2195340", tokenReserve: "21880654" });
+    // nadFunQuoteImpl and quoteUniswapDirectImpl both default to null -- no route found through either provider.
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 0.025 : null); // MON = $0.025
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.isTradable).toBe(false); // still honest: no executable route, never fabricated as tradable
+    expect(r.data.market.routes).toEqual([]);
+    expect(r.data.market.price).not.toBeNull(); // the actual bug: this used to be null next to a real $100k+ pool
+    expect(r.data.market.priceMon).toBe((2195340 / 21880654).toFixed(8));
+    expect(r.data.market.liquidity).toEqual({ label: "DEX Liquidity", mon: "4,390,680", usd: "109,767", pool: "0x48c3bb34227aebe5205ebeaa1b960c53d7edb17b" });
+  });
+
+  it("regression (JAMES): 'no_liquidity' is never shown next to a real, known liquidity figure -- 'no_route' instead", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "JAMES", name: "The Busy Bull of Monad", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getNadFunGraduatedPoolLiquidityImpl = async () => ({ pool: "0x48c3bb34227aebe5205ebeaa1b960c53d7edb17b", monReserve: "2195340", tokenReserve: "21880654" });
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.signals).toContain("no_route");
+    expect(r.data.market.signals).not.toContain("no_liquidity");
+  });
+
+  it("a bonding-curve token priced from VIRTUAL reserves (not real) when its own quote fails, matching how the curve actually prices", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getNadFunCurveReservesImpl = async () => ({ realMon: "10", realToken: "500000", virtualMon: "180000", virtualToken: "1073000191" });
+    // nadFunQuoteImpl defaults to null -- no route found.
+    getUsdPriceImpl = async (addr) => (addr === NATIVE_TOKEN_ADDRESS ? 2 : null);
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.priceMon).toBe((180000 / 1073000191).toFixed(8));
+  });
+
+  it("a real route quote always wins over the reserves-derived fallback price, never overridden by it", async () => {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 0n;
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getNadFunGraduatedPoolLiquidityImpl = async () => ({ pool: "0x9999888877776666555544443333222211110000", monReserve: "50", tokenReserve: "2500" }); // would imply 0.02 MON/token
+    nadFunQuoteImpl = async (_token, _decimals, _amount, isBuy) => (isBuy ? null : { provider: "Nad.Fun", router: "0x0000000000000000000000000000000000000001", amountOut: "0.5", isBuy: false }); // the REAL route says 0.5
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+    const r = await inspectAddress(TOKEN);
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.market.priceMon).toBe("0.5");
+    expect(r.data.isTradable).toBe(true);
+  });
+
   it("a non-Nad.Fun token has no liquidity figure -- honestly null, never a v3-pool guess", async () => {
     codeAt[TOKEN.toLowerCase()] = "0x6080604052";
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "USDT0", name: "Tether USD", decimals: 6, verified: true });
