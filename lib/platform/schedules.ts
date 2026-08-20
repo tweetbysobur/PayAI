@@ -71,6 +71,51 @@ function addUTCMonths(d: Date, months: number): void {
   d.setUTCDate(Math.min(day, lastDayOfTargetMonth));
 }
 
+/** Hard iteration cap on the catch-up loop in advanceRunPast(). Purely an
+ *  infinite-loop guard — 10k iterations covers ~27 years of a daily cadence,
+ *  far beyond any real backlog, and advanceRun() always moves forward by at
+ *  least a day so the loop terminates on its own well before this. */
+const MAX_CATCHUP_ITERATIONS = 10_000;
+
+/**
+ * Advance to the first occurrence strictly AFTER `now`, reporting how many
+ * missed occurrences were passed over on the way.
+ *
+ * advanceRun() alone moves exactly ONE period from the (possibly long-stale)
+ * previous nextRun, which is correct only when the scheduler has been running
+ * on time. If it hasn't — the cron endpoint's own doc notes the external
+ * pinger has been paused before with nothing detecting the gap — then a single
+ * advance lands on a time that is STILL in the past, the automation stays due,
+ * and the very next tick executes it again. A daily automation missed for ten
+ * days would fire eleven real payments a minute apart while it "caught up".
+ *
+ * Missed occurrences are deliberately SKIPPED rather than replayed. Draining a
+ * user's wallet with a burst of back-dated payments because infrastructure was
+ * down is strictly worse than missing them: the money moves at a price/time
+ * the user never chose, and the on-chain daily cap would reject most of the
+ * burst anyway, turning one outage into a wall of failures. A genuine catch-up
+ * is still available deliberately, per occurrence, via "Execute Now".
+ */
+export function advanceRunPast(
+  from: number,
+  cadence: ScheduleCadence,
+  interval: { count?: number; unit?: AutomationIntervalUnit } | undefined,
+  now: number = Date.now(),
+): { next: number | null; skipped: number } {
+  let next = advanceRun(from, cadence, interval);
+  if (next == null) return { next: null, skipped: 0 }; // one-off: completes, never repeats
+  let skipped = 0;
+  for (let i = 0; i < MAX_CATCHUP_ITERATIONS && next <= now; i++) {
+    const following = advanceRun(next, cadence, interval);
+    // Defensive: advanceRun always moves forward for a recurring cadence, so
+    // this can't normally fire — but never spin if that ever stops holding.
+    if (following == null || following <= next) break;
+    next = following;
+    skipped += 1;
+  }
+  return { next, skipped };
+}
+
 /** Advance a recurring automation's next run; null for a fired one-off (it completes). */
 export function advanceRun(from: number, cadence: ScheduleCadence, interval?: { count?: number; unit?: AutomationIntervalUnit }): number | null {
   const d = new Date(from);
@@ -491,6 +536,10 @@ export async function recordRun(
   if (!row) return null;
   row.runs = [run, ...row.runs].slice(0, 50);
   let justPaused = false;
+  /** Occurrences passed over because the scheduler had fallen behind — never
+   *  silently swallowed; surfaced as its own event below so a user can see
+   *  exactly which payments did NOT go out. */
+  let skippedByBacklog = 0;
   const isBulk = !!row.recipients?.length;
 
   // Bulk: "partial" (some recipients paid, some didn't) still advances the
@@ -503,13 +552,19 @@ export async function recordRun(
     row.lastError = run.decision === "partial" ? (run.detail ?? "Some recipients could not be paid.") : null;
     row.runsCompleted += 1;
     const endCondition = row.endCondition ?? { type: "never" };
-    const nextByCadence = advanceRun(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
+    // Past `now`, not just one period on — otherwise an automation that fell
+    // behind during a scheduler outage stays due and re-fires on every tick
+    // until it catches up. See advanceRunPast().
+    const { next: nextByCadence, skipped: missedOccurrences } = advanceRunPast(
+      row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit },
+    );
     const endedByCount = endCondition.type === "after_count" && row.runsCompleted >= endCondition.totalRuns;
     const endedByDate = endCondition.type === "until_date" && nextByCadence != null && nextByCadence > endCondition.untilMs;
     if (nextByCadence == null || endedByCount || endedByDate) {
       row.status = "completed" as ScheduleStatus;
     } else {
       row.nextRun = nextByCadence;
+      skippedByBacklog = missedOccurrences;
       // New occurrence — eligible for its own reminder and funding-health warnings.
       row.remindedForRun = null;
       row.lowBalanceWarnedForRun = null;
@@ -547,6 +602,21 @@ export async function recordRun(
       row.status === "failed" ? "the automation stopped after a failed execution" : "the automation finished its schedule",
       row.status === "failed" ? run.at : null,
     );
+  }
+
+  // Say plainly that occurrences were missed. Skipping them is the right
+  // call (see advanceRunPast), but a payment product must never let payments
+  // quietly not happen — the user needs to know which ones to re-send by hand.
+  if (skippedByBacklog > 0) {
+    await recordAutomationEvent({
+      merchantId: row.merchantId, automationId: row.id, sender: row.sender, type: "skipped",
+      title: skippedByBacklog === 1 ? "1 occurrence was missed" : `${skippedByBacklog} occurrences were missed`,
+      detail:
+        `The scheduler was behind, so ${skippedByBacklog === 1 ? "1 scheduled payment was" : `${skippedByBacklog} scheduled payments were`} ` +
+        `skipped rather than all sent at once. Nothing was paid for ${skippedByBacklog === 1 ? "it" : "them"}. ` +
+        `The next run is ${new Date(row.nextRun).toLocaleString()} — use "Execute Now" if you want to send a missed one deliberately.`,
+      amount: row.amount, token: row.token,
+    });
   }
 
   if (run.decision === "executed") {
@@ -617,7 +687,10 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
   if (row.status !== "active" && row.status !== "scheduled") return null;
 
   const endCondition = row.endCondition ?? { type: "never" };
-  const nextByCadence = advanceRun(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
+  // Past `now` for the same reason recordRun() does it: landing on a still-due
+  // time would have the cron execute the very occurrence the owner just
+  // skipped, on its next tick.
+  const { next: nextByCadence } = advanceRunPast(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
   const endedByCount = endCondition.type === "after_count" && row.runsCompleted >= endCondition.totalRuns;
   const endedByDate = endCondition.type === "until_date" && nextByCadence != null && nextByCadence > endCondition.untilMs;
   const skippedRun = { at: Date.now(), decision: "skipped", detail: "Skipped by the owner — no payment was sent for this occurrence." };

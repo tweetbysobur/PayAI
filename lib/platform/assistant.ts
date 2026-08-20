@@ -27,9 +27,23 @@ function detectWindow(t: string): Window {
   return "all";
 }
 
-export async function ask(merchantId: string, question: string): Promise<AssistantAnswer> {
+/**
+ * @param opts.sender Wallet scope for every read below. On the shared demo
+ *   tenant this MUST be the connected wallet (or a sentinel that matches
+ *   nothing when there isn't one) — wallet-only users all share that one
+ *   tenant, so an unscoped read here hands whoever asks the transactions,
+ *   amounts and counterparty addresses of every other user on it. Pass null
+ *   only for an authenticated merchant tenant, whose own data this is.
+ *   See app/api/assistant/route.ts for how the scope is derived.
+ */
+export async function ask(
+  merchantId: string,
+  question: string,
+  opts?: { sender?: string | null },
+): Promise<AssistantAnswer> {
   const q = question.toLowerCase().trim();
-  const txs = await listTx(merchantId);
+  const sender = opts?.sender ?? null;
+  const txs = await listTx(merchantId, { sender });
 
   // — Create a payment link —
   if (/\b(payment )?link\b/.test(q) && /\b(create|make|generate|new)\b/.test(q)) {
@@ -126,7 +140,7 @@ export async function ask(merchantId: string, question: string): Promise<Assista
   }
 
   // — Business summary / fallback —
-  const snap = await getAnalytics(merchantId);
+  const snap = await getAnalytics(merchantId, { sender });
   return {
     intent: "summary",
     answer: buildSummary(snap),

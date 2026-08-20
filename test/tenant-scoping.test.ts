@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createSchedule, listSchedules, cancelSchedule } from "@/lib/platform/schedules";
-import { createLink, listLinks } from "@/lib/platform/store";
+import { createLink, listLinks, recordTx } from "@/lib/platform/store";
+import { ask } from "@/lib/platform/assistant";
 
 // Regression coverage for a real privacy bug: on the shared demo tenant, every
 // wallet-only user (no merchant account) resolves to the SAME merchantId, so
@@ -54,5 +55,47 @@ describe("payment links — wallet scoping on the shared tenant", () => {
     await createLink(TENANT, { amount: 50, sender: ALICE });
     const anon = await listLinks(TENANT, { sender: "__none__" });
     expect(anon).toHaveLength(0);
+  });
+});
+
+describe("AI assistant — wallet scoping on the shared tenant", () => {
+  // The assistant answers the same kinds of questions /api/agent does
+  // ("show me recent transactions", "who are my customers") but read its
+  // transactions UNSCOPED, so an anonymous caller got back every other
+  // wallet's payments on the shared tenant — sender addresses, amounts and
+  // counterparties included.
+  const CAROL = "0x3333333333333333333333333333333333333333";
+  const DAVE = "0x4444444444444444444444444444444444444444";
+
+  async function seed(sender: string, amount: number, summary: string) {
+    await recordTx(TENANT, {
+      sender, summary, decision: "executed", amount, token: "USDC", action: "payment",
+    } as Parameters<typeof recordTx>[1]);
+  }
+
+  it("does not reveal another wallet's transactions to an anonymous caller", async () => {
+    await seed(CAROL, 4242, "Send 4242 USDC to a supplier");
+    const answer = JSON.stringify(await ask(TENANT, "show me recent transactions", { sender: "__none__" }));
+    expect(answer).not.toContain(CAROL);
+    expect(answer).not.toContain("4242");
+  });
+
+  it("shows a connected wallet its own transactions and nobody else's", async () => {
+    await seed(CAROL, 4242, "Carol's payment");
+    await seed(DAVE, 7777, "Dave's payment");
+    const asDave = JSON.stringify(await ask(TENANT, "show me recent transactions", { sender: DAVE }));
+    expect(asDave).toContain("7777");
+    expect(asDave).not.toContain(CAROL);
+    expect(asDave).not.toContain("4242");
+  });
+
+  it("keeps derived answers scoped too, not just the raw transaction list", async () => {
+    // Revenue/customers/compliance all read the same list — scoping the list
+    // is what keeps every one of these from aggregating other people's money.
+    await seed(CAROL, 4242, "Carol's payment");
+    const revenue = JSON.stringify(await ask(TENANT, "how much revenue have I made?", { sender: "__none__" }));
+    expect(revenue).not.toContain("4242");
+    const customers = JSON.stringify(await ask(TENANT, "who are my customers?", { sender: "__none__" }));
+    expect(customers).not.toContain(CAROL);
   });
 });

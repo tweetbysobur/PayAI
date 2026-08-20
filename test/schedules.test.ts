@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSchedule, recordRun, getSchedule, updateSchedule, advanceRun, setScheduleStatus } from "@/lib/platform/schedules";
+import { createSchedule, recordRun, getSchedule, updateSchedule, advanceRun, advanceRunPast, setScheduleStatus } from "@/lib/platform/schedules";
 
 // These exercise the single most important reliability decision in the
 // Payment Automations feature: what happens to the automation after a run,
@@ -47,6 +47,78 @@ describe("advanceRun", () => {
     const feb28 = advanceRun(jan31, "custom", { count: 1, unit: "months" });
     expect(feb28).toBe(Date.UTC(2026, 1, 28));
     expect(advanceRun(feb28!, "custom", { count: 1, unit: "months" })).toBe(Date.UTC(2026, 2, 28));
+  });
+});
+
+describe("advanceRunPast — scheduler-outage backlog", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("lands strictly in the future and reports how many occurrences were missed", () => {
+    const now = Date.UTC(2026, 0, 11);
+    const dueTenDaysAgo = Date.UTC(2026, 0, 1);
+    const { next, skipped } = advanceRunPast(dueTenDaysAgo, "daily", undefined, now);
+    expect(next).toBeGreaterThan(now);
+    expect(next).toBe(Date.UTC(2026, 0, 12));
+    expect(skipped).toBe(10);
+  });
+
+  it("is a no-op for an automation running on time (one period, nothing skipped)", () => {
+    // The overwhelmingly common case must behave exactly as advanceRun() did.
+    const now = Date.UTC(2026, 0, 1);
+    const { next, skipped } = advanceRunPast(now, "daily", undefined, now);
+    expect(next).toBe(advanceRun(now, "daily"));
+    expect(skipped).toBe(0);
+  });
+
+  it("still returns null for a one-off so it completes rather than repeating", () => {
+    expect(advanceRunPast(Date.UTC(2026, 0, 1), "once", undefined, Date.UTC(2027, 0, 1)).next).toBeNull();
+  });
+
+  it("skips whole weeks/months too, not just days", () => {
+    const now = Date.UTC(2026, 3, 1);
+    expect(advanceRunPast(Date.UTC(2026, 0, 1), "weekly", undefined, now).next).toBeGreaterThan(now);
+    expect(advanceRunPast(Date.UTC(2026, 0, 1), "monthly", undefined, now).next).toBe(Date.UTC(2026, 4, 1));
+  });
+
+  it("does not fire a backlog of real payments once the scheduler recovers", async () => {
+    // The regression this exists for: a daily automation missed for 10 days
+    // used to stay due after running, so the cron re-executed it on every
+    // tick — eleven real payments about a minute apart.
+    const s = await makeSchedule({ cadence: "daily", nextRun: Date.now() - 10 * DAY });
+    let row = (await recordRun(s.id, { at: Date.now(), decision: "executed" }))!;
+
+    let extraFirings = 0;
+    while (row.nextRun <= Date.now() && row.status === "active" && extraFirings < 20) {
+      row = (await recordRun(row.id, { at: Date.now(), decision: "executed" }))!;
+      extraFirings += 1;
+    }
+    expect(extraFirings).toBe(0);
+    expect(row.nextRun).toBeGreaterThan(Date.now());
+    // Exactly one payment was recorded, not the whole backlog.
+    expect(row.runsCompleted).toBe(1);
+  });
+
+  it("does not let skipped occurrences eat an after_count budget", async () => {
+    // Occurrences that never executed must not count as runs — otherwise an
+    // outage would silently retire an automation the user still expects.
+    const s = await makeSchedule({
+      cadence: "daily",
+      nextRun: Date.now() - 5 * DAY,
+      endCondition: { type: "after_count", totalRuns: 3 },
+    });
+    const after = await recordRun(s.id, { at: Date.now(), decision: "executed" });
+    expect(after!.runsCompleted).toBe(1);
+    expect(after!.status).toBe("active");
+  });
+
+  it("completes an automation whose until_date passed during the outage", async () => {
+    const s = await makeSchedule({
+      cadence: "daily",
+      nextRun: Date.now() - 10 * DAY,
+      endCondition: { type: "until_date", untilMs: Date.now() - 5 * DAY },
+    });
+    const after = await recordRun(s.id, { at: Date.now(), decision: "executed" });
+    expect(after!.status).toBe("completed");
   });
 });
 
