@@ -1,0 +1,99 @@
+name: diag-james2
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Stub the server-only build guard for plain node execution
+        run: |
+          mkdir -p node_modules/server-only
+          echo '{"name":"server-only","main":"index.js"}' > node_modules/server-only/package.json
+          echo 'module.exports = {};' > node_modules/server-only/index.js
+      - name: Isolate why Nad.Fun recognition misses a real graduated token (JAMES)
+        env:
+          MONAD_NETWORK: mainnet
+          MONAD_MAINNET_USDC: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
+        run: |
+          cat > probe-james.mjs << 'SCRIPT'
+          import { getPublicClient } from "./lib/monad/wallet.ts";
+          import { getNadFunStatus, nadFunQuote } from "./lib/monad/nadfun.ts";
+          import { quoteUniswapDirect, resolveSwapSide } from "./lib/monad/swap.ts";
+
+          const TOKEN = "0x43cF5407BDA1400498b8064d50A7e17528d87777";
+          const WMON = "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A";
+          const KNOWN_POOL = "0x48c3BB34227AeBe5205EbEAA1B960c53D7EdB17B"; // from DexScreener, dexId=nad-fun
+          const DEX_FACTORY = "0x6B5F564339DbAD6b780249827f2198a841FEB7F3"; // NADFUN_MAINNET.dexFactory
+          const LENS = "0x7e78A8DE94f21804F7a17F4E8BF9EC2c872187ea";
+
+          const pub = getPublicClient();
+
+          async function tryRead(p, label) {
+            try { return await p; } catch (e) { console.log(`${label} threw:`, e.shortMessage || e.message); return null; }
+          }
+
+          console.log("--- Contract existence checks ---");
+          const factoryCode = await pub.getCode({ address: DEX_FACTORY });
+          console.log("dexFactory has code:", !!factoryCode && factoryCode !== "0x", "len:", factoryCode?.length);
+          const poolCode = await pub.getCode({ address: KNOWN_POOL });
+          console.log("known pool has code:", !!poolCode && poolCode !== "0x", "len:", poolCode?.length);
+          const lensCode = await pub.getCode({ address: LENS });
+          console.log("lens has code:", !!lensCode && lensCode !== "0x", "len:", lensCode?.length);
+
+          console.log("\n--- Read the known real pool directly (bypassing the factory lookup) ---");
+          const PAIR_ABI = [
+            { type: "function", name: "getReserves", stateMutability: "view", inputs: [], outputs: [{ name: "_reserve0", type: "uint112" }, { name: "_reserve1", type: "uint112" }, { name: "_blockTimestampLast", type: "uint32" }] },
+            { type: "function", name: "token0", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+            { type: "function", name: "token1", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+            { type: "function", name: "factory", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "address" }] },
+          ];
+          const token0 = await tryRead(pub.readContract({ address: KNOWN_POOL, abi: PAIR_ABI, functionName: "token0" }), "pool.token0");
+          const token1 = await tryRead(pub.readContract({ address: KNOWN_POOL, abi: PAIR_ABI, functionName: "token1" }), "pool.token1");
+          const reserves = await tryRead(pub.readContract({ address: KNOWN_POOL, abi: PAIR_ABI, functionName: "getReserves" }), "pool.getReserves");
+          const poolFactory = await tryRead(pub.readContract({ address: KNOWN_POOL, abi: PAIR_ABI, functionName: "factory" }), "pool.factory");
+          console.log("pool.token0:", token0);
+          console.log("pool.token1:", token1);
+          console.log("pool.getReserves:", reserves ? reserves.map(String) : reserves);
+          console.log("pool.factory() [the REAL factory address, per the pool contract itself]:", poolFactory);
+
+          console.log("\n--- Try the factory's getPair() both argument orders ---");
+          const DEX_FACTORY_ABI = [
+            { type: "function", name: "getPair", stateMutability: "view", inputs: [{ name: "", type: "address" }, { name: "", type: "address" }], outputs: [{ name: "", type: "address" }] },
+          ];
+          const pairAB = await tryRead(pub.readContract({ address: DEX_FACTORY, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [WMON, TOKEN] }), "hardcoded-factory.getPair(WMON, TOKEN)");
+          const pairBA = await tryRead(pub.readContract({ address: DEX_FACTORY, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [TOKEN, WMON] }), "hardcoded-factory.getPair(TOKEN, WMON)");
+          console.log("getPair(WMON, TOKEN):", pairAB);
+          console.log("getPair(TOKEN, WMON):", pairBA);
+
+          if (poolFactory && poolFactory.toLowerCase() !== DEX_FACTORY.toLowerCase()) {
+            console.log("\n!!! MISMATCH: the pool's own factory() address differs from the hardcoded NADFUN_MAINNET.dexFactory !!!");
+            const realPairAB = await tryRead(pub.readContract({ address: poolFactory, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [WMON, TOKEN] }), "REAL-factory.getPair(WMON, TOKEN)");
+            console.log("REAL factory getPair(WMON, TOKEN):", realPairAB);
+          }
+
+          console.log("\n--- getNadFunStatus() and nadFunQuote() as the app actually calls them ---");
+          const status = await getNadFunStatus(TOKEN);
+          console.log("nadFunStatus:", JSON.stringify(status));
+          const sellQuote = await tryRead(nadFunQuote(TOKEN, 18, "1", false), "nadFunQuote(sell 1)");
+          console.log("nadFunQuote(sell 1):", JSON.stringify(sellQuote));
+
+          console.log("\n--- Uniswap v3 direct quote for comparison ---");
+          for (const quoteAsset of ["USDC", "MON"]) {
+            try {
+              const side = await resolveSwapSide(quoteAsset);
+              const direct = await quoteUniswapDirect(TOKEN, 18, side.routeAddress, side.decimals, "1");
+              console.log(`quoteUniswapDirect(JAMES -> ${quoteAsset}):`, JSON.stringify(direct));
+            } catch (e) {
+              console.log(`quoteUniswapDirect(JAMES -> ${quoteAsset}) threw:`, e.message);
+            }
+          }
+          SCRIPT
+          npx tsx probe-james.mjs
+          rm -f probe-james.mjs
+        timeout-minutes: 5
