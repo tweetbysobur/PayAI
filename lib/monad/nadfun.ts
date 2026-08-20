@@ -44,9 +44,20 @@ import { withTimeout } from "./rpcTimeout";
  *  README (github.com/Naddotfun/contract-v3-abi) — re-verified directly
  *  against raw.githubusercontent.com, not copied from the task brief without
  *  checking. Env-overridable, matching this codebase's existing convention
- *  for every other verified deployment (see swap.ts's UNISWAP_MAINNET). */
+ *  for every other verified deployment (see swap.ts's UNISWAP_MAINNET).
+ *
+ *  `dexFactory` was corrected after the README's address turned out to be
+ *  stale: a real, live, graduated token (JAMES, 0x43cF54…d87777, $109k in
+ *  reserves, indexed by DexScreener as dexId "nad-fun") showed as completely
+ *  unrecognized in production, and this factory's own `getPair(WMON, token)`
+ *  reverted outright rather than returning a pool or the zero address —
+ *  never a valid response from a real getPair mapping getter. Reading the
+ *  known-real pool contract's own `factory()` accessor gave the actual
+ *  current factory address below, and `getPair` against THAT address
+ *  returns exactly the pool DexScreener already had indexed. The README's
+ *  address is not used anywhere else this module trusts. */
 const NADFUN_MAINNET = {
-  dexFactory: (process.env.MONAD_MAINNET_NADFUN_DEX_FACTORY || "0x6B5F564339DbAD6b780249827f2198a841FEB7F3") as Address,
+  dexFactory: (process.env.MONAD_MAINNET_NADFUN_DEX_FACTORY || "0xA25b13127e63ddae6d0b35570FF3D39dBD621001") as Address,
   wmon: (process.env.MONAD_MAINNET_WMON || "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A") as Address,
   bondingCurveRouter: (process.env.MONAD_MAINNET_NADFUN_BONDING_CURVE_ROUTER || "0x6F6B8F1a20703309951a5127c45B49b1CD981A22") as Address,
   bondingCurve: (process.env.MONAD_MAINNET_NADFUN_BONDING_CURVE || "0xA7283d07812a02AFB7C09B60f8896bCEA3F90aCE") as Address,
