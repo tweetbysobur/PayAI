@@ -21,6 +21,23 @@ describe("computeRequestId", () => {
     const b = computeRequestId({ text: "pay 6" });
     expect(a).not.toBe(b);
   });
+
+  it("differs when only a NESTED value differs", () => {
+    // Regression: sorted keys were passed as JSON.stringify's replacer array,
+    // which filters keys at every nesting level — so `amount` (not a top-level
+    // key) was dropped from the hash entirely and these two collided. A
+    // collision here means a second, genuinely different payment gets replayed
+    // as a duplicate of the first and never sent.
+    const a = computeRequestId({ action: "pay", meta: { amount: 5 } });
+    const b = computeRequestId({ action: "pay", meta: { amount: 999 } });
+    expect(a).not.toBe(b);
+  });
+
+  it("stays order-independent for nested objects too", () => {
+    const a = computeRequestId({ action: "pay", meta: { amount: 5 } });
+    const b = computeRequestId({ meta: { amount: 5 }, action: "pay" });
+    expect(a).toBe(b);
+  });
 });
 
 describe("hashSignature", () => {

@@ -45,10 +45,26 @@ function pruneMem() {
   for (const [k, v] of mem) if (v.createdAt < cutoff) mem.delete(k);
 }
 
-/** Deterministic id from request content — the no-client-key fallback. */
+/**
+ * Deterministic id from request content — the no-client-key fallback.
+ *
+ * Key order must not affect the hash (two callers building the same request
+ * with differently-ordered object literals have to collide), so keys are
+ * sorted before serializing. It does this by REBUILDING the object in sorted
+ * order rather than passing the sorted keys as JSON.stringify's replacer
+ * array: a replacer array filters keys at EVERY nesting level, so any nested
+ * key whose name doesn't happen to also appear at the top level is silently
+ * dropped from the hash. Two requests differing only inside a nested object
+ * — say `{ action, meta: { amount: 5 } }` vs `{ action, meta: { amount: 999 } }`
+ * — would then hash identically, and the second payment would be swallowed as
+ * a "duplicate" of the first. Every current caller passes flat primitives, so
+ * that was latent rather than live; rebuilding produces byte-identical JSON
+ * for flat input (so existing ids are unchanged) while making the nested case
+ * correct instead of dangerous.
+ */
 export function computeRequestId(parts: Record<string, unknown>): string {
-  const normalized = JSON.stringify(parts, Object.keys(parts).sort());
-  return createHash("sha256").update(normalized).digest("hex");
+  const sorted = Object.fromEntries(Object.keys(parts).sort().map((k) => [k, parts[k]]));
+  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
 }
 
 /**
