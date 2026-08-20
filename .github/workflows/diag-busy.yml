@@ -1,0 +1,50 @@
+name: diag-busy
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query DexScreener directly for BUSY
+        run: |
+          curl -sS "https://api.dexscreener.com/tokens/v1/monad/0xB0a788D09e7da1582012721bEA1D16D2AAfB7777" \
+            -H "accept: application/json" | python3 -m json.tool || true
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Stub the server-only build guard for plain node execution
+        run: |
+          mkdir -p node_modules/server-only
+          echo '{"name":"server-only","main":"index.js"}' > node_modules/server-only/package.json
+          echo 'module.exports = {};' > node_modules/server-only/index.js
+      - name: Raw Nad.Fun signals for BUSY
+        env:
+          MONAD_NETWORK: mainnet
+          MONAD_MAINNET_USDC: "0xf817257fed379853cDe0fa4F97AB987181B1E5Ea"
+        run: |
+          cat > probe-busy.mjs << 'SCRIPT'
+          import { getPublicClient } from "./lib/monad/wallet.ts";
+          import { getNadFunStatus, nadFunQuote } from "./lib/monad/nadfun.ts";
+
+          const TOKEN = "0xB0a788D09e7da1582012721bEA1D16D2AAfB7777";
+
+          const pub = getPublicClient();
+          const code = await pub.getCode({ address: TOKEN });
+          console.log("has code:", !!code && code !== "0x");
+
+          const status = await getNadFunStatus(TOKEN);
+          console.log("nadFunStatus:", JSON.stringify(status));
+
+          try {
+            const q = await nadFunQuote(TOKEN, 18, "1", false);
+            console.log("nadFunQuote(sell 1):", JSON.stringify(q));
+          } catch (e) {
+            console.log("nadFunQuote threw:", e.message);
+          }
+          SCRIPT
+          npx tsx probe-busy.mjs
+          rm -f probe-busy.mjs
+        timeout-minutes: 5
