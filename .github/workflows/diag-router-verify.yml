@@ -62,6 +62,22 @@ code = d.get('result', '')
 print('Base SwapRouter02 code length (bytes):', len(bytes.fromhex(code[2:])) if code and code != '0x' else 'no code / error: ' + str(d))
 "
 
+      - name: Sourcify (MonadVision's own verifier) -- is the router publicly verified?
+        run: |
+          # Read-only GET against the same Sourcify instance this repo's own
+          # verify-contracts.yml submits PayAI's contracts to. If the Uniswap
+          # router is verified here, this returns its matched contract name
+          # and full/partial match status without needing any submission.
+          for LABEL_ADDR in "ROUTER:0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900" "QUOTER:0x661e93cca42afacb172121ef892830ca3b70f08d" "WMON:0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A"; do
+            LABEL="${LABEL_ADDR%%:*}"
+            ADDR="${LABEL_ADDR##*:}"
+            echo "--- Sourcify: $LABEL ($ADDR) on chain 143 ---"
+            curl -sS --max-time 20 \
+              "https://sourcify-api-monad.blockvision.org/check-all-by-addresses?addresses=${ADDR}&chainIds=143" \
+              -H "accept: application/json" | python3 -m json.tool || true
+            echo
+          done
+
       - name: Try public Monad explorer for verification metadata (best-effort, may 403/redirect)
         run: |
           for URL in "https://monadvision.com/address/0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900" \
