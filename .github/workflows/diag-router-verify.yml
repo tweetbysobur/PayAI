@@ -1,0 +1,74 @@
+name: diag-router-verify
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Uniswap's own official Monad deployment page
+        run: |
+          echo "--- developers.uniswap.org/contracts/v3/reference/deployments/monad-deployments ---"
+          curl -sS --max-time 20 -A "Mozilla/5.0" \
+            "https://developers.uniswap.org/contracts/v3/reference/deployments/monad-deployments" \
+            -o page.html || true
+          echo "size: $(wc -c < page.html 2>/dev/null || echo 0) bytes"
+          echo "--- lines mentioning our router / router keyword ---"
+          grep -io '.\{0,80\}0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900.\{0,20\}' page.html || echo "(exact router address not found verbatim)"
+          grep -io '.\{0,40\}swaprouter02.\{0,120\}' page.html | head -10 || true
+
+      - name: eth_getCode for router / quoter / wmon on real Monad mainnet RPC
+        run: |
+          RPC="https://rpc.monad.xyz"
+          for LABEL_ADDR in "ROUTER:0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900" "QUOTER:0x661e93cca42afacb172121ef892830ca3b70f08d" "WMON:0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A"; do
+            LABEL="${LABEL_ADDR%%:*}"
+            ADDR="${LABEL_ADDR##*:}"
+            echo "--- $LABEL ($ADDR) ---"
+            RESP=$(curl -sS --max-time 20 -X POST "$RPC" -H 'content-type: application/json' \
+              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getCode\",\"params\":[\"$ADDR\",\"latest\"]}")
+            echo "$RESP" | python3 -c "
+import sys, json, hashlib
+d = json.load(sys.stdin)
+code = d.get('result', '')
+if not code or code == '0x':
+    print('NO CODE AT THIS ADDRESS (empty/EOA) or RPC error:', d)
+else:
+    raw = bytes.fromhex(code[2:])
+    print('code length (bytes):', len(raw))
+    print('keccak256-like sha256 of bytecode (fingerprint):', hashlib.sha256(raw).hexdigest())
+    print('first 4 bytes (should look like Solidity metadata-free runtime start):', code[:12])
+"
+          done
+
+      - name: Chain id sanity check (confirm this really is chain 143)
+        run: |
+          curl -sS --max-time 20 -X POST https://rpc.monad.xyz -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+          echo
+
+      - name: Reference SwapRouter02 bytecode fingerprint from a KNOWN canonical deployment (Base mainnet) for comparison
+        run: |
+          # SwapRouter02 on Base mainnet (well-known, widely cited address) as a reference
+          # fingerprint of the CANONICAL contract's RUNTIME bytecode shape. Immutable
+          # constructor-baked addresses (factory/WETH9) differ per chain, so an exact
+          # byte-for-byte match is not expected -- this is a structural sanity check
+          # (does it even have code, is the length in the right ballpark), not a proof
+          # of identity by itself.
+          curl -sS --max-time 20 -X POST "https://mainnet.base.org" -H 'content-type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"eth_getCode","params":["0x2626664c2603336E57B271c5C0b26F421741e481","latest"]}' \
+            | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+code = d.get('result', '')
+print('Base SwapRouter02 code length (bytes):', len(bytes.fromhex(code[2:])) if code and code != '0x' else 'no code / error: ' + str(d))
+"
+
+      - name: Try public Monad explorer for verification metadata (best-effort, may 403/redirect)
+        run: |
+          for URL in "https://monadvision.com/address/0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900" \
+                     "https://monadscan.com/address/0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900"; do
+            echo "--- $URL ---"
+            curl -sS --max-time 20 -A "Mozilla/5.0" -o out.html -w "http_code=%{http_code}\n" "$URL" || true
+            echo "size: $(wc -c < out.html 2>/dev/null || echo 0)"
+            grep -io '.\{0,40\}swaprouter.\{0,80\}' out.html | head -5 || true
+            grep -io 'contract name[^<]*' out.html | head -3 || true
+          done
