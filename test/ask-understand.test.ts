@@ -15,6 +15,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * prove — that's exercised by hand against the real API, not here.
  */
 
+// Every test here calls vi.resetModules() and then re-imports classify.ts,
+// which itself dynamically imports the deterministic engine (lib/agent/brain,
+// lib/ask/sendPayment/parse). That module graph is re-instantiated per test,
+// and under a full-suite parallel run it can exceed vitest's 5s default —
+// observed once as a spurious timeout on an otherwise-passing assertion while
+// the whole suite was running slow (19s vs its usual 9s). The work is real,
+// not a hang: this file completes in well under a second on its own. A
+// generous file-level ceiling keeps that load-dependent flake out of CI
+// without weakening a single assertion.
+vi.setConfig({ testTimeout: 20_000 });
+
 type CreateFn = (...args: unknown[]) => unknown;
 let mockCreate: ReturnType<typeof vi.fn<CreateFn>>;
 
