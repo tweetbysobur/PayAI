@@ -70,6 +70,55 @@ describe("router — token context from a previous message resolves 'this'/'it'"
     }
   });
 
+  it("'buy $20 of it' after a token_lookup resolves 'it' AND takes the usd amount path", async () => {
+    // The literal dollar-sign phrasing is a different branch from "50 USDC
+    // worth": it sets amountType "usd" and leaves fromAsset unnamed, so the
+    // counter-asset default has to fill it. This is the exact two-message
+    // flow the product promises ("show me this token" -> "buy $20 of it").
+    //
+    // A FRESH trade still routes to Anthropic (route "actionable_operation")
+    // — it is a money-moving request, so it gets a real semantic read rather
+    // than a keyword shortcut, exactly like send_payment/swap. What matters
+    // here is that the context token is resolved into the slots either way:
+    // applyTradeContext runs in coerce() on the Anthropic path too, so this
+    // fallback is also what ships if the API key is absent or the call fails.
+    const r = await routeRequest("buy $20 of it", CONTEXT);
+    expect(r.route).toBe("actionable_operation");
+    if (r.fallback.kind === "trade" && r.fallback.outcome === "complete") {
+      expect(r.fallback.slots.tradeAction).toBe("buy");
+      expect(r.fallback.slots.toAsset).toBe(TOKEN);
+      expect(r.fallback.slots.fromAsset).toBe("USDC");
+      expect(r.fallback.slots.amount).toBe("20");
+      expect(r.fallback.slots.amountType).toBe("usd");
+    } else {
+      throw new Error(`expected complete usd trade, got ${JSON.stringify(r.fallback)}`);
+    }
+  });
+
+  it("'sell half of it' after a token_lookup resolves the sold side and the percentage amount", async () => {
+    // The sell mirror: 'it' anchors fromAsset (what's being disposed of) and
+    // the receiving side falls back to the counter-asset.
+    const r = await routeRequest("sell half of my tokens", CONTEXT);
+    if (r.fallback.kind === "trade" && r.fallback.outcome === "complete") {
+      expect(r.fallback.slots.tradeAction).toBe("sell");
+      expect(r.fallback.slots.fromAsset).toBe(TOKEN);
+      expect(r.fallback.slots.toAsset).toBe("USDC");
+      expect(r.fallback.slots.amountType).toBe("percentage");
+      expect(r.fallback.slots.amount).toBe("50");
+    } else {
+      throw new Error(`expected complete percentage sell, got ${JSON.stringify(r.fallback)}`);
+    }
+  });
+
+  it("with NO token context, 'buy $20 of it' asks which token instead of inventing one", async () => {
+    const r = await routeRequest("buy $20 of it", null);
+    if (r.fallback.kind === "trade" && r.fallback.outcome === "incomplete") {
+      expect(r.fallback.slots.toAsset).toBeNull();
+    } else {
+      throw new Error(`expected incomplete trade, got ${JSON.stringify(r.fallback)}`);
+    }
+  });
+
   it("with NO token context, 'Buy 50 USDC worth.' asks for the missing token rather than guessing", async () => {
     const r = await routeRequest("Buy 50 USDC worth.", null);
     if (r.fallback.kind === "trade" && r.fallback.outcome === "incomplete") {

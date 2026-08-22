@@ -165,13 +165,29 @@ export interface TokenLiquidity {
  *  price or totalSupply is unavailable. See the Step 7 report for the
  *  full reasoning.
  *
- *  volume24h/buyVolume24h/sellVolume24h/transactions24h/buys24h/sells24h/
- *  holders are always null today (see the Step 7 report's explicit
- *  reasoning: no indexer/subgraph exists, and this build environment has
- *  no live RPC access to verify a true 24h on-chain event scan is safe to
- *  ship — Monad's block time makes a naive full scan a real latency risk,
- *  and the brief explicitly forbids approximating "24h" from a smaller,
- *  arbitrarily truncated window). */
+ *  24h fields, field by field — this list is what a UI can actually
+ *  render, so it is kept exact rather than blanket-pessimistic (it used to
+ *  say all of them were "always null today", which stopped being true once
+ *  lib/monad/dexscreener.ts landed and would mislead anyone building
+ *  against this type):
+ *    - volume24h, transactions24h, buys24h, sells24h, priceChange24h —
+ *      POPULATED from DexScreener when it has the token indexed; null when
+ *      it doesn't (unreachable, not yet listed, malformed response). Null
+ *      here means "not known", never "zero activity".
+ *    - buyVolume24h, sellVolume24h — ALWAYS null. DexScreener reports 24h
+ *      volume as ONE number and only splits the TRANSACTION COUNTS into
+ *      buys/sells, so there is no verified source for the value split.
+ *      Deriving it from the buy/sell count ratio would be fabrication, not
+ *      an estimate: one $10k buy against a hundred $1 sells would report
+ *      the split almost exactly backwards. Wiring these up needs a
+ *      per-swap-event indexer that sums real amounts per side; the
+ *      integration point is probeMarket() below, alongside the existing
+ *      DexScreener call.
+ *    - holders — ALWAYS null. Requires either a Transfer-event indexer or
+ *      an explorer API; a live full-history Transfer scan is not viable
+ *      (getNadFunCreatorInfo's own 5s timeout exists because even ONE
+ *      topic-filtered historical getLogs took minutes against production
+ *      RPC). Same integration point when a verified source exists. */
 export interface TokenMarketData {
   price: string | null;
   priceQuoteAsset: string | null;
