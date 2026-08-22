@@ -1,0 +1,32 @@
+name: diag-deploy
+on: workflow_dispatch
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Production health
+        run: |
+          echo "--- HTTP status ---"
+          curl -s -o /dev/null -w "https://usepayai.xyz -> %{http_code}\n" --max-time 30 https://usepayai.xyz || true
+          echo "--- /api/health ---"
+          curl -sS --max-time 30 https://usepayai.xyz/api/health | python3 -m json.tool || true
+
+      - name: Is the assistant privacy fix live?
+        run: |
+          # Before commit a6d3aaf an ANONYMOUS caller got back the shared demo
+          # tenant's transactions (other people's senders/amounts). After it,
+          # the wallet scope falls closed and this returns nothing.
+          # Read-only: asks a question, moves no funds.
+          echo "--- anonymous POST /api/assistant ---"
+          curl -sS --max-time 30 -X POST \
+            -H 'content-type: application/json' \
+            -d '{"question":"show me recent transactions"}' \
+            https://usepayai.xyz/api/assistant | head -c 1200 || true
+          echo
+          echo "--- anonymous revenue question ---"
+          curl -sS --max-time 30 -X POST \
+            -H 'content-type: application/json' \
+            -d '{"question":"how much revenue have I made?"}' \
+            https://usepayai.xyz/api/assistant | head -c 800 || true
+          echo
