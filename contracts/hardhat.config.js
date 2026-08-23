@@ -26,4 +26,12 @@ module.exports = {
       accounts,
     },
   },
+  // Monad's own Sourcify instance — lets `npx hardhat verify --network monad
+  // <address>` verify source automatically instead of the explorer's manual
+  // web form. No API key needed (see hardhat-verify's Sourcify docs).
+  sourcify: {
+    enabled: true,
+    apiUrl: "https://sourcify-api-monad.blockvision.org/",
+    browserUrl: "https://monadexplorer.com",
+  },
 };
