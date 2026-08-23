@@ -96,6 +96,9 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
     json.intent?.recipient &&
     json.intent.amount != null
   ) {
+    // approvalTx/approvalLabel are only present for a forwarder-routed ERC-20
+    // payment needing an allowance top-up — read them off the loose response.
+    const extra = json as { approvalTx?: { to: string; data: string; value?: string; from: string } | null; approvalLabel?: string | null };
     const intent: PaymentIntent = {
       kind: "payment",
       network: "monad",
@@ -108,6 +111,12 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
       estimatedFee: null,
       execution: {
         unsignedTx: json.unsignedTx,
+        // Optional exact-amount approval pre-step for an ERC-20 payment routed
+        // through PayAIForwarder — present only when the current allowance is
+        // short (see /api/agent). Absent otherwise, keeping the common case a
+        // single signature.
+        approvalTx: extra.approvalTx ?? null,
+        approvalLabel: extra.approvalLabel ?? null,
         confirmRawText: json.confirmRawText,
         requestId: json.requestId,
       },
@@ -145,11 +154,40 @@ export async function executeSendPayment(
   onProgress?: (label: string) => void,
 ): Promise<Operation> {
   if (operation.intent.kind !== "payment" || !operation.intent.execution) return operation;
-  const { unsignedTx, confirmRawText, requestId } = operation.intent.execution;
+  const { unsignedTx, approvalTx, approvalLabel, confirmRawText, requestId } = operation.intent.execution;
 
   let broadcastHash: string | null = null;
   try {
-    onProgress?.("Waiting for your signature — nothing has moved yet.");
+    // Step 1 (ERC-20-through-forwarder, only when allowance is short): the
+    // exact-amount approval. This moves NO funds — it only authorizes the
+    // forwarder to pull exactly this payment's amount — so a failure/rejection
+    // here is a clean pre-payment abort (no pendingSettlement saved, no confirm
+    // attempted). Only after it's mined do we sign the actual payment. This is
+    // the SAME operation and the SAME states (ready -> confirming -> success/
+    // error), just with one extra pre-signature — not a second state machine.
+    if (approvalTx) {
+      onProgress?.(`Step 1 of 2: ${approvalLabel ?? "approve PayAI to spend the token"} — nothing has moved yet.`);
+      let approvalHash: string;
+      try {
+        approvalHash = await wallet.sendTransaction(approvalTx);
+      } catch (e) {
+        // User rejected the approval, or it failed to broadcast — nothing has
+        // moved, nothing to confirm; surface it as a clean not-sent error.
+        const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Approval was not completed."), code: "APPROVAL_NOT_SENT" };
+        return { ...operation, status: "error", error };
+      }
+      onProgress?.("Approval sent — confirming it on-chain before the payment…");
+      const approvalReceipt = (await wallet.waitForReceipt(approvalHash)) as { status?: string | number } | undefined;
+      // A reverted approval must not fall through into a forward that will then
+      // revert for a missing allowance — stop here with a clear message.
+      if (approvalReceipt && (approvalReceipt.status === "reverted" || approvalReceipt.status === 0 || approvalReceipt.status === "0x0")) {
+        const error: OperationError = { message: "The token approval failed on-chain — no payment was attempted. You can safely try again.", code: "APPROVAL_REVERTED" };
+        return { ...operation, status: "error", error };
+      }
+      onProgress?.("Approved. Step 2 of 2: sign the payment — still nothing moved until you do.");
+    }
+
+    onProgress?.(approvalTx ? "Waiting for your payment signature — nothing has moved yet." : "Waiting for your signature — nothing has moved yet.");
     const hash = await wallet.sendTransaction(unsignedTx);
     broadcastHash = hash;
     // The wallet has now broadcast a REAL transaction — persist immediately,

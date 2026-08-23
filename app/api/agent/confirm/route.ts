@@ -171,7 +171,45 @@ export async function POST(req: NextRequest) {
   const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits, toParseableAmount } = await import("@/lib/monad/verify");
   const recipient = intent.recipient;
   let matched = false;
-  if (intent.token === "MON") {
+
+  // If this payment was routed through PayAIForwarder, the tx target is the
+  // forwarder (not the recipient), so the raw to/value check below wouldn't
+  // match. Verify against the canonical PaymentForwarded EVENT instead — the
+  // on-chain source of truth (never client-reported amounts): the event must
+  // exist, be emitted by the configured forwarder, and its payer/recipient/
+  // token/amount must all equal the approved intent. A tx sent to the
+  // forwarder that lacks a valid matching event is rejected as invalid, per
+  // the Step 8.1 result-verification requirement.
+  const { getPayAIForwarder } = await import("@/lib/monad/config");
+  const forwarderAddr = getPayAIForwarder();
+  const routedThroughForwarder =
+    forwarderAddr != null && receipt.to != null && receipt.to.toLowerCase() === forwarderAddr.toLowerCase();
+  if (routedThroughForwarder) {
+    const { decodePaymentForwarded, verifyPaymentForwarded } = await import("@/lib/monad/forwarder");
+    const ev = decodePaymentForwarded(receipt.logs, forwarderAddr);
+    if (ev) {
+      const wantAmount =
+        intent.token === "MON"
+          ? (await import("viem")).parseEther(toParseableAmount(intent.amount, 18))
+          : toBaseUnits(intent.amount, getStablecoin().decimals);
+      const wantToken =
+        intent.token === "MON" ? "0x0000000000000000000000000000000000000000" : getStablecoin().address;
+      matched = verifyPaymentForwarded(ev, {
+        payer: walletAddress as `0x${string}`,
+        recipient: recipient as `0x${string}`,
+        token: wantToken as `0x${string}`,
+        amountUnits: wantAmount,
+      });
+    }
+    if (!matched) {
+      await releaseRequest(confirmKey);
+      return NextResponse.json(
+        { error: "This transaction targeted PayAIForwarder but has no matching PaymentForwarded event — treated as invalid." },
+        { status: 409 },
+      );
+    }
+    trace.push({ step: "traceability", status: "ok", detail: "Verified via PayAIForwarder's PaymentForwarded event." });
+  } else if (intent.token === "MON") {
     // Native transfer: recipient/amount live on the tx itself (to/value), not
     // in a receipt log. parseEther matches what the build path encoded.
     // toParseableAmount, not String()/.toString() — those switch to
