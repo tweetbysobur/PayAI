@@ -60,7 +60,7 @@ const FOOTER_COLUMNS = [
 
 interface Onchain {
   configured?: boolean;
-  contracts?: { executorExplorer: string };
+  contracts?: { executorExplorer: string; forwarderExplorer?: string | null };
 }
 
 export function SiteFooter() {
@@ -135,9 +135,12 @@ export function SiteFooter() {
             <span className="hidden h-3 w-px bg-border sm:inline" />
             <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
             <span className="hidden h-3 w-px bg-border sm:inline" />
-            {onchain?.configured && onchain.contracts ? (
+            {onchain?.configured && onchain.contracts && (onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer) ? (
+              // One live-contract badge. Prefer the interactive-payment
+              // forwarder (the contract users' own payments flow through);
+              // fall back to the executor if the forwarder isn't configured.
               <a
-                href={onchain.contracts.executorExplorer}
+                href={onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer}
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
               >
