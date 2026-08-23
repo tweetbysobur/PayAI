@@ -135,28 +135,17 @@ export function SiteFooter() {
             <span className="hidden h-3 w-px bg-border sm:inline" />
             <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
             <span className="hidden h-3 w-px bg-border sm:inline" />
-            {onchain?.configured && onchain.contracts ? (
-              <>
-                <a
-                  href={onchain.contracts.executorExplorer}
-                  target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
-                >
-                  <BadgeCheck size={13} /> Payment Executor Live on Monad
-                </a>
-                {onchain.contracts.forwarderExplorer ? (
-                  <>
-                    <span className="hidden h-3 w-px bg-border sm:inline" />
-                    <a
-                      href={onchain.contracts.forwarderExplorer}
-                      target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
-                    >
-                      <BadgeCheck size={13} /> Payment Forwarder Live on Monad
-                    </a>
-                  </>
-                ) : null}
-              </>
+            {onchain?.configured && onchain.contracts && (onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer) ? (
+              // One live-contract badge. Prefer the interactive-payment
+              // forwarder (the contract users' own payments flow through);
+              // fall back to the executor if the forwarder isn't configured.
+              <a
+                href={onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer}
+                target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
+              >
+                <BadgeCheck size={13} /> Contract Live on Monad
+              </a>
             ) : (
               <span className="flex items-center gap-1.5 text-muted-foreground/60">
                 <BadgeCheck size={13} /> Contract status unavailable
