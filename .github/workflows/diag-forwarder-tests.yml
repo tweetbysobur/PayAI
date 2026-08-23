@@ -1,0 +1,19 @@
+name: diag-forwarder-tests
+on: workflow_dispatch
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/bitv-s3ctfc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Full hardhat suite (incl. PayAIForwarder) — pre-deploy re-verify
+        run: npx hardhat test
