@@ -64,6 +64,7 @@ MerchantRegistry above; none of those were touched.
 | Deploy tx | `0xe78fb41e282f3aa824bc2526ee9843777af7af61de8c15fe3eb4f299e693bfb2` (block 98,496,573) |
 | Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0x4ce7B3036595eDA699Aebeb47b34fd4bc4F80709/`; green "Contract" badge on MonadVision |
 | Real native-MON test | tx `0x52e3807823dd093ee5af5affae7bc68cf9b3878d2d362880ee3ec18e7184cde8` (block 98,505,583) — 0.001 MON, `PaymentForwarded` id 0 decoded from logs, internal transfer `forwarder -> recipient` visible on MonadVision. **`payer -> PayAIForwarder -> recipient` proven on-chain.** |
+| Real ERC-20 (USDC) test | approve `0xe44ea195eec5421c30675f81df1952f0b721b39068ac808cd8e791898e91b5ae` (EXACT 0.01 USDC, not MAX) + forward `0x077c4a30d9b5eca88a6df5ceef6abffb5adcc60c01405177c3336ff82d836cd5` (block 98,507,889) — `PaymentForwarded` id 1, token `0x754704Bc...aafb603`, recipient USDC balance delta exactly +0.01. **Two-step `approve(exact) -> payer -> PayAIForwarder -> recipient` proven on-chain.** |
 
 **NOT yet live in production.** The app still uses the existing direct-transfer
 path. Cutover requires BOTH (a) `MONAD_MAINNET_PAYAI_FORWARDER` set to the
