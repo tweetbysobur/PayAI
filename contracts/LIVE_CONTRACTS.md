@@ -60,7 +60,7 @@ MerchantRegistry above; none of those were touched.
 | Address | `0x4ce7B3036595eDA699Aebeb47b34fd4bc4F80709` |
 | Chain | Monad mainnet (143) |
 | Deployer / Contract Creator | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same key as the suite above) |
-| Owner (admin: pause + ownership only, cannot move funds) | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (EOA — can be transferred to a multisig later) |
+| Owner (admin: pause + ownership only, cannot move funds) | **`0xA282833B52b1B66D58bD2007081dCC037798C0b0`** — a Safe multisig. Transferred 2026-08-23 from the deployer EOA (`0x25b8…dc3a`) via the forwarder's `transferOwnership` (single-step); **verified on-chain by reading the contract's own immutable `owner()` getter** on MonadVision, the authoritative source. Owner can only pause / transfer ownership — never move funds. |
 | Deploy tx | `0xe78fb41e282f3aa824bc2526ee9843777af7af61de8c15fe3eb4f299e693bfb2` (block 98,496,573) |
 | Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0x4ce7B3036595eDA699Aebeb47b34fd4bc4F80709/`; green "Contract" badge on MonadVision |
 | Real native-MON test | tx `0x52e3807823dd093ee5af5affae7bc68cf9b3878d2d362880ee3ec18e7184cde8` (block 98,505,583) — 0.001 MON, `PaymentForwarded` id 0 decoded from logs, internal transfer `forwarder -> recipient` visible on MonadVision. **`payer -> PayAIForwarder -> recipient` proven on-chain.** |
