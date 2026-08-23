@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
   const routedThroughForwarder =
     forwarderAddr != null && receipt.to != null && receipt.to.toLowerCase() === forwarderAddr.toLowerCase();
   if (routedThroughForwarder) {
-    const { decodePaymentForwarded } = await import("@/lib/monad/forwarder");
+    const { decodePaymentForwarded, verifyPaymentForwarded } = await import("@/lib/monad/forwarder");
     const ev = decodePaymentForwarded(receipt.logs, forwarderAddr);
     if (ev) {
       const wantAmount =
@@ -193,12 +193,13 @@ export async function POST(req: NextRequest) {
           ? (await import("viem")).parseEther(toParseableAmount(intent.amount, 18))
           : toBaseUnits(intent.amount, getStablecoin().decimals);
       const wantToken =
-        intent.token === "MON" ? "0x0000000000000000000000000000000000000000" : getStablecoin().address.toLowerCase();
-      matched =
-        ev.payer.toLowerCase() === walletAddress.toLowerCase() &&
-        ev.recipient.toLowerCase() === recipient.toLowerCase() &&
-        ev.token.toLowerCase() === wantToken &&
-        ev.amount === wantAmount;
+        intent.token === "MON" ? "0x0000000000000000000000000000000000000000" : getStablecoin().address;
+      matched = verifyPaymentForwarded(ev, {
+        payer: walletAddress as `0x${string}`,
+        recipient: recipient as `0x${string}`,
+        token: wantToken as `0x${string}`,
+        amountUnits: wantAmount,
+      });
     }
     if (!matched) {
       await releaseRequest(confirmKey);

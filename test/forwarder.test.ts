@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import { encodeAbiParameters, decodeFunctionData, parseEther, parseUnits, toEventHash, pad, numberToHex } from "viem";
 import {
   PAYAI_FORWARDER_ABI,
+  ERC20_ALLOWANCE_APPROVE_ABI,
   buildForwardNativeTx,
   buildForwardErc20Tx,
+  buildApproveForwarderTx,
+  forwardAmountUnits,
   decodePaymentForwarded,
+  verifyPaymentForwarded,
   toRef,
 } from "@/lib/monad/forwarder";
 
-const FWD = "0x00000000000000000000000000000000000f0rwd" as const as `0x${string}`;
+const FWD = "0x7777777777777777777777777777777777777777" as `0x${string}`;
 const WALLET = "0x1111111111111111111111111111111111111111" as `0x${string}`;
 const RECIP = "0x2222222222222222222222222222222222222222" as `0x${string}`;
 const TOKEN = "0x3333333333333333333333333333333333333333" as `0x${string}`;
@@ -51,6 +55,65 @@ describe("forwarder calldata builders", () => {
     expect(a).toBe(b);
     expect(a).not.toBe(`0x${"0".repeat(64)}`);
     expect(toRef("different")).not.toBe(a);
+  });
+});
+
+describe("buildApproveForwarderTx (exact-amount ERC-20 approval)", () => {
+  const MAX_UINT256 = (2n ** 256n) - 1n;
+
+  it("approves the FORWARDER as spender for the EXACT amount, never MAX_UINT256", () => {
+    const tx = buildApproveForwarderTx(TOKEN, WALLET, FWD, 50, 6);
+    expect(tx.to.toLowerCase()).toBe(TOKEN.toLowerCase()); // approval targets the token
+    expect(tx.from).toBe(WALLET);
+    expect(tx.value).toBe("0x0");
+    const decoded = decodeFunctionData({ abi: ERC20_ALLOWANCE_APPROVE_ABI, data: tx.data });
+    expect(decoded.functionName).toBe("approve");
+    const [spender, amount] = decoded.args as readonly unknown[];
+    expect((spender as string).toLowerCase()).toBe(FWD.toLowerCase()); // spender is ALWAYS the forwarder
+    expect(amount).toBe(parseUnits("50", 6)); // exact
+    expect(amount).not.toBe(MAX_UINT256); // never unlimited
+  });
+
+  it("the approved amount exactly equals what the forward will pull (no drift)", () => {
+    const approve = buildApproveForwarderTx(TOKEN, WALLET, FWD, 50, 6);
+    const [, approvedAmount] = decodeFunctionData({ abi: ERC20_ALLOWANCE_APPROVE_ABI, data: approve.data }).args as readonly unknown[];
+    expect(approvedAmount).toBe(forwardAmountUnits(50, 6));
+    // ...and the forward tx encodes that same amount.
+    const forward = buildForwardErc20Tx(FWD, WALLET, TOKEN, RECIP, 50, 6, "r");
+    const forwardAmount = (decodeFunctionData({ abi: PAYAI_FORWARDER_ABI, data: forward.data }).args as readonly unknown[])[2];
+    expect(forwardAmount).toBe(approvedAmount);
+  });
+});
+
+describe("verifyPaymentForwarded (result verification — never trust client amounts)", () => {
+  const base = () => ({
+    ev: { id: 1n, payer: WALLET, recipient: RECIP, token: TOKEN, amount: parseUnits("50", 6), ref: toRef("r") },
+    expected: { payer: WALLET, recipient: RECIP, token: TOKEN, amountUnits: parseUnits("50", 6) },
+  });
+
+  it("passes when payer, recipient, token and amount all match", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, expected)).toBe(true);
+  });
+  it("fails on a payer mismatch", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, { ...expected, payer: "0x4444444444444444444444444444444444444444" })).toBe(false);
+  });
+  it("fails on a recipient mismatch", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, { ...expected, recipient: "0x5555555555555555555555555555555555555555" })).toBe(false);
+  });
+  it("fails on a token mismatch", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, { ...expected, token: "0x6666666666666666666666666666666666666666" })).toBe(false);
+  });
+  it("fails on an amount mismatch (even off by one base unit)", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, { ...expected, amountUnits: parseUnits("50", 6) + 1n })).toBe(false);
+  });
+  it("is case-insensitive on addresses (checksummed vs lowercase both match)", () => {
+    const { ev, expected } = base();
+    expect(verifyPaymentForwarded(ev, { ...expected, payer: WALLET.toUpperCase().replace("0X", "0x") as `0x${string}` })).toBe(true);
   });
 });
 

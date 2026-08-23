@@ -39,6 +39,19 @@ export interface PaymentIntent extends IntentBase {
    */
   execution?: {
     unsignedTx: { to: string; data: string; value?: string; from: string };
+    /**
+     * OPTIONAL pre-step, present ONLY when an ERC-20 payment is routed through
+     * PayAIForwarder AND the user's current allowance to the forwarder is below
+     * the amount. It's an exact-amount `approve(PayAIForwarder, amount)` on the
+     * token, signed FIRST (see executeSendPayment); the forward tx above is
+     * signed second. Absent for native MON, for the direct-transfer path, and
+     * whenever the existing allowance already covers the amount — so the common
+     * case stays a single signature. This is not a second operation: it's one
+     * extra pre-signature inside the SAME payment operation.
+     */
+    approvalTx?: { to: string; data: string; value?: string; from: string } | null;
+    /** Human label for the approval step, e.g. "Approve 50 USDC for PayAI". */
+    approvalLabel?: string | null;
     confirmRawText: string;
     requestId?: string;
   };
