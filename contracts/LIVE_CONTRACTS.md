@@ -46,6 +46,34 @@ None of these three appear in any `deployed-*.json` file in this
 directory — see "Where all three came from" below for why that's expected,
 not alarming.
 
+## PayAIForwarder — deployed + verified + tested on mainnet, 2026-08-23
+
+The on-chain footprint for INTERACTIVE, user-signed payments (Step 8.1–8.3).
+Separate, non-upgradeable contract; holds no funds, has no agent role, cannot
+move anyone's money — the payer is always `msg.sender` and funds route
+`payer -> PayAIForwarder -> recipient` in one atomic tx with a canonical
+`PaymentForwarded` event. Unrelated to PaymentExecutor / AutomationVault /
+MerchantRegistry above; none of those were touched.
+
+| Field | Value |
+|---|---|
+| Address | `0x4ce7B3036595eDA699Aebeb47b34fd4bc4F80709` |
+| Chain | Monad mainnet (143) |
+| Deployer / Contract Creator | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same key as the suite above) |
+| Owner (admin: pause + ownership only, cannot move funds) | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (EOA — can be transferred to a multisig later) |
+| Deploy tx | `0xe78fb41e282f3aa824bc2526ee9843777af7af61de8c15fe3eb4f299e693bfb2` (block 98,496,573) |
+| Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0x4ce7B3036595eDA699Aebeb47b34fd4bc4F80709/`; green "Contract" badge on MonadVision |
+| Real native-MON test | tx `0x52e3807823dd093ee5af5affae7bc68cf9b3878d2d362880ee3ec18e7184cde8` (block 98,505,583) — 0.001 MON, `PaymentForwarded` id 0 decoded from logs, internal transfer `forwarder -> recipient` visible on MonadVision. **`payer -> PayAIForwarder -> recipient` proven on-chain.** |
+| Real ERC-20 (USDC) test | approve `0xe44ea195eec5421c30675f81df1952f0b721b39068ac808cd8e791898e91b5ae` (EXACT 0.01 USDC, not MAX) + forward `0x077c4a30d9b5eca88a6df5ceef6abffb5adcc60c01405177c3336ff82d836cd5` (block 98,507,889) — `PaymentForwarded` id 1, token `0x754704Bc...aafb603`, recipient USDC balance delta exactly +0.01. **Two-step `approve(exact) -> payer -> PayAIForwarder -> recipient` proven on-chain.** |
+
+**NOT yet live in production.** The app still uses the existing direct-transfer
+path. Cutover requires BOTH (a) `MONAD_MAINNET_PAYAI_FORWARDER` set to the
+address above in Vercel AND (b) `PAYAI_FORWARDER_ENABLED=true` — see
+`lib/monad/config.ts`'s `getPayAIForwarder()` / `forwarderPaymentsEnabled()`
+(fail-closed: both required). Rollback is simply unsetting the flag; nothing
+on-chain changes. Compiler for re-verification: solc `0.8.24`, optimizer on,
+200 runs, single-file `contracts/PayAIForwarder.sol`, MIT.
+
 `/api/automation-config` also returned `wmon: 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`
 and `usdc: 0x754704Bc059F8C67012fEd69BC8A327a5aafb603` — both match the
 addresses hardcoded in `lib/monad/swap.ts` and `lib/monad/kuruSwap.ts`

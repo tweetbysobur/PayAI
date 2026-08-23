@@ -392,32 +392,88 @@ export async function POST(req: NextRequest) {
       // silently moves the wrong asset — so branch explicitly on the token.
       const { parseEther, parseUnits, encodeFunctionData } = await import("viem");
       const { toParseableAmount } = await import("@/lib/monad/verify");
+      // PayAIForwarder gives an interactive payment a PayAI on-chain footprint
+      // (User -> PayAIForwarder -> recipient) instead of a raw transfer. Gated
+      // by forwarderPaymentsEnabled() (address configured + flag on), so with
+      // the flag off — production today — every branch below is exactly the
+      // original direct-transfer build. When enabled, BOTH native MON and
+      // ERC-20 route through the forwarder: native is a single tx; ERC-20 also
+      // returns an exact-amount approval pre-step when (and only when) the
+      // user's current allowance to the forwarder is below the amount — signed
+      // first, in the SAME payment operation (see executeSendPayment).
+      const { forwarderPaymentsEnabled, getPayAIForwarder } = await import("@/lib/monad/config");
+      const forwarderOn = forwarderPaymentsEnabled();
       let unsignedTx: { to: string; data: string; value: string; from: string };
+      // Optional exact-amount approval pre-step (ERC-20-through-forwarder only).
+      let approvalTx: { to: string; data: string; value: string; from: string } | null = null;
+      let approvalLabel: string | null = null;
       if (intent.token === "MON") {
-        unsignedTx = {
-          to: intent.recipient,
-          data: "0x",
-          // toParseableAmount, not String() — a sub-1e-6 MON amount
-          // stringifies to exponential notation, which parseEther rejects,
-          // and this is the main build path for every user-signed payment.
-          value: `0x${parseEther(toParseableAmount(intent.amount, 18)).toString(16)}`,
-          from: walletAddress,
-        };
+        if (forwarderOn) {
+          const forwarder = getPayAIForwarder()!;
+          const { buildForwardNativeTx } = await import("@/lib/monad/forwarder");
+          unsignedTx = buildForwardNativeTx(
+            forwarder, walletAddress as `0x${string}`, intent.recipient as `0x${string}`, intent.amount, requestId,
+          );
+        } else {
+          unsignedTx = {
+            to: intent.recipient,
+            data: "0x",
+            // toParseableAmount, not String() — a sub-1e-6 MON amount
+            // stringifies to exponential notation, which parseEther rejects,
+            // and this is the main build path for every user-signed payment.
+            value: `0x${parseEther(toParseableAmount(intent.amount, 18)).toString(16)}`,
+            from: walletAddress,
+          };
+        }
       } else {
         const { getStablecoin } = await import("@/lib/monad/config");
         const usdc = getStablecoin();
-        const data = encodeFunctionData({
-          abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }],
-          functionName: "transfer",
-          args: [intent.recipient as `0x${string}`, parseUnits(toParseableAmount(intent.amount, usdc.decimals), usdc.decimals)],
-        });
-        unsignedTx = { to: usdc.address, data, value: "0x0", from: walletAddress };
+        if (forwarderOn) {
+          const forwarder = getPayAIForwarder()!;
+          const { buildForwardErc20Tx, buildApproveForwarderTx, forwardAmountUnits, ERC20_ALLOWANCE_APPROVE_ABI } = await import("@/lib/monad/forwarder");
+          unsignedTx = buildForwardErc20Tx(
+            forwarder, walletAddress as `0x${string}`, usdc.address, intent.recipient as `0x${string}`,
+            intent.amount, usdc.decimals, requestId,
+          );
+          // Only request an approval when the CURRENT on-chain allowance is
+          // short — an existing sufficient allowance means the user signs just
+          // the forward. The spender is ALWAYS the forwarder (never client-
+          // supplied) and the amount is EXACT (never MAX_UINT256).
+          const needed = forwardAmountUnits(intent.amount, usdc.decimals);
+          try {
+            const { getPublicClient } = await import("@/lib/monad/wallet");
+            const current = (await getPublicClient().readContract({
+              address: usdc.address, abi: ERC20_ALLOWANCE_APPROVE_ABI, functionName: "allowance",
+              args: [walletAddress as `0x${string}`, forwarder],
+            })) as bigint;
+            if (current < needed) {
+              approvalTx = buildApproveForwarderTx(usdc.address, walletAddress as `0x${string}`, forwarder, intent.amount, usdc.decimals);
+              approvalLabel = `Approve ${intent.amount} ${usdc.symbol} for PayAI`;
+            }
+          } catch {
+            // Couldn't read allowance (RPC hiccup) — fail safe by requesting the
+            // exact approval rather than risking a forward that reverts for a
+            // missing allowance. A redundant approval is harmless (exact amount);
+            // a missing one wastes the user a reverted tx.
+            approvalTx = buildApproveForwarderTx(usdc.address, walletAddress as `0x${string}`, forwarder, intent.amount, usdc.decimals);
+            approvalLabel = `Approve ${intent.amount} ${usdc.symbol} for PayAI`;
+          }
+        } else {
+          const data = encodeFunctionData({
+            abi: [{ name: "transfer", type: "function", stateMutability: "nonpayable", inputs: [{ name: "to", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ name: "", type: "bool" }] }],
+            functionName: "transfer",
+            args: [intent.recipient as `0x${string}`, parseUnits(toParseableAmount(intent.amount, usdc.decimals), usdc.decimals)],
+          });
+          unsignedTx = { to: usdc.address, data, value: "0x0", from: walletAddress };
+        }
       }
-      trace.push({ step: "execution", status: "info", detail: "Approved — sign with your connected wallet to settle." });
+      trace.push({ step: "execution", status: "info", detail: approvalTx ? "Approved — sign the token approval, then the payment." : "Approved — sign with your connected wallet to settle." });
       const readyBody = {
         decision: "ready_to_sign",
         intent, source, guardrail, compliance, risk, riskScore: risk.score, trace,
         unsignedTx,
+        approvalTx,
+        approvalLabel,
         confirmRawText: text,
         requestId,
         success: false,

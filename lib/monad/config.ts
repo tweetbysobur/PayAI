@@ -169,6 +169,34 @@ export function getAutomationVault(): `0x${string}` | null {
     : pickAddr(process.env.MONAD_TESTNET_AUTOMATION_VAULT, process.env.MONAD_AUTOMATION_VAULT);
 }
 
+/**
+ * PayAIForwarder contract for the active network — the on-chain footprint for
+ * INTERACTIVE, user-signed payments (see contracts/PayAIForwarder.sol). Returns
+ * null unless the address is explicitly configured for this network, exactly
+ * like getPaymentExecutor()/getAutomationVault(): an unset env var must NEVER
+ * silently route real payments at a zero/guessed address. Combined with
+ * forwarderPaymentsEnabled() below, this is the feature flag — with no address
+ * configured, interactive payments keep using the existing direct-transfer path
+ * unchanged, so nothing changes in production until this is deliberately set.
+ */
+export function getPayAIForwarder(): `0x${string}` | null {
+  const net = getNetwork();
+  return net === "mainnet"
+    ? pickAddr(process.env.MONAD_MAINNET_PAYAI_FORWARDER)
+    : pickAddr(process.env.MONAD_TESTNET_PAYAI_FORWARDER, process.env.MONAD_PAYAI_FORWARDER);
+}
+
+/**
+ * Whether interactive payments should route through PayAIForwarder. Two gates,
+ * BOTH required (fail-closed): the address must be configured for this network,
+ * AND PAYAI_FORWARDER_ENABLED must be explicitly "true". Either missing → the
+ * existing direct-transfer path is used, so this is a controlled rollout with a
+ * one-flag rollback, never a silent cutover.
+ */
+export function forwarderPaymentsEnabled(): boolean {
+  return getPayAIForwarder() !== null && process.env.PAYAI_FORWARDER_ENABLED === "true";
+}
+
 // The canonical Wrapped MON token on Monad mainnet — the same address
 // lib/monad/tokenRegistry.ts's CURATED_MAINNET list already trusts as
 // "verified" (sourced from the project's Monad address reference, never
