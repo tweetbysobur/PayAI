@@ -37,6 +37,12 @@ export interface AgentResult {
   error?: string;
   unsignedTx?: { to: string; data: string; value?: string; from: string };
   confirmRawText?: string;
+  // Interactive ERC-20 payments through PayAIForwarder are a two-step:
+  // approve the EXACT amount first, then forward. Present only when the
+  // current allowance is short (native MON and sufficient-allowance ERC-20
+  // both omit it). See app/api/agent/route.ts.
+  approvalTx?: { to: string; data: string; value?: string; from: string } | null;
+  approvalLabel?: string | null;
 }
 export interface Health {
   model: string;
@@ -86,6 +92,10 @@ export interface PendingConfirmation {
   token: string;
   amount: number | null;
   network: string;
+  // When set, this ERC-20 payment routes through PayAIForwarder and needs a
+  // one-time exact-amount approval signed BEFORE the forward (see confirmSign).
+  approvalTx?: { to: string; data: string; value?: string; from: string } | null;
+  approvalLabel?: string | null;
 }
 
 export interface InfoResult {
@@ -356,10 +366,24 @@ export function useAgentConsole() {
     unsignedTx: { to: string; data: string; value?: string; from: string },
     confirmRawText: string,
     requestId?: string,
+    approvalTx?: { to: string; data: string; value?: string; from: string } | null,
   ): Promise<"settled" | "broadcast" | "not-sent"> {
     setWalletBusy(true);
     let broadcastHash: string | null = null;
     try {
+      // Interactive ERC-20 through the forwarder is a two-step: approve the
+      // EXACT amount first, then forward. This runs BEFORE the payment is
+      // broadcast, so a declined or reverted approval moves no funds and is
+      // always safe to retry — only after it confirms do we sign the payment.
+      // (Native MON and sufficient-allowance ERC-20 send no approvalTx.)
+      if (approvalTx) {
+        const approvalHash = await wallet.sendTransaction(approvalTx);
+        const approvalReceipt = await wallet.waitForReceipt(approvalHash);
+        if ((approvalReceipt as { status?: string })?.status === "reverted") {
+          setErr("The token approval failed on-chain. No funds were transferred — you can safely try again.");
+          return "not-sent";
+        }
+      }
       const hash = await wallet.sendTransaction(unsignedTx);
       broadcastHash = hash;
       // The wallet has now broadcast a REAL transaction — persist immediately,
@@ -528,7 +552,7 @@ export function useAgentConsole() {
     if (!pendingConfirm) return;
     const pending = pendingConfirm;
     setPendingConfirm(null);
-    const outcome = await signAndConfirm(pending.unsignedTx, pending.confirmRawText, pending.requestId);
+    const outcome = await signAndConfirm(pending.unsignedTx, pending.confirmRawText, pending.requestId, pending.approvalTx);
     if (outcome === "not-sent") setPendingConfirm(pending);
   }
 
@@ -625,6 +649,8 @@ export function useAgentConsole() {
           token: json.intent.token,
           amount: json.intent.amount,
           network: json.intent.network,
+          approvalTx: json.approvalTx ?? null,
+          approvalLabel: json.approvalLabel ?? null,
         });
         return;
       }
