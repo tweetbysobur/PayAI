@@ -125,6 +125,46 @@ export function buildForwardErc20Tx(
   return { to: forwarder, data, value: "0x0", from: walletAddress };
 }
 
+/** ERC-20 allowance/approve — the minimal pair the forwarder ERC-20 flow needs.
+ *  `allowance` is read (route-side) to decide whether an approval is required;
+ *  `approve` is encoded here for the exact-amount pre-step. */
+export const ERC20_ALLOWANCE_APPROVE_ABI = [
+  { type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
+] as const;
+
+/**
+ * Build the EXACT-amount approval tx for the forwarder ERC-20 flow:
+ *   User -> token.approve(PayAIForwarder, amountUnits)
+ * The spender is ALWAYS the forwarder (never client-supplied), the amount is
+ * exactly the payment amount (never MAX_UINT256), and the payer/owner is the
+ * user's own wallet (from). `amount` is a human string in the token's units;
+ * `amountUnits` must be computed identically to buildForwardErc20Tx so the
+ * approval covers exactly the forward.
+ */
+export function buildApproveForwarderTx(
+  token: Address,
+  walletAddress: Address,
+  forwarder: Address,
+  amount: number,
+  decimals: number,
+): ForwarderUnsignedTx {
+  const amountUnits = parseUnits(toParseableAmount(amount, decimals), decimals);
+  const data = encodeFunctionData({
+    abi: ERC20_ALLOWANCE_APPROVE_ABI,
+    functionName: "approve",
+    args: [forwarder, amountUnits],
+  });
+  return { to: token, data, value: "0x0", from: walletAddress };
+}
+
+/** The exact base-units amount a forward will pull — so the route can compare
+ *  it against the on-chain allowance with no rounding drift between the
+ *  approval, the allowance check, and the forward. */
+export function forwardAmountUnits(amount: number, decimals: number): bigint {
+  return parseUnits(toParseableAmount(amount, decimals), decimals);
+}
+
 export interface DecodedPaymentForwarded {
   id: bigint;
   payer: Address;
@@ -163,6 +203,33 @@ export function decodePaymentForwarded(
     }
   }
   return null;
+}
+
+/** The approved payment a PaymentForwarded event must match, in on-chain
+ *  terms — native MON uses the zero address as its token sentinel. */
+export interface ExpectedForward {
+  payer: Address;
+  recipient: Address;
+  /** address(0) for native MON, else the ERC-20 contract. */
+  token: Address;
+  amountUnits: bigint;
+}
+
+/**
+ * The single source of truth for "did this PaymentForwarded event match the
+ * payment we approved?" — pure, so it's unit-testable for every mismatch
+ * (payer / recipient / token / amount). Case-insensitive on addresses, exact
+ * on the amount. Used by /api/agent/confirm; a false result means the tx must
+ * NOT be reported as a successful PayAI payment, even if it otherwise
+ * succeeded on-chain.
+ */
+export function verifyPaymentForwarded(ev: DecodedPaymentForwarded, expected: ExpectedForward): boolean {
+  return (
+    ev.payer.toLowerCase() === expected.payer.toLowerCase() &&
+    ev.recipient.toLowerCase() === expected.recipient.toLowerCase() &&
+    ev.token.toLowerCase() === expected.token.toLowerCase() &&
+    ev.amount === expected.amountUnits
+  );
 }
 
 export type { Hash };
