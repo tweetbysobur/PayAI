@@ -60,7 +60,7 @@ const FOOTER_COLUMNS = [
 
 interface Onchain {
   configured?: boolean;
-  contracts?: { executorExplorer: string };
+  contracts?: { executorExplorer: string; forwarderExplorer?: string | null };
 }
 
 export function SiteFooter() {
@@ -136,13 +136,27 @@ export function SiteFooter() {
             <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
             <span className="hidden h-3 w-px bg-border sm:inline" />
             {onchain?.configured && onchain.contracts ? (
-              <a
-                href={onchain.contracts.executorExplorer}
-                target="_blank" rel="noreferrer"
-                className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
-              >
-                <BadgeCheck size={13} /> Contract Live on Monad
-              </a>
+              <>
+                <a
+                  href={onchain.contracts.executorExplorer}
+                  target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
+                >
+                  <BadgeCheck size={13} /> Payment Executor Live on Monad
+                </a>
+                {onchain.contracts.forwarderExplorer ? (
+                  <>
+                    <span className="hidden h-3 w-px bg-border sm:inline" />
+                    <a
+                      href={onchain.contracts.forwarderExplorer}
+                      target="_blank" rel="noreferrer"
+                      className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
+                    >
+                      <BadgeCheck size={13} /> Payment Forwarder Live on Monad
+                    </a>
+                  </>
+                ) : null}
+              </>
             ) : (
               <span className="flex items-center gap-1.5 text-muted-foreground/60">
                 <BadgeCheck size={13} /> Contract status unavailable
