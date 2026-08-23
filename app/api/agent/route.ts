@@ -392,17 +392,36 @@ export async function POST(req: NextRequest) {
       // silently moves the wrong asset — so branch explicitly on the token.
       const { parseEther, parseUnits, encodeFunctionData } = await import("viem");
       const { toParseableAmount } = await import("@/lib/monad/verify");
+      // PayAIForwarder gives an interactive payment a PayAI on-chain footprint
+      // (User -> PayAIForwarder -> recipient) instead of a raw transfer. Gated
+      // by forwarderPaymentsEnabled() (address configured + flag on), so with
+      // the flag off — production today — every branch below is exactly the
+      // original direct-transfer build. Native MON routes through the forwarder
+      // when enabled; ERC-20 still uses the existing direct path here (routing
+      // ERC-20 through the forwarder needs an approve+forward two-step, which
+      // is a separate change to the single-tx interactive payment flow — see
+      // the Step 8.1 report).
+      const { forwarderPaymentsEnabled, getPayAIForwarder } = await import("@/lib/monad/config");
+      const forwarderOn = forwarderPaymentsEnabled();
       let unsignedTx: { to: string; data: string; value: string; from: string };
       if (intent.token === "MON") {
-        unsignedTx = {
-          to: intent.recipient,
-          data: "0x",
-          // toParseableAmount, not String() — a sub-1e-6 MON amount
-          // stringifies to exponential notation, which parseEther rejects,
-          // and this is the main build path for every user-signed payment.
-          value: `0x${parseEther(toParseableAmount(intent.amount, 18)).toString(16)}`,
-          from: walletAddress,
-        };
+        if (forwarderOn) {
+          const forwarder = getPayAIForwarder()!;
+          const { buildForwardNativeTx } = await import("@/lib/monad/forwarder");
+          unsignedTx = buildForwardNativeTx(
+            forwarder, walletAddress as `0x${string}`, intent.recipient as `0x${string}`, intent.amount, requestId,
+          );
+        } else {
+          unsignedTx = {
+            to: intent.recipient,
+            data: "0x",
+            // toParseableAmount, not String() — a sub-1e-6 MON amount
+            // stringifies to exponential notation, which parseEther rejects,
+            // and this is the main build path for every user-signed payment.
+            value: `0x${parseEther(toParseableAmount(intent.amount, 18)).toString(16)}`,
+            from: walletAddress,
+          };
+        }
       } else {
         const { getStablecoin } = await import("@/lib/monad/config");
         const usdc = getStablecoin();
