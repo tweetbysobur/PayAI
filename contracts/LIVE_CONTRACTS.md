@@ -66,13 +66,24 @@ MerchantRegistry above; none of those were touched.
 | Real native-MON test | tx `0x52e3807823dd093ee5af5affae7bc68cf9b3878d2d362880ee3ec18e7184cde8` (block 98,505,583) — 0.001 MON, `PaymentForwarded` id 0 decoded from logs, internal transfer `forwarder -> recipient` visible on MonadVision. **`payer -> PayAIForwarder -> recipient` proven on-chain.** |
 | Real ERC-20 (USDC) test | approve `0xe44ea195eec5421c30675f81df1952f0b721b39068ac808cd8e791898e91b5ae` (EXACT 0.01 USDC, not MAX) + forward `0x077c4a30d9b5eca88a6df5ceef6abffb5adcc60c01405177c3336ff82d836cd5` (block 98,507,889) — `PaymentForwarded` id 1, token `0x754704Bc...aafb603`, recipient USDC balance delta exactly +0.01. **Two-step `approve(exact) -> payer -> PayAIForwarder -> recipient` proven on-chain.** |
 
-**NOT yet live in production.** The app still uses the existing direct-transfer
-path. Cutover requires BOTH (a) `MONAD_MAINNET_PAYAI_FORWARDER` set to the
-address above in Vercel AND (b) `PAYAI_FORWARDER_ENABLED=true` — see
+**LIVE in production as of 2026-08-23.** Both `MONAD_MAINNET_PAYAI_FORWARDER`
+(the address above) and `PAYAI_FORWARDER_ENABLED=true` are set in Vercel, so
+interactive native + ERC-20 payments now route through the forwarder — see
 `lib/monad/config.ts`'s `getPayAIForwarder()` / `forwarderPaymentsEnabled()`
-(fail-closed: both required). Rollback is simply unsetting the flag; nothing
-on-chain changes. Compiler for re-verification: solc `0.8.24`, optimizer on,
-200 runs, single-file `contracts/PayAIForwarder.sol`, MIT.
+(fail-closed: both required). Rollback is simply setting the flag to `false`;
+nothing on-chain changes. Compiler for re-verification: solc `0.8.24`, optimizer
+on, 200 runs, single-file `contracts/PayAIForwarder.sol`, MIT.
+
+Production canary (real payments through the live app, usepayai.xyz):
+
+| Canary | Proof |
+|---|---|
+| USDC | tx `0x246d2e2ef1a6c7222e4487fa5d414a1953a6dce6b0bdf559d433b9de02609793` (block 98,516,844) — method `ForwardPayment`, `gentle.nad → 0x8EED…364F` for 1 USDC via the forwarder, two-step approve→forward. |
+| Native MON | tx `0xe5a06379438a6423578d492d23a9691ff4a01304d3460e79f2c0cebddca76f1b` (block 98,517,095) — method `ForwardPaymentNative`, internal transfer `forwarder → 0x8EED…364F` for 1 MON. |
+
+The public footer (`components/landing/SiteFooter.tsx`) links this address as
+"Payment Forwarder Live on Monad", sourced from `/api/onchain`'s
+`contracts.forwarderExplorer`.
 
 `/api/automation-config` also returned `wmon: 0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`
 and `usdc: 0x754704Bc059F8C67012fEd69BC8A327a5aafb603` — both match the
