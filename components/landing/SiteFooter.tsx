@@ -60,7 +60,7 @@ const FOOTER_COLUMNS = [
 
 interface Onchain {
   configured?: boolean;
-  contracts?: { executorExplorer: string; forwarderExplorer?: string | null };
+  contracts?: { executorExplorer: string; forwarderExplorer?: string | null; tradeExecutorExplorer?: string | null };
 }
 
 export function SiteFooter() {
@@ -151,6 +151,20 @@ export function SiteFooter() {
                 <BadgeCheck size={13} /> Contract status unavailable
               </span>
             )}
+            {onchain?.configured && onchain.contracts?.tradeExecutorExplorer ? (
+              // A second badge for the interactive-trade executor, shown only
+              // once it's genuinely live (see /api/onchain's gating).
+              <>
+                <span className="hidden h-3 w-px bg-border sm:inline" />
+                <a
+                  href={onchain.contracts.tradeExecutorExplorer}
+                  target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
+                >
+                  <BadgeCheck size={13} /> Trade Executor Live on Monad
+                </a>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
