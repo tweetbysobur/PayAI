@@ -251,6 +251,41 @@ contract PayAITradeExecutor {
         require(wmon.balanceOf(address(this)) == 0, "wmon retained");
     }
 
+    /// Exact-input Uniswap V3 single-hop: exact-amount approve, swap, reset. Kept
+    /// in its own private frame so the public adapter stays under the stack limit.
+    function _swapUniswap(
+        address swapIn,
+        address swapOut,
+        uint24 poolFee,
+        uint256 net,
+        uint256 minOut,
+        address recipient
+    ) private {
+        require(IERC20(swapIn).approve(uniswapRouter, net), "approve failed");
+        IUniswapV3Router(uniswapRouter).exactInputSingle(
+            IUniswapV3Router.ExactInputSingleParams({
+                tokenIn: swapIn,
+                tokenOut: swapOut,
+                fee: poolFee,
+                recipient: recipient,
+                amountIn: net,
+                amountOutMinimum: minOut, // router-side floor; re-checked by delta in the adapter
+                sqrtPriceLimitX96: 0
+            })
+        );
+        require(IERC20(swapIn).approve(uniswapRouter, 0), "approve reset failed");
+    }
+
+    /// Kuru market call in its own private frame (buy/sell), keeping the public
+    /// adapter under the stack limit. Native input is attached as `nativeValue`.
+    function _executeKuru(address market, bool isBuy, uint96 kuruSize, uint256 minOut, uint256 nativeValue) private {
+        if (isBuy) {
+            IKuruMarket(market).placeAndExecuteMarketBuy{value: nativeValue}(kuruSize, minOut, false, true);
+        } else {
+            IKuruMarket(market).placeAndExecuteMarketSell{value: nativeValue}(kuruSize, minOut, false, true);
+        }
+    }
+
     /* ── Uniswap V3 adapter ──────────────────────────────────────────────── */
     /**
      * Exact-input Uniswap V3 single-hop trade. `tokenIn`/`tokenOut == address(0)`
@@ -275,34 +310,23 @@ contract PayAITradeExecutor {
 
         (uint256 fee, uint256 net) = _pullAndFee(tokenIn, grossAmountIn, tradeId);
 
-        // Resolve the actual swap tokens: native legs use WMON on the pool side.
-        address swapIn = tokenIn == NATIVE ? address(wmon) : tokenIn;
-        address swapOut = tokenOut == NATIVE ? address(wmon) : tokenOut;
-
         if (tokenIn == NATIVE) {
             wmon.deposit{value: net}(); // executor wraps the net itself
         }
 
-        // Exact-amount approval for exactly `net`, never MAX.
-        require(IERC20(swapIn).approve(uniswapRouter, net), "approve failed");
-
         // Native out → send WMON here, then unwrap+forward. ERC-20 out → user directly.
-        address swapRecipient = tokenOut == NATIVE ? address(this) : user;
         uint256 userOutBefore = _balanceOf(tokenOut, user);
 
-        IUniswapV3Router.ExactInputSingleParams memory p = IUniswapV3Router.ExactInputSingleParams({
-            tokenIn: swapIn,
-            tokenOut: swapOut,
-            fee: poolFee,
-            recipient: swapRecipient,
-            amountIn: net,
-            amountOutMinimum: minOut, // router-side floor; we re-check by delta below
-            sqrtPriceLimitX96: 0
-        });
-        IUniswapV3Router(uniswapRouter).exactInputSingle(p);
-
-        // Reset the approval to zero (no lingering allowance).
-        require(IERC20(swapIn).approve(uniswapRouter, 0), "approve reset failed");
+        // Isolated stack frame (approve → swap → reset). Native legs use WMON on
+        // the pool side; the recipient is set by THIS contract, never the caller.
+        _swapUniswap(
+            tokenIn == NATIVE ? address(wmon) : tokenIn,
+            tokenOut == NATIVE ? address(wmon) : tokenOut,
+            poolFee,
+            net,
+            minOut,
+            tokenOut == NATIVE ? address(this) : user
+        );
 
         if (tokenOut == NATIVE) {
             // Unwrap the WMON we received and forward native MON to the user.
@@ -347,32 +371,25 @@ contract PayAITradeExecutor {
 
         (uint256 fee, uint256 net) = _pullAndFee(tokenIn, grossAmountIn, tradeId);
 
-        uint256 nativeValue = 0;
-        if (tokenIn == NATIVE) {
-            nativeValue = net; // attach the net as msg.value to Kuru
-        } else {
-            require(IERC20(tokenIn).approve(market, net), "approve failed");
+        if (tokenIn != NATIVE) {
+            require(IERC20(tokenIn).approve(market, net), "approve failed"); // exact-amount, never MAX
         }
 
         uint256 userOutBefore = _balanceOf(tokenOut, user);
 
-        if (isBuy) {
-            IKuruMarket(market).placeAndExecuteMarketBuy{value: nativeValue}(kuruSize, minOut, false, true);
-        } else {
-            IKuruMarket(market).placeAndExecuteMarketSell{value: nativeValue}(kuruSize, minOut, false, true);
-        }
+        // Native input is attached as msg.value; ERC-20 input was approved above.
+        _executeKuru(market, isBuy, kuruSize, minOut, tokenIn == NATIVE ? net : 0);
 
         // Reset any ERC-20 approval to zero.
         if (tokenIn != NATIVE) require(IERC20(tokenIn).approve(market, 0), "approve reset failed");
 
-        // Forward the output Kuru delivered to THIS contract on to the user.
-        uint256 got = _balanceOf(tokenOut, address(this));
+        // Kuru has no recipient, so output landed in THIS contract — forward it.
+        // Native output is this contract's own native balance (MON from a buy);
+        // ERC-20 output is its token balance.
         if (tokenOut == NATIVE) {
-            // Native output is measured as this contract's own native balance
-            // (it received MON from the buy). Deliver it all to the user.
             _deliver(NATIVE, user, address(this).balance);
         } else {
-            _deliver(tokenOut, user, got);
+            _deliver(tokenOut, user, _balanceOf(tokenOut, address(this)));
         }
 
         // Refund any residual input Kuru did not consume.
