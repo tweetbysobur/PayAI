@@ -23,7 +23,7 @@ export async function GET() {
   try {
     const { executorEnabled, getOnchainStats, getOnchainPayments, getOnchainMerchants, getOnchainRequests } =
       await import("@/lib/monad/contracts");
-    const { explorerTx, explorerAddress, getPaymentExecutor, getMerchantRegistry, getPayAIForwarder } =
+    const { explorerTx, explorerAddress, getPaymentExecutor, getMerchantRegistry, getPayAIForwarder, getPayAITradeExecutor, tradeExecutorEnabled } =
       await import("@/lib/monad/config");
 
     if (!executorEnabled()) {
@@ -50,6 +50,12 @@ export async function GET() {
         // public footer only links it once it's genuinely live.
         forwarder: getPayAIForwarder(),
         forwarderExplorer: getPayAIForwarder() ? explorerAddress(getPayAIForwarder() as string) : null,
+        // The interactive-trade executor (PayAITradeExecutor). Surfaced only
+        // when it's genuinely LIVE — address configured AND the flag on
+        // (tradeExecutorEnabled) — so the public footer never advertises it
+        // while trades still use the direct path.
+        tradeExecutor: tradeExecutorEnabled() ? getPayAITradeExecutor() : null,
+        tradeExecutorExplorer: tradeExecutorEnabled() && getPayAITradeExecutor() ? explorerAddress(getPayAITradeExecutor() as string) : null,
       },
       stats,
       payments,
