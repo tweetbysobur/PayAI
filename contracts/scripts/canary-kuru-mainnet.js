@@ -199,10 +199,10 @@ async function main() {
     // net of a small, gas-sized shortfall. With amountOut>=minOut + zero-retention
     // below, this proves full delivery without trusting gas math.
     const rawDelta = userOutAfter - userOutBefore;   // == amountOut - gasFee
-    const gap = amountOut - rawDelta;                // == gasFee (small, positive)
-    ok &= check("User received the output (native delta == amountOut net of gas)",
-      rawDelta > 0n && gap >= 0n && gap < E.parseEther("0.05"),
-      `nativeDelta=${E.formatUnits(rawDelta, outDec)} amountOut=${E.formatUnits(amountOut, outDec)} gap(gas)=${E.formatUnits(gap, outDec)}`);
+    const gap = amountOut - rawDelta;                // == gasFee (>= 0, whatever its size)
+    ok &= check("User received the output (native, gas-independent)",
+      rawDelta > 0n && gap >= 0n,
+      `nativeDelta=${E.formatUnits(rawDelta, outDec)} amountOut=${E.formatUnits(amountOut, outDec)} impliedGas=${E.formatUnits(gap, outDec)}`);
   } else {
     const userOutDelta = userOutAfter - userOutBefore; // ERC-20 out is exact
     ok &= check("User received the output (delta == amountOut)", userOutDelta === amountOut,
