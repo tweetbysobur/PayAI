@@ -107,11 +107,13 @@ async function main() {
 
   // Quote via a real callStatic simulation of the exact market order (minOut=0),
   // from the zero address with NO value — mirroring kuruSwap.ts.
-  const market = new E.Contract(MARKET, ORDERBOOK_ABI, user);
+  // Provider-connected (NO signer) so ethers permits the zero-address `from`
+  // override on this read-only estimate — matching kuruSwap.ts's viem simulate.
+  const marketRead = new E.Contract(MARKET, ORDERBOOK_ABI, E.provider);
   const fn = isBuy ? "placeAndExecuteMarketBuy" : "placeAndExecuteMarketSell";
   let simOut;
   try {
-    simOut = await market[fn].staticCall(kuruSize, 0n, false, false, { from: NATIVE });
+    simOut = await marketRead[fn].staticCall(kuruSize, 0n, false, false, { from: NATIVE });
   } catch (e) {
     throw new Error(`Kuru simulate (${fn}) failed — cannot size the canary safely: ${e.shortMessage || e.message}`);
   }
