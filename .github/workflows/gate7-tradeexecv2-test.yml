@@ -1,0 +1,23 @@
+name: Gate7 TradeExecutorV2 Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hardhat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Gate 7 branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/bitv-s3ctfc
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install contract deps
+        working-directory: contracts
+        run: npm ci
+      - name: Run Hardhat tests
+        working-directory: contracts
+        run: npx hardhat test
