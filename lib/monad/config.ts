@@ -197,6 +197,33 @@ export function forwarderPaymentsEnabled(): boolean {
   return getPayAIForwarder() !== null && process.env.PAYAI_FORWARDER_ENABLED === "true";
 }
 
+/**
+ * PayAITradeExecutor — the on-chain footprint for INTERACTIVE, user-signed
+ * TRADES on Uniswap V3 and Kuru (deployed + canaried in Gate 4). Same
+ * fail-closed contract as getPayAIForwarder(): an unset env var must NEVER
+ * silently route a real trade at a zero/guessed address, so with no address
+ * configured the app keeps using its existing direct-to-router trade path
+ * unchanged. Nad.Fun is intentionally NOT served by this contract — it stays
+ * on its own direct route regardless of this flag.
+ */
+export function getPayAITradeExecutor(): `0x${string}` | null {
+  const net = getNetwork();
+  return net === "mainnet"
+    ? pickAddr(process.env.MONAD_MAINNET_PAYAI_TRADE_EXECUTOR)
+    : pickAddr(process.env.MONAD_TESTNET_PAYAI_TRADE_EXECUTOR, process.env.MONAD_PAYAI_TRADE_EXECUTOR);
+}
+
+/**
+ * Whether interactive trades should route through PayAITradeExecutor. Two
+ * gates, BOTH required (fail-closed): the address must be configured for this
+ * network, AND PAYAI_TRADE_EXECUTOR_ENABLED must be explicitly "true". Either
+ * missing → the existing direct-to-router path is used, so this is a
+ * controlled rollout with a one-flag rollback, never a silent cutover.
+ */
+export function tradeExecutorEnabled(): boolean {
+  return getPayAITradeExecutor() !== null && process.env.PAYAI_TRADE_EXECUTOR_ENABLED === "true";
+}
+
 // The canonical Wrapped MON token on Monad mainnet — the same address
 // lib/monad/tokenRegistry.ts's CURATED_MAINNET list already trusts as
 // "verified" (sourced from the project's Monad address reference, never
