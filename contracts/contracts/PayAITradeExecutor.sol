@@ -305,10 +305,27 @@ contract PayAITradeExecutor {
         require(tokenIn != tokenOut, "same token");
         require(minOut > 0, "zero minOut");
         require(block.timestamp <= deadline, "expired");
-        address user = msg.sender;
         uint256 tradeId = tradeCount++;
 
         (uint256 fee, uint256 net) = _pullAndFee(tokenIn, grossAmountIn, tradeId);
+        // The whole swap/deliver/verify body lives in its own frame so this
+        // adapter stays well under the EVM stack limit (no viaIR needed).
+        amountOut = _runUniswap(tokenIn, tokenOut, poolFee, net, minOut);
+
+        emit TradeExecuted(tradeId, msg.sender, VENUE_UNISWAP, tokenIn, tokenOut, grossAmountIn, amountOut, fee);
+    }
+
+    /// Swap → (unwrap native out) → refund residual → measure user delta →
+    /// enforce minOut → assert zero retention. Runs inside the caller's
+    /// nonReentrant lock. `net` is the post-fee input; `msg.sender` is the user.
+    function _runUniswap(
+        address tokenIn,
+        address tokenOut,
+        uint24 poolFee,
+        uint256 net,
+        uint256 minOut
+    ) private returns (uint256 amountOut) {
+        address user = msg.sender;
 
         if (tokenIn == NATIVE) {
             wmon.deposit{value: net}(); // executor wraps the net itself
@@ -317,8 +334,6 @@ contract PayAITradeExecutor {
         // Native out → send WMON here, then unwrap+forward. ERC-20 out → user directly.
         uint256 userOutBefore = _balanceOf(tokenOut, user);
 
-        // Isolated stack frame (approve → swap → reset). Native legs use WMON on
-        // the pool side; the recipient is set by THIS contract, never the caller.
         _swapUniswap(
             tokenIn == NATIVE ? address(wmon) : tokenIn,
             tokenOut == NATIVE ? address(wmon) : tokenOut,
@@ -341,8 +356,6 @@ contract PayAITradeExecutor {
         amountOut = _balanceOf(tokenOut, user) - userOutBefore;
         require(amountOut >= minOut, "insufficient output");
         _assertZeroRetention(tokenIn, tokenOut);
-
-        emit TradeExecuted(tradeId, user, VENUE_UNISWAP, tokenIn, tokenOut, grossAmountIn, amountOut, fee);
     }
 
     /* ── Kuru adapter ────────────────────────────────────────────────────── */
@@ -366,10 +379,29 @@ contract PayAITradeExecutor {
         require(allowedKuruMarket[market], "market not allowed");
         require(tokenIn != tokenOut, "same token");
         require(minOut > 0, "zero minOut");
-        address user = msg.sender;
         uint256 tradeId = tradeCount++;
 
         (uint256 fee, uint256 net) = _pullAndFee(tokenIn, grossAmountIn, tradeId);
+        // The whole execute/forward/verify body lives in its own frame so this
+        // adapter stays well under the EVM stack limit (no viaIR needed).
+        amountOut = _runKuru(market, isBuy, tokenIn, tokenOut, kuruSize, net, minOut);
+
+        emit TradeExecuted(tradeId, msg.sender, VENUE_KURU, tokenIn, tokenOut, grossAmountIn, amountOut, fee);
+    }
+
+    /// Approve (exact) → execute market order → reset approval → forward output
+    /// → refund residual → measure user delta → enforce minOut → assert zero
+    /// retention. Runs inside the caller's nonReentrant lock. `msg.sender` is user.
+    function _runKuru(
+        address market,
+        bool isBuy,
+        address tokenIn,
+        address tokenOut,
+        uint96 kuruSize,
+        uint256 net,
+        uint256 minOut
+    ) private returns (uint256 amountOut) {
+        address user = msg.sender;
 
         if (tokenIn != NATIVE) {
             require(IERC20(tokenIn).approve(market, net), "approve failed"); // exact-amount, never MAX
@@ -398,7 +430,5 @@ contract PayAITradeExecutor {
         amountOut = _balanceOf(tokenOut, user) - userOutBefore;
         require(amountOut >= minOut, "insufficient output");
         _assertZeroRetention(tokenIn, tokenOut);
-
-        emit TradeExecuted(tradeId, user, VENUE_KURU, tokenIn, tokenOut, grossAmountIn, amountOut, fee);
     }
 }
