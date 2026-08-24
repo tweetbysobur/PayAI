@@ -55,7 +55,6 @@ export function Sidebar() {
         <Logo size={32} />
         <div>
           <p className="text-sm font-semibold leading-none text-foreground">PayAI</p>
-          <p className="text-[11px] leading-none text-muted-foreground">AI-Powered Payments</p>
         </div>
       </Link>
 

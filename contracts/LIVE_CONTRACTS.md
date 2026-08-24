@@ -103,10 +103,26 @@ PaymentExecutor / AutomationVault / MerchantRegistry / PayAIForwarder — none
 were touched. **Nad.Fun is NOT included** here; the existing direct-to-router
 Nad.Fun path is unchanged.
 
-> **NOT enabled in production.** Neither `MONAD_MAINNET_PAYAI_TRADE_EXECUTOR`
-> nor `PAYAI_TRADE_EXECUTOR_ENABLED` is set in Vercel. The app still routes
-> trades through its existing path. Enabling is a separate, deliberate
-> app-integration step, intentionally not done as part of Gate 4.
+> **LIVE in production as of 2026-08-24** (Gate 5). Both
+> `MONAD_MAINNET_PAYAI_TRADE_EXECUTOR` (the address below) and
+> `PAYAI_TRADE_EXECUTOR_ENABLED=true` are set in Vercel, so interactive Ask
+> PayAI trades on **Uniswap V3 + Kuru** now route through this executor — see
+> `lib/monad/config.ts`'s `getPayAITradeExecutor()` / `tradeExecutorEnabled()`
+> (fail-closed: both required) and `lib/monad/tradeExecutor.ts`. Rollback is
+> simply setting the flag to `false`; nothing on-chain changes. **Nad.Fun
+> stays on its own direct route regardless of this flag.**
+>
+> First live production trade (validation): tx
+> `0xd1a5642cdd254e41f076adda717fb8bf345c817f45f096265d0df484c469047b`
+> (block 98,703,131) — method `TradeKuruExactInput`, USDC → MON via the Kuru
+> MON/USDC market. The executor pulled the input, took the 0.25% fee, approved
+> the market for the **net** (0.09975 of 0.1) and reset the approval to 0, and
+> forwarded the MON output to the user; `TradeExecuted` emitted. Interacted-with
+> contract on the explorer is `0xF17a…63b69` (the executor), not the router —
+> proving the interactive-trade path now routes through PayAITradeExecutor.
+> The public footer surfaces this as a "Trade Executor Live on Monad" badge
+> (`/api/onchain`'s `contracts.tradeExecutorExplorer`, shown only while the
+> flag is on).
 
 | Field | Value |
 |---|---|
