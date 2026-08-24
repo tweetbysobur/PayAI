@@ -21,7 +21,7 @@ function confirmedTradeMessage(overrides: Partial<{ outputToken: string; receive
     data: {
       action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: overrides.receiveToken ?? "RANDO" },
       rate: "x", minimumReceived: "x", priceImpact: "0.30%", highPriceImpact: false,
-      route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(),
+      route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null,
     },
     execution: { request: { action: "buy", inputToken: "USDC", outputToken: overrides.outputToken ?? TOKEN, amount: "50", amountType: "exact_input", slippage: null } },
   };
@@ -64,7 +64,7 @@ describe("findLastConfirmedTrade — only a real, settled trade counts", () => {
   it("ignores a trade preview that was only shown, never confirmed", () => {
     const intent: TradePreviewIntent = {
       kind: "trade_preview", network: "monad",
-      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() },
+      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null },
       execution: { request: { action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", slippage: null } },
     };
     const op: Operation = { id: "op_1", intent, status: "ready" }; // never confirmed
@@ -75,7 +75,7 @@ describe("findLastConfirmedTrade — only a real, settled trade counts", () => {
   it("ignores a trade that errored (reverted) -- not a real settled result", () => {
     const intent: TradePreviewIntent = {
       kind: "trade_preview", network: "monad",
-      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() },
+      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null },
     };
     const op: Operation = { id: "op_1", intent, status: "error", error: { message: "reverted", code: "REVERTED" } };
     const found = findLastConfirmedTrade([{ id: "m1", role: "assistant", content: "x", createdAt: Date.now(), operation: op }]);
@@ -159,7 +159,7 @@ describe("cost — the deterministic follow-up path never spends an Anthropic ca
   });
 
   it("'can I sell what I just bought' reversed into a trade Understanding dispatches directly -- zero Anthropic calls", async () => {
-    const { restore } = mockFetch(() => ({ ok: true, action: "sell", spend: { amount: "12345", token: "RANDO" }, receive: { amount: "49.8", token: "USDC" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["RANDO", "USDC"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }));
+    const { restore } = mockFetch(() => ({ ok: true, action: "sell", spend: { amount: "12345", token: "RANDO" }, receive: { amount: "49.8", token: "USDC" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["RANDO", "USDC"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }));
     try {
       // Exactly what sellLastPurchase constructs from a confirmed trade's own
       // execution.request (received side becomes input, spent side becomes output).

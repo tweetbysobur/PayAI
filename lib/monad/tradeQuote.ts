@@ -40,13 +40,14 @@
  */
 import "server-only";
 import type { Address } from "viem";
-import { getNetwork } from "./config";
+import { getNetwork, tradeExecutorEnabled } from "./config";
 import { resolveToken } from "./tokenRegistry";
 import {
   bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
   quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
 } from "./swap";
 import { buildNadFunBuyPlan, buildNadFunSellPlan, nadFunQuote } from "./nadfun";
+import { buildKuruExecutorPlan, buildUniswapExecutorPlan, getExecutorFeeBps } from "./tradeExecutor";
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 import { toParseableAmount } from "./verify";
@@ -90,6 +91,11 @@ export interface TradePreviewOk {
   slippage: string;
   network: "Monad";
   quotedAt: number;
+  /** The PayAI platform fee for this trade — present only when it will route
+   *  through PayAITradeExecutor (Uniswap/Kuru with the flag on). null when the
+   *  trade uses a direct path (Nad.Fun, or the flag off) and pays no PayAI fee.
+   *  When present, `receive`/`minimumReceived` are already NET of this fee. */
+  fee: { percent: string; amount: string; token: string } | null;
 }
 
 export interface TradePreviewErr {
@@ -252,6 +258,15 @@ function fmt(n: number): string {
   return n.toFixed(n !== 0 && Math.abs(n) < 1 ? 8 : 4);
 }
 
+/** Providers whose trades route through PayAITradeExecutor when the flag is on
+ *  — Uniswap (any pool) and Kuru (allowlisted markets). A non-allowlisted Kuru
+ *  market silently falls back to the direct path at build time, delivering the
+ *  slightly-larger no-fee amount, so treating it as executor-eligible in the
+ *  preview only ever under-promises. Nad.Fun is never executor-routed. */
+function isExecutorVenue(provider: string): boolean {
+  return /uniswap/i.test(provider) || provider === "Kuru";
+}
+
 /**
  * The single entry point. Every validation step the spec asks for runs here,
  * in order, and any failure returns an honest `ok: false` message — never a
@@ -305,16 +320,32 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   const route = await getTradeRoute(inputSide, outputSide, amountStr);
   if (!route) return { ok: false, message: `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
 
-  const amountOutNum = Number(route.amountOut);
-  const rate = amountResult.amount > 0 ? amountOutNum / amountResult.amount : 0;
-  const minReceived = amountOutNum * (1 - slippageResult.slippage);
+  const grossOut = Number(route.amountOut);
+  // When this trade will route through PayAITradeExecutor (Uniswap/Kuru, flag
+  // on), the executor takes its fee off the input and swaps only the net, so
+  // the honest "you receive" is net of that fee. Nad.Fun and the flag-off path
+  // pay no PayAI fee, so their numbers are unchanged. The net figure here is an
+  // estimate (gross scaled by the fee); prepareTradeExecution re-quotes the net
+  // exactly and sets the real on-chain minOut.
+  let fee: TradePreviewOk["fee"] = null;
+  let effOut = grossOut;
+  let effReceiveStr = route.amountOut;
+  if (tradeExecutorEnabled() && isExecutorVenue(route.provider)) {
+    const feeBps = await getExecutorFeeBps();
+    effOut = grossOut * (1 - feeBps / 10000);
+    effReceiveStr = fmt(effOut);
+    fee = { percent: `${(feeBps / 100).toFixed(2)}%`, amount: fmt(amountResult.amount * (feeBps / 10000)), token: inputSide.symbol };
+  }
+
+  const rate = amountResult.amount > 0 ? effOut / amountResult.amount : 0;
+  const minReceived = effOut * (1 - slippageResult.slippage);
   const impactFraction = route.priceImpact ? parseFloat(route.priceImpact) / 100 : null;
 
   return {
     ok: true,
     action: req.action,
     spend: { amount: amountStr, token: inputSide.symbol },
-    receive: { amount: route.amountOut, token: outputSide.symbol },
+    receive: { amount: effReceiveStr, token: outputSide.symbol },
     rate: `1 ${inputSide.symbol} ≈ ${fmt(rate)} ${outputSide.symbol}`,
     minimumReceived: `${fmt(minReceived)} ${outputSide.symbol}`,
     priceImpact: route.priceImpact,
@@ -323,6 +354,7 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
     slippage: `${(slippageResult.slippage * 100).toFixed(2)}%`,
     network: "Monad",
     quotedAt: Date.now(),
+    fee,
   };
 }
 
@@ -419,8 +451,31 @@ export async function prepareTradeExecution(
 
   const wallet = req.walletAddress as Address;
   try {
-    let steps: UnsignedStep[];
-    if (inputSide.verified && outputSide.verified) {
+    let steps: UnsignedStep[] | null = null;
+
+    // Gate 5 — route through PayAITradeExecutor when enabled and the venue is
+    // executor-eligible (Uniswap any pool; Kuru allowlisted markets). Nad.Fun
+    // is never executor-routed. A non-allowlisted Kuru market returns null here
+    // and falls through to the existing direct path below, so nothing reverts.
+    // The executor builders re-quote/size on the NET the executor actually
+    // swaps — the same net the preview's fee line reflected.
+    if (tradeExecutorEnabled() && isExecutorVenue(preview.route.provider)) {
+      if (preview.route.provider === "Kuru") {
+        const kplan = await buildKuruExecutorPlan(inputSide.symbol, outputSide.symbol, inputSide.decimals, preview.spend.amount, slippageFraction, wallet);
+        if (kplan) steps = kplan.steps;
+      } else {
+        const uplan = await buildUniswapExecutorPlan(
+          inputSide.address, inputSide.symbol, inputSide.decimals, inputSide.isNative,
+          outputSide.address, outputSide.symbol, outputSide.decimals, outputSide.isNative,
+          preview.spend.amount, slippageFraction, wallet,
+        );
+        steps = uplan.steps;
+      }
+    }
+
+    if (steps) {
+      // executor path already built
+    } else if (inputSide.verified && outputSide.verified) {
       const plan = await getSwapProvider().buildPlan(inputSide.symbol, outputSide.symbol, Number(preview.spend.amount), wallet, slippageFraction);
       steps = plan.steps;
     } else if (preview.route.provider === "Nad.Fun") {

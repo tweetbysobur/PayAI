@@ -111,7 +111,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
       data: {
         action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" },
         rate: "1 USDC ≈ 246.9 RANDO", minimumReceived: "12283.28 RANDO", priceImpact: "0.30%", highPriceImpact: false,
-        route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(),
+        route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null,
         ...overrides,
       },
       execution: { request: { action: "buy", inputToken: "USDC", outputToken: "0xaaaabbbbccccddddeeeeffff0000111122223333", amount: "50", amountType: "exact_input", slippage: null } },
@@ -142,7 +142,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
       preview: {
         action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "9000", token: "RANDO" },
         rate: "1 USDC ≈ 180 RANDO", minimumReceived: "8950 RANDO", priceImpact: "5.00%", highPriceImpact: false,
-        route: { provider: "Kuru", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(),
+        route: { provider: "Kuru", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null,
       },
     }));
     const sendTransaction = vi.fn();
@@ -188,7 +188,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     const steps = [{ kind: "swap", label: "Trade 50 USDC for RANDO", tx: { to: "0xRouterAddress00000000000000000000000000", data: "0xdead", value: "0x0" } }];
     const { calls, restore } = mockFetch((url) => {
       if (url === "/api/ask/trade/build") {
-        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }, steps };
+        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }, steps };
       }
       return { success: true, explorerUrl: "https://explorer.monad.xyz/tx/0xtrade" };
     });
@@ -216,7 +216,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     ];
     const { calls, restore } = mockFetch((url) => {
       if (url === "/api/ask/trade/build") {
-        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }, steps };
+        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }, steps };
       }
       return { success: true, explorerUrl: "https://explorer.monad.xyz/tx/0xtrade2" };
     });
@@ -240,7 +240,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
   it("the user rejecting the wallet signature is reported honestly, never as a silent hang or a fabricated success", async () => {
     const { executeTradeIntent } = await import("@/lib/ask/intent/orchestrate");
     const steps = [{ kind: "swap", label: "Trade", tx: { to: "0xRouterAddress00000000000000000000000000", data: "0xdead", value: "0x0" } }];
-    const { restore } = mockFetch(() => ({ ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }, steps }));
+    const { restore } = mockFetch(() => ({ ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }, steps }));
     try {
       const wallet = { sendTransaction: vi.fn().mockRejectedValue(new Error("User rejected the request")), waitForReceipt: vi.fn() };
       const result = await executeTradeIntent(tradeOperation(), wallet, WALLET);
@@ -257,7 +257,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     globalThis.fetch = (async (url: string) => {
       call += 1;
       if (String(url) === "/api/ask/trade/build") {
-        return new Response(JSON.stringify({ ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }, steps }), { status: 200 });
+        return new Response(JSON.stringify({ ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }, steps }), { status: 200 });
       }
       throw new Error("RPC timeout confirming");
     }) as unknown as typeof fetch;
@@ -277,7 +277,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     const steps = [{ kind: "swap", label: "Trade", tx: { to: "0xRouterAddress00000000000000000000000000", data: "0xdead", value: "0x0" } }];
     const { restore } = mockFetch((url) => {
       if (url === "/api/ask/trade/build") {
-        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() }, steps };
+        return { ok: true, status: "ready", preview: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null }, steps };
       }
       return { success: false, reverted: true, error: "This trade failed on-chain. No tokens were traded." };
     });
@@ -308,7 +308,7 @@ describe("CONFIRMABLE_KINDS / findReadyConfirmableOperation — a bare 'yes' can
     const { findReadyConfirmableOperation } = await import("@/lib/ask/useAskChat");
     const intent: TradePreviewIntent = {
       kind: "trade_preview", network: "monad",
-      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() },
+      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null },
       execution: { request: { action: "buy", inputToken: "USDC", outputToken: "RANDO", amount: "50", amountType: "exact_input", slippage: null } },
     };
     const op: Operation = { id: "op_1", intent, status: "ready" };
@@ -320,7 +320,7 @@ describe("CONFIRMABLE_KINDS / findReadyConfirmableOperation — a bare 'yes' can
     const { findReadyConfirmableOperation } = await import("@/lib/ask/useAskChat");
     const intent: TradePreviewIntent = {
       kind: "trade_preview", network: "monad",
-      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now() },
+      data: { action: "buy", spend: { amount: "50", token: "USDC" }, receive: { amount: "12345", token: "RANDO" }, rate: "x", minimumReceived: "x", priceImpact: null, highPriceImpact: false, route: { provider: "Uniswap v3", path: ["USDC", "RANDO"] }, slippage: "0.50%", network: "Monad", quotedAt: Date.now(), fee: null },
     };
     // status can only be "success" for an execution-less preview (see
     // tradePreviewCard) — "ready" is unreachable without execution, but this
