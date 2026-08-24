@@ -12,22 +12,36 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 let network: "mainnet" | "testnet" = "mainnet";
-let executorEnabled = false;
-vi.mock("@/lib/monad/config", () => ({ getNetwork: () => network, tradeExecutorEnabled: () => executorEnabled }));
+vi.mock("@/lib/monad/config", () => ({ getNetwork: () => network }));
 
 // PayAITradeExecutor plan builders (lib/monad/tradeExecutor.ts) — stubbed so
-// these tests exercise tradeQuote's routing/fee logic without a real RPC. Only
-// invoked when executorEnabled is true (fail-closed flag).
+// these tests exercise tradeQuote's routing/fee logic without a real RPC.
+// selectExecutor mirrors the real Gate 7 dispatch: V2 (when enabled) serves
+// all three venues, superseding V1 for Uniswap/Kuru; V1 (when enabled) serves
+// Uniswap/Kuru only (Nad.Fun was never built into V1); otherwise null (the
+// existing direct path).
+const V1 = "0xF17a916280321Ddb657c8EDd26B2a729F6E63b69";
+const V2_ADDR = "0x2222222222222222222222222222222222222222";
+let v1Enabled = false;
+let v2Enabled = false;
 let executorFeeBps = 25;
 interface StubStep2 { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }
 let uniExecPlanImpl: (...a: unknown[]) => Promise<{ steps: StubStep2[]; amountOut: string; priceImpact: string | null; feeBps: number; feeAmount: string }> =
   async () => ({ steps: [{ kind: "swap", label: "exec uni", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
 let kuruExecPlanImpl: (...a: unknown[]) => Promise<{ steps: StubStep2[]; amountOut: string; priceImpact: string | null; feeBps: number; feeAmount: string } | null> =
   async () => ({ steps: [{ kind: "swap", label: "exec kuru", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
+let nadExecPlanImpl: (...a: unknown[]) => Promise<{ steps: StubStep2[]; amountOut: string; priceImpact: string | null; feeBps: number; feeAmount: string } | null> =
+  async () => ({ steps: [{ kind: "swap", label: "exec nadfun", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
 vi.mock("@/lib/monad/tradeExecutor", () => ({
   getExecutorFeeBps: async () => executorFeeBps,
+  selectExecutor: (venue: "uniswap" | "kuru" | "nadfun") => {
+    if (v2Enabled) return V2_ADDR;
+    if (v1Enabled && (venue === "uniswap" || venue === "kuru")) return V1;
+    return null;
+  },
   buildUniswapExecutorPlan: (...a: unknown[]) => uniExecPlanImpl(...a),
   buildKuruExecutorPlan: (...a: unknown[]) => kuruExecPlanImpl(...a),
+  buildNadFunExecutorPlan: (...a: unknown[]) => nadExecPlanImpl(...a),
 }));
 
 let resolveTokenImpl: (address: string) => Promise<{ address: string; symbol: string; name: string; decimals: number; verified: boolean }> = async () => {
@@ -102,8 +116,12 @@ vi.mock("@/lib/monad/prices", () => ({ getUsdPrice: (address: string) => getUsdP
 afterEach(() => {
   vi.restoreAllMocks();
   network = "mainnet";
-  executorEnabled = false;
+  v1Enabled = false;
+  v2Enabled = false;
   executorFeeBps = 25;
+  uniExecPlanImpl = async () => ({ steps: [{ kind: "swap", label: "exec uni", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
+  kuruExecPlanImpl = async () => ({ steps: [{ kind: "swap", label: "exec kuru", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
+  nadExecPlanImpl = async () => ({ steps: [{ kind: "swap", label: "exec nadfun", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
   resolveTokenImpl = async () => { throw new Error("not an ERC-20"); };
   bestQuoteImpl = async () => { throw new Error("no route"); };
   quoteUniswapDirectImpl = async () => null;
@@ -750,7 +768,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
   });
 
   it("flag ON + Uniswap: preview quotes NET and discloses the 0.25% PayAI fee", async () => {
-    executorEnabled = true;
+    v1Enabled = true;
     bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
     const { previewTrade } = await import("@/lib/monad/tradeQuote");
     const p = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
@@ -764,7 +782,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
   });
 
   it("flag ON + Uniswap: build routes through the executor plan, never the direct router", async () => {
-    executorEnabled = true;
+    v1Enabled = true;
     bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
     buildPlanImpl = async () => { throw new Error("must not use the direct getSwapProvider().buildPlan when the executor is on"); };
     let called = false;
@@ -778,7 +796,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
   });
 
   it("flag ON + Kuru (allowlisted): build routes through the Kuru executor plan", async () => {
-    executorEnabled = true;
+    v1Enabled = true;
     bestQuoteImpl = async () => ({ provider: { name: "Kuru" }, quote: { amountOut: 1000, priceImpact: null } });
     let called = false;
     kuruExecPlanImpl = async () => { called = true; return { steps: [{ kind: "swap", label: "exec kuru", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "997.5", priceImpact: null, feeBps: 25, feeAmount: "0.25" }; };
@@ -791,7 +809,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
   });
 
   it("flag ON + Kuru (NOT allowlisted): falls back to the direct path, never reverts", async () => {
-    executorEnabled = true;
+    v1Enabled = true;
     bestQuoteImpl = async () => ({ provider: { name: "Kuru" }, quote: { amountOut: 1000, priceImpact: null } });
     kuruExecPlanImpl = async () => null; // market not on the executor allowlist
     let directCalled = false;
@@ -804,8 +822,8 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
     expect(r.steps[0].label).toBe("direct kuru");
   });
 
-  it("flag ON + Nad.Fun: never executor-routed, no PayAI fee, uses the direct Nad.Fun plan", async () => {
-    executorEnabled = true;
+  it("V1 ON + Nad.Fun: never executor-routed (V1 doesn't support it), no PayAI fee, uses the direct Nad.Fun plan", async () => {
+    v1Enabled = true;
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
     nadFunQuoteImpl = async (_t, _d, _a, isBuy) => (isBuy ? { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "500", isBuy: true } : null);
     let nadCalled = false;
@@ -821,5 +839,132 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
     if (!r.ok || r.status !== "ready") return;
     expect(nadCalled).toBe(true);
     expect(r.steps[0].label).toBe("nadfun buy");
+  });
+});
+
+describe("PayAITradeExecutor V2 dispatch — Nad.Fun via the executor (Gate 7)", () => {
+  beforeEach(() => { getTokenBalanceImpl = async () => 1_000_000; });
+
+  it("V2 configured: Uniswap still routes through the executor plan (V2 supersedes V1 for existing venues)", async () => {
+    v2Enabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    buildPlanImpl = async () => { throw new Error("must not use the direct path when V2 is configured"); };
+    let called = false;
+    uniExecPlanImpl = async () => { called = true; return { steps: [{ kind: "swap", label: "exec uni v2", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "997.5", priceImpact: null, feeBps: 25, feeAmount: "0.25" }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps[0].label).toBe("exec uni v2");
+  });
+
+  it("V2 configured: Kuru still routes through the executor plan", async () => {
+    v2Enabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Kuru" }, quote: { amountOut: 1000, priceImpact: null } });
+    let called = false;
+    kuruExecPlanImpl = async () => { called = true; return { steps: [{ kind: "swap", label: "exec kuru v2", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "997.5", priceImpact: null, feeBps: 25, feeAmount: "0.25" }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: "MON", outputToken: "USDC", amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps[0].label).toBe("exec kuru v2");
+  });
+
+  it("V2 configured: previewing a Nad.Fun BUY discloses the same 0.25% PayAI fee Uniswap/Kuru already show", async () => {
+    v2Enabled = true;
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async (_t, _d, amount, isBuy) => { expect(amount).toBe("1"); expect(isBuy).toBe(true); return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true }; };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.fee).not.toBeNull();
+    expect(p.fee!.percent).toBe("0.25%");
+    expect(p.fee!.token).toBe("MON");
+    expect(Number(p.receive.amount)).toBeCloseTo(9000 * 0.9975, 3); // net of the 0.25% fee
+  });
+
+  it("V2 configured: a Nad.Fun BUY builds through buildNadFunExecutorPlan (bonding-curve router), never the direct bonding-curve path", async () => {
+    v2Enabled = true;
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true }); // BondingCurveRouter
+    buildNadFunBuyPlanImpl = async () => { throw new Error("must not use the direct Nad.Fun path once V2 is configured and accepts the plan"); };
+    let called = false;
+    nadExecPlanImpl = async (execAddr, token, symbol, decimals, isBuy, amount, _slip, wallet) => {
+      called = true;
+      expect(execAddr).toBe(V2_ADDR);
+      expect((token as string).toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(symbol).toBe("MEOW");
+      expect(decimals).toBe(18);
+      expect(isBuy).toBe(true);
+      expect(amount).toBe("1");
+      expect(wallet).toBe(WALLET);
+      return { steps: [{ kind: "swap", label: "exec nadfun buy (bonding curve)", tx: { to: V2_ADDR, data: "0xdead", value: "0xde0b6b3a7640000" } }], amountOut: "8977.5", priceImpact: null, feeBps: 25, feeAmount: "0.0025" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps[0].label).toBe("exec nadfun buy (bonding curve)");
+  });
+
+  it("V2 configured: a Nad.Fun SELL (graduated DEX router) builds through buildNadFunExecutorPlan with isBuy: false", async () => {
+    v2Enabled = true;
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getTokenBalanceImpl = async () => 5000;
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x0B79d71AE99528D1dB24A4148b5f4F865cc2b137", amountOut: "0.5", isBuy: false }); // DexRouter (graduated)
+    let called = false;
+    nadExecPlanImpl = async (_exec, _token, _symbol, _decimals, isBuy, amount) => {
+      called = true;
+      expect(isBuy).toBe(false);
+      expect(amount).toBe("1000");
+      return { steps: [
+        { kind: "approve", label: "Approve MEOW for the trade", tx: { to: TOKEN, data: "0xapprove", value: "0x0" } },
+        { kind: "swap", label: "exec nadfun sell (graduated)", tx: { to: V2_ADDR, data: "0xdead", value: "0x0" } },
+      ], amountOut: "0.49875", priceImpact: null, feeBps: 25, feeAmount: "2.5" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: TOKEN, outputToken: "MON", amount: "1000", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps).toHaveLength(2);
+    expect(r.steps[1].label).toBe("exec nadfun sell (graduated)");
+  });
+
+  it("V2 configured but the router isn't on the on-chain allowlist yet: buildNadFunExecutorPlan returns null, falls back to the existing direct Nad.Fun path — never reverts", async () => {
+    v2Enabled = true;
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true });
+    nadExecPlanImpl = async () => null; // router not yet Safe-approved on V2
+    let directCalled = false;
+    buildNadFunBuyPlanImpl = async () => { directCalled = true; return { steps: [{ kind: "swap", label: "direct nadfun buy", tx: { to: "0xcurve", data: "0x", value: "0x0" } }], amountOut: "9000", router: "0xcurve" }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(directCalled).toBe(true);
+    expect(r.steps[0].label).toBe("direct nadfun buy");
+  });
+
+  it("neither V1 nor V2 configured: Uniswap/Kuru/Nad.Fun all use their existing direct paths, unchanged by Gate 7", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "9000", isBuy: true });
+    uniExecPlanImpl = async () => { throw new Error("no executor configured — must not be called"); };
+    kuruExecPlanImpl = async () => { throw new Error("no executor configured — must not be called"); };
+    nadExecPlanImpl = async () => { throw new Error("no executor configured — must not be called"); };
+    let directCalled = false;
+    buildNadFunBuyPlanImpl = async () => { directCalled = true; return { steps: [{ kind: "swap", label: "direct nadfun buy", tx: { to: "0xcurve", data: "0x", value: "0x0" } }], amountOut: "9000", router: "0xcurve" }; };
+    const { previewTrade, prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (p.ok) expect(p.fee).toBeNull();
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(directCalled).toBe(true);
   });
 });

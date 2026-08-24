@@ -224,6 +224,34 @@ export function tradeExecutorEnabled(): boolean {
   return getPayAITradeExecutor() !== null && process.env.PAYAI_TRADE_EXECUTOR_ENABLED === "true";
 }
 
+/**
+ * PayAITradeExecutorV2 (Gate 7) — a SEPARATE, non-upgradeable deployment that
+ * adds Nad.Fun as a third venue alongside Uniswap V3 + Kuru. The V1 executor
+ * (getPayAITradeExecutor() above) is untouched and stays the production
+ * Uniswap/Kuru executor until V2 is fully tested, canaried, and approved.
+ * Same fail-closed two-gate shape as V1.
+ */
+export function getPayAITradeExecutorV2(): `0x${string}` | null {
+  const net = getNetwork();
+  return net === "mainnet"
+    ? pickAddr(process.env.MONAD_MAINNET_PAYAI_TRADE_EXECUTOR_V2)
+    : pickAddr(process.env.MONAD_TESTNET_PAYAI_TRADE_EXECUTOR_V2, process.env.MONAD_PAYAI_TRADE_EXECUTOR_V2);
+}
+
+/**
+ * Whether trades should route through PayAITradeExecutorV2. Two gates, BOTH
+ * required (fail-closed): the address must be configured for this network,
+ * AND PAYAI_TRADE_EXECUTOR_V2_ENABLED must be explicitly "true". While this is
+ * off (the default — no address, no flag, unset everywhere including
+ * production), Uniswap/Kuru keep using V1 exactly as before and Nad.Fun keeps
+ * using its existing direct-to-router path. When on, V2 serves ALL THREE
+ * venues (superseding V1 for Uniswap/Kuru while it's on) — see
+ * lib/monad/tradeExecutor.ts's selectExecutor().
+ */
+export function tradeExecutorV2Enabled(): boolean {
+  return getPayAITradeExecutorV2() !== null && process.env.PAYAI_TRADE_EXECUTOR_V2_ENABLED === "true";
+}
+
 // The canonical Wrapped MON token on Monad mainnet — the same address
 // lib/monad/tokenRegistry.ts's CURATED_MAINNET list already trusts as
 // "verified" (sourced from the project's Monad address reference, never

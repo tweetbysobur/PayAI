@@ -40,14 +40,16 @@
  */
 import "server-only";
 import type { Address } from "viem";
-import { getNetwork, tradeExecutorEnabled } from "./config";
+import { getNetwork } from "./config";
 import { resolveToken } from "./tokenRegistry";
 import {
   bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
   quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
 } from "./swap";
 import { buildNadFunBuyPlan, buildNadFunSellPlan, nadFunQuote } from "./nadfun";
-import { buildKuruExecutorPlan, buildUniswapExecutorPlan, getExecutorFeeBps } from "./tradeExecutor";
+import {
+  buildKuruExecutorPlan, buildNadFunExecutorPlan, buildUniswapExecutorPlan, getExecutorFeeBps, selectExecutor, type ExecutorVenue,
+} from "./tradeExecutor";
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 import { toParseableAmount } from "./verify";
@@ -258,13 +260,17 @@ function fmt(n: number): string {
   return n.toFixed(n !== 0 && Math.abs(n) < 1 ? 8 : 4);
 }
 
-/** Providers whose trades route through PayAITradeExecutor when the flag is on
- *  — Uniswap (any pool) and Kuru (allowlisted markets). A non-allowlisted Kuru
- *  market silently falls back to the direct path at build time, delivering the
- *  slightly-larger no-fee amount, so treating it as executor-eligible in the
- *  preview only ever under-promises. Nad.Fun is never executor-routed. */
-function isExecutorVenue(provider: string): boolean {
-  return /uniswap/i.test(provider) || provider === "Kuru";
+/** Maps a route's provider name to the ExecutorVenue selectExecutor()
+ *  understands, or null for a provider that never routes through an
+ *  executor. A non-allowlisted Kuru market or Nad.Fun router silently falls
+ *  back to the direct path at build time, delivering the slightly-larger
+ *  no-fee amount, so treating a venue as executor-eligible in the preview
+ *  only ever under-promises. */
+function venueForProvider(provider: string): ExecutorVenue | null {
+  if (/uniswap/i.test(provider)) return "uniswap";
+  if (provider === "Kuru") return "kuru";
+  if (provider === "Nad.Fun") return "nadfun";
+  return null;
 }
 
 /**
@@ -330,8 +336,10 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   let fee: TradePreviewOk["fee"] = null;
   let effOut = grossOut;
   let effReceiveStr = route.amountOut;
-  if (tradeExecutorEnabled() && isExecutorVenue(route.provider)) {
-    const feeBps = await getExecutorFeeBps();
+  const previewVenue = venueForProvider(route.provider);
+  const previewExec = previewVenue ? selectExecutor(previewVenue) : null;
+  if (previewExec) {
+    const feeBps = await getExecutorFeeBps(previewExec);
     effOut = grossOut * (1 - feeBps / 10000);
     effReceiveStr = fmt(effOut);
     fee = { percent: `${(feeBps / 100).toFixed(2)}%`, amount: fmt(amountResult.amount * (feeBps / 10000)), token: inputSide.symbol };
@@ -453,18 +461,33 @@ export async function prepareTradeExecution(
   try {
     let steps: UnsignedStep[] | null = null;
 
-    // Gate 5 — route through PayAITradeExecutor when enabled and the venue is
-    // executor-eligible (Uniswap any pool; Kuru allowlisted markets). Nad.Fun
-    // is never executor-routed. A non-allowlisted Kuru market returns null here
-    // and falls through to the existing direct path below, so nothing reverts.
-    // The executor builders re-quote/size on the NET the executor actually
-    // swaps — the same net the preview's fee line reflected.
-    if (tradeExecutorEnabled() && isExecutorVenue(preview.route.provider)) {
-      if (preview.route.provider === "Kuru") {
-        const kplan = await buildKuruExecutorPlan(inputSide.symbol, outputSide.symbol, inputSide.decimals, preview.spend.amount, slippageFraction, wallet);
+    // Gate 5/7 — route through a PayAITradeExecutor when one is selected for
+    // this venue (Uniswap any pool; Kuru allowlisted markets; Nad.Fun only
+    // via V2, allowlisted routers — see selectExecutor()). Falls through to
+    // the existing direct path when no executor applies OR the venue-specific
+    // allowlist rejects it (Kuru market / Nad.Fun router not yet
+    // Safe-approved) — nothing reverts, and Nad.Fun's own direct route below
+    // is completely untouched by this branch. The executor builders
+    // re-quote/size on the NET the executor actually swaps — the same net
+    // the preview's fee line reflected.
+    const buildVenue = venueForProvider(preview.route.provider);
+    const buildExec = buildVenue ? selectExecutor(buildVenue) : null;
+    if (buildExec) {
+      if (buildVenue === "kuru") {
+        const kplan = await buildKuruExecutorPlan(buildExec, inputSide.symbol, outputSide.symbol, inputSide.decimals, preview.spend.amount, slippageFraction, wallet);
         if (kplan) steps = kplan.steps;
+      } else if (buildVenue === "nadfun") {
+        const sides = nadFunSides(inputSide, outputSide);
+        if (sides) {
+          const nplan = await buildNadFunExecutorPlan(
+            buildExec, sides.tokenSide.address, sides.tokenSide.symbol, sides.tokenSide.decimals, sides.isBuy,
+            preview.spend.amount, slippageFraction, wallet,
+          );
+          if (nplan) steps = nplan.steps;
+        }
       } else {
         const uplan = await buildUniswapExecutorPlan(
+          buildExec,
           inputSide.address, inputSide.symbol, inputSide.decimals, inputSide.isNative,
           outputSide.address, outputSide.symbol, outputSide.decimals, outputSide.isNative,
           preview.spend.amount, slippageFraction, wallet,

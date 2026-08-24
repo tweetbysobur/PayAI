@@ -1,36 +1,76 @@
 /**
- * PayAITradeExecutor integration — Gate 5.
+ * PayAITradeExecutor integration — Gate 5 (Uniswap + Kuru) / Gate 7 (+ Nad.Fun).
  *
  * Builds the unsigned `approve` + `swap` steps for an INTERACTIVE, user-signed
- * trade that routes through the deployed, Safe-owned PayAITradeExecutor
- * (Uniswap V3 + Kuru), instead of straight at the router. The executor takes a
- * 0.25% fee from the GROSS input and swaps only the NET, so every quote/minOut
- * here is sized on the NET — matching exactly what the contract does on-chain
- * (proven by the Gate 4 canaries). Nad.Fun is intentionally NOT served here; it
- * stays on its own direct route (see lib/monad/tradeQuote.ts's dispatch).
+ * trade that routes through a deployed, Safe-owned PayAITradeExecutor, instead
+ * of straight at the router. The executor takes a fee from the GROSS input and
+ * swaps only the NET, so every quote/minOut here is sized on the NET — matching
+ * exactly what the contract does on-chain (proven by the Gate 4 canaries).
  *
- * Gated by config.tradeExecutorEnabled() at the call site — with the flag off
- * (or no address configured) none of this runs and trades keep using the
- * existing direct-to-router path. Reuses swap.ts's quoteBestUniswapTier /
- * minOutWei / estimatePriceImpact and kuruSwap.ts's quoteKuruForExecutor rather
- * than re-deriving any quote/sizing logic. Server-only; never signs or submits.
+ * Two executor deployments can be configured side by side:
+ *   - V1 (0xF17a916280321Ddb657c8EDd26B2a729F6E63b69, Gate 3/4/5) — Uniswap +
+ *     Kuru only. Production default while V2 is untested.
+ *   - V2 (Gate 7) — a SEPARATE, non-upgradeable deployment adding Nad.Fun as a
+ *     third venue. When configured+enabled it serves ALL THREE venues,
+ *     superseding V1 for Uniswap/Kuru; V1 itself is never modified.
+ * selectExecutor() below is the single fail-closed dispatch point — see its
+ * own doc. Nad.Fun is NEVER served by V1 (it predates Nad.Fun support); with
+ * neither executor selected for a venue, that venue keeps using its existing
+ * direct-to-router path.
+ *
+ * Reuses swap.ts's quoteBestUniswapTier/minOutWei/estimatePriceImpact,
+ * kuruSwap.ts's quoteKuruForExecutor, and nadfun.ts's nadFunQuote (the SAME
+ * Lens-backed quote engine the direct Nad.Fun path already uses — never a
+ * second quote engine). Server-only; never signs or submits.
  */
 import "server-only";
 import { type Address, encodeFunctionData, parseUnits, formatUnits, decodeEventLog, type Log } from "viem";
 import { getPublicClient } from "./wallet";
-import { getPayAITradeExecutor, getWrappedNative } from "./config";
+import {
+  getPayAITradeExecutor, getPayAITradeExecutorV2, tradeExecutorEnabled, tradeExecutorV2Enabled, getWrappedNative,
+} from "./config";
 import { quoteBestUniswapTier, minOutWei, estimatePriceImpact, ERC20_ABI, type UnsignedStep } from "./swap";
 import { quoteKuruForExecutor } from "./kuruSwap";
+import { nadFunQuote } from "./nadfun";
 import { normalizeDecimalString } from "./verify";
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as Address;
-/** Trade deadline for the Uniswap adapter (the executor requires now <= deadline). */
+/** Trade deadline for the Uniswap/Nad.Fun adapters (the executor requires now <= deadline). */
 const DEADLINE_SECONDS = 600;
 
-/** Only the executor functions/events this module actually calls or decodes. */
+export type ExecutorVenue = "uniswap" | "kuru" | "nadfun";
+
+/**
+ * Resolves which deployed executor (if any) should serve `venue` right now —
+ * the single fail-closed dispatch point every builder/reader below is called
+ * through. V2, when configured AND explicitly enabled, serves all three
+ * venues (superseding V1 for Uniswap/Kuru while it's on). Otherwise V1, when
+ * configured AND enabled, serves Uniswap/Kuru only — it was never built with
+ * Nad.Fun support. Returns null when neither applies, so the caller falls
+ * back to the existing direct-to-router path for that venue; this is exactly
+ * how Nad.Fun behaves today (V1 never serves it) and continues to behave
+ * until V2 is deliberately turned on.
+ */
+export function selectExecutor(venue: ExecutorVenue): Address | null {
+  if (tradeExecutorV2Enabled()) {
+    const v2 = getPayAITradeExecutorV2();
+    if (v2) return v2;
+  }
+  if (venue !== "nadfun" && tradeExecutorEnabled()) {
+    const v1 = getPayAITradeExecutor();
+    if (v1) return v1;
+  }
+  return null;
+}
+
+/** Only the executor functions/events this module actually calls or decodes.
+ *  V1 doesn't implement tradeNadFunExactInput/allowedNadFunRouter — harmless,
+ *  since selectExecutor() never returns V1's address for the "nadfun" venue,
+ *  so those two fragments are only ever encoded/read against a V2 address. */
 export const TRADE_EXECUTOR_ABI = [
   { type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint16" }] },
   { type: "function", name: "allowedKuruMarket", stateMutability: "view", inputs: [{ name: "market", type: "address" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "allowedNadFunRouter", stateMutability: "view", inputs: [{ name: "router", type: "address" }], outputs: [{ type: "bool" }] },
   {
     type: "function", name: "tradeUniswapExactInput", stateMutability: "payable",
     inputs: [
@@ -48,6 +88,14 @@ export const TRADE_EXECUTOR_ABI = [
     outputs: [{ type: "uint256" }],
   },
   {
+    type: "function", name: "tradeNadFunExactInput", stateMutability: "payable",
+    inputs: [
+      { name: "router", type: "address" }, { name: "isBuy", type: "bool" }, { name: "token", type: "address" },
+      { name: "grossAmountIn", type: "uint256" }, { name: "minOut", type: "uint256" }, { name: "deadline", type: "uint256" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
     type: "event", name: "TradeExecuted",
     inputs: [
       { name: "tradeId", type: "uint256", indexed: true }, { name: "user", type: "address", indexed: true },
@@ -57,22 +105,22 @@ export const TRADE_EXECUTOR_ABI = [
   },
 ] as const;
 
-/** Short-TTL cache for the on-chain fee (the Safe can change it; a stale value
- *  would only slightly mis-estimate the preview — the build re-reads it too). */
-let feeBpsCache: { bps: number; at: number } | null = null;
+/** Short-TTL cache for an executor's live feeBps (the Safe can change it; a
+ *  stale value would only slightly mis-estimate the preview — the build
+ *  re-reads it too). Keyed per executor address since V1 and V2 can have
+ *  independently-configured fees. */
+const feeBpsCache = new Map<string, { bps: number; at: number }>();
 const FEE_TTL_MS = 60_000;
 
-/** Reads the executor's live feeBps (basis points). Falls back to 25 (the
- *  deployed value) only when no executor is configured — a path that never
- *  actually routes a trade, since tradeExecutorEnabled() gates it. */
-export async function getExecutorFeeBps(): Promise<number> {
-  const exec = getPayAITradeExecutor();
-  if (!exec) return 25;
+/** Reads `execAddr`'s live feeBps (basis points). */
+export async function getExecutorFeeBps(execAddr: Address): Promise<number> {
+  const key = execAddr.toLowerCase();
   const now = Date.now();
-  if (feeBpsCache && now - feeBpsCache.at < FEE_TTL_MS) return feeBpsCache.bps;
+  const cached = feeBpsCache.get(key);
+  if (cached && now - cached.at < FEE_TTL_MS) return cached.bps;
   const pub = getPublicClient();
-  const bps = Number(await pub.readContract({ address: exec, abi: TRADE_EXECUTOR_ABI, functionName: "feeBps" }));
-  feeBpsCache = { bps, at: now };
+  const bps = Number(await pub.readContract({ address: execAddr, abi: TRADE_EXECUTOR_ABI, functionName: "feeBps" }));
+  feeBpsCache.set(key, { bps, at: now });
   return bps;
 }
 
@@ -83,14 +131,20 @@ export function applyExecutorFee(grossWei: bigint, feeBps: number): { feeWei: bi
   return { feeWei, netWei: grossWei - feeWei };
 }
 
-/** Is this Kuru market on the executor's Safe-controlled allowlist? A trade
- *  can only route through the executor's Kuru adapter for an allowlisted
- *  market — otherwise the caller falls back to the direct Kuru path. */
-export async function isKuruMarketAllowed(market: Address): Promise<boolean> {
-  const exec = getPayAITradeExecutor();
-  if (!exec) return false;
+/** Is this Kuru market on `execAddr`'s Safe-controlled allowlist? A trade can
+ *  only route through the executor's Kuru adapter for an allowlisted market —
+ *  otherwise the caller falls back to the direct Kuru path. */
+export async function isKuruMarketAllowed(execAddr: Address, market: Address): Promise<boolean> {
   const pub = getPublicClient();
-  return (await pub.readContract({ address: exec, abi: TRADE_EXECUTOR_ABI, functionName: "allowedKuruMarket", args: [market] })) as boolean;
+  return (await pub.readContract({ address: execAddr, abi: TRADE_EXECUTOR_ABI, functionName: "allowedKuruMarket", args: [market] })) as boolean;
+}
+
+/** Is this Nad.Fun router on `execAddr`'s Safe-controlled allowlist? Mirrors
+ *  isKuruMarketAllowed exactly — the app never trusts the Lens's router pick
+ *  as safe to call without the executor independently re-validating it. */
+export async function isNadFunRouterAllowed(execAddr: Address, router: Address): Promise<boolean> {
+  const pub = getPublicClient();
+  return (await pub.readContract({ address: execAddr, abi: TRADE_EXECUTOR_ABI, functionName: "allowedNadFunRouter", args: [router] })) as boolean;
 }
 
 export interface ExecutorPlan {
@@ -104,23 +158,22 @@ export interface ExecutorPlan {
 }
 
 /**
- * Uniswap V3 exact-input through the executor. `tokenIn`/`tokenOut` are the
+ * Uniswap V3 exact-input through `execAddr`. `tokenIn`/`tokenOut` are the
  * ORIGINAL sides (native MON keeps its own decimals; the executor wraps/unwraps
  * via WMON itself and is passed address(0) for a native leg). Quotes the NET on
  * the pool-side addresses (WMON for a native leg), sets minOut from the net.
  */
 export async function buildUniswapExecutorPlan(
+  execAddr: Address,
   tokenIn: Address, tokenInSymbol: string, tokenInDecimals: number, tokenInIsNative: boolean,
   tokenOut: Address, tokenOutSymbol: string, tokenOutDecimals: number, tokenOutIsNative: boolean,
   amount: string, slippage: number, wallet: Address,
 ): Promise<ExecutorPlan> {
-  const exec = getPayAITradeExecutor();
-  if (!exec) throw new Error("The trade executor isn't configured right now.");
   const wmon = getWrappedNative();
   if ((tokenInIsNative || tokenOutIsNative) && !wmon) throw new Error("WMON isn't configured for native-MON trades right now.");
 
   const grossWei = parseUnits(normalizeDecimalString(amount, tokenInDecimals), tokenInDecimals);
-  const feeBps = await getExecutorFeeBps();
+  const feeBps = await getExecutorFeeBps(execAddr);
   const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
 
   const quoteIn = (tokenInIsNative ? wmon! : tokenIn);
@@ -135,12 +188,12 @@ export async function buildUniswapExecutorPlan(
 
   const steps: UnsignedStep[] = [];
   if (!tokenInIsNative) {
-    const allowance = (await pub.readContract({ address: tokenIn, abi: ERC20_ABI, functionName: "allowance", args: [wallet, exec] })) as bigint;
+    const allowance = (await pub.readContract({ address: tokenIn, abi: ERC20_ABI, functionName: "allowance", args: [wallet, execAddr] })) as bigint;
     if (allowance < grossWei) {
       steps.push({
         kind: "approve",
         label: `Approve ${amount} ${tokenInSymbol} for the trade`,
-        tx: { to: tokenIn, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [exec, grossWei] }), value: "0x0" },
+        tx: { to: tokenIn, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
       });
     }
   }
@@ -148,7 +201,7 @@ export async function buildUniswapExecutorPlan(
     kind: "swap",
     label: `Trade ${amount} ${tokenInSymbol} for ${tokenOutSymbol}`,
     tx: {
-      to: exec,
+      to: execAddr,
       data: encodeFunctionData({
         abi: TRADE_EXECUTOR_ABI, functionName: "tradeUniswapExactInput",
         args: [tokenInIsNative ? NATIVE : tokenIn, tokenOutIsNative ? NATIVE : tokenOut, best.fee, grossWei, minOut, deadline],
@@ -167,27 +220,26 @@ export async function buildUniswapExecutorPlan(
 }
 
 /**
- * Kuru exact-input through the executor. Resolves + sizes the market on the NET
+ * Kuru exact-input through `execAddr`. Resolves + sizes the market on the NET
  * via quoteKuruForExecutor(), then builds the executor call (approve the
  * executor for the GROSS input token when it's an ERC-20; attach the gross as
  * value when native). Returns null when Kuru doesn't serve the pair OR the
- * resolved market isn't on the executor's allowlist — the caller then falls
+ * resolved market isn't on `execAddr`'s allowlist — the caller then falls
  * back to the existing direct path.
  */
 export async function buildKuruExecutorPlan(
+  execAddr: Address,
   fromSymbol: string, toSymbol: string, inputDecimals: number,
   amount: string, slippage: number, wallet: Address,
 ): Promise<ExecutorPlan | null> {
-  const exec = getPayAITradeExecutor();
-  if (!exec) return null;
   const grossWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
-  const feeBps = await getExecutorFeeBps();
+  const feeBps = await getExecutorFeeBps(execAddr);
   const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
   const netHuman = Number(formatUnits(netWei, inputDecimals));
 
   const kq = await quoteKuruForExecutor(fromSymbol, toSymbol, netHuman, slippage);
   if (!kq) return null;
-  if (!(await isKuruMarketAllowed(kq.marketAddress))) return null; // not allowlisted → direct fallback
+  if (!(await isKuruMarketAllowed(execAddr, kq.marketAddress))) return null; // not allowlisted → direct fallback
 
   const tokenIn = kq.debitIsNative ? NATIVE : kq.debitAddress;
   const tokenOut = kq.outIsNative ? NATIVE : kq.outAddress;
@@ -195,12 +247,12 @@ export async function buildKuruExecutorPlan(
   const pub = getPublicClient();
   const steps: UnsignedStep[] = [];
   if (!kq.debitIsNative) {
-    const allowance = (await pub.readContract({ address: kq.debitAddress, abi: ERC20_ABI, functionName: "allowance", args: [wallet, exec] })) as bigint;
+    const allowance = (await pub.readContract({ address: kq.debitAddress, abi: ERC20_ABI, functionName: "allowance", args: [wallet, execAddr] })) as bigint;
     if (allowance < grossWei) {
       steps.push({
         kind: "approve",
         label: `Approve ${amount} ${fromSymbol} for the trade`,
-        tx: { to: kq.debitAddress, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [exec, grossWei] }), value: "0x0" },
+        tx: { to: kq.debitAddress, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
       });
     }
   }
@@ -208,7 +260,7 @@ export async function buildKuruExecutorPlan(
     kind: "swap",
     label: `Trade ${amount} ${fromSymbol} for ${toSymbol}`,
     tx: {
-      to: exec,
+      to: execAddr,
       data: encodeFunctionData({
         abi: TRADE_EXECUTOR_ABI, functionName: "tradeKuruExactInput",
         args: [kq.marketAddress, kq.isBuy, tokenIn, tokenOut, kq.kuruSize, grossWei, kq.minOutWei],
@@ -226,6 +278,69 @@ export async function buildKuruExecutorPlan(
   };
 }
 
+/**
+ * Nad.Fun exact-input through `execAddr` (V2 only — see selectExecutor()).
+ * `token` is always the non-MON side, regardless of direction (matches the
+ * executor's own tradeNadFunExactInput signature and nadfun.ts's convention).
+ *
+ * Reuses nadFunQuote() — the SAME Lens-backed quote engine the direct Nad.Fun
+ * path already uses — to resolve the router AND size the trade on the NET
+ * (post-fee) amount, right before building calldata (never a stale quote,
+ * matching this codebase's "always re-quote right before signing" principle
+ * — see buildKuruExecutorPlan/prepareTradeExecution). Returns null when
+ * Nad.Fun doesn't serve this token/direction OR the router the Lens named
+ * isn't on `execAddr`'s Safe-controlled allowlist — the caller then falls
+ * back to the existing direct Nad.Fun path, exactly like a non-allowlisted
+ * Kuru market does.
+ */
+export async function buildNadFunExecutorPlan(
+  execAddr: Address,
+  token: Address, tokenSymbol: string, tokenDecimals: number, isBuy: boolean,
+  amount: string, slippage: number, wallet: Address,
+): Promise<ExecutorPlan | null> {
+  const inputDecimals = isBuy ? 18 : tokenDecimals; // spending MON to buy, or spending the token to sell
+  const outputDecimals = isBuy ? tokenDecimals : 18;
+  const grossWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
+  const feeBps = await getExecutorFeeBps(execAddr);
+  const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
+  const netHuman = formatUnits(netWei, inputDecimals);
+
+  const q = await nadFunQuote(token, tokenDecimals, netHuman, isBuy);
+  if (!q) return null;
+  if (!(await isNadFunRouterAllowed(execAddr, q.router))) return null; // not allowlisted → direct fallback
+
+  const amountOutWei = parseUnits(q.amountOut, outputDecimals); // exact round-trip of nadFunQuote's own formatted output
+  const minOut = minOutWei(amountOutWei, slippage);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SECONDS);
+
+  const steps: UnsignedStep[] = [];
+  if (!isBuy) {
+    const pub = getPublicClient();
+    const allowance = (await pub.readContract({ address: token, abi: ERC20_ABI, functionName: "allowance", args: [wallet, execAddr] })) as bigint;
+    if (allowance < grossWei) {
+      steps.push({
+        kind: "approve",
+        label: `Approve ${amount} ${tokenSymbol} for the trade`,
+        tx: { to: token, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
+      });
+    }
+  }
+  steps.push({
+    kind: "swap",
+    label: isBuy ? `Buy ${tokenSymbol} on Nad.Fun` : `Sell ${amount} ${tokenSymbol} on Nad.Fun`,
+    tx: {
+      to: execAddr,
+      data: encodeFunctionData({
+        abi: TRADE_EXECUTOR_ABI, functionName: "tradeNadFunExactInput",
+        args: [q.router, isBuy, token, grossWei, minOut, deadline],
+      }),
+      value: isBuy ? `0x${grossWei.toString(16)}` : "0x0",
+    },
+  });
+
+  return { steps, amountOut: q.amountOut, priceImpact: null, feeBps, feeAmount: formatUnits(feeWei, inputDecimals) };
+}
+
 export interface DecodedTradeExecuted {
   tradeId: bigint;
   user: Address;
@@ -238,18 +353,22 @@ export interface DecodedTradeExecuted {
 }
 
 /**
- * Decodes the executor's TradeExecuted event from a mined tx's logs — the
- * authoritative record of what actually happened (real delivered amountOut +
- * fee), so PayAI confirms a trade from the event, not from the pre-trade quote.
- * Returns null if the tx has no such event (e.g. it went through the direct
- * path, or the executor isn't the one that emitted it).
+ * Decodes a TradeExecuted event from a mined tx's logs — the authoritative
+ * record of what actually happened (real delivered amountOut + fee), so PayAI
+ * confirms a trade from the event, not from the pre-trade quote. Recognizes an
+ * emitter from EITHER configured executor (V1 or V2) — a trade that routed
+ * through V1 must keep confirming exactly as it does in production today;
+ * this only ADDS recognition of V2 once it's configured, never narrows what
+ * V1 already confirms correctly. Returns null if the tx has no such event
+ * from either configured executor (e.g. it went through a direct path).
  */
 export function decodeTradeExecuted(logs: readonly Log[]): DecodedTradeExecuted | null {
-  const exec = getPayAITradeExecutor();
-  if (!exec) return null;
-  const execLower = exec.toLowerCase();
+  const candidates = [getPayAITradeExecutor(), getPayAITradeExecutorV2()]
+    .filter((a): a is Address => a !== null)
+    .map((a) => a.toLowerCase());
+  if (candidates.length === 0) return null;
   for (const log of logs) {
-    if (log.address.toLowerCase() !== execLower) continue;
+    if (!candidates.includes(log.address.toLowerCase())) continue;
     try {
       const parsed = decodeEventLog({ abi: TRADE_EXECUTOR_ABI, data: log.data, topics: log.topics });
       if (parsed.eventName !== "TradeExecuted") continue;
