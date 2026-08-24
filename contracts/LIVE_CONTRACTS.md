@@ -103,33 +103,11 @@ PaymentExecutor / AutomationVault / MerchantRegistry / PayAIForwarder — none
 were touched. **Nad.Fun is NOT included** here; the existing direct-to-router
 Nad.Fun path is unchanged.
 
-> **LIVE in production as of 2026-08-24** (Gate 5). Both
-> `MONAD_MAINNET_PAYAI_TRADE_EXECUTOR` (the address below) and
-> `PAYAI_TRADE_EXECUTOR_ENABLED=true` are set in Vercel, so interactive Ask
-> PayAI trades on **Uniswap V3 + Kuru** now route through this executor — see
-> `lib/monad/config.ts`'s `getPayAITradeExecutor()` / `tradeExecutorEnabled()`
-> (fail-closed: both required) and `lib/monad/tradeExecutor.ts`. Rollback is
-> simply setting the flag to `false`; nothing on-chain changes. **Nad.Fun
-> stays on its own direct route regardless of this flag.**
->
-> First live production trade (validation): tx
-> `0xd1a5642cdd254e41f076adda717fb8bf345c817f45f096265d0df484c469047b`
-> (block 98,703,131) — method `TradeKuruExactInput`, USDC → MON via the Kuru
-> MON/USDC market. The executor pulled the input, took the 0.25% fee, approved
-> the market for the **net** (0.09975 of 0.1) and reset the approval to 0, and
-> forwarded the MON output to the user; `TradeExecuted` emitted. Interacted-with
-> contract on the explorer is `0xF17a…63b69` (the executor), not the router —
-> proving the interactive-trade path now routes through PayAITradeExecutor.
-> The public footer surfaces this as a "Trade Executor Live on Monad" badge
-> (`/api/onchain`'s `contracts.tradeExecutorExplorer`, shown only while the
-> flag is on).
-
 | Field | Value |
 |---|---|
 | Address | `0xF17a916280321Ddb657c8EDd26B2a729F6E63b69` |
 | Chain | Monad mainnet (143) |
 | Deployer / Contract Creator | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same key as the forwarder + suite) |
-| Deploy tx | `0xdb4bcd6f405c4ff8538fc14bb9aa79d5a9b148d33ba70015bf3b1f0b3f944802` |
 | Owner (admin: pause + config only, cannot move funds) | **`0xA282833B52b1B66D58bD2007081dCC037798C0b0`** — the PayAI Safe multisig, set in the constructor (owner from block zero; no EOA-owner window). Verified on-chain via the contract's `owner()`. |
 | Treasury (0.25% fee sink) | `0xA282833B52b1B66D58bD2007081dCC037798C0b0` (the Safe itself). Verified via `treasury()`. |
 | feeBps | `25` (0.25%); `MAX_FEE_BPS` = 100 (1%). Verified via `feeBps()`. |
@@ -137,12 +115,33 @@ Nad.Fun path is unchanged.
 | uniswapRouter (immutable, SwapRouter02) | `0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900`. Verified via `uniswapRouter()`. |
 | wmon (immutable, WETH9) | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`. Verified via `wmon()`. |
 | Kuru allowlist | MON/USDC market `0x065C9d28E428A0db40191a54d33d5b7c71a9C394` = `true`. Seeded by a **Safe multisig tx (2/3)** executed 2026-08-24 (`setKuruMarket`), confirmed on-chain by re-reading `allowedKuruMarket`. No other market allowlisted. |
+| Deploy tx | `0xdb4bcd6f405c4ff8538fc14bb9aa79d5a9b148d33ba70015bf3b1f0b3f944802` |
 | Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0xF17a916280321Ddb657c8EDd26B2a729F6E63b69/`. Compiler: solc `0.8.24`, optimizer on, 200 runs, **no viaIR**, single-file `contracts/PayAITradeExecutor.sol`, MIT. |
 
-Real mainnet canaries (tiny amounts, signed by the user wallet
-`0x25b8…dc3a`; every one verified on-chain: `TradeExecuted` decoded, correct
-user/venue/tokens/amountIn, amountOut ≥ minOut, 0.25% fee to treasury, user
-received the output, executor retained zero, allowances reset):
+**LIVE in production as of 2026-08-24.** Both
+`MONAD_MAINNET_PAYAI_TRADE_EXECUTOR` (the address above) and
+`PAYAI_TRADE_EXECUTOR_ENABLED=true` are set in Vercel, so interactive Ask
+PayAI trades on Uniswap V3 + Kuru now route through this executor — see
+`lib/monad/config.ts`'s `getPayAITradeExecutor()` / `tradeExecutorEnabled()`
+(fail-closed: both required) and `lib/monad/tradeExecutor.ts`. Rollback is
+simply setting the flag to `false`; nothing on-chain changes. Nad.Fun stays
+on its own direct route regardless of this flag — untouched.
+
+Production canary (a real trade through the live app, usepayai.xyz):
+
+| Canary | Proof |
+|---|---|
+| Kuru, USDC → MON | tx `0xd1a5642cdd254e41f076adda717fb8bf345c817f45f096265d0df484c469047b` (block 98,703,131) — method `TradeKuruExactInput`, `0x25b8…dc3a` traded 0.1 USDC → MON via the Kuru MON/USDC market. Interacted-with contract on the explorer is `0xF17a…63b69` (the executor), not the market directly; the executor pulled the input, took the 0.25% fee, approved the market for the NET (0.09975 of 0.1) and reset the approval to 0 afterward, and forwarded the MON output to the user. `TradeExecuted` emitted. |
+
+The public footer (`components/landing/SiteFooter.tsx`) links this address as
+"Trade Executor Live on Monad", sourced from `/api/onchain`'s
+`contracts.tradeExecutorExplorer` (shown only while the flag is on).
+
+Pre-launch mainnet canaries (Gate 4 — tiny amounts, signed by the deployer
+wallet `0x25b8…dc3a` before the app was wired to the executor; every one
+verified on-chain: `TradeExecuted` decoded, correct user/venue/tokens/amountIn,
+amountOut ≥ minOut, 0.25% fee to treasury, user received the output, executor
+retained zero, allowances reset):
 
 | # | Direction | Tx | In → Out | Fee |
 |---|---|---|---|---|
