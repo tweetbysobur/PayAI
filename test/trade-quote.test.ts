@@ -807,7 +807,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
   it("flag ON + Nad.Fun: never executor-routed, no PayAI fee, uses the direct Nad.Fun plan", async () => {
     executorEnabled = true;
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
-    nadFunQuoteImpl = async (_t, _d, _a, isBuy) => (isBuy ? { amountOut: "500" } : null);
+    nadFunQuoteImpl = async (_t, _d, _a, isBuy) => (isBuy ? { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "500", isBuy: true } : null);
     let nadCalled = false;
     buildNadFunBuyPlanImpl = async () => { nadCalled = true; return { steps: [{ kind: "swap", label: "nadfun buy", tx: { to: "0xcurve", data: "0x", value: "0x0" } }], amountOut: "500", router: "0xcurve" }; };
     uniExecPlanImpl = async () => { throw new Error("Nad.Fun must never route through the executor"); };
