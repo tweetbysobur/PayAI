@@ -343,4 +343,57 @@ const kuruProvider: SwapProvider = {
   },
 };
 
+/** Everything PayAITradeExecutor's tradeKuruExactInput needs, resolved from
+ *  the market's real on-chain sides and SIZED ON THE NET (post-fee) input the
+ *  executor will actually trade — never the gross. Native legs are reported
+ *  via *IsNative so the executor path can pass address(0), letting the
+ *  executor attach/forward native MON itself. */
+export interface KuruExecutorQuote {
+  marketAddress: Address;
+  isBuy: boolean;
+  debitAddress: Address;
+  debitDecimals: number;
+  debitIsNative: boolean;
+  outAddress: Address;
+  outDecimals: number;
+  outIsNative: boolean;
+  kuruSize: bigint;
+  minOutWei: bigint;
+  expectedOutWei: bigint;
+}
+
+/**
+ * Resolve + size a Kuru market order for the PayAITradeExecutor path. Reuses
+ * the SAME resolveKuruMarket()/simulateMarketOrder()/toPrecisionUnits()/
+ * minOutWei() primitives kuruProvider.buildPlan() uses — the only difference
+ * is it sizes on `netAmountIn` (the post-fee amount the executor swaps) and
+ * returns the resolved market/precisions instead of router calldata. Returns
+ * null when Kuru simply doesn't serve the pair, so the caller falls back to
+ * the existing direct path exactly as it always did.
+ */
+export async function quoteKuruForExecutor(
+  fromToken: SwapToken, toToken: SwapToken, netAmountIn: number, slippage: number,
+): Promise<KuruExecutorQuote | null> {
+  if (!Number.isFinite(slippage) || slippage < 0 || slippage > MAX_SLIPPAGE) {
+    throw new Error(`Slippage tolerance must be between 0% and ${(MAX_SLIPPAGE * 100).toFixed(0)}%.`);
+  }
+  const m = await resolveKuruMarket(fromToken, toToken);
+  if (!m) return null;
+  const { amountOutWei: expectedOutWei } = await simulateMarketOrder(m, netAmountIn, 0n);
+  const debitIsBase = !m.isBuy;
+  return {
+    marketAddress: m.marketAddress,
+    isBuy: m.isBuy,
+    debitAddress: debitIsBase ? m.baseAssetAddress : m.quoteAssetAddress,
+    debitDecimals: debitIsBase ? m.baseDecimals : m.quoteDecimals,
+    debitIsNative: debitIsBase ? m.baseIsNative : m.quoteIsNative,
+    outAddress: m.isBuy ? m.baseAssetAddress : m.quoteAssetAddress,
+    outDecimals: m.isBuy ? m.baseDecimals : m.quoteDecimals,
+    outIsNative: m.isBuy ? m.baseIsNative : m.quoteIsNative,
+    kuruSize: toPrecisionUnits(netAmountIn, m.isBuy ? m.pricePrecision : m.sizePrecision),
+    minOutWei: minOutWei(expectedOutWei, slippage),
+    expectedOutWei,
+  };
+}
+
 export default kuruProvider;

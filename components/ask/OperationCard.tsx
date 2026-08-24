@@ -686,6 +686,7 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
       <div className="divide-y divide-border/60">
         <Row label="Rate">{d.rate}</Row>
         <Row label="Minimum received">{d.minimumReceived}</Row>
+        {d.fee && <Row label="PayAI fee">{`${d.fee.percent} (${d.fee.amount} ${d.fee.token})`}</Row>}
         <Row label="Price impact">{d.priceImpact ?? "Unavailable"}</Row>
         <Row label="Route">{d.route.path.join(" → ")}</Row>
         <Row label="DEX">{d.route.provider}</Row>

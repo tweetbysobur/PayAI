@@ -12,7 +12,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 let network: "mainnet" | "testnet" = "mainnet";
-vi.mock("@/lib/monad/config", () => ({ getNetwork: () => network }));
+let executorEnabled = false;
+vi.mock("@/lib/monad/config", () => ({ getNetwork: () => network, tradeExecutorEnabled: () => executorEnabled }));
+
+// PayAITradeExecutor plan builders (lib/monad/tradeExecutor.ts) — stubbed so
+// these tests exercise tradeQuote's routing/fee logic without a real RPC. Only
+// invoked when executorEnabled is true (fail-closed flag).
+let executorFeeBps = 25;
+interface StubStep2 { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }
+let uniExecPlanImpl: (...a: unknown[]) => Promise<{ steps: StubStep2[]; amountOut: string; priceImpact: string | null; feeBps: number; feeAmount: string }> =
+  async () => ({ steps: [{ kind: "swap", label: "exec uni", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
+let kuruExecPlanImpl: (...a: unknown[]) => Promise<{ steps: StubStep2[]; amountOut: string; priceImpact: string | null; feeBps: number; feeAmount: string } | null> =
+  async () => ({ steps: [{ kind: "swap", label: "exec kuru", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "0", priceImpact: null, feeBps: executorFeeBps, feeAmount: "0" });
+vi.mock("@/lib/monad/tradeExecutor", () => ({
+  getExecutorFeeBps: async () => executorFeeBps,
+  buildUniswapExecutorPlan: (...a: unknown[]) => uniExecPlanImpl(...a),
+  buildKuruExecutorPlan: (...a: unknown[]) => kuruExecPlanImpl(...a),
+}));
 
 let resolveTokenImpl: (address: string) => Promise<{ address: string; symbol: string; name: string; decimals: number; verified: boolean }> = async () => {
   throw new Error("not an ERC-20");
@@ -86,6 +102,8 @@ vi.mock("@/lib/monad/prices", () => ({ getUsdPrice: (address: string) => getUsdP
 afterEach(() => {
   vi.restoreAllMocks();
   network = "mainnet";
+  executorEnabled = false;
+  executorFeeBps = 25;
   resolveTokenImpl = async () => { throw new Error("not an ERC-20"); };
   bestQuoteImpl = async () => { throw new Error("no route"); };
   quoteUniswapDirectImpl = async () => null;
@@ -715,5 +733,93 @@ describe("prepareTradeExecution — Nad.Fun buy/sell", () => {
     expect(r.status).toBe("changed");
     if (r.status !== "changed") return;
     expect(r.preview.route.provider).toBe("Nad.Fun");
+  });
+});
+
+describe("PayAITradeExecutor routing (Gate 5)", () => {
+  beforeEach(() => { getTokenBalanceImpl = async () => 1_000_000; });
+
+  it("flag OFF: no PayAI fee, receive is the full (gross) quote", async () => {
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.fee).toBeNull();
+    expect(Number(p.receive.amount)).toBeCloseTo(1000, 6);
+  });
+
+  it("flag ON + Uniswap: preview quotes NET and discloses the 0.25% PayAI fee", async () => {
+    executorEnabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.fee).not.toBeNull();
+    expect(p.fee!.percent).toBe("0.25%");
+    expect(p.fee!.token).toBe("USDC");
+    expect(Number(p.fee!.amount)).toBeCloseTo(0.25, 6);      // 100 * 0.25%
+    expect(Number(p.receive.amount)).toBeCloseTo(997.5, 3);  // 1000 net of 0.25%
+  });
+
+  it("flag ON + Uniswap: build routes through the executor plan, never the direct router", async () => {
+    executorEnabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    buildPlanImpl = async () => { throw new Error("must not use the direct getSwapProvider().buildPlan when the executor is on"); };
+    let called = false;
+    uniExecPlanImpl = async () => { called = true; return { steps: [{ kind: "swap", label: "exec uni", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "997.5", priceImpact: null, feeBps: 25, feeAmount: "0.25" }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps[0].label).toBe("exec uni");
+  });
+
+  it("flag ON + Kuru (allowlisted): build routes through the Kuru executor plan", async () => {
+    executorEnabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Kuru" }, quote: { amountOut: 1000, priceImpact: null } });
+    let called = false;
+    kuruExecPlanImpl = async () => { called = true; return { steps: [{ kind: "swap", label: "exec kuru", tx: { to: "0xEXEC", data: "0x", value: "0x0" } }], amountOut: "997.5", priceImpact: null, feeBps: 25, feeAmount: "0.25" }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: "MON", outputToken: "USDC", amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(called).toBe(true);
+    expect(r.steps[0].label).toBe("exec kuru");
+  });
+
+  it("flag ON + Kuru (NOT allowlisted): falls back to the direct path, never reverts", async () => {
+    executorEnabled = true;
+    bestQuoteImpl = async () => ({ provider: { name: "Kuru" }, quote: { amountOut: 1000, priceImpact: null } });
+    kuruExecPlanImpl = async () => null; // market not on the executor allowlist
+    let directCalled = false;
+    buildPlanImpl = async () => { directCalled = true; return { steps: [{ kind: "swap", label: "direct kuru", tx: { to: "0xmarket", data: "0x", value: "0x0" } }] }; };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: "MON", outputToken: "USDC", amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(directCalled).toBe(true);
+    expect(r.steps[0].label).toBe("direct kuru");
+  });
+
+  it("flag ON + Nad.Fun: never executor-routed, no PayAI fee, uses the direct Nad.Fun plan", async () => {
+    executorEnabled = true;
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    nadFunQuoteImpl = async (_t, _d, _a, isBuy) => (isBuy ? { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "500", isBuy: true } : null);
+    let nadCalled = false;
+    buildNadFunBuyPlanImpl = async () => { nadCalled = true; return { steps: [{ kind: "swap", label: "nadfun buy", tx: { to: "0xcurve", data: "0x", value: "0x0" } }], amountOut: "500", router: "0xcurve" }; };
+    uniExecPlanImpl = async () => { throw new Error("Nad.Fun must never route through the executor"); };
+    kuruExecPlanImpl = async () => { throw new Error("Nad.Fun must never route through the executor"); };
+    const { previewTrade, prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (p.ok) expect(p.fee).toBeNull();
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(nadCalled).toBe(true);
+    expect(r.steps[0].label).toBe("nadfun buy");
   });
 });

@@ -91,6 +91,55 @@ addresses hardcoded in `lib/monad/swap.ts` and `lib/monad/kuruSwap.ts`
 exactly, and the USDC address independently matches what Kuru's own docs
 gave for "Official tokens: USDC" too.
 
+## PayAITradeExecutor — deployed + verified + canaried on mainnet, 2026-08-24
+
+The on-chain footprint for INTERACTIVE, user-signed TRADES on **Uniswap V3
+and Kuru** (Gate 4). Separate, non-upgradeable, Safe-owned contract. Exact-input
+only; typed adapters (no arbitrary target/calldata); Safe-controlled Kuru
+allowlist + pause; 0.25% fee taken from the gross INPUT to the treasury;
+output measured by the user's real balance delta; dual zero-retention on
+input and output. The payer/beneficiary is always `msg.sender`. Unrelated to
+PaymentExecutor / AutomationVault / MerchantRegistry / PayAIForwarder — none
+were touched. **Nad.Fun is NOT included** here; the existing direct-to-router
+Nad.Fun path is unchanged.
+
+> **NOT enabled in production.** Neither `MONAD_MAINNET_PAYAI_TRADE_EXECUTOR`
+> nor `PAYAI_TRADE_EXECUTOR_ENABLED` is set in Vercel. The app still routes
+> trades through its existing path. Enabling is a separate, deliberate
+> app-integration step, intentionally not done as part of Gate 4.
+
+| Field | Value |
+|---|---|
+| Address | `0xF17a916280321Ddb657c8EDd26B2a729F6E63b69` |
+| Chain | Monad mainnet (143) |
+| Deployer / Contract Creator | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same key as the forwarder + suite) |
+| Deploy tx | `0xdb4bcd6f405c4ff8538fc14bb9aa79d5a9b148d33ba70015bf3b1f0b3f944802` |
+| Owner (admin: pause + config only, cannot move funds) | **`0xA282833B52b1B66D58bD2007081dCC037798C0b0`** — the PayAI Safe multisig, set in the constructor (owner from block zero; no EOA-owner window). Verified on-chain via the contract's `owner()`. |
+| Treasury (0.25% fee sink) | `0xA282833B52b1B66D58bD2007081dCC037798C0b0` (the Safe itself). Verified via `treasury()`. |
+| feeBps | `25` (0.25%); `MAX_FEE_BPS` = 100 (1%). Verified via `feeBps()`. |
+| paused | `false`. Verified via `paused()`. |
+| uniswapRouter (immutable, SwapRouter02) | `0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900`. Verified via `uniswapRouter()`. |
+| wmon (immutable, WETH9) | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`. Verified via `wmon()`. |
+| Kuru allowlist | MON/USDC market `0x065C9d28E428A0db40191a54d33d5b7c71a9C394` = `true`. Seeded by a **Safe multisig tx (2/3)** executed 2026-08-24 (`setKuruMarket`), confirmed on-chain by re-reading `allowedKuruMarket`. No other market allowlisted. |
+| Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0xF17a916280321Ddb657c8EDd26B2a729F6E63b69/`. Compiler: solc `0.8.24`, optimizer on, 200 runs, **no viaIR**, single-file `contracts/PayAITradeExecutor.sol`, MIT. |
+
+Real mainnet canaries (tiny amounts, signed by the user wallet
+`0x25b8…dc3a`; every one verified on-chain: `TradeExecuted` decoded, correct
+user/venue/tokens/amountIn, amountOut ≥ minOut, 0.25% fee to treasury, user
+received the output, executor retained zero, allowances reset):
+
+| # | Direction | Tx | In → Out | Fee |
+|---|---|---|---|---|
+| 1 | Uniswap ERC-20 → ERC-20 | `0x4a359084f8c28ac46012b36d68645069176babe3cf166faecb8cbf77e439d125` (blk 98627564) | 0.02 USDC → 0.662940 WMON | 0.00005 USDC |
+| 2 | Uniswap ERC-20 → native MON | `0xc4e7cd9a30a0f1fcadd0dd3cd3c335f6416ca3e1d37ef17f65cb889dc0883f20` (blk 98631142) | 0.02 USDC → 0.659110 MON | 0.00005 USDC |
+| 3 | Kuru native MON → ERC-20 | `0xc688edc75cd5123087c1e3b5b9c37c1a458fb3220fbce6e206945599ae508dda` (blk 98633142) | 0.02 MON → 0.000599 USDC | 0.00005 MON |
+| 4 | Kuru ERC-20 → native MON | `0xe2d37c7a1f9c2ebc8cf43388c903733394a1c209c071220bfe366ddd7d8ec96c` (blk 98633516) | 0.05 USDC → 1.656096 MON | 0.000125 USDC |
+
+Deploy / verify / config-check / canary tooling lives in
+`contracts/scripts/deploy-payai-trade-executor.js`,
+`check-trade-executor-config-readonly.js`, `canary-uniswap-mainnet.js`,
+`canary-kuru-mainnet.js`, with the full sequence in `contracts/GATE4_RUNBOOK.md`.
+
 ## Correction (2026-08-15): a screenshot-transcription error, now fixed
 
 An earlier version of this file, and a commit that "fixed" a supposed typo
