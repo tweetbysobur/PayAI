@@ -74,17 +74,40 @@ export async function POST(req: NextRequest) {
   const { explorerTx } = await import("@/lib/monad/config");
   const pub = getPublicClient();
   let succeeded = false;
+  // Confirm from the event: for a trade that routed through PayAITradeExecutor,
+  // decode TradeExecuted from the receipt and report the REAL delivered output
+  // and fee, rather than the pre-trade estimate the client sent. Best-effort —
+  // any hiccup falls back to the client-reported amount, like the rest of this
+  // route (the receipt's success status remains the source of truth).
+  let effAmountOut: number | null = amountOut ?? null;
+  let feePaid: number | null = null;
+  let viaExecutor = false;
   try {
     const receipt = await pub.waitForTransactionReceipt({ hash: txHash as `0x${string}`, timeout: 90_000 });
     // The tx must have been sent BY the declared wallet — otherwise anyone could
     // record a swap under someone else's address, or point at an unrelated
-    // successful tx as "proof". (The swapped amounts remain client-reported;
-    // decoding exact DEX amounts is pool-specific and out of scope here.)
+    // successful tx as "proof".
     if (receipt.from.toLowerCase() !== walletAddress.toLowerCase()) {
       await releaseRequest(settleKey);
       return NextResponse.json({ error: "Transaction was not sent from the declared wallet." }, { status: 409 });
     }
     succeeded = receipt.status === "success";
+    if (succeeded && feature === "trade") {
+      try {
+        const { decodeTradeExecuted } = await import("@/lib/monad/tradeExecutor");
+        const ev = decodeTradeExecuted(receipt.logs);
+        if (ev) {
+          const { formatUnits } = await import("viem");
+          const DEC_ABI = [{ type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] }] as const;
+          const ZERO = "0x0000000000000000000000000000000000000000";
+          const decOf = async (t: string): Promise<number> =>
+            t.toLowerCase() === ZERO ? 18 : Number(await pub.readContract({ address: t as `0x${string}`, abi: DEC_ABI, functionName: "decimals" }).catch(() => 18));
+          effAmountOut = Number(formatUnits(ev.amountOut, await decOf(ev.tokenOut)));
+          feePaid = Number(formatUnits(ev.feeAmount, await decOf(ev.tokenIn)));
+          viaExecutor = true;
+        }
+      } catch { /* fall back to the client-reported amount */ }
+    }
   } catch {
     // Not confirmable yet — release so the client's retry isn't blocked by
     // its own previous attempt.
@@ -115,6 +138,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(revertBody, { status: 502 });
   }
 
+  // Prefer the event-confirmed output (and disclose the PayAI fee) when the
+  // trade routed through the executor; otherwise the client-reported numbers.
+  const successSummary =
+    `${verb} ${amountIn ?? "?"} ${fromToken ?? "?"} → ${effAmountOut != null ? Number(effAmountOut).toFixed(toToken === "USDC" ? 2 : 4) : "?"} ${toToken ?? "?"}` +
+    `${provider ? ` via ${provider}` : ""}${viaExecutor && feePaid != null ? ` (PayAI fee ${feePaid} ${fromToken ?? ""})` : ""}`;
+
   // Record the swap/trade into the merchant transaction log, same as a payment.
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const { recordTx } = await import("@/lib/platform/store");
@@ -134,8 +163,8 @@ export async function POST(req: NextRequest) {
     compliance: null,
     txHash,
     explorerUrl,
-    summary,
-    outputAmount: amountOut ?? null,
+    summary: successSummary,
+    outputAmount: effAmountOut,
     outputToken: toToken ?? null,
     provider: provider ?? null,
   });
@@ -143,13 +172,13 @@ export async function POST(req: NextRequest) {
   await notifySwap(req, walletAddress, {
     type: "swap_completed",
     title: `${verb} completed`,
-    detail: summary,
+    detail: successSummary,
     txHash, explorerUrl,
-    amount: amountOut ?? null,
+    amount: effAmountOut,
     token: toToken ?? null,
   }).catch(() => {});
 
-  const okBody = { decision: "swap_executed", success: true, txHash, explorerUrl, summary };
+  const okBody = { decision: "swap_executed", success: true, txHash, explorerUrl, summary: successSummary, amountOut: effAmountOut, fee: feePaid, viaExecutor };
   await completeRequest(settleKey, okBody);
   return NextResponse.json(okBody);
 }

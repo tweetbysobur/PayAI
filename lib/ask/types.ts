@@ -315,6 +315,11 @@ export interface TradePreviewData {
    *  a stale price; see useAskChat's staleness handling for the existing
    *  swap card, which this mirrors. */
   quotedAt: number;
+  /** PayAI platform fee for this trade — present only when it routes through
+   *  PayAITradeExecutor (Uniswap/Kuru with the flag on); null for direct paths
+   *  (Nad.Fun, or the executor flag off). When present, `receive` and
+   *  `minimumReceived` are already NET of it. Mirrors tradeQuote's TradePreviewOk. */
+  fee: { percent: string; amount: string; token: string } | null;
 }
 
 export interface TradePreviewIntent extends IntentBase {

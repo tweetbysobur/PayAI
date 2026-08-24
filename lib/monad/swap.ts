@@ -248,6 +248,36 @@ export function minOutWei(amountOutWei: bigint, slippage: number): bigint {
 }
 
 /**
+ * Quotes `amountInWei` of `tokenIn -> tokenOut` across every Uniswap V3 fee
+ * tier in parallel and returns the tier with the largest output — the same
+ * primitive buildUniswapPlanDirect()/rawQuote()/quoteUniswapDirect() each run
+ * inline. Exported so PayAITradeExecutor's own plan builder
+ * (lib/monad/tradeExecutor.ts) sizes its NET (post-fee) swap through the exact
+ * same quoter/tier logic rather than a second copy. Addresses must be the
+ * pool-side tokens (WMON for a native leg). Returns null when no tier has a
+ * real pool with output.
+ */
+export async function quoteBestUniswapTier(
+  tokenIn: Address, tokenOut: Address, amountInWei: bigint,
+): Promise<{ fee: number; amountOut: bigint } | null> {
+  const pub = getPublicClient();
+  const settled = await Promise.allSettled(
+    FEE_TIERS.map(async (fee) => {
+      const { result } = await pub.simulateContract({
+        address: UNISWAP_MAINNET.quoterV2, abi: QUOTER_V2_ABI, functionName: "quoteExactInputSingle",
+        args: [{ tokenIn, tokenOut, amountIn: amountInWei, fee, sqrtPriceLimitX96: 0n }],
+      });
+      return { fee, amountOut: (result as readonly bigint[])[0] };
+    }),
+  );
+  let best: { fee: number; amountOut: bigint } | null = null;
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value.amountOut > 0n && (best === null || r.value.amountOut > best.amountOut)) best = r.value;
+  }
+  return best;
+}
+
+/**
  * Estimate how much the trade's own size moves the pool price, as distinct
  * from slippage (which protects against price moving BETWEEN quote and
  * execution). Quotes a much smaller reference amount at the SAME fee tier,
