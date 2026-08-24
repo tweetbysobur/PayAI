@@ -6,7 +6,8 @@ import { AskMark, AskLogo } from "@/components/AskMark";
 import { AskEmptyState, CAPABILITY_SHORTCUTS } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
-import { useAskChat, retryTextFor } from "@/lib/ask/useAskChat";
+import { retryTextFor } from "@/lib/ask/useAskChat";
+import { useAskPageChat } from "@/lib/ask/AskPageChatContext";
 
 /** send_payment, swap, schedule/recurring handoff, balance, history, and
  *  automation listing all run through the real PayAI pipeline now — see
@@ -73,7 +74,7 @@ function AskPayAIChat() {
   const {
     wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
-  } = useAskChat();
+  } = useAskPageChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

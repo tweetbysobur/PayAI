@@ -9,6 +9,7 @@ import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { DepositAlert } from "@/components/dashboard/DepositAlert";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import { SyncProvider } from "@/lib/hooks/useSync";
+import { AskPageChatProvider } from "@/lib/ask/AskPageChatContext";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 
 interface Health {
@@ -21,7 +22,9 @@ interface Health {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SyncProvider>
-      <DashboardChrome>{children}</DashboardChrome>
+      <AskPageChatProvider>
+        <DashboardChrome>{children}</DashboardChrome>
+      </AskPageChatProvider>
     </SyncProvider>
   );
 }
