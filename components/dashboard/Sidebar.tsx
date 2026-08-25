@@ -6,19 +6,21 @@ import type { ComponentType } from "react";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
   Wallet, Settings, Repeat,
-  GraduationCap, Rocket, BookOpen, Lock, HelpCircle,
+  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, Compass,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { AskMark } from "@/components/AskMark";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
+import { startGuidedTour } from "@/components/onboarding/TourOverlay";
 
 // "Contact Support" used to live here too, pointing at the exact same
 // /dashboard/support page the main nav's own "Support" item already covered.
 // Support itself is now a tab inside Help Center (see
 // app/dashboard/help/page.tsx) rather than a competing top-level entry, so
 // neither ever needs a separate line here again.
-export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding"; external?: boolean }[] = [
+export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding" | "tour"; external?: boolean }[] = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
+  { label: "Take a Tour", icon: Compass, action: "tour" as const },
   { label: "Wallet Security", icon: Lock, href: "/security" },
   { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
 ];
@@ -44,6 +46,18 @@ export const NAV: { href: string; label: string; icon: NavIcon; section: string 
   { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
   { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },
 ] as const;
+
+/** Maps a NAV href to the `data-tour` id TourOverlay's steps target (see
+ *  components/onboarding/TourOverlay.tsx). Only hrefs the guided tour
+ *  actually spotlights need an entry — everything else renders with no
+ *  `data-tour` attribute at all. */
+const TOUR_TARGETS: Record<string, string> = {
+  "/dashboard/ask": "ask",
+  "/dashboard/payments": "payments",
+  "/dashboard/automations": "automations",
+  "/dashboard/wallets": "wallets",
+  "/dashboard/help": "help",
+};
 
 /** Real fintech-dashboard sidebar — grouped sections, active-route highlight. */
 export function Sidebar() {
@@ -77,6 +91,7 @@ export function Sidebar() {
                 href={item.href}
                 aria-disabled={item.soon}
                 aria-current={active ? "page" : undefined}
+                data-tour={TOUR_TARGETS[item.href]}
                 className={`relative mb-0.5 flex items-center justify-between rounded-md px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   active ? "bg-primary/15 text-primary-ink" : "text-muted-foreground hover:bg-input hover:text-foreground"
                 } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
@@ -108,6 +123,9 @@ export function Sidebar() {
           const cls = "flex items-center rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
           if (item.action === "onboarding") {
             return <button key={item.label} onClick={() => reopenOnboarding()} className={`w-full text-left ${cls}`}>{content}</button>;
+          }
+          if (item.action === "tour") {
+            return <button key={item.label} onClick={() => startGuidedTour()} className={`w-full text-left ${cls}`}>{content}</button>;
           }
           return item.external
             ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" className={cls}>{content}</a>
