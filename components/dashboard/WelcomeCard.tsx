@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { Repeat, Send, Download, LayoutTemplate, ArrowRight } from "lucide-react";
+import { Repeat, Send, Download, ArrowRight } from "lucide-react";
 import { useUsername } from "@/lib/hooks/useUsername";
 import { NAV } from "@/components/dashboard/Sidebar";
+import { AskMark } from "@/components/AskMark";
 
 /**
  * The first thing a brand-new wallet sees on the dashboard.
@@ -17,21 +18,26 @@ import { NAV } from "@/components/dashboard/Sidebar";
  */
 const ACTIONS = [
   {
-    href: "/dashboard/automations",
-    title: "Create Payment Automation",
-    blurb: "Schedule a payment that runs on its own.",
-    icon: Repeat,
+    href: "/dashboard/ask",
+    title: "Trade with Ask PayAI",
+    blurb: "Swap, trade DeFi tokens, and pay — just describe it.",
+    icon: AskMark,
     primary: true,
   },
   { href: "/dashboard/payments", title: "Send Money", blurb: "Pay any address or .nad name.", icon: Send },
+  { href: "/dashboard/automations", title: "Create Payment Automation", blurb: "Schedule a payment that runs on its own.", icon: Repeat },
   { href: "/connect", title: "Import Existing Wallet", blurb: "Use MetaMask, Rabby or Backpack instead.", icon: Download },
-  { href: "/dashboard/automations", title: "Explore Templates", blurb: "Payroll, treasury, rewards and more.", icon: LayoutTemplate },
 ];
 
 /** One-line descriptions for the sidebar's own nav items, keyed by href so
  *  the tour below can never list a page the sidebar doesn't have (or drift
- *  out of sync with its labels/icons/grouping) — it reads `NAV` directly. */
+ *  out of sync with its labels/icons/grouping) — it reads `NAV` directly.
+ *  Ask PayAI is included here even though its own NAV entry carries no
+ *  `section` (it's a flagship, un-grouped sidebar item) — see the synthetic
+ *  "Trade & DeFi" bucket below, which exists only for this tour's grouping
+ *  and never touches the sidebar's real section value. */
 const TOUR_BLURBS: Record<string, string> = {
+  "/dashboard/ask": "Trade, swap DeFi tokens, and pay — all in natural language.",
   "/dashboard/payments": "Pay any wallet address or .nad name.",
   "/dashboard/automations": "Set up recurring or scheduled payments.",
   // Activity, Analytics and Compliance live as tabs on this same page now,
@@ -43,15 +49,23 @@ const TOUR_BLURBS: Record<string, string> = {
   "/dashboard/settings": "Your username, preferences, and account.",
 };
 
-/** Grouped exactly the way the sidebar groups them — computed once from the
- *  same `NAV` list the sidebar renders from, so this tour is a view of the
- *  real navigation, not a second copy of it that can go stale. */
+/** Ask PayAI carries `section: null` in NAV (it's a flagship item, not
+ *  grouped under Payments) — this is the only override the tour applies on
+ *  top of NAV's real grouping, so PayAI's broader trading/DeFi surface isn't
+ *  silently invisible here just because the sidebar itself doesn't nest it. */
+const SECTION_OVERRIDE: Record<string, string> = { "/dashboard/ask": "Trade & DeFi" };
+
+/** Grouped exactly the way the sidebar groups them (plus SECTION_OVERRIDE
+ *  above) — computed once from the same `NAV` list the sidebar renders from,
+ *  so this tour is a view of the real navigation, not a second copy of it
+ *  that can go stale. */
 const TOUR_SECTIONS: { name: string; items: typeof NAV }[] = (() => {
   const sections: { name: string; items: typeof NAV }[] = [];
   for (const item of NAV) {
-    if (!item.section || item.soon || !TOUR_BLURBS[item.href]) continue;
-    let bucket = sections.find((s) => s.name === item.section);
-    if (!bucket) { bucket = { name: item.section, items: [] }; sections.push(bucket); }
+    const section = item.section ?? SECTION_OVERRIDE[item.href] ?? null;
+    if (!section || item.soon || !TOUR_BLURBS[item.href]) continue;
+    let bucket = sections.find((s) => s.name === section);
+    if (!bucket) { bucket = { name: section, items: [] }; sections.push(bucket); }
     bucket.items.push(item);
   }
   return sections;
@@ -73,7 +87,7 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
         Welcome to PayAI{username ? `, @${username}` : ""}.
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Your wallet is ready. What would you like to automate today?
+        Your wallet is ready. Send, trade, swap DeFi tokens, or automate — what would you like to do first?
       </p>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
