@@ -115,10 +115,12 @@ describe("the hero states the platform, not one feature", () => {
   it("leads with the headline", () => {
     // No subheadline paragraph under the H1 — removed on request. The
     // breadth claim — six products, not one — lives in the chip row below
-    // the CTAs instead (covered by the next test). A broadened version of
-    // this headline ("Payments, Trading & DeFi...") shipped briefly and was
-    // reverted on request — the original stays.
-    expect(page).toMatch(/Automate Every Payment on Monad/);
+    // the CTAs instead (covered by the next test). Two prior headlines
+    // ("Automate Every Payment on Monad", then a broadened "Payments,
+    // Trading & DeFi...") were replaced on request with this one, which
+    // names the mechanism (natural language -> on-chain action) rather than
+    // any one product area.
+    expect(page).toMatch(/Turn Natural-Language Intent Into On-Chain Actions\./);
   });
 
   it("names all six products in the hero", () => {
