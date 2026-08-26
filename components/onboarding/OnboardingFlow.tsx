@@ -4,14 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Sparkles, ShieldCheck, Lock, Repeat, ArrowLeftRight, LayoutDashboard,
+  Sparkles, ShieldCheck, Lock, Repeat, LayoutDashboard,
   ArrowRight, CheckCircle2, Clock3, PlusCircle, Eye, Send,
 } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MonadMark } from "@/components/MonadMark";
+import { AskMark } from "@/components/AskMark";
 import { useOnboarding } from "@/lib/hooks/useOnboarding";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
+import { startGuidedTour } from "@/components/onboarding/TourOverlay";
 
 const TOTAL_STEPS = 5;
 
@@ -70,13 +72,14 @@ export function OnboardingFlow() {
                   </div>
                   <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Welcome to PayAI</h1>
                   <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    PayAI lets you send, schedule, swap, and automate payments on Monad, all from your own wallet.
+                    PayAI is your payments, trading, and DeFi wallet on Monad — send, automate, swap, and trade
+                    DeFi tokens with Ask PayAI, all from your own wallet.
                   </p>
                   <div className="mt-6 grid grid-cols-2 gap-2.5">
                     {[
                       { icon: Send, label: "Send instantly" },
+                      { icon: AskMark, label: "Trade with Ask PayAI" },
                       { icon: Repeat, label: "Automate payments" },
-                      { icon: ArrowLeftRight, label: "Swap MON & USDC" },
                       { icon: ShieldCheck, label: "Stay in control" },
                     ].map((f) => (
                       <div key={f.label} className="flex items-center gap-2 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3 py-2.5 text-xs font-medium text-foreground">
@@ -141,7 +144,7 @@ export function OnboardingFlow() {
                     {[
                       { icon: Send, title: "Send Payment", body: "Pay any wallet or name", href: "/dashboard/payments" },
                       { icon: Repeat, title: "Create Automation", body: "Recurring or scheduled", href: "/dashboard/automations" },
-                      { icon: ArrowLeftRight, title: "Swap Tokens", body: "MON ↔ USDC instantly", href: "/dashboard/payments" },
+                      { icon: AskMark, title: "Ask PayAI", body: "Trade, swap DeFi tokens, or pay by chat", href: "/dashboard/ask" },
                       { icon: LayoutDashboard, title: "Explore Dashboard", body: "Look around first", href: "/dashboard" },
                     ].map((a) => (
                       <button key={a.title} onClick={() => goTo(a.href)}
@@ -202,6 +205,12 @@ export function OnboardingFlow() {
                   </p>
                   <button onClick={finish} className="mt-7 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
                     Open Dashboard <ArrowRight size={15} />
+                  </button>
+                  <button
+                    onClick={() => { finish(); startGuidedTour(); }}
+                    className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-medium text-muted-foreground transition hover:text-primary-ink"
+                  >
+                    Or take the full guided tour of the sidebar <ArrowRight size={12} />
                   </button>
                 </motion.div>
               )}

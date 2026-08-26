@@ -6,6 +6,7 @@ import { Topbar } from "@/components/dashboard/Topbar";
 import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
+import { TourOverlay } from "@/components/onboarding/TourOverlay";
 import { DepositAlert } from "@/components/dashboard/DepositAlert";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import { SyncProvider } from "@/lib/hooks/useSync";
@@ -67,6 +68,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
       </div>
       <CommandBar />
       <OnboardingFlow />
+      <TourOverlay />
       {/* Money arriving is the one event worth interrupting for — it gets its
           own alert rather than a quiet row under the bell. */}
       <DepositAlert notifications={notifications} address={wallet.readAddress} />

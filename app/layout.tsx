@@ -28,7 +28,7 @@ const montserrat = Montserrat({
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
 const DESCRIPTION =
-  "Send, swap, and automate payments on Monad. You approve every payment from your own wallet, and automations require wallet confirmation.";
+  "Send, automate, trade, and swap DeFi tokens on Monad — all in natural language with Ask PayAI. You approve everything from your own wallet, and automations require wallet confirmation.";
 
 // viewportFit: "cover" is what makes iPhone report real env(safe-area-inset-*)
 // values (notch, Dynamic Island, home-indicator strip) instead of zero — used
@@ -42,20 +42,20 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "PayAI · Payments on Monad",
+  title: "PayAI · Payments, Trading & DeFi on Monad",
   description: DESCRIPTION,
   applicationName: "PayAI",
-  keywords: ["PayAI", "Monad", "payments", "AI", "non-custodial", "web3", "USDC", "MON", "natural language payments"],
+  keywords: ["PayAI", "Monad", "payments", "trading", "DeFi", "AI", "non-custodial", "web3", "USDC", "MON", "natural language payments"],
   openGraph: {
     type: "website",
     url: SITE_URL,
     siteName: "PayAI",
-    title: "PayAI · Payments on Monad",
+    title: "PayAI · Payments, Trading & DeFi on Monad",
     description: DESCRIPTION,
   },
   twitter: {
     card: "summary_large_image",
-    title: "PayAI · Payments on Monad",
+    title: "PayAI · Payments, Trading & DeFi on Monad",
     description: DESCRIPTION,
     creator: "@usepayAI",
   },
