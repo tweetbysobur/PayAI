@@ -115,11 +115,10 @@ describe("the hero states the platform, not one feature", () => {
   it("leads with the headline", () => {
     // No subheadline paragraph under the H1 — removed on request. The
     // breadth claim — six products, not one — lives in the chip row below
-    // the CTAs instead (covered by the next test). Broadened from "Automate
-    // Every Payment on Monad" once trading/DeFi (Ask PayAI's Uniswap/Kuru/
-    // Nad.Fun routing) became a real, shipped part of the platform, not just
-    // payments.
-    expect(page).toMatch(/Payments, Trading & DeFi\. Automated on Monad\./);
+    // the CTAs instead (covered by the next test). A broadened version of
+    // this headline ("Payments, Trading & DeFi...") shipped briefly and was
+    // reverted on request — the original stays.
+    expect(page).toMatch(/Automate Every Payment on Monad/);
   });
 
   it("names all six products in the hero", () => {

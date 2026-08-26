@@ -84,7 +84,7 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Payments, Trading & DeFi. Automated on Monad.
+              Automate Every Payment on Monad.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
