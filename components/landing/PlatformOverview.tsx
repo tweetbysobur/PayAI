@@ -58,7 +58,7 @@ const PRODUCTS = [
   {
     icon: Sparkles,
     title: "Ask PayAI",
-    body: "Describe a payment or a trade in plain English. PayAI reads it, quotes trades live across Uniswap, Kuru and Nad.Fun DeFi tokens, checks recipients and amounts — then waits for your approval before anything moves.",
+    body: "Describe a payment or a trade in plain English. PayAI reads it, quotes trades live across Monad DEXs, checks recipients and amounts — then waits for your approval before anything moves.",
     href: "/dashboard/ask",
     action: "Ask PayAI",
   },
@@ -358,7 +358,7 @@ export function PaymentOperationsSection() {
 const OPERATOR_EXAMPLES = [
   "Pay contributors every Friday.",
   "Swap 100 MON into USDC.",
-  "Trade 50 USDC for a Nad.Fun token.",
+  "Trade 50 USDC for any Monad token.",
   "Send 250 USDC to alice.nad.",
   "Create monthly payroll.",
 ];
@@ -382,7 +382,7 @@ export function AIOperatorSection() {
           <h2 className={H2}>Say what you want. Approve what it prepares.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             Ask PayAI turns a sentence into a complete workflow — a payment or a trade. It resolves the recipient or
-            quotes the trade live across Uniswap, Kuru, and Nad.Fun, reads the token off its own contract, checks the
+            quotes the trade live across Monad DEXs, reads the token off its own contract, checks the
             amount against your balance, and lays out every field for you to read.
           </p>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -576,7 +576,7 @@ export function SmartSwapsSection() {
             ))}
           </ul>
           <p className="mt-6 text-sm text-muted-foreground">
-            Need a token that isn&apos;t verified yet, or one still on a Nad.Fun bonding curve? <Link href="/dashboard/ask" className="font-medium text-primary-ink underline-offset-2 hover:underline">Ask PayAI</Link> trades those too, across Kuru and Nad.Fun as well as Uniswap.
+            Need a token that isn&apos;t verified yet? <Link href="/dashboard/ask" className="font-medium text-primary-ink underline-offset-2 hover:underline">Ask PayAI</Link> trades those too, across every DEX PayAI supports.
           </p>
         </motion.div>
 
