@@ -21,6 +21,8 @@ import { MonadMark } from "@/components/MonadMark";
  *  trust the rest of the page is trying to earn. */
 const FAQS = [
   { q: "Who controls my money?", a: "You do. PayAI is non-custodial — it never holds your funds and never asks for your seed phrase or private keys. Every automation is authorized by a signature from your own wallet, and it can only ever move within the limits you set." },
+  { q: "Can Ask PayAI trade for me, not just pay?", a: "Yes. Describe a trade in plain English and Ask PayAI quotes it live — across Uniswap, Kuru, and Nad.Fun, including tokens still on a bonding curve before they graduate to a full DEX pool — then your own wallet signs it. Uniswap and Kuru trades carry a 0.25% platform fee, taken from what you're spending and shown before you approve; Nad.Fun trades currently have no PayAI fee." },
+  { q: "What is Nad.Fun / DeFi trading?", a: "Nad.Fun is Monad's bonding-curve launchpad for new tokens. Ask PayAI can buy or sell any Nad.Fun token — before or after it graduates to a full DEX pool — the same way it handles an established token: describe it, get a live quote, sign once." },
   { q: "What is Wallet Automation?", a: "Your funds stay in your wallet until each payment fires. You approve a spending allowance once, and PayAI pulls only the exact amount due at each scheduled run. Nothing is moved in advance, and you can revoke the approval at any time." },
   { q: "What is Reserved Funds?", a: "Funds are set aside up front in the AutomationVault contract, which guarantees the payment can execute even if your wallet balance changes later. The reservation is locked to the recipient you chose, so it can only ever pay them — and you can refund what's unspent." },
   { q: "Which tokens can I automate?", a: "Any fungible token on Monad, plus native MON. PayAI reads a token's symbol, name, and decimals directly from its contract rather than assuming them, so a token doesn't need to be on a list to work — paste its address and it's supported." },
@@ -82,7 +84,7 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Automate Every Payment on Monad.
+              Payments, Trading & DeFi. Automated on Monad.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -100,7 +102,7 @@ export default function LandingPage() {
                 between products on, not a feature list of one of them. */}
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
-                { icon: Sparkles, label: "AI Payment Operator" },
+                { icon: Sparkles, label: "AI Trading & Payments" },
                 { icon: Repeat, label: "Payment Automation" },
                 { icon: ArrowLeftRight, label: "Smart Swaps" },
                 { icon: Users, label: "Bulk Distribution" },
@@ -204,7 +206,7 @@ export default function LandingPage() {
             Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Everything you need to send, swap, automate and manage payments on Monad — from one platform.
+            Everything you need to send, trade, swap DeFi tokens, automate and manage payments on Monad — from one platform.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
             <Link href="/auth" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">

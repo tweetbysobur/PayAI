@@ -42,7 +42,7 @@ export default function ProductPage() {
             Everything PayAI does
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            Payments, swaps, automations, bulk distributions and the wallets behind them — the whole
+            Payments, trading, DeFi swaps, automations, bulk distributions and the wallets behind them — the whole
             platform, in the depth the landing page deliberately leaves out.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -73,7 +73,7 @@ export default function ProductPage() {
             Start managing payments, not transactions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Everything you need to send, swap, automate and manage payments on Monad — from one platform.
+            Everything you need to send, trade, swap DeFi tokens, automate and manage payments on Monad — from one platform.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">

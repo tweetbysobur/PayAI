@@ -57,10 +57,10 @@ function Head({ title, body, eyebrow }: { title: string; body: string; eyebrow?:
 const PRODUCTS = [
   {
     icon: Sparkles,
-    title: "AI Payment Operator",
-    body: "Describe a payment in plain English. PayAI reads it, checks the recipient and the amount, and prepares the workflow — then waits for your approval before anything moves.",
-    href: "/dashboard",
-    action: "Open the operator",
+    title: "Ask PayAI",
+    body: "Describe a payment or a trade in plain English. PayAI reads it, quotes trades live across Uniswap, Kuru and Nad.Fun DeFi tokens, checks recipients and amounts — then waits for your approval before anything moves.",
+    href: "/dashboard/ask",
+    action: "Ask PayAI",
   },
   {
     icon: Repeat,
@@ -105,8 +105,8 @@ export function ProductOverviewSection() {
       <div className="mx-auto max-w-6xl px-6">
         <Head
           eyebrow="The platform"
-          title="Six products, one payment layer"
-          body="Send, swap, automate, distribute and account for payments on Monad without moving between six different applications."
+          title="Six products, one platform"
+          body="Send, trade, swap DeFi tokens, automate, distribute and account for payments on Monad without moving between six different applications."
         />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {PRODUCTS.map((p, i) => (
@@ -358,6 +358,7 @@ export function PaymentOperationsSection() {
 const OPERATOR_EXAMPLES = [
   "Pay contributors every Friday.",
   "Swap 100 MON into USDC.",
+  "Trade 50 USDC for a Nad.Fun token.",
   "Send 250 USDC to alice.nad.",
   "Create monthly payroll.",
 ];
@@ -377,21 +378,22 @@ export function AIOperatorSection() {
           initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
         >
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">AI payment operator</p>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Ask PayAI</p>
           <h2 className={H2}>Say what you want. Approve what it prepares.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-            The operator turns a sentence into a complete workflow: it resolves the recipient, reads the token off its own
-            contract, checks the amount against your balance, and lays out every field for you to read.
+            Ask PayAI turns a sentence into a complete workflow — a payment or a trade. It resolves the recipient or
+            quotes the trade live across Uniswap, Kuru, and Nad.Fun, reads the token off its own contract, checks the
+            amount against your balance, and lays out every field for you to read.
           </p>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             Then it stops. Nothing is signed, sent, or scheduled until you approve it — and what you approve is exactly what
             you were shown.
           </p>
           <Link
-            href="/dashboard"
+            href="/dashboard/ask"
             className="mt-7 inline-flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input"
           >
-            Try the operator <ArrowRight size={14} className="text-primary-ink" />
+            Try Ask PayAI <ArrowRight size={14} className="text-primary-ink" />
           </Link>
         </motion.div>
 
@@ -573,6 +575,9 @@ export function SmartSwapsSection() {
               </li>
             ))}
           </ul>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Need a token that isn&apos;t verified yet, or one still on a Nad.Fun bonding curve? <Link href="/dashboard/ask" className="font-medium text-primary-ink underline-offset-2 hover:underline">Ask PayAI</Link> trades those too, across Kuru and Nad.Fun as well as Uniswap.
+          </p>
         </motion.div>
 
         <motion.div

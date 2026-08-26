@@ -155,6 +155,84 @@ Deploy / verify / config-check / canary tooling lives in
 `check-trade-executor-config-readonly.js`, `canary-uniswap-mainnet.js`,
 `canary-kuru-mainnet.js`, with the full sequence in `contracts/GATE4_RUNBOOK.md`.
 
+## PayAITradeExecutorV2 — deployed + verified + configured + canaried on mainnet, 2026-08-24
+
+The on-chain footprint for INTERACTIVE, user-signed TRADES on **Uniswap V3,
+Kuru, and Nad.Fun** (Gate 7/8) — Gate 7 added Nad.Fun as a third venue
+alongside V1's existing two; Gate 8 deployed, configured, and canaried the
+result on mainnet. Separate, non-upgradeable, Safe-owned contract; same
+security model as V1 (exact-input only, typed adapters, no arbitrary
+target/calldata, Safe-controlled allowlists + pause, 0.25% fee from the gross
+INPUT to the treasury, output measured by the user's real balance delta,
+zero-retention on every asset touched). The payer/beneficiary is always
+`msg.sender`. **V1 (`0xF17a916280321Ddb657c8EDd26B2a729F6E63b69`) was not
+modified or redeployed** — it remains fully intact and is the production
+rollback path for as long as V2 stays disabled. Unrelated to PaymentExecutor
+/ AutomationVault / MerchantRegistry / PayAIForwarder — none were touched.
+
+| Field | Value |
+|---|---|
+| Address | `0x920409bed646fFA094b9851867435a74B55Ca40d` |
+| Chain | Monad mainnet (143) |
+| Owner (admin: pause + config only, cannot move funds) | **`0xA282833B52b1B66D58bD2007081dCC037798C0b0`** — the PayAI Safe multisig, set in the constructor (owner from block zero; no EOA-owner window). Verified on-chain via the contract's `owner()`. |
+| Treasury (0.25% fee sink) | `0xA282833B52b1B66D58bD2007081dCC037798C0b0` (the Safe itself). Verified via `treasury()`. |
+| feeBps | `25` (0.25%); `MAX_FEE_BPS` = 100 (1%). Verified via `feeBps()`. |
+| paused | `false`. Verified via `paused()`. |
+| uniswapRouter (immutable, SwapRouter02) | `0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900`. Verified via `uniswapRouter()`. |
+| wmon (immutable, WETH9) | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A`. Verified via `wmon()`. |
+| Kuru allowlist | MON/USDC market `0x065C9d28E428A0db40191a54d33d5b7c71a9C394` = `true`. Seeded by a Safe multisig tx, confirmed on-chain by re-reading `allowedKuruMarket`. Same market V1 already has allowlisted — restored on this separate contract, not changed. No other market allowlisted. |
+| Nad.Fun BondingCurveRouter allowlist | `0x6F6B8F1a20703309951a5127c45B49b1CD981A22` = `true`. Seeded by a Safe multisig tx, confirmed via `allowedNadFunRouter`. |
+| Nad.Fun DexRouter allowlist | `0x0B79d71AE99528D1dB24A4148b5f4F865cc2b137` = `true`. Seeded by a Safe multisig tx, confirmed via `allowedNadFunRouter`. No other Nad.Fun router allowlisted. |
+| Deploy tx | `0x5f3567ff59f06c447b129f6a19463c8808c5cb270b2d3641a7b59bba84319bad` |
+| Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0x920409bed646fFA094b9851867435a74B55Ca40d/`. Compiler: solc `0.8.24`, optimizer on, 200 runs, **no viaIR**, single-file `contracts/PayAITradeExecutorV2.sol`, MIT. |
+
+**Deployed, verified, and configured — NOT yet enabled in production.**
+`MONAD_MAINNET_PAYAI_TRADE_EXECUTOR_V2` and `PAYAI_TRADE_EXECUTOR_V2_ENABLED`
+remain unset in Vercel; Ask PayAI trades continue routing through V1
+(Uniswap/Kuru) and the existing direct path (Nad.Fun) exactly as before. See
+`lib/monad/config.ts`'s `getPayAITradeExecutorV2()` /
+`tradeExecutorV2Enabled()` (fail-closed: both required) and
+`lib/monad/tradeExecutor.ts`'s `selectExecutor()`, which will route Uniswap,
+Kuru, and Nad.Fun all through V2 once enabled — superseding V1 for the first
+two, and serving Nad.Fun through an executor for the first time. Rollback
+before enabling is simply never setting the flag; rollback after enabling is
+setting it back to unset/false — nothing on-chain changes either way.
+
+Mainnet canaries (tiny amounts, signed by the deployer wallet
+`0x25b8…dc3a` before any production flag is touched; every one verified
+on-chain: `TradeExecuted` decoded, correct user/venue/tokens/amountIn,
+0.25% fee to treasury, executor retained zero, allowances reset):
+
+| # | Direction | Tx | In → Out | Fee | Result |
+|---|---|---|---|---|---|
+| 1 | Uniswap, USDC → WMON | (see terminal output, Gate 8) | 0.02 USDC → 0.62422099 WMON | 0.00005 USDC | PASS — all checks |
+| 2 | Kuru, USDC → native MON | `0x23e5510db5c0fdfe34ec0ae9e85ca5d124046a2b4d96af72c61d3ac3389ac4d6` (blk 98840701) | 0.05 USDC → 1.56298966 MON | 0.000125 USDC | PASS — all checks |
+| 3 | Nad.Fun bonding-curve BUY, native MON → token | (see terminal output, Gate 8) | 0.01 MON → 957.79331022 token | 0.000025 MON | PASS — all checks |
+| 4 | Nad.Fun bonding-curve SELL, token → native MON | (see terminal output, Gate 8) | 190 token → 0.01934569 MON | 0.475 token | Substantively PASS — 14/15 checks (see note below) |
+| 5 | Nad.Fun DEX BUY, native MON → token | `0x68f182e50f2246f890416d51e19722dc23dd18de4de23d7c82bebc9c6fa7c085` (blk 98861268) | 0.01 MON → 2.09606476 token | 0.000025 MON | PASS — all checks |
+| 6 | Nad.Fun DEX SELL, token → native MON | (see terminal output, Gate 8) | 2 token → 0.00932896 MON | 0.005 token | Substantively PASS — 14/15 checks (see note below) |
+
+**Note on canaries #4 and #6:** both hit the same informal wallet-balance
+heuristic (native output net of gas > 0), not a fund-safety or contract
+defect — every check that actually attests correctness passed on both
+(correct venue/tokens/amounts, correct 0.25% fee, treasury received it
+exactly, `amountOut ≥ minOut`, zero-retention, no leftover allowance, correct
+`TradeExecuted` emitter and router). Both trades deliberately used very small,
+low-value test tokens; on Monad's current gas cost, a native-MON output that
+small can be smaller than the tx's own gas fee, which trips a wallet-level
+"did the balance go up" check that assumes gas is negligible relative to
+output. The contract's own event and the zero-retention/fee checks — the
+things that actually prove correctness and fund safety — passed cleanly in
+both cases. Accepted as sufficient rather than re-run with a larger amount,
+since scaling this specific test further would only spend more MON without
+adding any additional safety signal.
+
+Deploy / verify / config-check / canary tooling lives in
+`contracts/scripts/deploy-payai-trade-executor-v2.js`,
+`check-trade-executor-v2-config-readonly.js`, `canary-uniswap-mainnet-v2.js`,
+`canary-kuru-mainnet-v2.js`, `canary-nadfun-mainnet-v2.js`, with the full
+sequence in `contracts/GATE8_RUNBOOK.md`.
+
 ## Correction (2026-08-15): a screenshot-transcription error, now fixed
 
 An earlier version of this file, and a commit that "fixed" a supposed typo
