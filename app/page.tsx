@@ -80,8 +80,8 @@ export default function LandingPage() {
               <MonadMark size={13} />
               <span className="font-medium text-foreground">MONAD</span>
             </div>
-            <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Turn Natural-Language Intent Into On-Chain Actions.
+            <h1 className="font-montserrat text-balance text-4xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-5xl">
+              Natural Language. On-Chain Execution.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
