@@ -80,8 +80,8 @@ export function SiteFooter() {
               <span className="text-base font-semibold text-foreground">PayAI</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              The payment automation layer on Monad. Send, swap, automate and distribute
-              payments from one place, while your funds stay in your control.
+              PayAI is an AI-native on-chain operator on Monad. Turn natural-language intent
+              into payments, trades, and DeFi actions from one interface.
             </p>
             <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
               <MonadMark size={12} /> Built on Monad Mainnet
