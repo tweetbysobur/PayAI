@@ -15,22 +15,18 @@ import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
 
-/** Answers are kept strictly to what the product does TODAY — including
- *  where it has limits (Reserved Funds not supporting bulk, fees being free
- *  only during beta). An FAQ that oversells is the fastest way to lose the
- *  trust the rest of the page is trying to earn. */
+/** Answers are kept strictly to what the product does TODAY. An FAQ that
+ *  oversells is the fastest way to lose the trust the rest of the page is
+ *  trying to earn. Deliberately short (6 entries) — current positioning,
+ *  not an exhaustive feature list; the deep mechanics live on /product and
+ *  /how-it-works. */
 const FAQS = [
-  { q: "Who controls my money?", a: "You do. PayAI is non-custodial — it never holds your funds and never asks for your seed phrase or private keys. Every automation is authorized by a signature from your own wallet, and it can only ever move within the limits you set." },
-  { q: "Can Ask PayAI trade for me, not just pay?", a: "Yes. Describe a trade in plain English and Ask PayAI quotes it live — across Uniswap, Kuru, and Nad.Fun, including tokens still on a bonding curve before they graduate to a full DEX pool — then your own wallet signs it. Uniswap and Kuru trades carry a 0.25% platform fee, taken from what you're spending and shown before you approve; Nad.Fun trades currently have no PayAI fee." },
-  { q: "What is Nad.Fun / DeFi trading?", a: "Nad.Fun is Monad's bonding-curve launchpad for new tokens. Ask PayAI can buy or sell any Nad.Fun token — before or after it graduates to a full DEX pool — the same way it handles an established token: describe it, get a live quote, sign once." },
-  { q: "What is Wallet Automation?", a: "Your funds stay in your wallet until each payment fires. You approve a spending allowance once, and PayAI pulls only the exact amount due at each scheduled run. Nothing is moved in advance, and you can revoke the approval at any time." },
-  { q: "What is Reserved Funds?", a: "Funds are set aside up front in the AutomationVault contract, which guarantees the payment can execute even if your wallet balance changes later. The reservation is locked to the recipient you chose, so it can only ever pay them — and you can refund what's unspent." },
-  { q: "Which tokens can I automate?", a: "Any fungible token on Monad, plus native MON. PayAI reads a token's symbol, name, and decimals directly from its contract rather than assuming them, so a token doesn't need to be on a list to work — paste its address and it's supported." },
-  { q: "How do Bulk Payments work?", a: "Upload a CSV or Excel file, paste addresses, or add recipients manually, then split by equal, fixed, percentage, or custom amounts. PayAI validates every address, catches duplicates, and shows the full allocation before you sign. Bulk runs use Wallet Automation — Reserved Funds can't back a bulk payment, because a vault reservation is locked to a single recipient." },
-  { q: "What are the fees?", a: "There is no platform fee during beta. You pay only Monad network gas, which is a fraction of a cent per payment. If a platform fee is ever introduced, it will be shown on the review screen before you approve anything." },
-  { q: "Are there templates to start from?", a: "Yes — ready-made automations for payroll, contractors, vendors, subscriptions, rent, savings, treasury distributions, DAO payouts, creator revenue splits, launchpad distributions, and more. A template just pre-fills sensible defaults; every field stays editable before you activate it." },
-  { q: "When exactly does a payment execute?", a: "At the time and timezone you set. A scheduler checks for due automations continuously, and each run is idempotent — enforced both in the app and on-chain — so a retry can never double-pay. If a run fails, PayAI retries with a backoff and tells you why." },
-  { q: "Can I verify what happened?", a: "Always. Every execution is recorded on Monad Mainnet with a transaction hash, and the dashboard shows each run's status, amount, recipient, gas, and failure reason if any — including per-recipient results for bulk payments." },
+  { q: "What is PayAI?", a: "PayAI is an AI-native on-chain operator built on Monad. Users can express what they want to accomplish in natural language, and PayAI coordinates the underlying on-chain execution." },
+  { q: "How does PayAI work?", a: "PayAI interprets a user's natural-language intent, determines the required on-chain actions, and prepares the transaction flow for the user to review and approve." },
+  { q: "What can I do with PayAI?", a: "PayAI supports payments, token trading, and interactions with DeFi protocols through one interface. More on-chain actions will be added over time." },
+  { q: "Who controls my funds?", a: "You remain in control of your wallet and assets. PayAI does not take custody of your funds." },
+  { q: "How are transactions executed and verified?", a: "Transactions execute on Monad through supported on-chain infrastructure and smart contracts. PayAI records and verifies execution through on-chain transaction data and contract events." },
+  { q: "What are the fees?", a: "PayAI currently charges a 0.25% fee on supported fee-bearing transactions. Any applicable network or protocol fees are separate." },
 ];
 
 /**
@@ -84,7 +80,7 @@ export default function LandingPage() {
               <span className="font-medium text-foreground">MONAD</span>
             </div>
             <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Payments, Trading & DeFi. Automated on Monad.
+              Turn Natural-Language Intent Into On-Chain Actions.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -191,9 +187,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA. max-w-4xl, not -3xl — the -3xl column left this heading
-          only 720px to work with, forcing "Start Managing Payments, Not
-          Transactions." across three ragged lines once it went uppercase
+      {/* Final CTA. max-w-4xl, not -3xl — a narrower column forces this
+          heading into ragged multi-line wraps once it goes uppercase
           Montserrat (a wider face than the site's default). The paragraph
           under it keeps its own max-w-xl regardless, so only the heading
           gets the extra room. */}
@@ -203,10 +198,10 @@ export default function LandingPage() {
               automation" asked for a commitment to one product; the platform
               is what the page has just spent its length arguing for. */}
           <h2 className="font-montserrat text-4xl font-semibold uppercase tracking-tighter text-foreground sm:text-5xl">
-            Start managing payments, not transactions.
+            Turn your intent into on-chain actions.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Everything you need to send, trade, swap DeFi tokens, automate and manage payments on Monad — from one platform.
+            Payments, trading, and DeFi from one natural-language interface on Monad.
           </p>
           <div className="mt-8 flex items-center justify-center gap-3">
             <Link href="/auth" className="rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -214,7 +209,7 @@ export default function LandingPage() {
             </Link>
           </div>
           <p className="mt-4 text-xs text-muted-foreground">
-            Non-custodial · No platform fee during beta · Monad Mainnet
+            Non-custodial · On-chain execution · Built on Monad
           </p>
         </motion.div>
       </section>
