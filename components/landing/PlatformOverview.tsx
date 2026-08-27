@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
-  Sparkles, Repeat, ArrowLeftRight, Users, Wallet, BarChart3,
+  Sparkles, ArrowLeftRight, Wallet, BarChart3, Layers,
   ArrowRight, Fingerprint, Coins, CheckCircle2, Send, ShieldCheck,
   Mail, Bell, Clock, Activity, PieChart, ListChecks,
   Building2, Landmark, Repeat2, Store, Gift, Megaphone, Rocket, Home,
@@ -13,10 +13,10 @@ import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
 
 /**
- * The repositioning sections: the payment automation layer on Monad is a
- * platform of six products, not one scheduling feature.
+ * The repositioning sections: PayAI is one natural-language intent layer,
+ * not a bundle of separate products bolted together.
  *
- * Only the six-product overview belongs on the landing page. The rest of
+ * Only the top-level overview belongs on the landing page. The rest of
  * these are the second-order questions — how it works mechanically, what the
  * operator does, what the wallet can do — and they live on /product and
  * /how-it-works, which is where someone goes once the front door has done its
@@ -54,48 +54,53 @@ function Head({ title, body, eyebrow }: { title: string; body: string; eyebrow?:
 
 /* ── 1. Product overview ────────────────────────────────────────────────── */
 
+/** Ask PayAI is the natural-language front door to everything else in this
+ *  list — it stays out of the grid below and renders as its own dominant
+ *  banner card instead, so the layout reflects the positioning rather than
+ *  just the copy. */
+const ASK_PAYAI = {
+  icon: Sparkles,
+  title: "Ask PayAI",
+  body: "Tell PayAI what you want to accomplish. PayAI interprets your intent, builds the transaction flow, and lets you review before signing.",
+  href: "/dashboard/ask",
+  action: "Ask PayAI",
+};
+
 const PRODUCTS = [
   {
-    icon: Sparkles,
-    title: "Ask PayAI",
-    body: "Describe a payment or a trade in plain English. PayAI reads it, quotes trades live across Monad DEXs, checks recipients and amounts — then waits for your approval before anything moves.",
-    href: "/dashboard/ask",
-    action: "Ask PayAI",
-  },
-  {
-    icon: Repeat,
-    title: "Payment Automation",
-    body: "Payroll, subscriptions, treasury transfers and anything else that repeats. Approve the schedule once; each run fires on time and records what it did.",
-    href: "/dashboard/automations",
-    action: "See automations",
+    icon: Send,
+    title: "Payments",
+    body: "Send payments, automate recurring transfers, distribute funds, and manage payment workflows without switching between multiple tools.",
+    href: "/dashboard/payments",
+    action: "See payments",
   },
   {
     icon: ArrowLeftRight,
-    title: "Smart Swaps",
-    body: "Swap between MON, USDC and any verified Monad token without leaving PayAI. Quotes come from the chain, and your own wallet signs the trade.",
-    href: "/dashboard",
-    action: "Swap assets",
+    title: "Trading",
+    body: "Trade tokens across supported Monad venues through natural-language intent, with the execution handled on-chain.",
+    href: "/dashboard/ask",
+    action: "Trade with Ask PayAI",
   },
   {
-    icon: Users,
-    title: "Bulk Distribution",
-    body: "Rewards, salaries, grants and allocations to a whole list at once. Import a CSV, paste addresses, or add them by hand — every address is validated and the full allocation is shown before you sign.",
-    href: "/dashboard/automations",
-    action: "Build a distribution",
+    icon: Layers,
+    title: "DeFi",
+    body: "Interact with supported DeFi protocols without manually navigating every contract, router, or transaction flow.",
+    href: "/dashboard/ask",
+    action: "Explore DeFi",
   },
   {
     icon: Wallet,
-    title: "Embedded Wallet",
-    body: "Create a PayAI wallet with a passkey in seconds, or connect a wallet you already have. Link both to one account and choose which each workflow proposes.",
+    title: "PayAI Wallet",
+    body: "Create or connect your wallet and keep control of your assets while PayAI coordinates the actions you approve.",
     href: "/dashboard/wallets",
     action: "Manage wallets",
   },
   {
     icon: BarChart3,
-    title: "Analytics & Activity",
-    body: "Balances, transactions, swaps, automation runs, upcoming executions and notifications — one dashboard, scoped to your wallet and nobody else's.",
-    href: "/dashboard/transactions?tab=analytics",
-    action: "View the dashboard",
+    title: "Activity",
+    body: "See balances, transactions, executions, and automation activity in one place with verifiable on-chain records.",
+    href: "/dashboard/activity",
+    action: "View activity",
   },
 ];
 
@@ -104,11 +109,41 @@ export function ProductOverviewSection() {
     <section id="platform" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="The platform"
-          title="Six products, one platform"
-          body="Send, trade, swap DeFi tokens, automate, distribute and account for payments on Monad without moving between six different applications."
+          eyebrow="The PayAI Experience"
+          title="One Intent Layer. Multiple On-Chain Actions."
+          body="Use natural-language intent to make payments, trade tokens, automate workflows, and interact with DeFi on Monad from one interface."
         />
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+
+        {/* Ask PayAI — the dominant card. Wider, elevated, glowing border:
+            visually the source everything else flows from, not one tile
+            among six equals. */}
+        <motion.div
+          initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.35 }}
+          className="mb-4"
+        >
+          <Link
+            href={ASK_PAYAI.href}
+            className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/[0.1] via-panel to-panel p-7 shadow-[0_25px_70px_-30px_hsl(var(--primary)/0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/20" />
+            <div className="flex items-center gap-4">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-primary-ink transition-colors group-hover:bg-primary/30">
+                <ASK_PAYAI.icon size={24} />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold tracking-tight text-foreground">{ASK_PAYAI.title}</h3>
+                <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">{ASK_PAYAI.body}</p>
+              </div>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-primary px-4 py-2.5 text-xs font-medium text-primary-foreground shadow-sm shadow-primary/25 sm:self-center">
+              {ASK_PAYAI.action}
+              <ArrowRight size={13} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+        </motion.div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {PRODUCTS.map((p, i) => (
             <motion.div
               key={p.title}
@@ -314,9 +349,9 @@ export function PaymentOperationsSection() {
     <section id="workflows" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Payment operations"
-          title="One platform. Every payment workflow."
-          body="One automation engine underneath, and enough control on top of it to run payroll, a treasury, a distribution or your own rent."
+          eyebrow="Payments"
+          title="From simple transfers to recurring payment operations."
+          body="One automation engine underneath, and enough control on top of it to run payroll, a treasury, a distribution or your own rent — as a use case of the same intent layer, not a separate product."
         />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -546,22 +581,27 @@ export function EmbeddedWalletSection() {
   );
 }
 
-/* ── 6. Smart swaps ─────────────────────────────────────────────────────── */
+/* ── 6. Trading ──────────────────────────────────────────────────────────── */
 
-export function SmartSwapsSection() {
+/** Execution venues PayAI actually routes through today. Deliberately shown
+ *  small and secondary — the user describes a trade, not a venue, and the
+ *  venue PayAI picks is an implementation detail surfaced for transparency,
+ *  not the headline. */
+const TRADING_VENUES = ["Uniswap", "Kuru", "Nad.Fun"];
+
+export function TradingSection() {
   return (
-    <section id="swaps" className={`${SECTION} bg-panel/20`}>
+    <section id="trading" className={`${SECTION} bg-panel/20`}>
       <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:items-center">
         <motion.div
           initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
         >
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Smart swaps</p>
-          <h2 className={H2}>Hold the wrong asset? Fix it here.</h2>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Trading</p>
+          <h2 className={H2}>Trade across supported Monad venues from one interface.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-            A payment due in USDC while you hold MON used to mean leaving for a DEX, swapping, coming back, and hoping the
-            balance arrived in time. PayAI quotes the swap on-chain, routes it through Uniswap v3 on Monad, and your own
-            wallet signs it — then the balance is simply there for the payment you were trying to make.
+            Describe the trade in plain language. PayAI coordinates execution through supported Monad venues — quoting
+            live, checking your balance, and preparing the transaction — then your own wallet signs it.
           </p>
           <ul className="mt-6 space-y-3">
             {[
@@ -575,9 +615,15 @@ export function SmartSwapsSection() {
               </li>
             ))}
           </ul>
-          <p className="mt-6 text-sm text-muted-foreground">
-            Need a token that isn&apos;t verified yet? <Link href="/dashboard/ask" className="font-medium text-primary-ink underline-offset-2 hover:underline">Ask PayAI</Link> trades those too, across every DEX PayAI supports.
-          </p>
+          {/* The venue, named but kept secondary to the sentence above it. */}
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Routed through:</span>
+            {TRADING_VENUES.map((v) => (
+              <span key={v} className="rounded-full border border-border bg-input/50 px-2.5 py-1 text-[11px] font-medium text-foreground">
+                {v}
+              </span>
+            ))}
+          </div>
         </motion.div>
 
         <motion.div
@@ -588,7 +634,7 @@ export function SmartSwapsSection() {
           <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           <div className="p-6">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Swap</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Trade</p>
               <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <MonadMark size={10} /> Monad Mainnet
               </span>
@@ -610,7 +656,7 @@ export function SmartSwapsSection() {
 
             <div className="mt-4 space-y-2 rounded-xl border border-border bg-background/40 p-4 text-[11px]">
               {[
-                ["Route", "Uniswap v3 on Monad"],
+                ["Venue", "Best available Monad route"],
                 ["Quote", "Read live from the pool"],
                 ["Signed by", "Your wallet"],
               ].map(([k, v]) => (
@@ -643,9 +689,9 @@ export function AnalyticsSection() {
     <section id="analytics" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Analytics & activity"
-          title="Know what happened, and what is about to."
-          body="One dashboard for balances, executions and history — scoped to your wallet, and never to anyone else's."
+          eyebrow="Your on-chain activity"
+          title="See what PayAI did."
+          body="Balances, executions, payments, trades and automation runs — one dashboard, scoped to your wallet, with a verifiable on-chain record behind every entry."
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {ANALYTICS.map((a, i) => (

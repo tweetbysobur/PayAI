@@ -26,14 +26,14 @@ describe("the landing page stays the pitch", () => {
     expect(page).toMatch(/<ProductOverviewSection \/>/);
     for (const deep of [
       "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
-      "EmbeddedWalletSection", "SmartSwapsSection", "AnalyticsSection", "SecuritySection",
+      "EmbeddedWalletSection", "TradingSection", "AnalyticsSection", "SecuritySection",
     ]) {
       expect(page, `${deep} belongs on a depth page, not the landing page`).not.toContain(deep);
     }
   });
 
   it("puts the product depth on /product", () => {
-    for (const s of ["PaymentOperationsSection", "SmartSwapsSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
+    for (const s of ["PaymentOperationsSection", "TradingSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
       expect(product, `/product is missing ${s}`).toContain(s);
     }
   });
@@ -49,7 +49,7 @@ describe("the landing page stays the pitch", () => {
     // landing page keeps the copy and the depth page is forgotten.
     const sections = [
       "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
-      "EmbeddedWalletSection", "SmartSwapsSection", "AnalyticsSection",
+      "EmbeddedWalletSection", "TradingSection", "AnalyticsSection",
     ];
     for (const s of sections) {
       const on = [product.includes(s), howItWorks.includes(s)].filter(Boolean).length;
@@ -115,12 +115,15 @@ describe("the hero states the platform, not one feature", () => {
   it("leads with the headline", () => {
     // No subheadline paragraph under the H1 — removed on request. The
     // breadth claim — six products, not one — lives in the chip row below
-    // the CTAs instead (covered by the next test). Two prior headlines
-    // ("Automate Every Payment on Monad", then a broadened "Payments,
-    // Trading & DeFi...") were replaced on request with this one, which
-    // names the mechanism (natural language -> on-chain action) rather than
-    // any one product area.
-    expect(page).toMatch(/Turn Natural-Language Intent Into On-Chain Actions\./);
+    // the CTAs instead (covered by the next test). Several prior headlines
+    // ("Automate Every Payment on Monad", "Payments, Trading & DeFi...",
+    // "Turn Natural Language Intent Into On-Chain Actions.") were replaced
+    // on request with this shorter one — the long version wrapped badly
+    // (4 ragged lines, one splitting a hyphenated compound word) at hero
+    // width and read as unpolished; this is set in font-montserrat at a
+    // smaller size specifically so it renders as a clean 1-2 line display
+    // headline instead.
+    expect(page).toMatch(/Natural Language\. On-Chain Execution\./);
   });
 
   it("names all six products in the hero", () => {

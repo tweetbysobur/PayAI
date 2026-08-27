@@ -5,12 +5,13 @@ import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
   Wallet as WalletIcon, ChevronDown, Sparkles, PlayCircle,
-  Clock, X, CheckCircle2, Users, Repeat, ArrowLeftRight, BarChart3,
+  Users, Repeat, ArrowLeftRight, BarChart3,
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
 import { WhyMonadSection } from "@/components/landing/MarketingSections";
 import { ProductOverviewSection } from "@/components/landing/PlatformOverview";
+import { IntentSection } from "@/components/landing/IntentSection";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
@@ -79,8 +80,8 @@ export default function LandingPage() {
               <MonadMark size={13} />
               <span className="font-medium text-foreground">MONAD</span>
             </div>
-            <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Turn Natural-Language Intent Into On-Chain Actions.
+            <h1 className="font-montserrat text-balance text-4xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-5xl">
+              Natural Language. On-Chain Execution.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
@@ -136,34 +137,8 @@ export default function LandingPage() {
           and the nav carries the two deeper pages. */}
       <ProductOverviewSection />
 
-      {/* Why PayAI — manual vs automated */}
-      <section id="why" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
-        <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-          {/* Names the visitor's problem, not the product. The old "Why PayAI"
-              asked them to care about us before we'd shown we understand them. */}
-          <h2 className="text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground">Stop managing payments manually</h2>
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">Every recurring payment you sign by hand is a deadline you have to remember and a step that can be missed. Automation removes both.</p>
-        </motion.div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.35 }} className="rounded-xl border border-border bg-panel p-6">
-            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-muted-foreground"><Clock size={15} /> Doing it manually</p>
-            <ul className="space-y-3">
-              {["Remember every due date yourself", "Sign each payment, one at a time", "Miss a payment if you're offline or busy", "No single record of what went out", "Repeat it all again next cycle"].map((t) => (
-                <li key={t} className="flex items-start gap-2.5 text-sm text-muted-foreground"><X size={15} className="mt-0.5 shrink-0 text-danger/70" /> {t}</li>
-              ))}
-            </ul>
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: 0.06, duration: 0.35 }} className="rounded-xl border border-primary/30 bg-gradient-to-b from-primary/[0.06] to-transparent p-6">
-            <p className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary-ink"><Sparkles size={15} /> With PayAI automation</p>
-            <ul className="space-y-3">
-              {["Set the schedule once, approve once", "Payments fire on time, on their own", "Runs whether you're online or not", "Every payment recorded and verifiable", "Full control: pause, edit, or cancel anytime"].map((t) => (
-                <li key={t} className="flex items-start gap-2.5 text-sm text-foreground"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-primary-ink" /> {t}</li>
-              ))}
-            </ul>
-          </motion.div>
-        </div>
-      </section>
-
+      {/* Why PayAI — natural-language intent vs manual multi-app execution */}
+      <IntentSection />
 
       {/* Live platform totals — the proof the pitch above is real. Kept on
           the landing page deliberately: it is evidence, not capability
