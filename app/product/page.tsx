@@ -5,24 +5,26 @@ import { motion } from "motion/react";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
-import { FeatureGroupsSection } from "@/components/landing/MarketingSections";
 import {
-  SmartSwapsSection, EmbeddedWalletSection, PaymentOperationsSection, AnalyticsSection,
+  CoreProductSection, IntentToExecutionSection, CapabilitiesSection,
+  DeFiSection, VerificationSection, IntentExamplesSection,
+} from "@/components/landing/ProductSections";
+import {
+  TradingSection, EmbeddedWalletSection, PaymentOperationsSection, AnalyticsSection,
 } from "@/components/landing/PlatformOverview";
-import { TemplateShowcase } from "@/components/landing/TemplateShowcase";
-import { SupportedTokens } from "@/components/landing/PlatformSections";
 
 /**
- * /product — answers "what can PayAI actually do?"
+ * /product — answers "what is PayAI, and what can it actually do?"
  *
- * These four sections used to sit on the landing page, which had grown to 15
- * sections and buried the five-second pitch. They're real content a visitor
- * wants, just not at the front door: capability depth is a second-order
- * question, asked after "what is this?".
- *
- * Order is deliberate: grouped capabilities (what it does) → templates
- * (concrete starting points) → tokens (what it can move) → use cases (who
- * it's for). Each answers the question the previous one raises.
+ * Repositioned around the real core product model: natural-language intent
+ * → interpretation → planning → user review → wallet approval → on-chain
+ * execution → verification. Payments, trading, DeFi and automation are
+ * capabilities of that one intent layer, not six separate products — so the
+ * page leads with the intent-to-execution model itself (CoreProduct,
+ * IntentToExecution, Capabilities) before going into each capability's own
+ * depth. Capability depth is still a second-order question the landing page
+ * deliberately leaves out — that split hasn't changed, only what "the
+ * platform" is being described as.
  */
 export default function ProductPage() {
   return (
@@ -39,15 +41,15 @@ export default function ProductPage() {
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
           <p className="text-xs font-semibold uppercase tracking-wider text-primary-ink">Product</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
-            Everything PayAI does
+            Turn intent into on-chain execution.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            Payments, trading, DeFi swaps, automations, bulk distributions and the wallets behind them — the whole
-            platform, in the depth the landing page deliberately leaves out.
+            PayAI is an AI-native on-chain operator on Monad. Describe what you want to accomplish, review the
+            execution, and approve it from one interface.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              <Sparkles size={15} /> Launch App
+              <Sparkles size={15} /> Launch PayAI
             </Link>
             <Link href="/how-it-works" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input">
               How it works <ArrowRight size={14} className="text-primary-ink" />
@@ -56,16 +58,18 @@ export default function ProductPage() {
         </motion.div>
       </section>
 
-      {/* The depth pages carry the capability detail; the landing page keeps
-          only the pitch. UseCasesSection is gone from here — PaymentOperations
-          says the same thing with links into the product. */}
-      <FeatureGroupsSection />
-      <PaymentOperationsSection />
-      <SmartSwapsSection />
+      {/* The core model first — intent, then the execution flow, then the
+          capabilities it powers — before any capability's own depth. */}
+      <CoreProductSection />
+      <IntentToExecutionSection />
+      <CapabilitiesSection />
       <EmbeddedWalletSection />
+      <PaymentOperationsSection />
+      <TradingSection />
+      <DeFiSection />
+      <VerificationSection />
       <AnalyticsSection />
-      <TemplateShowcase />
-      <SupportedTokens />
+      <IntentExamplesSection />
 
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
