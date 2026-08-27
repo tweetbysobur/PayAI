@@ -118,7 +118,7 @@ export function FeatureGroupsSection() {
   return (
     <section id="features" className="mx-auto max-w-6xl px-6 py-24 sm:py-28">
       <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-10 text-center">
-        <h2 className={H2}>Everything you need to automate payments</h2>
+        <h2 className={H2}>What PayAI can execute today</h2>
         <p className={SUB}>Grouped by what you came here to do. Every capability below works today.</p>
       </motion.div>
 
@@ -172,8 +172,8 @@ export function AutomationTimelineSection() {
   return (
     <section id="showcase" className="mx-auto max-w-5xl px-6 py-24 sm:py-28">
       <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
-        <h2 className={H2}>How automation works</h2>
-        <p className={SUB}>You approve once. PayAI executes on time, every time, and proves each run on-chain.</p>
+        <h2 className={H2}>Automation: one execution mode</h2>
+        <p className={SUB}>When an intent repeats on a schedule, the same lifecycle runs on your behalf. You approve the terms once; PayAI executes within them and proves each run on-chain.</p>
       </motion.div>
 
       {/* Vertical timeline, not a 4-across row: seven steps don't fit a row

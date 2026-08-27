@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
-  Sparkles, ArrowLeftRight, Wallet, BarChart3, Layers,
+  Sparkles, ArrowLeftRight, Wallet, BarChart3, Layers, Target, BadgeCheck,
   ArrowRight, Fingerprint, Coins, CheckCircle2, Send, ShieldCheck,
   Mail, Bell, Clock, Activity, PieChart, ListChecks,
   Building2, Landmark, Repeat2, Store, Gift, Megaphone, Rocket, Home,
@@ -176,8 +176,15 @@ export function ProductOverviewSection() {
 /* ── 2. How PayAI works ─────────────────────────────────────────────────── */
 
 /**
- * Six steps, each with a small preview built from the product's own UI
- * primitives.
+ * The execution lifecycle, one step per card, each with a small preview built
+ * from the product's own UI primitives.
+ *
+ * These used to describe getting set up — create a wallet, fund it, build a
+ * payment — which framed PayAI as a payment-automation tool you configure.
+ * The stages below are the actual model instead: intent → interpretation →
+ * plan → approval → execution → verification, which is the same path a
+ * payment, a trade and a DeFi action all travel. Automation is one execution
+ * mode inside this, not the thing being described.
  *
  * The previews show controls and stages, never figures. An invented balance
  * or recipient on the front door is the same lie whether it is in a chart or
@@ -186,23 +193,34 @@ export function ProductOverviewSection() {
  */
 const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.ReactNode }[] = [
   {
-    title: "Create or connect your wallet",
-    body: "A PayAI wallet takes a passkey and a few seconds. Already have a wallet? Connect it and link both to the same account.",
-    icon: Fingerprint,
+    title: "Describe your intent",
+    body: "Say what you want to accomplish in plain language — a payment, a trade, a schedule. No forms to map your goal onto first.",
+    icon: Sparkles,
     preview: (
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Fingerprint size={15} /></span>
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-foreground">PayAI Wallet</p>
-          <p className="text-[10px] text-muted-foreground">Unlocked with your passkey</p>
-        </div>
+      <div className="flex items-center gap-2.5 rounded-lg border border-border bg-input/40 px-3 py-2">
+        <Sparkles size={13} className="shrink-0 text-primary-ink" />
+        <p className="truncate text-[11px] italic text-foreground">&ldquo;Swap 0.1 MON for USDC&rdquo;</p>
       </div>
     ),
   },
   {
-    title: "Fund it, or swap what you hold",
-    body: "Receive to your address, or swap between MON, USDC and any verified Monad token inside PayAI.",
-    icon: Coins,
+    title: "PayAI interprets it",
+    body: "The intent is resolved into structured fields — the action, the assets, the amount, and any constraints you stated.",
+    icon: Target,
+    preview: (
+      <div className="flex flex-wrap gap-1.5">
+        {["Action", "Asset", "Amount", "Constraints"].map((c) => (
+          <span key={c} className="rounded-full border border-border bg-input/50 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+            {c}
+          </span>
+        ))}
+      </div>
+    ),
+  },
+  {
+    title: "PayAI prepares the execution",
+    body: "A concrete plan: the route through a supported Monad venue, the quote read live from the chain, and every step the transaction will take.",
+    icon: Layers,
     preview: (
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 rounded-lg border border-border bg-input/50 px-2.5 py-1.5 text-[11px] font-medium text-foreground">
@@ -216,25 +234,8 @@ const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.
     ),
   },
   {
-    title: "Create a payment or an automation",
-    body: "One transfer, a recurring schedule, or a bulk distribution to a list. Start from a workflow or from scratch.",
-    icon: Send,
-    preview: (
-      <div className="flex flex-wrap gap-1.5">
-        {["Once", "Weekly", "Monthly", "Bulk"].map((c, i) => (
-          <span
-            key={c}
-            className={`rounded-full border px-2.5 py-1 text-[10px] font-medium ${i === 2 ? "border-primary/40 bg-primary/12 text-primary-ink" : "border-border text-muted-foreground"}`}
-          >
-            {c}
-          </span>
-        ))}
-      </div>
-    ),
-  },
-  {
-    title: "Review it with the operator",
-    body: "PayAI resolves the recipient, screens the payment, and shows exactly what will happen — including the address a .nad domain points to.",
+    title: "You review and approve",
+    body: "The full plan is laid out before anything is signed — recipient resolved on-chain, amount checked against your balance, screened before it moves.",
     icon: ShieldCheck,
     preview: (
       <div className="space-y-1.5">
@@ -247,9 +248,9 @@ const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.
     ),
   },
   {
-    title: "Approve once",
-    body: "One passkey confirmation, or one signature from your connected wallet. Nothing is ever signed before you see it.",
-    icon: CheckCircle2,
+    title: "It executes on Monad",
+    body: "One passkey confirmation, or one signature from your connected wallet. What you approved is exactly what is submitted.",
+    icon: Fingerprint,
     preview: (
       <div className="flex items-center gap-2">
         <span className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground">
@@ -260,13 +261,13 @@ const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.
     ),
   },
   {
-    title: "PayAI runs it and reports back",
-    body: "Every execution settles on Monad Mainnet with a transaction hash, and the dashboard tracks each run, its status, and its receipt.",
-    icon: Activity,
+    title: "The result is verified on-chain",
+    body: "Every execution settles on Monad Mainnet with a transaction hash and a contract event, and the dashboard records what happened.",
+    icon: BadgeCheck,
     preview: (
       <div className="flex items-center gap-2 text-[10px]">
         <span className="flex items-center gap-1 rounded-full bg-success/12 px-2 py-1 font-medium text-success">
-          <CheckCircle2 size={10} /> Executed
+          <CheckCircle2 size={10} /> Verified
         </span>
         <span className="flex items-center gap-1 text-muted-foreground">
           <MonadMark size={10} /> On Monad Mainnet
@@ -282,8 +283,8 @@ export function HowPayAIWorksSection() {
       <div className="mx-auto max-w-6xl px-6">
         <Head
           eyebrow="How it works"
-          title="Six steps, one approval"
-          body="From an empty wallet to a payment that runs itself — and a record of every run it made."
+          title="From intent to verified execution"
+          body="Every action PayAI takes follows the same six stages — whether it is a payment, a trade, or a DeFi interaction."
         />
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {STEPS.map((s, i) => (

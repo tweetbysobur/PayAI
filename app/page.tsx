@@ -85,7 +85,7 @@ export default function LandingPage() {
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-                <Sparkles size={15} /> Launch App
+                <Sparkles size={15} /> Launch PayAI
               </Link>
               {/* Secondary action points at the walkthrough, not a video: there
                   is no recording to play, and a button promising one that

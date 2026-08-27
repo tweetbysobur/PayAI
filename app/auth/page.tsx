@@ -189,7 +189,7 @@ function AuthFlow() {
                     <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
                       {returning
                         ? "Unlock your wallet with your passkey to pick up where you left off."
-                        : "Create your secure PayAI wallet in seconds and start automating payments on Monad. No browser extension required, no complicated setup."}
+                        : "Create your secure PayAI wallet in seconds and start making payments, trades and DeFi actions on Monad. No browser extension required, no complicated setup."}
                     </p>
 
                     {/* Item 2 — primary CTA */}

@@ -263,8 +263,18 @@ export function CapabilitiesSection() {
 
 /* ── DeFi — honest about what's actually integrated today ────────────────── */
 
-const DEFI_VENUES = ["Uniswap", "Kuru", "Nad.Fun"];
-
+/**
+ * Venues are rendered as typographic wordmarks, not logos, and that is a
+ * deliberate choice rather than a gap left to fill in later.
+ *
+ * Official marks exist and are legitimately obtainable for some of these
+ * (Uniswap) but not for others (Kuru, Nad.Fun) without pulling an unofficial
+ * copy from somewhere. Drawing the missing ones by hand would put a mark on
+ * the page that is not the brand's actual mark, and mixing two real logos
+ * with one invented one is worse than showing none. So every venue gets the
+ * same treatment until official assets for all of them are in the repo, at
+ * which point this list becomes the single place to swap them in.
+ */
 export function DeFiSection() {
   return (
     <section id="defi" className={SECTION}>
@@ -275,7 +285,7 @@ export function DeFiSection() {
           body="Today, PayAI's DeFi interactions run through Monad's DEX and launchpad infrastructure — the same execution venues Trading uses. Broader protocol support is added as it's implemented, never claimed ahead of it."
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {DEFI_VENUES.map((v) => (
+          {EXECUTION_VENUES.map((v) => (
             <span key={v} className="rounded-full border border-border bg-input/50 px-3 py-1.5 text-xs font-medium text-foreground">
               {v}
             </span>
