@@ -586,8 +586,13 @@ export function EmbeddedWalletSection() {
 /** Execution venues PayAI actually routes through today. Deliberately shown
  *  small and secondary — the user describes a trade, not a venue, and the
  *  venue PayAI picks is an implementation detail surfaced for transparency,
- *  not the headline. */
-const TRADING_VENUES = ["Uniswap", "Kuru", "Nad.Fun"];
+ *  not the headline.
+ *
+ *  Exported because /product renders this list in three places on one page
+ *  (here, the DeFi section, and the execution row of the intent flow). Three
+ *  hardcoded copies is three chances for the page to contradict itself the
+ *  day a venue is added or dropped. */
+export const EXECUTION_VENUES = ["Uniswap", "Kuru", "Nad.Fun"] as const;
 
 export function TradingSection() {
   return (
@@ -618,7 +623,7 @@ export function TradingSection() {
           {/* The venue, named but kept secondary to the sentence above it. */}
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Routed through:</span>
-            {TRADING_VENUES.map((v) => (
+            {EXECUTION_VENUES.map((v) => (
               <span key={v} className="rounded-full border border-border bg-input/50 px-2.5 py-1 text-[11px] font-medium text-foreground">
                 {v}
               </span>

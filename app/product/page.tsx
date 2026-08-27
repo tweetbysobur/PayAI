@@ -74,18 +74,23 @@ export default function ProductPage() {
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           <h2 className="font-montserrat text-3xl font-semibold uppercase tracking-tighter text-foreground sm:text-4xl">
-            Start managing payments, not transactions.
+            Describe it. Review it. Approve it.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Everything you need to send, trade, swap DeFi tokens, automate and manage payments on Monad — from one platform.
+            Payments, trading, and DeFi from one natural-language interface on Monad.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              Start automating payments
+              Launch PayAI
             </Link>
           </div>
+          {/* NOT "no platform fee during beta" — the FAQ states a live 0.25%
+              fee on fee-bearing transactions, and a pricing claim that
+              contradicts it on another page is the kind of thing a visitor
+              deciding whether to trust us with money is entitled to have
+              right. */}
           <p className="mt-4 text-xs text-muted-foreground">
-            Non-custodial · No platform fee during beta · Monad Mainnet
+            Non-custodial · On-chain execution · Built on Monad
           </p>
         </motion.div>
       </section>
