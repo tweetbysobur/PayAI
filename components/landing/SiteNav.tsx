@@ -21,7 +21,12 @@ import { Logo } from "@/components/Logo";
  * running to x=399 and was physically unreachable on a phone, which is about
  * as bad as a landing-page bug gets. Below `sm` the wordmark is hidden (the
  * mark alone is still the logo, and it sits beside the page title anyway) and
- * the horizontal padding tightens.
+ * the horizontal padding tightens — header px-3, link px-1.5, CTA px-3, each
+ * restored at `sm`. Those three together buy back ~24px, measured: at 320px
+ * the CTA's right edge was at 338px against a 320px viewport, i.e. the button
+ * was partly off-screen again. /product and /how-it-works showed it as real
+ * document overflow; the landing page only LOOKED fine there because its
+ * <main> is overflow-hidden, which hides the symptom and not the bug.
  *
  * Security is the third link, and it is the one that does not fit on a phone
  * once the CTA reads "Launch PayAI" rather than the shorter "Launch App" —
@@ -41,7 +46,7 @@ export function SiteNav() {
   const pathname = usePathname();
 
   return (
-    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-5 sm:gap-4 sm:px-6">
+    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-5 sm:gap-4 sm:px-6">
       <Link href="/" aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Logo size={32} />
         {/* Wordmark is decorative next to the mark; hidden below sm purely to
@@ -68,7 +73,7 @@ export function SiteNav() {
               // breakpoint on purpose: a `sm:py-*` override loses to source
               // order in Tailwind (media queries add no specificity), and 44px
               // is a perfectly good nav height on desktop too.
-              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-2 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -81,7 +86,7 @@ export function SiteNav() {
       <div className="flex shrink-0 items-center gap-1">
         <Link
           href="/auth"
-          className="inline-flex items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center rounded-lg bg-primary px-3 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4"
         >
           Launch PayAI
         </Link>
