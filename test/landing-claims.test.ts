@@ -26,14 +26,14 @@ describe("the landing page stays the pitch", () => {
     expect(page).toMatch(/<ProductOverviewSection \/>/);
     for (const deep of [
       "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
-      "EmbeddedWalletSection", "SmartSwapsSection", "AnalyticsSection", "SecuritySection",
+      "EmbeddedWalletSection", "TradingSection", "AnalyticsSection", "SecuritySection",
     ]) {
       expect(page, `${deep} belongs on a depth page, not the landing page`).not.toContain(deep);
     }
   });
 
   it("puts the product depth on /product", () => {
-    for (const s of ["PaymentOperationsSection", "SmartSwapsSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
+    for (const s of ["PaymentOperationsSection", "TradingSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
       expect(product, `/product is missing ${s}`).toContain(s);
     }
   });
@@ -49,7 +49,7 @@ describe("the landing page stays the pitch", () => {
     // landing page keeps the copy and the depth page is forgotten.
     const sections = [
       "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
-      "EmbeddedWalletSection", "SmartSwapsSection", "AnalyticsSection",
+      "EmbeddedWalletSection", "TradingSection", "AnalyticsSection",
     ];
     for (const s of sections) {
       const on = [product.includes(s), howItWorks.includes(s)].filter(Boolean).length;
