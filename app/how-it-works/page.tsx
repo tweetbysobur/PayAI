@@ -144,8 +144,11 @@ export default function HowItWorksPage() {
               Start automating payments
             </Link>
           </div>
+          {/* NOT "no platform fee during beta" — the FAQ states a live 0.25%
+              fee on fee-bearing transactions, and the two pages contradicting
+              each other on price is not a copy nit. */}
           <p className="mt-4 text-xs text-muted-foreground">
-            Non-custodial · No platform fee during beta · Monad Mainnet
+            Non-custodial · On-chain execution · Built on Monad
           </p>
         </motion.div>
       </section>

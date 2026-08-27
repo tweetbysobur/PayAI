@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
   Wallet as WalletIcon, ChevronDown, Sparkles, PlayCircle,
-  Users, Repeat, ArrowLeftRight, BarChart3,
+  Send, Layers, ArrowLeftRight, BarChart3,
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
@@ -95,16 +95,19 @@ export default function LandingPage() {
                 <PlayCircle size={15} className="text-primary-ink" /> See how it works
               </Link>
             </div>
-            {/* The platform in six words each — what a visitor is choosing
-                between products on, not a feature list of one of them. */}
+            {/* The platform in a couple of words each. These MUST stay in
+                step with the card titles in ProductOverviewSection directly
+                below — the chips and the cards are the same six things, and
+                a visitor who reads "Smart Swaps" here and "Trading" there
+                assumes they are two different products. */}
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
-                { icon: Sparkles, label: "AI Trading & Payments" },
-                { icon: Repeat, label: "Payment Automation" },
-                { icon: ArrowLeftRight, label: "Smart Swaps" },
-                { icon: Users, label: "Bulk Distribution" },
-                { icon: WalletIcon, label: "Embedded Wallet" },
-                { icon: BarChart3, label: "Analytics & Activity" },
+                { icon: Sparkles, label: "Ask PayAI" },
+                { icon: Send, label: "Payments" },
+                { icon: ArrowLeftRight, label: "Trading" },
+                { icon: Layers, label: "DeFi" },
+                { icon: WalletIcon, label: "PayAI Wallet" },
+                { icon: BarChart3, label: "Activity" },
               ].map((b) => (
                 <span key={b.label} className="flex items-center gap-1.5">
                   <b.icon size={13} className="text-primary-ink" /> {b.label}
