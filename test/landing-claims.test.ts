@@ -131,7 +131,14 @@ describe("the hero states the platform, not one feature", () => {
     // width and read as unpolished; this is set in font-montserrat at a
     // smaller size specifically so it renders as a clean 1-2 line display
     // headline instead.
-    expect(page).toMatch(/Natural Language\. On-Chain Execution\./);
+    // "On-Chain" is wrapped in a whitespace-nowrap span, so the headline is
+    // not one contiguous string in the source — a hyphen is a legal line-break
+    // opportunity and the browser was splitting "Language. On-" / "Chain
+    // Execution." at phone widths. Match around the span rather than
+    // collapsing it away, so removing the guard fails this test too.
+    expect(page).toMatch(
+      /Natural Language\.\s*<span className="whitespace-nowrap">On-Chain<\/span>\s*Execution\./,
+    );
   });
 
   it("names all six capabilities in the hero, matching the cards below", () => {
