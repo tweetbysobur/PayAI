@@ -244,7 +244,11 @@ describe("respondToUnderstanding — schedule/recurring hand off to the real Aut
       const r = await respondToUnderstanding(u, WALLET);
       expect(calls[0].body.intent).toContain("Schedule 10 USDC");
       expect(r.message.operation?.status).toBe("ready");
-      expect(r.message.operation?.confirmLabel).toMatch(/automations/i);
+      // The card's primary action now opens the AutomationCreator modal
+      // in-chat ("Review & activate") rather than navigating to the
+      // Automations page — but it is still a handoff card (status "ready",
+      // handoff present), NOT an executed automation.
+      expect(r.message.operation?.confirmLabel).toMatch(/review & activate/i);
       expect(r.message.operation?.intent.kind).toBe("scheduled_payment");
       if (r.message.operation?.intent.kind === "scheduled_payment") {
         expect(r.message.operation.intent.handoff?.prefill.recipient).toBe(ADDR);

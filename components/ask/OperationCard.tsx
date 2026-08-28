@@ -199,7 +199,12 @@ export function OperationCard({
   // orchestrate.ts's tradePreviewCard) — once it's there, this card is a
   // real confirm-funnel card like payment/swap, not an info surface.
   const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence" || (intent.kind === "trade_preview" && !intent.execution);
-  const chip = intent.kind === "trade_preview" && isInfo
+  // A created automation isn't a settled single transaction — it's a live
+  // schedule — so it gets its own "Active" chip rather than the confirm
+  // funnel's "Verified".
+  const chip = operation.automation && status === "success"
+    ? { label: "Active", tone: "border-success/30 bg-success/10 text-success" }
+    : intent.kind === "trade_preview" && isInfo
     ? { label: "Pre-execution", tone: "border-warning/30 bg-warning/10 text-warning" }
     : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
@@ -220,6 +225,8 @@ export function OperationCard({
       <div className="px-4 py-3">
         {status === "error" && operation.error ? (
           <ErrorBody error={operation.error} />
+        ) : status === "success" && operation.automation ? (
+          <AutomationCreatedBody automation={operation.automation} />
         ) : status === "success" && operation.result && !isInfo ? (
           <SuccessBody intent={intent} result={operation.result} />
         ) : (
@@ -851,6 +858,53 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
       <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
         View transaction <ExternalLink size={11} />
       </a>
+    </div>
+  );
+}
+
+/** Full weekday + date + time for a scheduled next run — the concrete moment
+ *  the automation first fires, from the real saved record. */
+function fmtDateTime(ms: number): string {
+  try {
+    return new Date(ms).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return new Date(ms).toISOString();
+  }
+}
+
+const CADENCE_LABEL: Record<string, string> = { once: "One-time", daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+
+/** The in-chat success state after a scheduled/recurring automation is created
+ *  through the AutomationCreator modal. Every value is the real data the
+ *  creation returned (nextRun is the saved record's own next run) — nothing is
+ *  invented, and this never claims a single settled transaction, because
+ *  creating an automation is a signature + approval, not one on-chain send. */
+function AutomationCreatedBody({ automation }: { automation: NonNullable<Operation["automation"]> }) {
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/12 text-success"><CheckCircle2 size={18} /></span>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Automation created</p>
+          <p className="flex items-center gap-1 text-xs text-success">
+            <ShieldCheck size={11} className="shrink-0" /> Runs on-chain on your schedule
+          </p>
+        </div>
+      </div>
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <TokenLogo token={automation.token} size={20} />
+        <span className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-lg">{automation.amount}</span>
+        <span className="text-sm font-medium text-muted-foreground">{automation.token}</span>
+        <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{automation.domain ?? short(automation.recipient)}</span>
+      </div>
+      <div className="divide-y divide-border/60">
+        <Row label="Frequency">{CADENCE_LABEL[automation.cadence] ?? automation.cadence}</Row>
+        <Row label="Next run">{fmtDateTime(automation.nextRun)}</Row>
+      </div>
+      <Link href="/dashboard/automations" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline">
+        Manage in Automations <ExternalLink size={11} />
+      </Link>
     </div>
   );
 }

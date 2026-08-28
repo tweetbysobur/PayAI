@@ -400,6 +400,14 @@ export interface Operation {
    *  wallet signature. Absent keeps the existing "Confirm with passkey". */
   confirmLabel?: string;
   confirmIcon?: "passkey" | "go";
+  /** Set once a scheduled/recurring handoff card's automation has actually
+   *  been created in-chat through the AutomationCreator modal. Carries the
+   *  real fields the creation returned (nextRun from the saved record), so
+   *  the success state renders from data, never invented. */
+  automation?: {
+    nextRun: number; cadence: string; amount: number; token: string;
+    recipient: string; domain: string | null;
+  };
 }
 
 export type MessageRole = "user" | "assistant";
