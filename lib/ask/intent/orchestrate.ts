@@ -440,10 +440,10 @@ async function dispatchSchedule(
       kind === "recurring_payment"
         ? { kind: "recurring_payment", network: "monad", token: p.token, amount: String(p.amount), recipient: p.recipient, recipientDomain: p.domain ?? null, frequency: p.cadence === "daily" || p.cadence === "weekly" || p.cadence === "monthly" ? p.cadence : "weekly", startDate: startIso, handoff }
         : { kind: "scheduled_payment", network: "monad", token: p.token, amount: String(p.amount), recipient: p.recipient, recipientDomain: p.domain ?? null, startDate: startIso, handoff };
-    const operation: Operation = { id: nextId("op"), intent, status: "ready", confirmLabel: "Set up in Automations", confirmIcon: "go" };
+    const operation: Operation = { id: nextId("op"), intent, status: "ready", confirmLabel: "Review & activate", confirmIcon: "go" };
     return {
       id: nextId("msg"), role: "assistant",
-      content: "Payment Automations always get their own wallet signature, separate from this chat — I'll take you there with everything already filled in.",
+      content: "Here's the automation I prepared. Review & activate opens the setup right here — choose how it's funded, then sign once to activate. Nothing runs until you approve it.",
       createdAt: Date.now(), operation,
     };
   }

@@ -8,6 +8,7 @@ import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
 import { retryTextFor } from "@/lib/ask/useAskChat";
 import { useAskPageChat } from "@/lib/ask/AskPageChatContext";
+import { AutomationCreator } from "@/components/dashboard/AutomationCreator";
 
 /** send_payment, swap, schedule/recurring handoff, balance, history, and
  *  automation listing all run through the real PayAI pipeline now — see
@@ -74,6 +75,7 @@ function AskPayAIChat() {
   const {
     wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
+    automationDraft, closeAutomationDraft, completeAutomationDraft,
   } = useAskPageChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +131,18 @@ function AskPayAIChat() {
 
         <ChatComposer value={input} onChange={setInput} onSend={() => send(input)} disabled={thinking} />
       </div>
+
+      {/* A scheduled/recurring intent opens the real AutomationCreator right
+          here, seeded with the resolved prefill, instead of navigating away.
+          Creation runs the exact same wizard the /dashboard/automations page
+          uses — same signature, approval/reserve, and signed POST — and on
+          success turns the handoff card into an in-chat success state. */}
+      <AutomationCreator
+        open={!!automationDraft}
+        seed={automationDraft?.seed ?? null}
+        onClose={closeAutomationDraft}
+        onCreated={(created) => { if (created) completeAutomationDraft(created); }}
+      />
     </div>
   );
 }
