@@ -80,20 +80,16 @@ export default function LandingPage() {
               <MonadMark size={13} />
               <span className="font-medium text-foreground">MONAD</span>
             </div>
-            {/* Two separate defences against the ragged mid-word split this
-                headline was rewritten to avoid:
-
-                1. `whitespace-nowrap` on "On-Chain" — a hyphen is a legal
-                   break opportunity, so without this the browser is free to
-                   emit "Language. On-" / "Chain Execution." at any width.
-                   Measured: it does exactly that at 375px/36px AND at
-                   320px/30px. Font-size tuning alone does not fix it and is
-                   not even monotonic, so the break is forbidden outright.
-                2. text-3xl on phones — with the split impossible, this is
-                   purely about line count: 30px lands the headline as two
-                   balanced lines at 375px rather than three. */}
-            <h1 className="font-montserrat text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-5xl">
-              Natural Language. <span className="whitespace-nowrap">On-Chain</span> Execution.
+            {/* `whitespace-nowrap` on "On-Chain" forbids the browser from
+                treating its hyphen as a line-break opportunity — measured
+                on the shorter, prior wording that it will otherwise split
+                as "...On-" / "Chain Execution." at phone widths, and
+                font-size tuning alone doesn't reliably prevent it (see the
+                git history for the numbers). text-2xl on phones keeps this
+                longer headline from reading oversized once it wraps to
+                three lines there — re-measure if the wording changes again. */}
+            <h1 className="font-montserrat text-balance text-2xl font-semibold leading-[1.15] tracking-tight text-foreground sm:text-4xl">
+              Turn Natural Language Intent to <span className="whitespace-nowrap">On-Chain</span> Execution.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
