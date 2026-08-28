@@ -4,13 +4,12 @@ import { useCallback, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import Link from "next/link";
 import {
-  ArrowDownLeft, ArrowUpRight, ShieldCheck, Receipt, Send, FileText, UserPlus,
+  ArrowDownLeft, ShieldCheck, Receipt, Send, FileText, UserPlus,
   ScrollText, Store, Wallet, Copy, Check, Repeat, TrendingUp, Coins, Activity, Sparkles, ArrowRight,
-  CheckCircle2, Clock3, XCircle, AlertTriangle, ExternalLink,
+  ArrowLeftRight, CheckCircle2, Clock3, XCircle, AlertTriangle, ExternalLink,
 } from "lucide-react";
 import { Card, CountUp } from "@/components/ui";
-import { useTokenPrices, formatUsd } from "@/lib/hooks/useTokenPrices";
-import { MONAD_USDC, MONAD_USDC_DECIMALS } from "@/lib/monad/public";
+import { AskMark } from "@/components/AskMark";
 import { Identicon } from "@/components/Identicon";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -21,7 +20,6 @@ const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal")
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { WelcomeCard } from "@/components/dashboard/WelcomeCard";
 import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
-import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { SyncButton } from "@/components/dashboard/SyncButton";
@@ -30,13 +28,11 @@ interface Revenue { total: number; today: number; thisWeek: number; thisMonth: n
 interface TrendPoint { date: string; revenue: number; count: number }
 interface Compliance { approved: number; rejected: number; review: number; blocked: number; approvalRate: number }
 interface Analytics { revenue: Revenue; trend: TrendPoint[]; volume: { count: number; total: number }; compliance: Compliance }
-interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
-interface Onchain { configured: boolean; stats: { payments: number; volume: number; approved: number; rejected: number; requests: number } | null }
+interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string }
 interface Automation { id: string; amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number; status: string; purpose?: string }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-const DAY = 86_400_000;
 
 const DECISION_LABEL: Record<string, string> = {
   executed: "Sent", needs_review: "Needs review", blocked: "Blocked", refused: "Refused", error: "Failed",
@@ -56,10 +52,8 @@ const DECISION_ICON_TONE: Record<string, string> = {
 
 export default function Overview() {
   const wallet = useWallet();
-  const balances = useWalletBalances(wallet.address);
   const identity = useIdentity(wallet.address);
   const [a, setA] = useState<Analytics | null>(null);
-  const [onchain, setOnchain] = useState<Onchain | null>(null);
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [health, setHealth] = useState<{ wallet?: { network: string } | null } | null>(null);
@@ -76,7 +70,6 @@ export default function Overview() {
     // stops before the data lands is worse than no spinner.
     return Promise.all([
       fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {}),
-      fetch("/api/onchain").then((r) => r.json()).then(setOnchain).catch(() => {}),
       fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {}),
       fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {}),
       fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
@@ -90,30 +83,18 @@ export default function Overview() {
   // this page through exactly one path instead of three.
   useSyncRefresher(refresh);
 
-  const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
-  const totalMon = balances.mon ? Number(balances.mon) : null;
-  const totalUsdc = balances.usdc ? Number(balances.usdc) : null;
-  // One batched price fetch for both tiles, cached at module level and shared
-  // with the token selector, so this adds no perceptible load cost.
-  const { usdValue } = useTokenPrices([
-    { address: NATIVE_TOKEN_ADDRESS, decimals: 18 },
-    ...(MONAD_USDC ? [{ address: MONAD_USDC, decimals: MONAD_USDC_DECIMALS }] : []),
-  ]);
-  const monUsd = totalMon != null ? formatUsd(usdValue(NATIVE_TOKEN_ADDRESS, totalMon)) : null;
-  const usdcUsd = totalUsdc != null && MONAD_USDC ? formatUsd(usdValue(MONAD_USDC, totalUsdc)) : null;
+  // A row is a trade if its feature/action marks it as a swap or trade — the
+  // same rule the analytics module uses in featureOf; everything else settled
+  // is a payment. Used by the insights split below (scoped to the recent window
+  // this endpoint returns, hence surfaced as context, not a lifetime KPI — the
+  // headline KPIs use the uncapped analytics totals instead).
+  const isTradeRow = (h: HistoryRow) => h.feature === "swap" || h.feature === "trade" || h.action === "swap";
 
-  // Period transaction counts (computed from real settled history).
-  const counts = useMemo(() => {
-    const now = Date.now();
-    const settled = history.filter((h) => h.decision === "executed");
-    return {
-      lifetime: settled.length,
-      month: settled.filter((h) => now - h.at <= 30 * DAY).length,
-      week: settled.filter((h) => now - h.at <= 7 * DAY).length,
-    };
-  }, [history]);
-
-  // AI insights — derived from real settled payments, never fabricated.
+  // AI insights — patterns across ALL settled activity (payments and trades
+  // alike), derived from the transaction log, never fabricated. This used to
+  // speak only in payment terms ("Largest payment", "Average payment") even
+  // though the same log already carries swaps and trades; the framing is now
+  // capability-neutral, and the payment/trade split is surfaced directly.
   const insights = useMemo(() => {
     const settled = history.filter((h) => h.decision === "executed" && h.amount != null);
     if (settled.length === 0) return null;
@@ -122,8 +103,8 @@ export default function Overview() {
     const topAsset = Object.entries(byAsset).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "—";
     const byDay = settled.reduce<Record<string, number>>((acc, h) => { const d = new Date(h.at).toLocaleDateString(undefined, { weekday: "long" }); acc[d] = (acc[d] ?? 0) + 1; return acc; }, {});
     const topDay = Object.entries(byDay).sort((x, y) => y[1] - x[1])[0]?.[0] ?? "—";
-    const avg = settled.reduce((s, h) => s + (h.amount ?? 0), 0) / settled.length;
-    return { largest, topAsset, topDay, avg };
+    const trades = settled.filter(isTradeRow).length;
+    return { largest, topAsset, topDay, trades, payments: settled.length - trades };
   }, [history]);
 
   const upcoming = automations.filter((s) => s.status === "active" || s.status === "scheduled" || s.status === "executing");
@@ -147,14 +128,50 @@ export default function Overview() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-6 flex items-start justify-between gap-4">
+      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Overview</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Your payments, balances, and activity on Monad Mainnet.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Your on-chain operator on Monad — payments, trades, and automations in one place.</p>
         </div>
         {/* Refreshes the whole dashboard, not just this page — see
             lib/hooks/useSync.tsx for what is registered. */}
         <SyncButton className="shrink-0 pt-1" />
+      </motion.div>
+
+      {/* Ask PayAI — the primary affordance, not a ⌘K afterthought. This is
+          the product: describe an intent in natural language and PayAI
+          prepares the action for review. Styled as the dashboard's strongest
+          element (purple wash, display type, a composer-shaped entry) so the
+          hierarchy says "start here" without adding another equal-weight card.
+          It is a Link into the real /dashboard/ask surface — no capability is
+          claimed here that the chat doesn't already do. */}
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }} className="mb-6">
+        <Link
+          href="/dashboard/ask"
+          className="group relative block overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/[0.1] via-panel to-panel p-6 shadow-[0_25px_70px_-35px_hsl(var(--primary)/0.5)] transition-all duration-200 hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-7"
+        >
+          <div aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/15" />
+          <div className="relative flex items-start gap-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary-ink transition-colors group-hover:bg-primary/30">
+              <AskMark size={20} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">What do you want to do on-chain?</h2>
+              <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                Describe your intent and PayAI will prepare the action for you to review and approve.
+              </p>
+              {/* Composer-shaped entry — reads as "type here", but is a link
+                  into the real Ask PayAI surface where the actual input lives. */}
+              <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-border bg-background/60 px-3.5 py-2.5 transition-colors group-hover:border-primary/40">
+                <Sparkles size={15} className="shrink-0 text-primary-ink" />
+                <span className="flex-1 truncate text-sm text-muted-foreground">Send a payment, trade a token, or automate something…</span>
+                <span className="hidden shrink-0 items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground sm:inline-flex">
+                  Ask PayAI <ArrowRight size={13} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                </span>
+              </div>
+            </div>
+          </div>
+        </Link>
       </motion.div>
 
       {/* A brand-new wallet lands on a dashboard with nothing in it, which
@@ -231,13 +248,27 @@ export default function Overview() {
         </button>
       </div>
 
-      {/* Portfolio + headline KPIs (animated) */}
+      {/* Headline KPIs — capability-neutral, covering all of PayAI's activity
+          rather than payments alone. Every figure here is a real, uncapped
+          total from the analytics/automations the page already fetches:
+          `volume.count` is every completed transaction across every feature
+          (payments, swaps, automations, bulk); `settledCount` is settled
+          payments; automations is this wallet's configured automations;
+          success rate is settled/(settled+failed). Balances aren't dropped —
+          the PortfolioCard directly below is their fuller home, with every
+          token and its dollar value, not just MON/USDC.
+
+          A dedicated "Trades" KPI is deliberately NOT here: no current
+          endpoint exposes an exact, uncapped trade count, and a headline
+          number derived from the capped history slice would over- or
+          under-state it. Trading presence is surfaced honestly in the recent
+          insights row below and the Swaps filter on the Activity tab. */}
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "MON balance", value: totalMon, decimals: 2, unit: "MON", placeholder: wallet.address ? "—" : "connect", icon: ArrowUpRight, token: "MON" as const, tone: "primary" as const, usd: monUsd },
-          { label: "USDC balance", value: totalUsdc, decimals: 2, unit: "USDC", placeholder: wallet.address ? "—" : "connect", icon: Coins, token: "USDC" as const, tone: "success" as const, usd: usdcUsd },
-          { label: "On-chain volume", value: onchain?.stats?.volume ?? null, decimals: 2, unit: "MON", placeholder: "—", icon: Receipt, token: null, tone: "neutral" as const, usd: null },
-          { label: "Lifetime payments", value: counts.lifetime, decimals: 0, unit: null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const, usd: null },
+          { label: "On-chain activity", value: a?.volume.count ?? null, decimals: 0, unit: null, placeholder: "—", icon: Activity, token: null, tone: "primary" as const, usd: null },
+          { label: "Payments settled", value: a?.revenue.settledCount ?? null, decimals: 0, unit: null, placeholder: "—", icon: Send, token: null, tone: "success" as const, usd: null },
+          { label: "Automations", value: automations.length || (a ? 0 : null), decimals: 0, unit: null, placeholder: "—", icon: Repeat, token: null, tone: "neutral" as const, usd: null },
+          { label: "Success rate", value: a && a.volume.count > 0 ? Math.round(a.revenue.successRate * 100) : null, decimals: 0, unit: a && a.volume.count > 0 ? "%" : null, placeholder: "—", icon: ShieldCheck, token: null, tone: "neutral" as const, usd: null },
         ].map((k, i) => {
           const iconTone = { primary: "bg-primary/12 text-primary-ink", success: "bg-success/12 text-success", neutral: "bg-input text-muted-foreground" }[k.tone];
           return (
@@ -246,7 +277,7 @@ export default function Overview() {
                 <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${iconTone}`}>{k.token ? <TokenLogo token={k.token} size={18} /> : <k.icon size={16} />}</div>
                 <p className="text-2xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
                   {k.value != null ? <CountUp value={k.value} decimals={k.decimals} /> : k.placeholder}
-                  {k.value != null && k.unit && <span className="ml-1.5 text-sm font-medium text-muted-foreground">{k.unit}</span>}
+                  {k.value != null && k.unit && <span className={`text-sm font-medium text-muted-foreground ${k.unit === "%" ? "" : "ml-1.5"}`}>{k.unit}</span>}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">{k.label}</p>
                 {/* Approximate dollar value, only when the token is genuinely
@@ -278,7 +309,7 @@ export default function Overview() {
         {/* Recent transactions */}
         <Card title="Recent transactions" right={<Link href="/dashboard/transactions" className="text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">View all</Link>}>
           {history.length === 0 ? (
-            <EmptyHint icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K), or use the form directly. It settles on Monad in seconds." cta={{ label: "Send Payment", href: "/dashboard/payments" }} />
+            <EmptyHint icon={Receipt} title="No transactions yet" hint="Describe a payment or a trade in Ask PayAI, or use the form directly. It settles on Monad in seconds." cta={{ label: "Ask PayAI", href: "/dashboard/ask" }} />
           ) : (
             <ul className="divide-y divide-border">
               {history.slice(0, 6).map((h, i) => {
@@ -353,10 +384,10 @@ export default function Overview() {
           {insights ? (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { icon: TrendingUp, label: "Largest payment", value: `${fmt(insights.largest.amount ?? 0)} ${insights.largest.token}` },
+                { icon: TrendingUp, label: "Largest transaction", value: `${fmt(insights.largest.amount ?? 0)} ${insights.largest.token}` },
                 { icon: Coins, label: "Most used asset", value: insights.topAsset },
                 { icon: Activity, label: "Most active day", value: insights.topDay },
-                { icon: Sparkles, label: "Average payment", value: fmt(insights.avg) },
+                { icon: ArrowLeftRight, label: "Payments · Trades", value: `${insights.payments} · ${insights.trades}` },
               ].map((it) => (
                 <div key={it.label} className="rounded-lg border border-border bg-input/30 p-3">
                   <it.icon size={15} className="mb-2 text-primary-ink" />
@@ -365,7 +396,7 @@ export default function Overview() {
                 </div>
               ))}
             </div>
-          ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments, PayAI surfaces patterns here." />}
+          ) : <EmptyHint icon={Sparkles} title="No insights yet" hint="Once you make payments or trades, PayAI surfaces patterns here." />}
         </Card>
 
         <Card title="Payment Automations" right={<Link href="/dashboard/automations" className="text-xs text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Manage</Link>}>
