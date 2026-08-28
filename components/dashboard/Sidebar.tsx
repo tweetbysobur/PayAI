@@ -34,17 +34,25 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
  *  its own. Only `size` is ever passed, which both satisfy. */
 type NavIcon = ComponentType<{ size?: number; className?: string }>;
 
+// Grouped by capability rather than one flat "Payments" bucket, so the nav
+// reads as one operator with several capabilities — the same repositioning
+// the marketing surfaces got in Phase 1. Ask PayAI stays the primary entry
+// (section: null, pinned at the top): it is the natural-language doorway to
+// everything below, and the surface where Trading and DeFi actually happen —
+// neither has a dedicated page, so neither gets a nav row that would point at
+// a route that doesn't exist. Every href here is unchanged from before; only
+// the grouping and one label ("Send Payment" → "Payments") moved.
 export const NAV: { href: string; label: string; icon: NavIcon; section: string | null; soon?: boolean }[] = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
   { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark, section: null },
-  { href: "/dashboard/payments", label: "Send Payment", icon: ArrowUpRight, section: "Payments" },
-  { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Payments" },
-  { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Payments" },
+  { href: "/dashboard/payments", label: "Payments", icon: ArrowUpRight, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
   { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments", soon: true },
-  { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Settings" },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Settings" },
-  { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Settings" },
+  { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Automation" },
+  { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Activity" },
+  { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Wallet" },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Account" },
+  { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Account" },
 ] as const;
 
 /** Maps a NAV href to the `data-tour` id TourOverlay's steps target (see
