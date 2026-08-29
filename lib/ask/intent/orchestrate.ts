@@ -19,6 +19,7 @@
 
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
+import { MONAD_EXPLORER } from "@/lib/monad/public";
 import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
@@ -202,6 +203,17 @@ async function dispatchSwap(slots: { amount?: string | null; fromAsset?: string 
   return assistantText(json.error || "I couldn't quote that swap. Try again in a moment.");
 }
 
+/** A block-explorer transaction URL derived from the client-safe network
+ *  configuration (NEXT_PUBLIC_MONAD_EXPLORER, set per environment). Used for
+ *  the "submitted" state, where the transaction broadcast but confirmation
+ *  timed out before the server returned an explorerUrl — so we still hand the
+ *  user a real, clickable link to inspect it. Client-side code cannot use
+ *  lib/monad/config's explorerTx(): that reads non-public MONAD_* env which is
+ *  undefined in the browser and would resolve to the testnet explorer. */
+function configExplorerTx(txHash: string): string {
+  return `${MONAD_EXPLORER}/tx/${txHash}`;
+}
+
 /** The only function allowed to request a wallet signature for a swap —
  *  called exclusively from an explicit "Confirm" click on a card this
  *  module already built and the server already quoted. */
@@ -212,10 +224,15 @@ export async function executeSwapIntent(
   if (operation.intent.kind !== "swap" || !operation.intent.execution) return operation;
   const { plan } = operation.intent.execution;
   let broadcastHash: string | null = null;
+  // Tracks whether an earlier approval step already CONFIRMED before we
+  // broadcast the swap step, so a "submitted" outcome can say "Approval
+  // complete." rather than implying the whole thing is still pending.
+  let approvalConfirmed = false;
   try {
     let lastHash = "";
     for (let i = 0; i < plan.steps.length; i++) {
       const step = plan.steps[i].label;
+      const isLast = i === plan.steps.length - 1;
       onProgress?.(
         plan.steps.length > 1
           ? `Step ${i + 1} of ${plan.steps.length}: waiting for your signature (${step}) — nothing has moved yet.`
@@ -223,7 +240,7 @@ export async function executeSwapIntent(
       );
       lastHash = await wallet.sendTransaction(plan.steps[i].tx);
       broadcastHash = lastHash;
-      if (i === plan.steps.length - 1) {
+      if (isLast) {
         savePendingSettlement({
           kind: "swap", walletAddress, txHash: lastHash,
           fromToken: plan.quote.fromToken, toToken: plan.quote.toToken,
@@ -236,6 +253,9 @@ export async function executeSwapIntent(
           : "Signed — confirming on-chain…",
       );
       await wallet.waitForReceipt(lastHash);
+      // This step's receipt confirmed. If it was an approval (never the last
+      // step), remember that so a later "submitted" outcome is accurate.
+      if (!isLast && plan.steps[i].kind === "approve") approvalConfirmed = true;
     }
     onProgress?.("Finalizing swap…");
     const r = await fetch("/api/swap/confirm", {
@@ -244,21 +264,28 @@ export async function executeSwapIntent(
     });
     const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
     if (!cj.success) {
-      clearPendingSettlement();
-      const message = cj.reverted ? (cj.error || "This swap failed on-chain. No tokens were swapped.") : friendlyError(cj.error || "The swap could not be confirmed.", "Swap");
-      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED", txHash: lastHash, explorerUrl: cj.explorerUrl };
-      return { ...operation, status: "error", error };
+      // Only a CONFIRMED on-chain revert is a real failure. Anything else here
+      // ("couldn't confirm yet — may still settle") is submitted-but-pending:
+      // keep the pending settlement so the reconciler resolves it on next load,
+      // and never call it "failed".
+      if (cj.reverted) {
+        clearPendingSettlement();
+        const error: OperationError = { message: cj.error || "This swap failed on-chain. No tokens were swapped.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+        return { ...operation, status: "error", error };
+      }
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
     }
     clearPendingSettlement();
     const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
     return { ...operation, status: "success", result };
   } catch (e) {
     if (broadcastHash) {
-      const error: OperationError = {
-        message: `Your swap was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Don't resend it — check Transactions for the latest status.`,
-        code: "UNCONFIRMED",
-      };
-      return { ...operation, status: "error", error };
+      // Broadcast happened (real txHash) but the receipt wait timed out or an
+      // RPC hiccup interrupted confirmation. NOT a failure — the tx may already
+      // be on-chain. Surface it as submitted, with a clickable explorer link,
+      // and leave the pending settlement in place for background reconciliation.
+      // Never rebroadcast just because confirmation timed out.
+      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed } };
     }
     const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Swap failed.", "Swap"), code: "NOT_SENT" };
     return { ...operation, status: "error", error };
@@ -354,10 +381,14 @@ export async function executeTradeIntent(
 
   const steps = build.steps;
   let broadcastHash: string | null = null;
+  // See executeSwapIntent: remembers a confirmed approval so a "submitted"
+  // trade can say "Approval complete. Trade submitted." accurately.
+  let approvalConfirmed = false;
   try {
     let lastHash = "";
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i].label;
+      const isLast = i === steps.length - 1;
       onProgress?.(
         steps.length > 1
           ? `Step ${i + 1} of ${steps.length}: waiting for your signature (${step}) — nothing has moved yet.`
@@ -365,7 +396,7 @@ export async function executeTradeIntent(
       );
       lastHash = await wallet.sendTransaction(steps[i].tx);
       broadcastHash = lastHash;
-      if (i === steps.length - 1) {
+      if (isLast) {
         savePendingSettlement({
           kind: "swap", walletAddress, txHash: lastHash,
           fromToken: freshData.spend.token, toToken: freshData.receive.token,
@@ -378,6 +409,7 @@ export async function executeTradeIntent(
           : "Signed — confirming on-chain…",
       );
       await wallet.waitForReceipt(lastHash);
+      if (!isLast && steps[i].kind === "approve") approvalConfirmed = true;
     }
     onProgress?.("Finalizing trade…");
     const r = await fetch("/api/swap/confirm", {
@@ -390,21 +422,24 @@ export async function executeTradeIntent(
     });
     const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
     if (!cj.success) {
-      clearPendingSettlement();
-      const message = cj.reverted ? (cj.error || "This trade failed on-chain. No tokens were traded.") : friendlyError(cj.error || "The trade could not be confirmed.", "Trade");
-      const error: OperationError = { message, code: cj.reverted ? "REVERTED" : "CONFIRM_FAILED", txHash: lastHash, explorerUrl: cj.explorerUrl };
-      return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+      // Same classification as executeSwapIntent: only a confirmed revert is a
+      // failure; "couldn't confirm yet" is submitted-but-pending (keep the
+      // pending settlement so the reconciler resolves it).
+      if (cj.reverted) {
+        clearPendingSettlement();
+        const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+        return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+      }
+      return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
     }
     clearPendingSettlement();
     const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
     return { ...operation, status: "success", intent: { ...operation.intent, data: freshData }, result };
   } catch (e) {
     if (broadcastHash) {
-      const error: OperationError = {
-        message: `Your trade was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Don't resend it — check Transactions for the latest status.`,
-        code: "UNCONFIRMED",
-      };
-      return { ...operation, status: "error", error };
+      // Broadcast happened but confirmation timed out — submitted, not failed.
+      // Keep the pending settlement, never rebroadcast.
+      return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed } };
     }
     const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed.", "Trade"), code: "NOT_SENT" };
     return { ...operation, status: "error", error };

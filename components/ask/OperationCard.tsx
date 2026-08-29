@@ -95,6 +95,10 @@ const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
   // success state here: the card only ever reaches it with a confirmed
   // on-chain transaction hash, which is the verification.
   confirming: { label: "Executing", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
+  // "Submitted" is amber/in-progress, NOT the red failure treatment: the
+  // transaction is on-chain (real txHash) and awaiting confirmation — never
+  // a claim that it succeeded, never a claim that it failed.
+  submitted: { label: "Submitted", tone: "border-warning/30 bg-warning/10 text-warning" },
   success: { label: "Verified", tone: "border-success/30 bg-success/10 text-success" },
   error: { label: "Failed", tone: "border-danger/30 bg-danger/10 text-danger" },
 };
@@ -225,6 +229,8 @@ export function OperationCard({
       <div className="px-4 py-3">
         {status === "error" && operation.error ? (
           <ErrorBody error={operation.error} />
+        ) : status === "submitted" && operation.submitted ? (
+          <SubmittedBody submitted={operation.submitted} intent={intent} />
         ) : status === "success" && operation.automation ? (
           <AutomationCreatedBody automation={operation.automation} />
         ) : status === "success" && operation.result && !isInfo ? (
@@ -234,7 +240,10 @@ export function OperationCard({
         )}
       </div>
 
-      {!isInfo && status !== "error" && (
+      {/* A submitted (broadcast, awaiting-confirmation) card is terminal for
+          now — no action button, exactly like success — its own body carries
+          the explorer link. */}
+      {!isInfo && status !== "error" && status !== "submitted" && (
         <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} progressLabel={progressLabel} />
       )}
       {status === "error" && onRetry && (
@@ -905,6 +914,46 @@ function AutomationCreatedBody({ automation }: { automation: NonNullable<Operati
       <Link href="/dashboard/automations" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline">
         Manage in Automations <ExternalLink size={11} />
       </Link>
+    </div>
+  );
+}
+
+/** The broadcast-but-unconfirmed state: the transaction is on-chain (real
+ *  txHash) but confirmation hasn't been observed. Amber, honest — it never
+ *  claims success and never claims failure. The explorer link is always
+ *  clickable so the user can check the real transaction themselves; the
+ *  background settlement reconciler resolves the final outcome. No spinner:
+ *  nothing is actively happening in this tab that a spinner would represent. */
+function SubmittedBody({
+  submitted, intent,
+}: {
+  submitted: NonNullable<Operation["submitted"]>;
+  intent: Operation["intent"];
+}) {
+  const noun = intent.kind === "trade_preview" ? "Trade" : intent.kind === "swap" ? "Swap" : "Transaction";
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{noun} submitted</p>
+          <p className="text-xs text-muted-foreground">
+            {submitted.approvalConfirmed ? "Approval complete. Checking confirmation on Monad…" : "Checking confirmation on Monad…"}
+          </p>
+        </div>
+      </div>
+      <div className="rounded-lg border border-warning/25 bg-warning/[0.06] p-3">
+        <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
+        <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-warning hover:underline">
+          {submitted.txHash}
+        </a>
+      </div>
+      <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-warning hover:underline">
+        View on Monad Explorer <ExternalLink size={11} />
+      </a>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        It may already be on-chain — we&apos;ll update this once it confirms. No need to resend.
+      </p>
     </div>
   );
 }
