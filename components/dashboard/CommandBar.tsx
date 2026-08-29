@@ -9,6 +9,7 @@ import { AskEmptyState } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
 import { useAskChat, retryTextFor } from "@/lib/ask/useAskChat";
+import { AutomationCreator } from "@/components/dashboard/AutomationCreator";
 
 /** Screen edges the button can never be dragged past, so it can't be dropped
  *  under the sidebar/topbar or off-screen where it becomes unreachable. */
@@ -243,6 +244,16 @@ export function CommandBar() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* A scheduled/recurring card activated from the popup opens the same
+          in-chat AutomationCreator (this surface's own chat instance), so the
+          popup never navigates the user away either. */}
+      <AutomationCreator
+        open={!!chat.automationDraft}
+        seed={chat.automationDraft?.seed ?? null}
+        onClose={chat.closeAutomationDraft}
+        onCreated={(created) => { if (created) chat.completeAutomationDraft(created); }}
+      />
     </>
   );
 }

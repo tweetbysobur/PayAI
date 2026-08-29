@@ -6,9 +6,11 @@ import { readFileSync } from "node:fs";
  * heading in Montserrat, uppercase, while the rest of the site keeps its
  * default Jakarta type. Per direct review feedback (a screenshot with the
  * heading circled), that styling applies regardless of the heading's own
- * copy — the landing page's was later reworded ("Turn your intent into
- * on-chain actions.") while /product's kept the original, so this checks
- * each page's actual heading rather than assuming they share one string.
+ * copy — both have since been reworded independently ("Turn your intent into
+ * on-chain actions." and "Describe it. Review it. Approve it."), so this
+ * checks each page's actual heading rather than assuming they share one
+ * string. Update the expected copy here when a heading is deliberately
+ * reworded; the assertion that matters is the font/case, not the words.
  *
  * Montserrat is opt-in only (`font-montserrat`), not a change to
  * `--font-sans` — so this covers the two headings without silently
@@ -37,7 +39,7 @@ describe("Montserrat is loaded and opt-in only", () => {
 describe("both closing-CTA headings use Montserrat, uppercase", () => {
   for (const [name, src, heading] of [
     ["landing page", page, "Turn your intent into on-chain actions\\."],
-    ["/product", product, "Start managing payments, not transactions\\."],
+    ["/product", product, "Describe it\\. Review it\\. Approve it\\."],
   ] as const) {
     it(`${name}: closing CTA heading is font-montserrat uppercase`, () => {
       const match = src.match(new RegExp(`<h2 className="([^"]*)">\\s*${heading}`));

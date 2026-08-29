@@ -15,11 +15,15 @@ import { useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import {
-  classifyMessage, executeSwapIntent, executeTradeIntent, handoffToAutomations, respondToUnderstanding,
+  classifyMessage, executeSwapIntent, executeTradeIntent, respondToUnderstanding,
   type ConversationTurn,
 } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
 import type { AskMessage, Operation } from "@/lib/ask/types";
+import type { AutomationSeed, Cadence } from "@/components/dashboard/automationShared";
+
+/** Details the in-chat AutomationCreator modal returns on a real creation. */
+export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
 
 let idSeq = 0;
 function nextId(prefix: string): string {
@@ -162,6 +166,34 @@ export function useAskChat() {
   // Keyed by operation id so switching cards (or a stale one) never bleeds
   // progress text onto the wrong card; cleared once that operation settles.
   const [progress, setProgress] = useState<Record<string, string>>({});
+
+  // The in-chat automation modal. A scheduled/recurring handoff card no longer
+  // navigates the user away to /dashboard/automations — it opens the SAME
+  // AutomationCreator wizard as a modal over the conversation, seeded with the
+  // already-resolved prefill. `operationId` remembers which card to turn into
+  // a success state once creation actually completes. Null = closed.
+  const [automationDraft, setAutomationDraft] = useState<{ operationId: string; seed: AutomationSeed } | null>(null);
+
+  /** Close the modal without creating — the handoff card stays "ready", so the
+   *  user can reopen it. Nothing was signed or moved. */
+  function closeAutomationDraft() {
+    setAutomationDraft(null);
+  }
+
+  /** The AutomationCreator created a real automation. Turn the originating
+   *  handoff card into a success state built from the REAL fields the creation
+   *  returned (nextRun comes from the saved record), then close the modal. */
+  function completeAutomationDraft(created: CreatedAutomation) {
+    setAutomationDraft((draft) => {
+      if (draft) {
+        setMessages((prev) => prev.map((m) =>
+          m.operation?.id === draft.operationId
+            ? { ...m, operation: { ...m.operation, status: "success", automation: created } }
+            : m));
+      }
+      return null;
+    });
+  }
 
   /** Re-quotes a swap whose preview has gone stale — built entirely from the
    *  expired card's own already-known pair/amount, so this never needs a
@@ -398,8 +430,20 @@ export function useAskChat() {
       return;
     }
     if ((op.intent.kind === "scheduled_payment" || op.intent.kind === "recurring_payment") && op.intent.handoff) {
-      setOp({ ...op, status: "confirming" });
-      handoffToAutomations(op.intent.handoff); // navigates away — nothing to sign here
+      // Open the AutomationCreator modal IN-CHAT (seeded with the resolved
+      // prefill) rather than navigating away to /dashboard/automations. The
+      // card stays "ready" while the modal is open, so closing it without
+      // creating leaves the card actionable again. Creation still happens
+      // entirely inside the same wizard — same wallet signature, same
+      // approval/reserve, same signed POST — via completeAutomationDraft.
+      // handoffToAutomations remains as the navigation fallback (and is still
+      // exercised directly by tests) for any surface that can't mount the modal.
+      const p = op.intent.handoff.prefill;
+      const seed: AutomationSeed = {
+        amount: p.amount, token: p.token, recipient: p.recipient, domain: p.domain ?? null,
+        cadence: p.cadence as Cadence, nextRun: p.nextRun ?? undefined,
+      };
+      setAutomationDraft({ operationId: op.id, seed });
       return;
     }
   }
@@ -432,10 +476,12 @@ export function useAskChat() {
     setInput("");
     setPending(null);
     setProgress({});
+    setAutomationDraft(null);
   }
 
   return {
     wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
+    automationDraft, closeAutomationDraft, completeAutomationDraft,
   };
 }

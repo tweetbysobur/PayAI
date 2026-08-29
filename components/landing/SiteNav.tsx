@@ -11,32 +11,42 @@ import { Logo } from "@/components/Logo";
  * first time a link is added, and the active-state logic would have to be
  * reimplemented each time.
  *
- * Layout is logo-left, links-centre, Launch App-right. The links are quiet
- * text, deliberately NOT filled buttons — Launch App is the only primary
+ * Layout is logo-left, links-centre, the CTA right. The links are quiet
+ * text, deliberately NOT filled buttons — Launch PayAI is the only primary
  * action on the site, and a second or third purple button would compete with
  * it and dilute the one thing we want clicked.
  *
- * Two links only, so they fit inline and no hamburger menu is needed. If a
- * third is ever added, revisit that.
+ * Fitting 375px needs real concessions, because logo + wordmark + links + the
+ * CTA measured ~421px and the header CLIPS rather than scrolls — the CTA was
+ * running to x=399 and was physically unreachable on a phone, which is about
+ * as bad as a landing-page bug gets. Below `sm` the wordmark is hidden (the
+ * mark alone is still the logo, and it sits beside the page title anyway) and
+ * the horizontal padding tightens — header px-3, link px-1.5, CTA px-3, each
+ * restored at `sm`. Those three together buy back ~24px, measured: at 320px
+ * the CTA's right edge was at 338px against a 320px viewport, i.e. the button
+ * was partly off-screen again. /product and /how-it-works showed it as real
+ * document overflow; the landing page only LOOKED fine there because its
+ * <main> is overflow-hidden, which hides the symptom and not the bug.
  *
- * Fitting 375px needs two concessions, because logo + wordmark + both links +
- * the CTA measured ~421px and the header CLIPS rather than scrolls — the
- * Launch App button was running to x=399 and was physically unreachable on a
- * phone, which is about as bad as a landing-page bug gets. Below `sm` the
- * wordmark is hidden (the mark alone is still the logo, and it sits beside
- * the page title anyway) and the horizontal padding tightens. Nothing is
- * hidden that carries information the mark doesn't.
+ * Security is the third link, and it is the one that does not fit on a phone
+ * once the CTA reads "Launch PayAI" rather than the shorter "Launch App" —
+ * three links plus that button overruns 375px again. So it is `phoneHidden`:
+ * shown from `sm` up, and reachable on a phone from the footer, which carries
+ * it in the Product column. Nothing else here is hidden, and no link is
+ * hidden at a width where it would fit. A FOURTH link does not fit anywhere
+ * without a hamburger — revisit this properly if one is ever added.
  */
 const LINKS = [
-  { href: "/product", label: "Product" },
-  { href: "/how-it-works", label: "How it works" },
+  { href: "/product", label: "Product", phoneHidden: false },
+  { href: "/how-it-works", label: "How it works", phoneHidden: false },
+  { href: "/security", label: "Security", phoneHidden: true },
 ];
 
 export function SiteNav() {
   const pathname = usePathname();
 
   return (
-    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-4 py-5 sm:gap-4 sm:px-6">
+    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-5 sm:gap-4 sm:px-6">
       <Link href="/" aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Logo size={32} />
         {/* Wordmark is decorative next to the mark; hidden below sm purely to
@@ -63,7 +73,7 @@ export function SiteNav() {
               // breakpoint on purpose: a `sm:py-*` override loses to source
               // order in Tailwind (media queries add no specificity), and 44px
               // is a perfectly good nav height on desktop too.
-              className={`inline-flex items-center whitespace-nowrap rounded-lg px-2 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -76,9 +86,9 @@ export function SiteNav() {
       <div className="flex shrink-0 items-center gap-1">
         <Link
           href="/auth"
-          className="inline-flex items-center rounded-lg bg-primary px-4 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center rounded-lg bg-primary px-3 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4"
         >
-          Launch App
+          Launch PayAI
         </Link>
       </div>
     </header>

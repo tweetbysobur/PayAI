@@ -89,11 +89,67 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
   preview: { label: "Preview", tone: "border-border bg-input text-muted-foreground" },
-  ready: { label: "Ready to confirm", tone: "border-primary bg-primary text-primary-foreground" },
-  confirming: { label: "Confirming", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
-  success: { label: "Sent", tone: "border-success/30 bg-success/10 text-success" },
+  ready: { label: "Ready to approve", tone: "border-primary bg-primary text-primary-foreground" },
+  // "Executing"/"Verified" name the intent → plan → review → approve → execute
+  // → verify flow the product is built around. "Verified" is honest for every
+  // success state here: the card only ever reaches it with a confirmed
+  // on-chain transaction hash, which is the verification.
+  confirming: { label: "Executing", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
+  // "Submitted" is amber/in-progress, NOT the red failure treatment: the
+  // transaction is on-chain (real txHash) and awaiting confirmation — never
+  // a claim that it succeeded, never a claim that it failed.
+  submitted: { label: "Submitted", tone: "border-warning/30 bg-warning/10 text-warning" },
+  success: { label: "Verified", tone: "border-success/30 bg-success/10 text-success" },
   error: { label: "Failed", tone: "border-danger/30 bg-danger/10 text-danger" },
 };
+
+/** The execution lifecycle as four legible steps, derived ONLY from state
+ *  that has actually occurred — never a timer, never ahead of the real
+ *  progress. `phase` is computed by the caller from the live
+ *  progressLabel/status:
+ *    0 = request sent to the wallet, awaiting your signature (nothing signed)
+ *    2 = signed, broadcast, confirming on-chain
+ *    3 = confirmed on-chain — the success state, where we hold the tx hash
+ *  Each step is "done" once `phase` reaches its `doneAt`; the single "active"
+ *  step is the first not-yet-done one (only while still executing). "Signed"
+ *  becomes done at phase 2 because the execution layer reports the signature
+ *  through the same "confirming on-chain" update — we never mark "Signed"
+ *  complete before there is evidence the signature happened. "Verified" is
+ *  reached only at phase 3, when a confirmed transaction hash exists. */
+const EXEC_STEPS = [
+  { label: "Request", doneAt: 0 },
+  { label: "Signed", doneAt: 2 },
+  { label: "On-chain", doneAt: 3 },
+  { label: "Verified", doneAt: 3 },
+] as const;
+
+function ExecutionSteps({ phase }: { phase: number }) {
+  const firstPending = EXEC_STEPS.findIndex((s) => phase < s.doneAt);
+  const activeLabel = firstPending === -1 ? "complete" : EXEC_STEPS[firstPending].label;
+  return (
+    <div className="flex items-center gap-1" aria-label={`Execution progress: ${activeLabel}`}>
+      {EXEC_STEPS.map((s, i) => {
+        const done = phase >= s.doneAt;
+        const active = i === firstPending && phase < 3;
+        return (
+          <div key={s.label} className="flex items-center gap-1">
+            <span className="flex items-center gap-1">
+              {done ? (
+                <CheckCircle2 size={12} className="shrink-0 text-primary-ink" />
+              ) : active ? (
+                <Loader2 size={12} className="shrink-0 animate-spin text-primary-ink" />
+              ) : (
+                <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-border" />
+              )}
+              <span className={`text-[10px] font-medium ${done || active ? "text-foreground" : "text-muted-foreground/60"}`}>{s.label}</span>
+            </span>
+            {i < EXEC_STEPS.length - 1 && <span className={`h-px w-3 ${done ? "bg-primary/40" : "bg-border"}`} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -147,7 +203,12 @@ export function OperationCard({
   // orchestrate.ts's tradePreviewCard) — once it's there, this card is a
   // real confirm-funnel card like payment/swap, not an info surface.
   const isInfo = intent.kind === "wallet_operation" || intent.kind === "token_intelligence" || (intent.kind === "trade_preview" && !intent.execution);
-  const chip = intent.kind === "trade_preview" && isInfo
+  // A created automation isn't a settled single transaction — it's a live
+  // schedule — so it gets its own "Active" chip rather than the confirm
+  // funnel's "Verified".
+  const chip = operation.automation && status === "success"
+    ? { label: "Active", tone: "border-success/30 bg-success/10 text-success" }
+    : intent.kind === "trade_preview" && isInfo
     ? { label: "Pre-execution", tone: "border-warning/30 bg-warning/10 text-warning" }
     : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
@@ -168,6 +229,10 @@ export function OperationCard({
       <div className="px-4 py-3">
         {status === "error" && operation.error ? (
           <ErrorBody error={operation.error} />
+        ) : status === "submitted" && operation.submitted ? (
+          <SubmittedBody submitted={operation.submitted} intent={intent} />
+        ) : status === "success" && operation.automation ? (
+          <AutomationCreatedBody automation={operation.automation} />
         ) : status === "success" && operation.result && !isInfo ? (
           <SuccessBody intent={intent} result={operation.result} />
         ) : (
@@ -175,7 +240,10 @@ export function OperationCard({
         )}
       </div>
 
-      {!isInfo && status !== "error" && (
+      {/* A submitted (broadcast, awaiting-confirmation) card is terminal for
+          now — no action button, exactly like success — its own body carries
+          the explorer link. */}
+      {!isInfo && status !== "error" && status !== "submitted" && (
         <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} progressLabel={progressLabel} />
       )}
       {status === "error" && onRetry && (
@@ -769,7 +837,17 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
               : intent.kind === "scheduled_payment" ? "Payment scheduled"
               : "Payment sent"}
           </p>
-          {result.gasFee && <p className="text-xs text-muted-foreground">Network fee: {result.gasFee}</p>}
+          {/* The verification claim is exactly the evidence we hold and no
+              more: a confirmed transaction on Monad, linked below. Scheduled/
+              recurring don't settle here (they hand off to Automations), so
+              they don't make the on-chain claim. */}
+          <p className="flex items-center gap-1 text-xs text-success">
+            <ShieldCheck size={11} className="shrink-0" />
+            {intent.kind === "scheduled_payment" || intent.kind === "recurring_payment"
+              ? "Set up — runs on-chain on schedule"
+              : "Executed and verified on-chain"}
+          </p>
+          {result.gasFee && <p className="mt-0.5 text-xs text-muted-foreground">Network fee: {result.gasFee}</p>}
         </div>
       </div>
       <ResultSummary intent={intent} />
@@ -789,6 +867,93 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
       <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
         View transaction <ExternalLink size={11} />
       </a>
+    </div>
+  );
+}
+
+/** Full weekday + date + time for a scheduled next run — the concrete moment
+ *  the automation first fires, from the real saved record. */
+function fmtDateTime(ms: number): string {
+  try {
+    return new Date(ms).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return new Date(ms).toISOString();
+  }
+}
+
+const CADENCE_LABEL: Record<string, string> = { once: "One-time", daily: "Daily", weekly: "Weekly", monthly: "Monthly" };
+
+/** The in-chat success state after a scheduled/recurring automation is created
+ *  through the AutomationCreator modal. Every value is the real data the
+ *  creation returned (nextRun is the saved record's own next run) — nothing is
+ *  invented, and this never claims a single settled transaction, because
+ *  creating an automation is a signature + approval, not one on-chain send. */
+function AutomationCreatedBody({ automation }: { automation: NonNullable<Operation["automation"]> }) {
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/12 text-success"><CheckCircle2 size={18} /></span>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Automation created</p>
+          <p className="flex items-center gap-1 text-xs text-success">
+            <ShieldCheck size={11} className="shrink-0" /> Runs on-chain on your schedule
+          </p>
+        </div>
+      </div>
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <TokenLogo token={automation.token} size={20} />
+        <span className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-lg">{automation.amount}</span>
+        <span className="text-sm font-medium text-muted-foreground">{automation.token}</span>
+        <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{automation.domain ?? short(automation.recipient)}</span>
+      </div>
+      <div className="divide-y divide-border/60">
+        <Row label="Frequency">{CADENCE_LABEL[automation.cadence] ?? automation.cadence}</Row>
+        <Row label="Next run">{fmtDateTime(automation.nextRun)}</Row>
+      </div>
+      <Link href="/dashboard/automations" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline">
+        Manage in Automations <ExternalLink size={11} />
+      </Link>
+    </div>
+  );
+}
+
+/** The broadcast-but-unconfirmed state: the transaction is on-chain (real
+ *  txHash) but confirmation hasn't been observed. Amber, honest — it never
+ *  claims success and never claims failure. The explorer link is always
+ *  clickable so the user can check the real transaction themselves; the
+ *  background settlement reconciler resolves the final outcome. No spinner:
+ *  nothing is actively happening in this tab that a spinner would represent. */
+function SubmittedBody({
+  submitted, intent,
+}: {
+  submitted: NonNullable<Operation["submitted"]>;
+  intent: Operation["intent"];
+}) {
+  const noun = intent.kind === "trade_preview" ? "Trade" : intent.kind === "swap" ? "Swap" : "Transaction";
+  return (
+    <div>
+      <div className="mb-3 flex items-center gap-2.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">{noun} submitted</p>
+          <p className="text-xs text-muted-foreground">
+            {submitted.approvalConfirmed ? "Approval complete. Checking confirmation on Monad…" : "Checking confirmation on Monad…"}
+          </p>
+        </div>
+      </div>
+      <div className="rounded-lg border border-warning/25 bg-warning/[0.06] p-3">
+        <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
+        <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-warning hover:underline">
+          {submitted.txHash}
+        </a>
+      </div>
+      <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-warning hover:underline">
+        View on Monad Explorer <ExternalLink size={11} />
+      </a>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        It may already be on-chain — we&apos;ll update this once it confirms. No need to resend.
+      </p>
     </div>
   );
 }
@@ -834,14 +999,22 @@ function CardFooter({
     // executeSendPayment's onProgress calls).
     const waitingLabel = progressLabel ?? (operation.confirmIcon === "go" ? "Opening…" : "Waiting for your signature — nothing has moved yet.");
     const onChain = !!progressLabel && /confirming on-chain|finalizing/i.test(progressLabel);
+    // Phase drives the step indicator: 2 once the label proves the signature
+    // happened and it's confirming on-chain, 0 while still awaiting signature.
+    // Never higher than the real state — "Verified" (phase 3) belongs only to
+    // the success state below.
+    const phase = onChain ? 2 : 0;
     return (
-      <div className="flex items-center gap-2.5 border-t border-border/70 bg-primary/[0.03] px-4 py-3">
-        {onChain ? (
-          <Loader2 size={16} className="shrink-0 animate-spin text-primary-ink" />
-        ) : (
-          <Fingerprint size={16} className="shrink-0 animate-pulse text-primary-ink" />
-        )}
-        <p className="text-xs text-muted-foreground">{waitingLabel}</p>
+      <div className="flex flex-col gap-2 border-t border-border/70 bg-primary/[0.03] px-4 py-3">
+        <ExecutionSteps phase={phase} />
+        <div className="flex items-center gap-2.5">
+          {onChain ? (
+            <Loader2 size={14} className="shrink-0 animate-spin text-primary-ink" />
+          ) : (
+            <Fingerprint size={14} className="shrink-0 animate-pulse text-primary-ink" />
+          )}
+          <p className="text-xs text-muted-foreground">{waitingLabel}</p>
+        </div>
       </div>
     );
   }

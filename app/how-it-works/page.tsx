@@ -62,15 +62,15 @@ export default function HowItWorksPage() {
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
           <p className="text-xs font-semibold uppercase tracking-wider text-primary-ink">How it works</p>
           <h1 className="mt-3 text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
-            Approve once. It runs itself.
+            Intent in. Verified execution out.
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            An automation is a set of terms you sign with your own wallet. PayAI can execute
-            those terms on schedule and can never exceed them.
+            You describe what you want. PayAI interprets it, prepares the execution, and waits
+            for your approval — then settles it on Monad with a record you can verify yourself.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              <Sparkles size={15} /> Launch App
+              <Sparkles size={15} /> Launch PayAI
             </Link>
             <Link href="/product" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input">
               See the product <ArrowRight size={14} className="text-primary-ink" />
@@ -134,18 +134,21 @@ export default function HowItWorksPage() {
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
           <h2 className="text-3xl font-semibold tracking-tighter text-foreground sm:text-4xl">
-            Ready to automate?
+            Ready to try it?
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Connect your wallet and build your first automation in a couple of minutes.
+            Connect your wallet and describe your first action in a couple of minutes.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              Start automating payments
+              Launch PayAI
             </Link>
           </div>
+          {/* NOT "no platform fee during beta" — the FAQ states a live 0.25%
+              fee on fee-bearing transactions, and the two pages contradicting
+              each other on price is not a copy nit. */}
           <p className="mt-4 text-xs text-muted-foreground">
-            Non-custodial · No platform fee during beta · Monad Mainnet
+            Non-custodial · On-chain execution · Built on Monad
           </p>
         </motion.div>
       </section>
