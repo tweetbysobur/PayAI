@@ -249,7 +249,7 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     } finally { restore(); }
   });
 
-  it("a broadcast tx that can't be confirmed yet is reported as unconfirmed, NEVER as failed (funds may have already moved)", async () => {
+  it("a broadcast tx that can't be confirmed yet is reported as SUBMITTED (amber), NEVER as failed (funds may have already moved)", async () => {
     const { executeTradeIntent } = await import("@/lib/ask/intent/orchestrate");
     const steps = [{ kind: "swap", label: "Trade", tx: { to: "0xRouterAddress00000000000000000000000000", data: "0xdead", value: "0x0" } }];
     let call = 0;
@@ -264,10 +264,15 @@ describe("executeTradeIntent — the only function allowed to request a wallet s
     try {
       const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xbroadcasted"), waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }) };
       const result = await executeTradeIntent(tradeOperation(), wallet, WALLET);
-      expect(result.status).toBe("error");
-      expect(result.error?.code).toBe("UNCONFIRMED");
-      expect(result.error?.message).toMatch(/0xbroadcas/i);
-      expect(result.error?.message).not.toMatch(/failed/i);
+      // Broadcast + timeout is NOT an error — it's the honest "submitted" state.
+      expect(result.status).toBe("submitted");
+      expect(result.error).toBeUndefined();
+      // The real broadcast hash is preserved so the user can click through.
+      expect(result.submitted?.txHash).toMatch(/0xbroadcas/i);
+      // A real, clickable explorer link is always present, derived from the
+      // client-safe network config when the server never returned one.
+      expect(result.submitted?.explorerUrl).toBeTruthy();
+      expect(result.submitted?.explorerUrl).toMatch(/0xbroadcasted/);
     } finally { globalThis.fetch = original; }
     expect(call).toBeGreaterThan(0);
   });
