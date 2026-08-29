@@ -224,12 +224,16 @@ describe("executeSwapIntent — the ONLY function allowed to sign a swap", () =>
     expect(result.error?.message).toMatch(/you canceled it in your wallet/i);
   });
 
-  it("broadcast but unconfirmable: never says 'failed' — tokens may have already moved", async () => {
+  it("broadcast but unconfirmable: reported as amber 'submitted', never a red 'failed' — tokens may have already moved", async () => {
     const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xswap"), waitForReceipt: vi.fn().mockRejectedValue(new Error("timeout")) };
     const result = await executeSwapIntent(readySwapOperation(), wallet, WALLET);
-    expect(result.status).toBe("error");
-    expect(result.error?.code).toBe("UNCONFIRMED");
-    expect(result.error?.message).not.toMatch(/failed/i);
+    // Broadcast + confirmation timeout is the "submitted" state, not an error:
+    // the tx has a real hash on-chain and the reconciler resolves it later.
+    expect(result.status).toBe("submitted");
+    expect(result.error).toBeUndefined();
+    expect(result.submitted?.txHash).toBe("0xswap");
+    // A real, clickable explorer link is always attached.
+    expect(result.submitted?.explorerUrl).toMatch(/0xswap/);
   });
 });
 
@@ -244,7 +248,11 @@ describe("respondToUnderstanding — schedule/recurring hand off to the real Aut
       const r = await respondToUnderstanding(u, WALLET);
       expect(calls[0].body.intent).toContain("Schedule 10 USDC");
       expect(r.message.operation?.status).toBe("ready");
-      expect(r.message.operation?.confirmLabel).toMatch(/automations/i);
+      // The card's primary action now opens the AutomationCreator modal
+      // in-chat ("Review & activate") rather than navigating to the
+      // Automations page — but it is still a handoff card (status "ready",
+      // handoff present), NOT an executed automation.
+      expect(r.message.operation?.confirmLabel).toMatch(/review & activate/i);
       expect(r.message.operation?.intent.kind).toBe("scheduled_payment");
       if (r.message.operation?.intent.kind === "scheduled_payment") {
         expect(r.message.operation.intent.handoff?.prefill.recipient).toBe(ADDR);

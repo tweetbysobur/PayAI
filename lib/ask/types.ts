@@ -366,8 +366,9 @@ export type OperationStatus =
   | "preview"     // shown, nothing confirmed yet — "Review payment"
   | "ready"       // reviewed — "Confirm with passkey" / "Confirm in wallet"
   | "confirming"  // signature in flight, nothing sent to chain yet
-  | "success"     // executed — real result attached
-  | "error";      // failed or rejected
+  | "submitted"   // broadcast on-chain (real txHash) but not yet confirmed — NOT a failure
+  | "success"     // executed and confirmed — real result attached
+  | "error";      // failed BEFORE broadcast, or a confirmed on-chain revert
 
 export interface TransactionResult {
   txHash: string;
@@ -400,6 +401,28 @@ export interface Operation {
    *  wallet signature. Absent keeps the existing "Confirm with passkey". */
   confirmLabel?: string;
   confirmIcon?: "passkey" | "go";
+  /** Set once a scheduled/recurring handoff card's automation has actually
+   *  been created in-chat through the AutomationCreator modal. Carries the
+   *  real fields the creation returned (nextRun from the saved record), so
+   *  the success state renders from data, never invented. */
+  automation?: {
+    nextRun: number; cadence: string; amount: number; token: string;
+    recipient: string; domain: string | null;
+  };
+  /** Set when a swap/trade transaction has been broadcast (a real txHash
+   *  exists) but confirmation has NOT been observed — a receipt-wait timeout
+   *  or an inconclusive server confirm check. This is never a definitive
+   *  failure: the pendingSettlement reconciler resolves the true outcome on
+   *  next load. Deliberately distinct from `result` (confirmed success) and
+   *  `error` (never broadcast, or a confirmed on-chain revert). */
+  submitted?: {
+    txHash: string;
+    explorerUrl: string;
+    /** True when an earlier approval step already confirmed before the
+     *  swap/trade step was broadcast — lets the card say "Approval complete.
+     *  Trade submitted." rather than implying the whole operation is pending. */
+    approvalConfirmed?: boolean;
+  };
 }
 
 export type MessageRole = "user" | "assistant";

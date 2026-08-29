@@ -41,7 +41,7 @@ const FOOTER_COLUMNS = [
     links: [
       // Onboarding is /auth now; /connect is the secondary external-wallet
       // path, so sending new visitors there skipped the primary experience.
-      { label: "Launch App", href: "/auth", icon: Rocket, internal: true },
+      { label: "Launch PayAI", href: "/auth", icon: Rocket, internal: true },
       { label: "Product", href: "/product", icon: Layers, internal: true },
       { label: "How it works", href: "/how-it-works", icon: Route, internal: true },
       { label: "Security", href: "/security", icon: ShieldCheck, internal: true },

@@ -74,6 +74,14 @@ describe("nothing offers a route that leads nowhere", () => {
     }
   });
 
+  /* NOTE: TemplateShowcase, FeatureGroupsSection and SupportedTokens are all
+     currently unmounted — /product was the only page rendering them, and the
+     intent-layer restructure dropped all three (a template catalog and an
+     "automate any token" pitch both argue for the old payment-automation
+     positioning). The three tests below still read the component SOURCE
+     rather than a rendered page, so they remain valid guards for the day one
+     is mounted again; they are dormant, not vacuous. Delete the component and
+     its test together if it is ever decided they are not coming back. */
   it("offers only templates that open when you click them", () => {
     // The showcase used to list all 28 with a badge on the unfinished ones.
     // Badging an offer you cannot take is still making the offer — it just
@@ -123,15 +131,31 @@ describe("the hero states the platform, not one feature", () => {
     // width and read as unpolished; this is set in font-montserrat at a
     // smaller size specifically so it renders as a clean 1-2 line display
     // headline instead.
-    expect(page).toMatch(/Natural Language\. On-Chain Execution\./);
+    // "On-Chain" is wrapped in a whitespace-nowrap span, so the headline is
+    // not one contiguous string in the source — a hyphen is a legal line-break
+    // opportunity and an earlier, shorter version of this headline was
+    // splitting it as "...On-" / "Chain Execution." at phone widths. Match
+    // around the span rather than collapsing it away, so removing the guard
+    // fails this test too.
+    expect(page).toMatch(
+      /Turn Natural Language Intent to\s*<span className="whitespace-nowrap">On-Chain<\/span>\s*Execution\./,
+    );
   });
 
-  it("names all six products in the hero", () => {
+  it("names all six capabilities in the hero, matching the cards below", () => {
+    // These are the hero chip labels AND the ProductOverviewSection card
+    // titles — deliberately the same strings. They drifted apart once (the
+    // cards were repositioned to Payments/Trading/DeFi while the chips still
+    // said "Smart Swaps"/"Bulk Distribution"), which reads as two different
+    // product lists on one page. Asserting both surfaces against one list is
+    // what catches that.
+    const overviewFile = read("../components/landing/PlatformOverview.tsx");
     for (const p of [
-      "AI Trading & Payments", "Payment Automation", "Smart Swaps",
-      "Bulk Distribution", "Embedded Wallet", "Analytics & Activity",
+      "Ask PayAI", "Payments", "Trading",
+      "DeFi", "PayAI Wallet", "Activity",
     ]) {
       expect(page, `hero is missing "${p}"`).toContain(p);
+      expect(overviewFile, `the overview cards are missing "${p}"`).toContain(p);
     }
   });
 });

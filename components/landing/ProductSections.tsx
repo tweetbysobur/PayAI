@@ -8,6 +8,7 @@ import {
   Repeat2, Wallet, Activity, Hash, FileCheck, CheckCircle2, Lock, Eye,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
+import { EXECUTION_VENUES } from "@/components/landing/PlatformOverview";
 
 /**
  * /product's core-positioning sections: PayAI as one natural-language intent
@@ -63,12 +64,20 @@ function MiniFlow() {
   );
 }
 
-/** DeFi's example is deliberately not "deposit into a pool" — PayAI has no
- *  lending/liquidity-pool feature today. Nad.Fun's bonding-curve buy/sell is
- *  the real DeFi-adjacent action distinct from a plain DEX trade, so it
- *  stands in as the honest example instead. */
+/** Every intent shown here has to be one Ask PayAI can actually carry through
+ *  to a signable transaction, because the card puts "Monad tx" at the end of
+ *  the flow. Two traps to avoid:
+ *
+ *  - Multi-recipient phrasing ("to three wallets", "across these addresses")
+ *    classifies as `distribution`, and dispatchDistribution replies that bulk
+ *    distributions are not executable from chat yet. So the payments example
+ *    is single-recipient recurring, which does execute.
+ *  - DeFi is not "deposit into a pool" — PayAI has no lending/liquidity-pool
+ *    integration today. Nad.Fun's bonding-curve buy is the real DeFi-adjacent
+ *    action distinct from a plain DEX trade, so it stands in honestly until
+ *    protocol integrations land. */
 const CORE_CARDS = [
-  { icon: Send, label: "PAYMENTS", intent: "Send 500 USDC to three wallets every Friday." },
+  { icon: Send, label: "PAYMENTS", intent: "Send 500 USDC to alice.nad every Friday." },
   { icon: ArrowLeftRight, label: "TRADING", intent: "Swap 0.2 MON for USDC." },
   { icon: Layers, label: "DEFI", intent: "Buy 5 MON worth of a new token on Nad.Fun." },
 ];
@@ -116,8 +125,15 @@ const INTERPRET_FIELDS = [
   { k: "Constraints", v: "Slippage checked" },
 ];
 
-const EXECUTION_ROWS = [
-  { icon: MonadMark, label: "Supported Monad protocol", value: "Uniswap · Kuru · Nad.Fun", brand: true },
+/** `brand` rows render the Monad wordmark and carry no `icon`; every other
+ *  row supplies one. Typed as a discriminated union so removing an `icon`
+ *  from a non-brand row is a compile error rather than a blank square. */
+type ExecutionRow =
+  | { brand: true; label: string; value: string }
+  | { brand?: false; icon: typeof ShieldCheck; label: string; value: string };
+
+const EXECUTION_ROWS: ExecutionRow[] = [
+  { brand: true, label: "Supported Monad protocol", value: EXECUTION_VENUES.join(" · ") },
   { icon: ShieldCheck, label: "PayAI execution contract", value: "Executes exactly what was approved" },
   { icon: Wallet, label: "User wallet", value: "Signs before anything moves" },
 ];
@@ -247,8 +263,18 @@ export function CapabilitiesSection() {
 
 /* ── DeFi — honest about what's actually integrated today ────────────────── */
 
-const DEFI_VENUES = ["Uniswap", "Kuru", "Nad.Fun"];
-
+/**
+ * Venues are rendered as typographic wordmarks, not logos, and that is a
+ * deliberate choice rather than a gap left to fill in later.
+ *
+ * Official marks exist and are legitimately obtainable for some of these
+ * (Uniswap) but not for others (Kuru, Nad.Fun) without pulling an unofficial
+ * copy from somewhere. Drawing the missing ones by hand would put a mark on
+ * the page that is not the brand's actual mark, and mixing two real logos
+ * with one invented one is worse than showing none. So every venue gets the
+ * same treatment until official assets for all of them are in the repo, at
+ * which point this list becomes the single place to swap them in.
+ */
 export function DeFiSection() {
   return (
     <section id="defi" className={SECTION}>
@@ -259,7 +285,7 @@ export function DeFiSection() {
           body="Today, PayAI's DeFi interactions run through Monad's DEX and launchpad infrastructure — the same execution venues Trading uses. Broader protocol support is added as it's implemented, never claimed ahead of it."
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {DEFI_VENUES.map((v) => (
+          {EXECUTION_VENUES.map((v) => (
             <span key={v} className="rounded-full border border-border bg-input/50 px-3 py-1.5 text-xs font-medium text-foreground">
               {v}
             </span>
@@ -272,8 +298,14 @@ export function DeFiSection() {
 
 /* ── Verification & security — four compact, checkable claims ────────────── */
 
+/** The non-custodial line carries the automation caveat deliberately. Every
+ *  interactive action is signed by the user's own wallet, but Payment
+ *  Automations run from a capped server agent wallet — stating "non-custodial"
+ *  flat, with no qualifier, is the one claim this repo treats as off-limits
+ *  (see CLAUDE.md). Shortening it back to the bare sentence would be a
+ *  regression, not a copy tidy-up. */
 const VERIFICATION_CARDS = [
-  { icon: Lock, title: "Non-custodial", body: "You remain in control of your wallet and assets." },
+  { icon: Lock, title: "Non-custodial", body: "You remain in control of your wallet and assets. Interactive actions are signed by your own wallet; only Payment Automations run from a capped agent wallet you authorize up front." },
   { icon: MonadMark, title: "On-chain execution", body: "Transactions execute through supported smart contracts.", brand: true },
   { icon: Eye, title: "Traceable", body: "PayAI execution can be independently verified on-chain." },
   { icon: ShieldCheck, title: "Safe-controlled infrastructure", body: "Critical execution controls remain protected by the PayAI Safe." },
@@ -311,11 +343,18 @@ export function VerificationSection() {
 
 /* ── Intent examples — demonstrate the interface, not a template catalog ─── */
 
+/** Sentences Ask PayAI executes today — this block sits directly above a
+ *  "Try it in Ask PayAI" button, so anything listed here has to survive the
+ *  click. "Distribute 1,000 USDC across these addresses" and "…to my team"
+ *  were both here and both classify as `distribution`, which the orchestrator
+ *  answers with "bulk distributions aren't executable from this chat yet" —
+ *  an offer the product cannot take. Put them back only when
+ *  dispatchDistribution actually executes. */
 const INTENT_EXAMPLES = [
-  "Send 100 USDC to my team every Friday.",
+  "Send 100 USDC to alice.nad every Friday.",
   "Swap 0.1 MON for USDC.",
   "Pay this wallet 50 USDC tomorrow.",
-  "Distribute 1,000 USDC across these addresses.",
+  "What's my USDC balance?",
 ];
 
 export function IntentExamplesSection() {

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import {
   Wallet as WalletIcon, ChevronDown, Sparkles, PlayCircle,
-  Users, Repeat, ArrowLeftRight, BarChart3,
+  Send, Layers, ArrowLeftRight, BarChart3,
 } from "lucide-react";
 import { ProductShowcase } from "@/components/landing/ProductShowcase";
 import { PlatformStatistics } from "@/components/landing/PlatformSections";
@@ -80,12 +80,20 @@ export default function LandingPage() {
               <MonadMark size={13} />
               <span className="font-medium text-foreground">MONAD</span>
             </div>
-            <h1 className="font-montserrat text-balance text-4xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-5xl">
-              Natural Language. On-Chain Execution.
+            {/* `whitespace-nowrap` on "On-Chain" forbids the browser from
+                treating its hyphen as a line-break opportunity — measured
+                on the shorter, prior wording that it will otherwise split
+                as "...On-" / "Chain Execution." at phone widths, and
+                font-size tuning alone doesn't reliably prevent it (see the
+                git history for the numbers). text-2xl on phones keeps this
+                longer headline from reading oversized once it wraps to
+                three lines there — re-measure if the wording changes again. */}
+            <h1 className="font-montserrat text-balance text-2xl font-semibold leading-[1.15] tracking-tight text-foreground sm:text-4xl">
+              Turn Natural Language Intent to <span className="whitespace-nowrap">On-Chain</span> Execution.
             </h1>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-                <Sparkles size={15} /> Launch App
+                <Sparkles size={15} /> Launch PayAI
               </Link>
               {/* Secondary action points at the walkthrough, not a video: there
                   is no recording to play, and a button promising one that
@@ -95,16 +103,19 @@ export default function LandingPage() {
                 <PlayCircle size={15} className="text-primary-ink" /> See how it works
               </Link>
             </div>
-            {/* The platform in six words each — what a visitor is choosing
-                between products on, not a feature list of one of them. */}
+            {/* The platform in a couple of words each. These MUST stay in
+                step with the card titles in ProductOverviewSection directly
+                below — the chips and the cards are the same six things, and
+                a visitor who reads "Smart Swaps" here and "Trading" there
+                assumes they are two different products. */}
             <div className="mt-8 grid max-w-md grid-cols-2 gap-x-5 gap-y-2.5 text-xs text-foreground">
               {[
-                { icon: Sparkles, label: "AI Trading & Payments" },
-                { icon: Repeat, label: "Payment Automation" },
-                { icon: ArrowLeftRight, label: "Smart Swaps" },
-                { icon: Users, label: "Bulk Distribution" },
-                { icon: WalletIcon, label: "Embedded Wallet" },
-                { icon: BarChart3, label: "Analytics & Activity" },
+                { icon: Sparkles, label: "Ask PayAI" },
+                { icon: Send, label: "Payments" },
+                { icon: ArrowLeftRight, label: "Trading" },
+                { icon: Layers, label: "DeFi" },
+                { icon: WalletIcon, label: "PayAI Wallet" },
+                { icon: BarChart3, label: "Activity" },
               ].map((b) => (
                 <span key={b.label} className="flex items-center gap-1.5">
                   <b.icon size={13} className="text-primary-ink" /> {b.label}

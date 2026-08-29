@@ -65,8 +65,8 @@ export function SupportedTokens() {
     <section className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <SectionHead
-          title="Automate any token on Monad"
-          body="The engine is token-agnostic. Every automation — recurring, scheduled, or bulk — can settle in MON or any fungible token on Monad. Decimals are read from the contract itself, never assumed."
+          title="Every token on Monad"
+          body="The execution engine is token-agnostic. Any action — a payment, a trade, or a scheduled run — can settle in MON or any fungible token on Monad. Decimals are read from the contract itself, never assumed."
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

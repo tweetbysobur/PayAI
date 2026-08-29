@@ -50,11 +50,15 @@ function FlowStage({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+/** The parent flex row is `items-start` so the three stage labels sit on one
+ *  baseline. That alone would pin these arrows level with the labels rather
+ *  than the boxes they actually connect, so the horizontal one is nudged down
+ *  past the label to the vertical middle of the box row. */
 function FlowConnector() {
   return (
     <>
       <ChevronDown size={14} className="mx-auto shrink-0 text-primary-ink/50 sm:hidden" />
-      <ArrowRight size={14} className="hidden shrink-0 text-primary-ink/50 sm:block" />
+      <ArrowRight size={14} className="hidden shrink-0 text-primary-ink/50 sm:mt-9 sm:block" />
     </>
   );
 }
