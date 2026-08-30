@@ -96,12 +96,17 @@ let buildNadFunBuyPlanImpl: (token: string, symbol: string, decimals: number, am
   async () => { throw new Error("buildNadFunBuyPlan not stubbed"); };
 let buildNadFunSellPlanImpl: (token: string, symbol: string, decimals: number, amountInToken: string, slippage: number, wallet: string) => Promise<{ steps: StubStep[]; amountOut: string; router: string }> =
   async () => { throw new Error("buildNadFunSellPlan not stubbed"); };
+interface StubNadFunStatus { recognized: boolean; isGraduated: boolean; isLocked: boolean; status: "bonding_curve" | "graduated" | "locked" | "unsupported" }
+// Defaults to "not a Nad.Fun token at all" — the common case for these tests'
+// generic "DEAD"/"RANDO" fixtures, which aren't testing Nad.Fun recognition.
+let getNadFunStatusImpl: (token: string) => Promise<StubNadFunStatus> = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
 vi.mock("@/lib/monad/nadfun", () => ({
   nadFunQuote: (token: string, decimals: number, amount: string, isBuy: boolean) => nadFunQuoteImpl(token, decimals, amount, isBuy),
   buildNadFunBuyPlan: (token: string, symbol: string, decimals: number, amountInMon: string, slippage: number, wallet: string) =>
     buildNadFunBuyPlanImpl(token, symbol, decimals, amountInMon, slippage, wallet),
   buildNadFunSellPlan: (token: string, symbol: string, decimals: number, amountInToken: string, slippage: number, wallet: string) =>
     buildNadFunSellPlanImpl(token, symbol, decimals, amountInToken, slippage, wallet),
+  getNadFunStatus: (token: string) => getNadFunStatusImpl(token),
 }));
 
 let getTokenBalanceImpl: (owner: string, token: string, decimals: number, isNative: boolean) => Promise<number> = async () => 0;
@@ -138,6 +143,7 @@ afterEach(() => {
   nadFunQuoteImpl = async () => null;
   buildNadFunBuyPlanImpl = async () => { throw new Error("buildNadFunBuyPlan not stubbed"); };
   buildNadFunSellPlanImpl = async () => { throw new Error("buildNadFunSellPlan not stubbed"); };
+  getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
 });
 
 const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
@@ -265,6 +271,73 @@ describe("previewTrade — Nad.Fun (bonding-curve / newly-graduated tokens)", ()
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.route.provider).toBe("Uniswap v3");
+  });
+
+  it("a real Nad.Fun token (graduated) quoted against USDC (not MON) gets an honest, actionable message instead of the generic 'no route' — the bug behind '0xD10cf1...785657777 says not tradable'", async () => {
+    // Nad.Fun only ever pairs against MON (see nadFunSides), and the token's
+    // liquidity lives in Nad.Fun's own graduated DEX pool, not Uniswap's — so
+    // BOTH quoteUniswapDirectImpl and nadFunQuoteImpl correctly return
+    // nothing for TOKEN<->USDC. That's not a bug in the quote; the bug was
+    // the resulting message being indistinguishable from "no liquidity at
+    // all" when the real, actionable fact is "wrong counter-asset".
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async (token) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      return { recognized: true, isGraduated: true, isLocked: false, status: "graduated" };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/GRAD/);
+    expect(r.message).toMatch(/nad\.fun/i);
+    expect(r.message).toMatch(/\bMON\b/);
+    expect(r.message).not.toMatch(/no usable trading route/i); // the honest, specific message replaces the generic one
+  });
+
+  it("a bonding-curve (not yet graduated) Nad.Fun token quoted against USDC gets the same actionable hint", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "sell", inputToken: TOKEN, outputToken: "USDC", amount: "100", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/MEOW/);
+    expect(r.message).toMatch(/\bMON\b/);
+  });
+
+  it("a token that IS Nad.Fun-recognized still gets the plain honest 'no route' message when it's paired against MON (the pair Nad.Fun itself couldn't quote)", async () => {
+    // Distinguishes the new hint from the pre-existing behavior: the hint
+    // must only fire for a pair Nad.Fun was never even asked about (neither
+    // side MON — see nadFunSides), never override a REAL Nad.Fun "no route"
+    // for a MON pair it actually tried and failed.
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => { throw new Error("must not be consulted for a pair Nad.Fun already tried directly"); };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
+
+  it("a token that genuinely isn't a Nad.Fun token at all still gets the plain honest 'no route' message", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
+
+  it("a Nad.Fun status lookup failure (RPC hiccup) fails open to the plain message, never throws out of previewTrade", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => { throw new Error("RPC hiccup"); };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
   });
 
   it("Part 5 NL coverage: \"sell half of my tokens\" (a percentage amount) resolves to real units BEFORE routing, then flows through Nad.Fun exactly like exact_input does", async () => {

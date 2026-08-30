@@ -46,7 +46,7 @@ import {
   bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
   quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
 } from "./swap";
-import { buildNadFunBuyPlan, buildNadFunSellPlan, nadFunQuote } from "./nadfun";
+import { buildNadFunBuyPlan, buildNadFunSellPlan, getNadFunStatus, nadFunQuote } from "./nadfun";
 import {
   buildKuruExecutorPlan, buildNadFunExecutorPlan, buildUniswapExecutorPlan, getExecutorFeeBps, selectExecutor, type ExecutorVenue,
 } from "./tradeExecutor";
@@ -256,6 +256,46 @@ async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide
   return direct ? { provider: "Uniswap v3", amountOut: direct.amountOut, priceImpact: direct.priceImpact } : null;
 }
 
+/**
+ * Explains WHY, when getTradeRoute() above found nothing — never changes
+ * whether a route is found, only how a real "no route" is worded.
+ *
+ * A real, live-liquidity Nad.Fun token (bonding-curve or graduated) that a
+ * user tries to trade against anything OTHER than MON — most commonly USDC,
+ * either named explicitly or defaulted to by classify.ts's
+ * applyTradeContext() when "sell TOKEN" doesn't say what to receive — was
+ * getting the exact same generic "No usable trading route found" as a token
+ * with genuinely zero liquidity anywhere. Both nadFunSides() (this file, MON
+ * is the only counter-asset Nad.Fun's bonding curve or its post-graduation
+ * pool ever pairs against — see nadfun.ts's own doc) and the real Uniswap V3
+ * quoter (that graduated pool lives in Nad.Fun's OWN separate Uniswap-V2-fork
+ * factory, never Uniswap's) correctly find nothing for TOKEN<->USDC, so the
+ * generic message wasn't wrong about THAT quote — it just left "this token
+ * has no liquidity at all" and "this token only trades against MON"
+ * indistinguishable, when the difference is exactly the one actionable fact
+ * the user needs.
+ *
+ * Only runs after getTradeRoute() has already failed (one extra read, paid
+ * only on the failure path, not on every quote) and only changes the message
+ * — it never fabricates a route, never quotes through Nad.Fun for a pair
+ * nadFunSides() itself would refuse, and never touches what actually gets
+ * built or signed.
+ */
+async function nadFunCounterAssetHint(input: ResolvedTradeSide, output: ResolvedTradeSide): Promise<string | null> {
+  if (nadFunSides(input, output)) return null; // one side WAS MON -- Nad.Fun was already tried above
+  // Whichever side isn't a curated symbol is the one that could plausibly be
+  // a Nad.Fun token; a curated symbol (MON/USDC/USDT0/AUSD/WETH/WBTC) never is.
+  const candidate = !input.verified ? input : !output.verified ? output : null;
+  if (!candidate) return null;
+  try {
+    const status = await getNadFunStatus(candidate.address);
+    if (!status.recognized) return null;
+    return `${candidate.symbol} trades on Nad.Fun, but only against MON right now — try quoting it against MON instead of ${input.address.toLowerCase() === candidate.address.toLowerCase() ? output.symbol : input.symbol}.`;
+  } catch {
+    return null;
+  }
+}
+
 function fmt(n: number): string {
   return n.toFixed(n !== 0 && Math.abs(n) < 1 ? 8 : 4);
 }
@@ -324,7 +364,10 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   const rawAmountStr = String(amountResult.amount);
   const amountStr = /e/i.test(rawAmountStr) ? toParseableAmount(amountResult.amount, inputSide.decimals) : rawAmountStr;
   const route = await getTradeRoute(inputSide, outputSide, amountStr);
-  if (!route) return { ok: false, message: `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
+  if (!route) {
+    const nadFunHint = await nadFunCounterAssetHint(inputSide, outputSide);
+    return { ok: false, message: nadFunHint ?? `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
+  }
 
   const grossOut = Number(route.amountOut);
   // When this trade will route through PayAITradeExecutor (Uniswap/Kuru, flag
