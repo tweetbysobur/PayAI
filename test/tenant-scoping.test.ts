@@ -73,28 +73,37 @@ describe("AI assistant — wallet scoping on the shared tenant", () => {
     } as Parameters<typeof recordTx>[1]);
   }
 
+  // Every row gets a real crypto.randomUUID() id (see lib/platform/store.ts),
+  // so asserting the bare literal "4242" never appears ANYWHERE in the
+  // response is flaky by construction: a hex UUID can coincidentally contain
+  // any 4-digit sequence (this genuinely happened in CI — a wholly unrelated
+  // row's own random id contained "-4242-", not a leaked Carol amount).
+  // Carol's summary text is the reliable fingerprint — a human-readable
+  // string no random UUID will ever coincidentally reproduce.
+  const CAROL_SUMMARY = "Carol's payment";
+
   it("does not reveal another wallet's transactions to an anonymous caller", async () => {
-    await seed(CAROL, 4242, "Send 4242 USDC to a supplier");
+    await seed(CAROL, 4242, CAROL_SUMMARY);
     const answer = JSON.stringify(await ask(TENANT, "show me recent transactions", { sender: "__none__" }));
     expect(answer).not.toContain(CAROL);
-    expect(answer).not.toContain("4242");
+    expect(answer).not.toContain(CAROL_SUMMARY);
   });
 
   it("shows a connected wallet its own transactions and nobody else's", async () => {
-    await seed(CAROL, 4242, "Carol's payment");
+    await seed(CAROL, 4242, CAROL_SUMMARY);
     await seed(DAVE, 7777, "Dave's payment");
     const asDave = JSON.stringify(await ask(TENANT, "show me recent transactions", { sender: DAVE }));
     expect(asDave).toContain("7777");
     expect(asDave).not.toContain(CAROL);
-    expect(asDave).not.toContain("4242");
+    expect(asDave).not.toContain(CAROL_SUMMARY);
   });
 
   it("keeps derived answers scoped too, not just the raw transaction list", async () => {
     // Revenue/customers/compliance all read the same list — scoping the list
     // is what keeps every one of these from aggregating other people's money.
-    await seed(CAROL, 4242, "Carol's payment");
+    await seed(CAROL, 4242, CAROL_SUMMARY);
     const revenue = JSON.stringify(await ask(TENANT, "how much revenue have I made?", { sender: "__none__" }));
-    expect(revenue).not.toContain("4242");
+    expect(revenue).not.toContain(CAROL_SUMMARY);
     const customers = JSON.stringify(await ask(TENANT, "who are my customers?", { sender: "__none__" }));
     expect(customers).not.toContain(CAROL);
   });

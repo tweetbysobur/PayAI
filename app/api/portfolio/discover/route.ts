@@ -28,26 +28,59 @@
  * since this sandbox has no live RPC access to pin the provider's real cap)
  * means a rejected or stalled wide scan still finds recent activity instead
  * of surfacing nothing.
+ *
+ * That fixed provider rejection/stalling, but not a second, distinct gap:
+ * Monad mainnet produces a block roughly every 0.4s, so the original
+ * 200,000-block-wide scan covered barely 22 hours of real history — a token
+ * bought yesterday, not just now, was already outside the window, with
+ * nothing to indicate why. GET below now scans several such windows,
+ * covering a full week by default, in parallel.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { withTimeout } from "@/lib/monad/rpcTimeout";
 
-/** Worst case is now 4 windowed attempts at up to TIMEOUT_MS each (~20s) — see
- *  fetchIncomingTransferLogs below — rather than the platform's default
- *  function duration, matching how run-schedules/route.ts declares its own
- *  ceiling for the same reason. */
+/** Worst case is now (history chunks) windowed attempts running in
+ *  PARALLEL, each up to 4 tries at up to TIMEOUT_MS (~20s worst case per
+ *  chunk, not per chunk multiplied) — see fetchIncomingTransferLogs below —
+ *  rather than the platform's default function duration, matching how
+ *  run-schedules/route.ts declares its own ceiling for the same reason. */
 export const maxDuration = 30;
 
-/** How far back to look for first-ever receipts. Wide enough to cover a
- *  wallet's real history on a young chain, bounded so the RPC never sees an
- *  unbounded getLogs. Tried first; see FALLBACK_WINDOWS below for what
- *  happens when a provider won't serve a range this wide. */
+/** Monad mainnet's real block interval — ~0.4s/block, per documented
+ *  post-launch network performance figures (not hand-guessed) — used only to
+ *  size how much WALL-CLOCK history a bounded discovery scan should cover,
+ *  never for balance/amount math. This is the reason the original
+ *  200,000-block LOOKBACK_BLOCKS below was a real bug, not just a
+ *  provider-limit workaround: at this block rate, 200,000 blocks is only
+ *  ~22 HOURS of chain history. A token bought more than a day before the
+ *  user checked their portfolio was silently invisible — no timeout, no
+ *  error, just outside the window entirely. The chunked scan below is what
+ *  actually fixes that; the narrowing-fallback logic (still exactly the
+ *  provider-limit workaround it always was) only helps within whatever
+ *  window it's given. */
+const BLOCK_INTERVAL_MS = 400;
+const BLOCKS_PER_DAY = BigInt(Math.round(86_400_000 / BLOCK_INTERVAL_MS));
+
+/** Total history discovery covers. A holding from "earlier this week" is the
+ *  realistic case a user actually checks for; the result is cached
+ *  (CACHE_MS) so this cost is paid at most once per wallet per five-minute
+ *  window no matter how many chunks it takes. Wider would find older
+ *  holdings too, but also means more parallel requests against the same RPC
+ *  endpoint — this is a deliberately moderate default, not a hard ceiling on
+ *  what COULD be discovered. */
+const HISTORY_DAYS = 7n;
+const TOTAL_LOOKBACK_BLOCKS = BLOCKS_PER_DAY * HISTORY_DAYS;
+
+/** Width of a single getLogs attempt (and of each history chunk below).
+ *  Wide enough to cover a meaningful slice per request, bounded so the RPC
+ *  never sees an unbounded getLogs. Tried first per chunk; see
+ *  FALLBACK_WINDOWS for what happens when a provider won't serve a range
+ *  this wide. */
 const LOOKBACK_BLOCKS = 200_000n;
 /** Narrower windows tried, in order, when the wide scan above is rejected or
- *  doesn't answer within TIMEOUT_MS. Recent activity — the case a user
- *  actually notices ("I just swapped into this and don't see it") — is still
- *  found even against a provider that only serves a small address-less
- *  range. */
+ *  doesn't answer within TIMEOUT_MS. Recent activity within that chunk is
+ *  still found even against a provider that only serves a small
+ *  address-less range. */
 const FALLBACK_WINDOWS = [50_000n, 10_000n, 2_000n];
 /** Bounds a single getLogs attempt. A provider that accepts the range instead
  *  of rejecting it can just take minutes to answer rather than erroring, so a
@@ -125,18 +158,33 @@ export async function GET(req: NextRequest) {
     // The raw request, not viem's typed `event` helper: this must match a
     // Transfer to this wallet from ANY contract, and the typed form insists on
     // narrowing to specific addresses.
-    const logs = await fetchIncomingTransferLogs<{ address: string }>(latest, (fromBlock, toBlock) =>
-      client.request({
-        method: "eth_getLogs",
-        params: [{
-          fromBlock: `0x${fromBlock.toString(16)}`,
-          toBlock: `0x${toBlock.toString(16)}`,
-          topics: [TRANSFER_TOPIC, null, `0x${"0".repeat(24)}${key.slice(2)}`],
-        }],
-      } as never) as Promise<{ address: string }[]>,
-    );
+    const fetchWindow = (windowLatest: bigint) =>
+      fetchIncomingTransferLogs<{ address: string }>(windowLatest, (fromBlock, toBlock) =>
+        client.request({
+          method: "eth_getLogs",
+          params: [{
+            fromBlock: `0x${fromBlock.toString(16)}`,
+            toBlock: `0x${toBlock.toString(16)}`,
+            topics: [TRANSFER_TOPIC, null, `0x${"0".repeat(24)}${key.slice(2)}`],
+          }],
+        } as never) as Promise<{ address: string }[]>,
+      );
 
-    const contracts = [...new Set((logs ?? []).map((l) => l.address.toLowerCase()))];
+    // A single LOOKBACK_BLOCKS-wide window only ever covers the most recent
+    // slice of chain history (~22 hours at Monad's real block rate) — a
+    // token bought earlier this week would be outside it entirely, with no
+    // error to explain why. Scan several such windows, each anchored at a
+    // progressively older block, covering HISTORY_DAYS in total — run in
+    // PARALLEL so the wall-clock cost is bounded by the slowest single
+    // window, not the sum of all of them.
+    const windowAnchors: bigint[] = [];
+    const floor = latest > TOTAL_LOOKBACK_BLOCKS ? latest - TOTAL_LOOKBACK_BLOCKS : 0n;
+    for (let anchor = latest; anchor > floor; anchor -= LOOKBACK_BLOCKS) {
+      windowAnchors.push(anchor);
+    }
+    const logs = (await Promise.all(windowAnchors.map(fetchWindow))).flat();
+
+    const contracts = [...new Set(logs.map((l) => l.address.toLowerCase()))];
     // Resolve metadata so the caller gets real decimals — a balance read with
     // the wrong decimals is a wrong number, which is worse than no number.
     const tokens = (
