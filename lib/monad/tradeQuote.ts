@@ -523,6 +523,17 @@ export interface TradeExecutionStep {
   kind: "approve" | "swap";
   label: string;
   tx: { to: string; data: string; value: string };
+  /** Present only on the LAST step of a completed, independently-settleable
+   *  on-chain leg (see buildNadFunMultiHopSteps). Tells the caller to
+   *  record + notify THIS leg the moment its own receipt confirms — with
+   *  its real fromToken/toToken/amounts/provider — rather than only ever
+   *  settling once at the very end of the whole steps array. Absent for an
+   *  ordinary single-leg trade, which keeps settling exactly as before:
+   *  once, at the end, with the whole trade's own numbers. This is what
+   *  lets "leg A succeeded, leg B was then rejected or reverted" leave a
+   *  real record of leg A's real, fund-moving transaction, instead of a
+   *  silent gap in the user's own history. */
+  settleLeg?: { fromToken: string; toToken: string; amountIn: number; amountOut: number; provider: string };
 }
 
 export interface TradeExecutionReady {
@@ -563,6 +574,79 @@ function isMaterialChange(fresh: TradePreviewOk, previous: PreviousQuoteSnapshot
   const prevOut = Number(previous.receiveAmount);
   if (!Number.isFinite(freshOut) || !Number.isFinite(prevOut) || prevOut <= 0) return true;
   return Math.abs(freshOut - prevOut) / prevOut > slippageFraction;
+}
+
+/**
+ * Builds BOTH real on-chain legs of a Nad.Fun-through-MON trade fresh —
+ * mirrors getNadFunMultiHopRoute's own two-leg sequencing exactly, but
+ * builds real unsigned steps instead of a quote number. Leg B is always
+ * sized off Leg A's REAL, just-built output (never the preview's earlier
+ * estimate) — this file's "never sign what wasn't just quoted" rule,
+ * applied across two legs instead of one.
+ *
+ * Throws on any failure rather than returning a partial result — exactly
+ * like every other build* function in this file — so prepareTradeExecution's
+ * existing try/catch turns it into the same honest `ok: false` a single-leg
+ * build failure already gets. Never signs, submits, or leaves a trade
+ * half-built: either both legs' steps come back together, or nothing does.
+ *
+ * Each leg's LAST step carries settleLeg (see TradeExecutionStep's own
+ * doc), tagged with THAT leg's real fromToken/toToken/provider/amounts —
+ * so a caller that settles as each leg's own receipt confirms (rather than
+ * only once at the very end) records BOTH real, fund-moving transactions.
+ * That is what makes "leg A succeeded, leg B was then rejected or
+ * reverted" a state with an honest transaction-history record instead of a
+ * silent gap — see lib/ask/intent/orchestrate.ts's executeTradeIntent.
+ */
+async function buildNadFunMultiHopSteps(
+  action: TradeAction, input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string, slippage: number, wallet: Address,
+): Promise<TradeExecutionStep[]> {
+  const isBuy = action === "buy";
+  const tokenSide = isBuy ? output : input;
+  const counterSide = isBuy ? input : output;
+  if (tokenSide.isNative || counterSide.isNative) throw new Error("Couldn't prepare that Nad.Fun trade.");
+  const monSide = await resolveTradeSide("MON");
+
+  function tagLast(steps: UnsignedStep[], settleLeg: NonNullable<TradeExecutionStep["settleLeg"]>): TradeExecutionStep[] {
+    return steps.map((s, i) => (i === steps.length - 1 ? { ...s, settleLeg } : s));
+  }
+
+  /** counterSide -> MON, or MON -> counterSide when `reverse`. Reuses
+   *  getSwapProvider().buildPlan() (verified/verified — the exact path
+   *  Smart Swap already signs in production) when the counter-asset is
+   *  verified, else buildUniswapPlanDirect() (address-based) — the same
+   *  split getTradeRoute()/quoteToMon() already use at quote time. */
+  async function buildCounterLeg(amountIn: string, reverse: boolean): Promise<{ steps: UnsignedStep[]; amountOut: string; provider: string }> {
+    const [inSide, outSide] = reverse ? [monSide, counterSide] : [counterSide, monSide];
+    if (inSide.verified && outSide.verified) {
+      const plan = await getSwapProvider().buildPlan(inSide.symbol, outSide.symbol, Number(amountIn), wallet, slippage);
+      return { steps: plan.steps, amountOut: String(plan.quote.amountOut), provider: plan.provider ?? "PayAI" };
+    }
+    const plan = await buildUniswapPlanDirect(
+      inSide.address, inSide.symbol, inSide.decimals, inSide.isNative,
+      outSide.address, outSide.symbol, outSide.decimals, outSide.isNative,
+      amountIn, slippage, wallet,
+    );
+    return { steps: plan.steps, amountOut: plan.amountOut, provider: "Uniswap v3" };
+  }
+
+  if (isBuy) {
+    const legA = await buildCounterLeg(amount, false);
+    const legASteps = tagLast(legA.steps, { fromToken: counterSide.symbol, toToken: "MON", amountIn: Number(amount), amountOut: Number(legA.amountOut), provider: legA.provider });
+
+    const legB = await buildNadFunBuyPlan(tokenSide.address, tokenSide.symbol, tokenSide.decimals, legA.amountOut, slippage, wallet);
+    const legBSteps = tagLast(legB.steps, { fromToken: "MON", toToken: tokenSide.symbol, amountIn: Number(legA.amountOut), amountOut: Number(legB.amountOut), provider: "Nad.Fun" });
+
+    return [...legASteps, ...legBSteps];
+  }
+
+  const legA = await buildNadFunSellPlan(tokenSide.address, tokenSide.symbol, tokenSide.decimals, amount, slippage, wallet);
+  const legASteps = tagLast(legA.steps, { fromToken: tokenSide.symbol, toToken: "MON", amountIn: Number(amount), amountOut: Number(legA.amountOut), provider: "Nad.Fun" });
+
+  const legB = await buildCounterLeg(legA.amountOut, true);
+  const legBSteps = tagLast(legB.steps, { fromToken: "MON", toToken: counterSide.symbol, amountIn: Number(legA.amountOut), amountOut: Number(legB.amountOut), provider: legB.provider });
+
+  return [...legASteps, ...legBSteps];
 }
 
 /**
@@ -612,6 +696,15 @@ export async function prepareTradeExecution(
 
   const wallet = req.walletAddress as Address;
   try {
+    // A Nad.Fun-through-MON route never fits the single-venue executor
+    // selection below (venueForProvider would otherwise mismatch the
+    // composite "Uniswap v3 + Nad.Fun" string — see isMultiHopProvider's
+    // own doc) — build both real legs directly instead.
+    if (isMultiHopProvider(preview.route.provider)) {
+      const multiSteps = await buildNadFunMultiHopSteps(req.action, inputSide, outputSide, preview.spend.amount, slippageFraction, wallet);
+      return { ok: true, status: "ready", preview, steps: multiSteps };
+    }
+
     let steps: UnsignedStep[] | null = null;
 
     // Gate 5/7 — route through a PayAITradeExecutor when one is selected for
@@ -677,7 +770,19 @@ export async function prepareTradeExecution(
       );
       steps = direct.steps;
     }
-    return { ok: true, status: "ready", preview, steps };
+    // Tag the LAST step with settleLeg using the whole trade's own numbers —
+    // uniform for every single-leg trade (the overwhelming majority), so
+    // orchestrate.ts's execution loop never needs two different code paths
+    // for "settle once at the end" vs. "settle per multi-hop leg": it's
+    // always "settle whatever step says settleLeg". Identical settlement
+    // behavior to before this field existed — one call, at the end, with
+    // the whole trade's numbers.
+    const tagged: TradeExecutionStep[] = steps.map((s, i, arr) =>
+      i === arr.length - 1
+        ? { ...s, settleLeg: { fromToken: preview.spend.token, toToken: preview.receive.token, amountIn: Number(preview.spend.amount), amountOut: Number(preview.receive.amount), provider: preview.route.provider } }
+        : s,
+    );
+    return { ok: true, status: "ready", preview, steps: tagged };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "Couldn't prepare that trade for signing." };
   }
