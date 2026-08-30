@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { History } from "lucide-react";
 import { AskMark, AskLogo } from "@/components/AskMark";
 import { AskEmptyState, CAPABILITY_SHORTCUTS } from "@/components/ask/AskEmptyState";
 import { ChatMessageRow, ThinkingRow } from "@/components/ask/ChatMessage";
 import { ChatComposer } from "@/components/ask/ChatComposer";
+import { ConversationList } from "@/components/ask/ConversationList";
 import { retryTextFor } from "@/lib/ask/useAskChat";
 import { useAskPageChat } from "@/lib/ask/AskPageChatContext";
 import { AutomationCreator } from "@/components/dashboard/AutomationCreator";
@@ -76,61 +78,144 @@ function AskPayAIChat() {
     wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
+    // P1.3 — conversation history. The rail below is purely a view over
+    // these; every action just calls straight through to the hook, which
+    // owns the actual wallet-scoped storage and safety rules.
+    conversations, activeConversationId, openConversation,
+    renameConversationAction, deleteConversationAction, clearHistoryAction, searchConversationsAction,
   } = useAskPageChat();
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Collapsed by default so a first-time visitor sees the conversation, not
+  // a rail with nothing in it — matches "the conversation remains the
+  // dominant UI element". On desktop this toggles a persistent side column;
+  // on a phone (no room for both side by side) it toggles a slide-over
+  // drawer instead — same state, different presentation below.
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
   return (
-    <div className="mx-auto flex h-full max-w-4xl flex-col">
-      <div className="mb-3 flex shrink-0 items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-            <AskMark size={16} />
-          </span>
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">Ask PayAI</h1>
-        </div>
-        {messages.length > 0 && (
-          <button
-            onClick={newConversation}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            New conversation
-          </button>
+    <div className="mx-auto flex h-full max-w-6xl gap-3">
+      {/* Desktop: a persistent, collapsible rail alongside the chat — never
+          a new top-level dashboard nav item, just a panel within this page. */}
+      <div
+        className={`hidden shrink-0 overflow-hidden rounded-2xl border bg-panel/40 transition-[width] duration-200 sm:block ${
+          historyOpen ? "w-64 border-border" : "w-0 border-transparent"
+        }`}
+      >
+        {historyOpen && (
+          <ConversationList
+            conversations={conversations}
+            activeConversationId={activeConversationId}
+            onNewConversation={newConversation}
+            onOpenConversation={openConversation}
+            onRenameConversation={renameConversationAction}
+            onDeleteConversation={deleteConversationAction}
+            onClearHistory={clearHistoryAction}
+            onSearch={searchConversationsAction}
+          />
         )}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel/40">
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            <AskEmptyState onPick={send} />
-          ) : (
-            <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4 sm:p-6">
-              {messages.map((m) => (
-                <ChatMessageRow
-                  key={m.id}
-                  message={m}
-                  walletAddress={wallet.address}
-                  onAdvanceOperation={advanceOperation}
-                  onCancelOperation={cancelOperation}
-                  onQuickAction={send}
-                  // Only offer "Try again" where retrying actually does
-                  // something — a schedule/recurring handoff card (or any
-                  // future kind without a canonical retry text) would
-                  // otherwise show a button that silently does nothing.
-                  onRetryOperation={m.operation && retryTextFor(m.operation) ? retryOperation : undefined}
-                  progressLabel={m.operation ? progress[m.operation.id] : undefined}
-                />
-              ))}
-              {thinking && <ThinkingRow label={thinkingLabel} />}
-            </div>
-          )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
+              <AskMark size={16} />
+            </span>
+            <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">Ask PayAI</h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-label={historyOpen ? "Hide conversation history" : "Show conversation history"}
+              aria-pressed={historyOpen}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                historyOpen ? "border-primary/40 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              <History size={13} /> <span className="hidden sm:inline">History</span>
+            </button>
+            {messages.length > 0 && (
+              <button
+                onClick={newConversation}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span className="sm:hidden">New</span>
+                <span className="hidden sm:inline">New conversation</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        <ChatComposer value={input} onChange={setInput} onSend={() => send(input)} disabled={thinking} />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel/40">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            {messages.length === 0 ? (
+              <AskEmptyState onPick={send} />
+            ) : (
+              <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4 sm:p-6">
+                {messages.map((m) => (
+                  <ChatMessageRow
+                    key={m.id}
+                    message={m}
+                    walletAddress={wallet.address}
+                    onAdvanceOperation={advanceOperation}
+                    onCancelOperation={cancelOperation}
+                    onQuickAction={send}
+                    // Only offer "Try again" where retrying actually does
+                    // something — a schedule/recurring handoff card (or any
+                    // future kind without a canonical retry text) would
+                    // otherwise show a button that silently does nothing.
+                    onRetryOperation={m.operation && retryTextFor(m.operation) ? retryOperation : undefined}
+                    progressLabel={m.operation ? progress[m.operation.id] : undefined}
+                  />
+                ))}
+                {thinking && <ThinkingRow label={thinkingLabel} />}
+              </div>
+            )}
+          </div>
+
+          <ChatComposer value={input} onChange={setInput} onSend={() => send(input)} disabled={thinking} />
+        </div>
       </div>
+
+      {/* Mobile: the rail becomes a slide-over drawer instead of a
+          persistent column — there's no room for both side by side on a
+          phone. Same underlying state (historyOpen) and the same
+          ConversationList component as desktop, just presented differently. */}
+      <AnimatePresence>
+        {historyOpen && (
+          <motion.div
+            key="history-overlay"
+            className="fixed inset-0 z-40 flex sm:hidden"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
+          >
+            <button
+              aria-label="Close conversation history"
+              onClick={() => setHistoryOpen(false)}
+              className="absolute inset-0 bg-black/40"
+            />
+            <motion.div
+              initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ duration: 0.2, ease: "easeOut" }}
+              className="relative flex h-full w-[82vw] max-w-xs flex-col border-r border-border bg-panel shadow-2xl"
+            >
+              <ConversationList
+                conversations={conversations}
+                activeConversationId={activeConversationId}
+                onNewConversation={() => { newConversation(); setHistoryOpen(false); }}
+                onOpenConversation={(id) => { openConversation(id); setHistoryOpen(false); }}
+                onRenameConversation={renameConversationAction}
+                onDeleteConversation={deleteConversationAction}
+                onClearHistory={clearHistoryAction}
+                onSearch={searchConversationsAction}
+                onClose={() => setHistoryOpen(false)}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* A scheduled/recurring intent opens the real AutomationCreator right
           here, seeded with the resolved prefill, instead of navigating away.
