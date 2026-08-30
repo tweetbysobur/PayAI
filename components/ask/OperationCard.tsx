@@ -228,7 +228,7 @@ export function OperationCard({
 
       <div className="px-4 py-3">
         {status === "error" && operation.error ? (
-          <ErrorBody error={operation.error} />
+          <ErrorBody error={operation.error} intent={intent} />
         ) : status === "submitted" && operation.submitted ? (
           <SubmittedBody submitted={operation.submitted} intent={intent} />
         ) : status === "success" && operation.automation ? (
@@ -922,7 +922,15 @@ function AutomationCreatedBody({ automation }: { automation: NonNullable<Operati
  *  claims success and never claims failure. The explorer link is always
  *  clickable so the user can check the real transaction themselves; the
  *  background settlement reconciler resolves the final outcome. No spinner:
- *  nothing is actively happening in this tab that a spinner would represent. */
+ *  nothing is actively happening in this tab that a spinner would represent.
+ *
+ *  P1.4: when a separate approval already confirmed (`submitted.approvalTx`),
+ *  it gets its OWN small, clearly-labeled, already-confirmed transaction
+ *  block — never merged into the still-pending one below it, and never
+ *  described as having moved funds (an approval only ever sets an
+ *  allowance). `submitted.step` says whether the transaction that's
+ *  actually still pending IS that same approval (nothing else has been
+ *  attempted yet) or the trade/swap itself. */
 function SubmittedBody({
   submitted, intent,
 }: {
@@ -930,19 +938,35 @@ function SubmittedBody({
   intent: Operation["intent"];
 }) {
   const noun = intent.kind === "trade_preview" ? "Trade" : intent.kind === "swap" ? "Swap" : "Transaction";
+  const approvalPending = submitted.step === "approval";
+  const headline = approvalPending ? "Approval submitted" : `${noun} submitted`;
+  const subline = approvalPending
+    ? "Checking your token approval on Monad…"
+    : submitted.approvalTx
+    ? "Approval complete. Checking confirmation on Monad…"
+    : "Checking confirmation on Monad…";
   return (
     <div>
       <div className="mb-3 flex items-center gap-2.5">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{noun} submitted</p>
-          <p className="text-xs text-muted-foreground">
-            {submitted.approvalConfirmed ? "Approval complete. Checking confirmation on Monad…" : "Checking confirmation on Monad…"}
-          </p>
+          <p className="text-sm font-semibold text-foreground">{headline}</p>
+          <p className="text-xs text-muted-foreground">{subline}</p>
         </div>
       </div>
+
+      {submitted.approvalTx && !approvalPending && (
+        <div className="mb-2 rounded-lg border border-success/25 bg-success/[0.06] p-3">
+          <p className="mb-1 text-[11px] text-muted-foreground">Approval transaction · Confirmed</p>
+          <a href={submitted.approvalTx.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-success hover:underline">
+            {submitted.approvalTx.txHash}
+          </a>
+          <p className="mt-1 text-[11px] text-muted-foreground">Already happened — no need to approve again.</p>
+        </div>
+      )}
+
       <div className="rounded-lg border border-warning/25 bg-warning/[0.06] p-3">
-        <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
+        <p className="mb-1 text-[11px] text-muted-foreground">{approvalPending ? "Approval transaction" : `${noun} transaction`}</p>
         <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-warning hover:underline">
           {submitted.txHash}
         </a>
@@ -957,20 +981,38 @@ function SubmittedBody({
   );
 }
 
-function ErrorBody({ error }: { error: OperationError }) {
+/** P1.4: when a separate approval already confirmed before whatever failed
+ *  (`error.approvalTx`), it gets its own small, clearly-labeled block —
+ *  never conflated with the failing step's own `error.txHash`/`explorerUrl`
+ *  below it, and labeled by which real transaction it is ("Trade
+ *  transaction" / "Swap transaction") once there are two to tell apart. */
+function ErrorBody({ error, intent }: { error: OperationError; intent: Operation["intent"] }) {
+  const noun = intent.kind === "trade_preview" ? "Trade" : intent.kind === "swap" ? "Swap" : "Transaction";
   return (
     <div>
       <div className="flex items-start gap-2.5 rounded-lg border border-danger/25 bg-danger/5 p-3">
         <XCircle size={15} className="mt-0.5 shrink-0 text-danger" />
         <p className="text-sm leading-relaxed text-foreground">{error.message}</p>
       </div>
+      {error.approvalTx && (
+        <div className="mt-2 rounded-lg border border-success/25 bg-success/[0.06] p-3">
+          <p className="mb-1 text-[11px] text-muted-foreground">Approval transaction · Confirmed</p>
+          <a href={error.approvalTx.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-success hover:underline">
+            {error.approvalTx.txHash}
+          </a>
+          <p className="mt-1 text-[11px] text-muted-foreground">Already happened — no need to approve again.</p>
+        </div>
+      )}
       {error.txHash && error.explorerUrl && (
-        <a
-          href={error.explorerUrl} target="_blank" rel="noreferrer"
-          className="mt-2 flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline"
-        >
-          {short(error.txHash)} <ExternalLink size={11} />
-        </a>
+        <div className="mt-2 rounded-lg border border-border bg-input/30 p-3">
+          {error.approvalTx && <p className="mb-1 text-[11px] text-muted-foreground">{noun} transaction</p>}
+          <a
+            href={error.explorerUrl} target="_blank" rel="noreferrer"
+            className="flex items-center gap-1 break-all font-mono text-xs text-primary-ink hover:underline"
+          >
+            {error.approvalTx ? error.txHash : short(error.txHash)} <ExternalLink size={11} className="shrink-0" />
+          </a>
+        </div>
       )}
     </div>
   );

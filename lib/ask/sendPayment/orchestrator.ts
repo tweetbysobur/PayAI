@@ -21,9 +21,26 @@
 
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
+import { MONAD_EXPLORER } from "@/lib/monad/public";
 import type { AskMessage, Operation, OperationError, PaymentIntent, TransactionResult } from "@/lib/ask/types";
 import { extractSendPaymentCandidate, looksLikeSendPayment } from "./parse";
 import { validateSendPaymentCandidate } from "./validate";
+
+/** Mirrors lib/ask/intent/orchestrate.ts's own configExplorerTx — client-side
+ *  code can't use lib/monad/config's explorerTx() (non-public MONAD_* env is
+ *  undefined in the browser). Used only for the "submitted" state below, and
+ *  for a reverted approval's own real explorer link. */
+function configExplorerTx(txHash: string): string {
+  return `${MONAD_EXPLORER}/tx/${txHash}`;
+}
+
+/** P1.4 — mirrors orchestrate.ts's own prefixApprovalContext: says the
+ *  approval already confirmed separately (and only ever changed an
+ *  allowance, never moved funds) before whatever this message is about. */
+function prefixApprovalContext(message: string, approvalTx: { txHash: string; explorerUrl: string } | null): string {
+  if (!approvalTx) return message;
+  return `Your token approval already confirmed separately on Monad — that only set an allowance, no funds moved. ${message}`;
+}
 
 let counter = 0;
 function nextId(prefix: string): string {
@@ -157,6 +174,11 @@ export async function executeSendPayment(
   const { unsignedTx, approvalTx, approvalLabel, confirmRawText, requestId } = operation.intent.execution;
 
   let broadcastHash: string | null = null;
+  // P1.4 — the approval's OWN real txHash/explorerUrl, once it confirms.
+  // Named distinctly from `approvalTx` above (the UNSIGNED approval request)
+  // to keep "the thing we're about to sign" and "the thing that already
+  // confirmed" from ever being confused with each other.
+  let approvalTxInfo: { txHash: string; explorerUrl: string } | null = null;
   try {
     // Step 1 (ERC-20-through-forwarder, only when allowance is short): the
     // exact-amount approval. This moves NO funds — it only authorizes the
@@ -177,13 +199,32 @@ export async function executeSendPayment(
         return { ...operation, status: "error", error };
       }
       onProgress?.("Approval sent — confirming it on-chain before the payment…");
-      const approvalReceipt = (await wallet.waitForReceipt(approvalHash)) as { status?: string | number } | undefined;
+      let approvalReceipt: { status?: string | number } | undefined;
+      try {
+        approvalReceipt = (await wallet.waitForReceipt(approvalHash)) as { status?: string | number } | undefined;
+      } catch {
+        // P1.4: the approval genuinely broadcast (a real hash exists) but its
+        // OWN confirmation couldn't be observed — a receipt-wait timeout or
+        // RPC hiccup. This used to fall through to a generic "payment
+        // failed" with no hash at all, losing a real, possibly-still-settling
+        // transaction. It's the same broadcast-but-unconfirmed situation P0
+        // already has a real answer for: never a failure, never rebroadcast,
+        // and the payment itself must never be signed on top of an approval
+        // whose outcome isn't known yet.
+        return { ...operation, status: "submitted", submitted: { txHash: approvalHash, explorerUrl: configExplorerTx(approvalHash), step: "approval" } };
+      }
       // A reverted approval must not fall through into a forward that will then
-      // revert for a missing allowance — stop here with a clear message.
+      // revert for a missing allowance — stop here with a clear message. Its
+      // own real hash is worth keeping (a confirmed, if failed, transaction),
+      // never dropped just because the OUTCOME was bad.
       if (approvalReceipt && (approvalReceipt.status === "reverted" || approvalReceipt.status === 0 || approvalReceipt.status === "0x0")) {
-        const error: OperationError = { message: "The token approval failed on-chain — no payment was attempted. You can safely try again.", code: "APPROVAL_REVERTED" };
+        const error: OperationError = {
+          message: "The token approval failed on-chain — no payment was attempted. You can safely try again.",
+          code: "APPROVAL_REVERTED", txHash: approvalHash, explorerUrl: configExplorerTx(approvalHash),
+        };
         return { ...operation, status: "error", error };
       }
+      approvalTxInfo = { txHash: approvalHash, explorerUrl: configExplorerTx(approvalHash) };
       onProgress?.("Approved. Step 2 of 2: sign the payment — still nothing moved until you do.");
     }
 
@@ -207,9 +248,9 @@ export async function executeSendPayment(
     if (!json.intent) {
       clearPendingSettlement();
       const message = json.reverted
-        ? (json.error || "This payment failed on-chain. No funds were transferred.")
+        ? prefixApprovalContext(json.error || "This payment failed on-chain. No funds were transferred.", approvalTxInfo)
         : friendlyError(json.error || "Could not confirm the payment.");
-      const error: OperationError = { message, code: json.reverted ? "REVERTED" : "CONFIRM_FAILED" };
+      const error: OperationError = { message, code: json.reverted ? "REVERTED" : "CONFIRM_FAILED", approvalTx: approvalTxInfo ?? undefined };
       return { ...operation, status: "error", error };
     }
     clearPendingSettlement();
@@ -230,7 +271,14 @@ export async function executeSendPayment(
       };
       return { ...operation, status: "error", error };
     }
-    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Wallet payment failed."), code: "NOT_SENT" };
+    // The payment's own signature was never even broadcast (rejected, or
+    // threw before reaching the wallet). If an approval already confirmed
+    // earlier in this same attempt, say so explicitly rather than a bare,
+    // unqualified failure.
+    const error: OperationError = {
+      message: prefixApprovalContext(friendlyError(e instanceof Error ? e.message : "Wallet payment failed."), approvalTxInfo),
+      code: "NOT_SENT", approvalTx: approvalTxInfo ?? undefined,
+    };
     return { ...operation, status: "error", error };
   }
 }

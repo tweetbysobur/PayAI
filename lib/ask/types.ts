@@ -385,9 +385,20 @@ export interface OperationError {
    *  failing (e.g. a mined revert) — absent for a pre-broadcast failure
    *  (rejected signature, no route, build failure), since there's no real
    *  transaction to point at yet. Never fabricated: always the same hash
-   *  the wallet actually returned. */
+   *  the wallet actually returned. THIS IS ALWAYS THE FAILING STEP'S OWN
+   *  transaction — an approval that separately confirmed before the failure
+   *  is carried in `approvalTx` below instead, never here (P1.4: mixing the
+   *  two into this one field was the actual bug — an approval's hash could
+   *  end up shown as if it were the trade's). */
   txHash?: string;
   explorerUrl?: string;
+  /** P1.4 — set only when a SEPARATE approval step genuinely confirmed
+   *  on-chain before whatever this error is about. Its own real txHash/
+   *  explorerUrl, always distinct from `txHash`/`explorerUrl` above, so the
+   *  UI can show "Approval — Confirmed" as its own clickable transaction
+   *  even when the trade/swap itself failed or was never sent. An approval
+   *  only ever changes a token allowance — never implies funds moved. */
+  approvalTx?: { txHash: string; explorerUrl: string };
 }
 
 export interface Operation {
@@ -422,6 +433,21 @@ export interface Operation {
      *  swap/trade step was broadcast — lets the card say "Approval complete.
      *  Trade submitted." rather than implying the whole operation is pending. */
     approvalConfirmed?: boolean;
+    /** P1.4 — the approval's OWN txHash/explorerUrl, when a separate
+     *  approval step genuinely confirmed before this one broadcast. Kept
+     *  distinct from `txHash`/`explorerUrl` above (which, per `step` below,
+     *  may themselves BE the approval's own hash if that's what's currently
+     *  pending) — so the UI can show it as its own separate, already-
+     *  confirmed "Approval transaction" link. */
+    approvalTx?: { txHash: string; explorerUrl: string };
+    /** Which real transaction `txHash` above actually is: "approval" when
+     *  the approval step itself is the one still broadcast-but-unconfirmed
+     *  (the trade was never even attempted yet), or "main" (the default,
+     *  for backward compatibility) when it's the trade/swap's own
+     *  transaction. Lets the card say "Approval submitted" instead of
+     *  always naming the outer operation regardless of which specific
+     *  transaction is actually the one still pending. */
+    step?: "approval" | "main";
   };
 }
 
