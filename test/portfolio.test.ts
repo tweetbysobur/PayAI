@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { viewHoldings, resolveTokenMeta, type Holding } from "@/lib/hooks/usePortfolio";
 import { syncAgo } from "@/lib/hooks/useSync";
+import { fetchIncomingTransferLogs } from "@/app/api/portfolio/discover/route";
 
 function h(over: Partial<Holding> = {}): Holding {
   return {
@@ -205,5 +206,78 @@ describe("portfolio — token metadata is bounded", () => {
     expect(fast.symbol).toBe("FAST");
     expect(slow).toEqual(fallback);
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+/**
+ * A newly-bought token not appearing in the portfolio traced back to
+ * /api/portfolio/discover's single, unscoped, un-timed `eth_getLogs` scan: it
+ * matches Transfer events from EVERY contract on the chain (not just one),
+ * which is exactly the query shape production RPC either rejects outright or
+ * accepts and then takes minutes to answer — the same failure class already
+ * fixed once in nadfun.ts/wallet-intel.ts, but this call had no timeout and
+ * no fallback, so it just silently reported "no tokens found".
+ */
+describe("discover — transfer-log window fallback", () => {
+  it("uses the widest window's result when it answers", async () => {
+    const calls: bigint[] = [];
+    const logs = await fetchIncomingTransferLogs(
+      1_000_000n,
+      async (fromBlock) => { calls.push(fromBlock); return [{ address: "0xtoken" }]; },
+      50,
+    );
+    expect(logs).toEqual([{ address: "0xtoken" }]);
+    expect(calls).toHaveLength(1); // never fell back
+  });
+
+  it("falls back to a narrower window when the provider rejects the wide one outright", async () => {
+    const windows: bigint[] = [];
+    const logs = await fetchIncomingTransferLogs(
+      1_000_000n,
+      async (fromBlock) => {
+        windows.push(fromBlock);
+        if (windows.length === 1) throw new Error("query returned more than 10000 results");
+        return [{ address: "0xfound" }];
+      },
+      50,
+    );
+    expect(logs).toEqual([{ address: "0xfound" }]);
+    expect(windows.length).toBeGreaterThan(1); // the wide attempt was retried narrower
+  });
+
+  it("falls back when the provider accepts the range but never answers in time — a hang, not an error", async () => {
+    const started = Date.now();
+    const logs = await fetchIncomingTransferLogs(
+      1_000_000n,
+      async (fromBlock): Promise<{ address: string }[]> => {
+        // The widest window hangs forever (mirrors the real "accepts the
+        // range and takes minutes" failure); a narrower one answers.
+        if (fromBlock === 1_000_000n - 200_000n) return new Promise(() => {});
+        return [{ address: "0xslowchain" }];
+      },
+      50,
+    );
+    expect(logs).toEqual([{ address: "0xslowchain" }]);
+    // Must not have waited out a real production-length timeout.
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("returns an empty list, never throws, when every window fails", async () => {
+    const logs = await fetchIncomingTransferLogs(
+      1_000_000n,
+      async () => { throw new Error("rate limited"); },
+      50,
+    );
+    expect(logs).toEqual([]);
+  });
+
+  it("clamps the fromBlock at 0 for a chain younger than the window", async () => {
+    let seenFrom: bigint | null = null;
+    await fetchIncomingTransferLogs(
+      1_000n, // latest block is younger than LOOKBACK_BLOCKS (200_000)
+      async (fromBlock) => { seenFrom = fromBlock; return []; },
+      50,
+    );
+    expect(seenFrom).toBe(0n);
   });
 });
