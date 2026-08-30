@@ -9,7 +9,8 @@
  * Callers own where the state lives (call this once, high enough that it
  * doesn't unmount when a popup closes) and how it's rendered; this hook
  * owns the conversation itself — sending a message, advancing/retrying/
- * cancelling a card, and starting over.
+ * cancelling a card, starting over, and (P1.3, persist-mode only) switching
+ * between multiple saved conversations.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -21,7 +22,12 @@ import {
 import type { Understanding } from "@/lib/ask/intent/types";
 import type { AskMessage, Operation } from "@/lib/ask/types";
 import type { AutomationSeed, Cadence } from "@/components/dashboard/automationShared";
-import { loadChatState, normalizeWalletAddress, saveChatState } from "@/lib/ask/persistChat";
+import {
+  clearAllHistory, createConversationId, deleteConversation, deriveConversationTitle,
+  loadConversation, loadHistoryIndex, normalizeWalletAddress, renameConversation,
+  searchConversations, setActiveConversationPointer, upsertConversation,
+  type ConversationSummary,
+} from "@/lib/ask/persistChat";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -145,13 +151,25 @@ export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
  *  change what gets sent or how it's classified server-side. */
 const CLIENT_EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
 
+/** What the currently active conversation's own identity is, cached so a
+ *  save doesn't need to re-read storage to know its own createdAt/title
+ *  state. Null means "no conversation started yet" — see ensureConversation
+ *  in useAskChat, the only place this is allocated. */
+interface ActiveConversationMeta {
+  conversationId: string;
+  createdAt: number;
+  titleIsCustom: boolean;
+  title: string;
+}
+
 /**
- * `persist: true` survives a browser refresh via sessionStorage (see
- * lib/ask/persistChat.ts) — opt-in, and only ever passed by
- * AskPageChatContext for the full /dashboard/ask page's conversation.
- * CommandBar's own useAskChat() call is a deliberately separate conversation
- * (see AskPageChatContext's doc) and leaves this false, so its popup thread
- * never reads or writes the page's storage slot (or vice versa).
+ * `persist: true` survives a browser refresh via sessionStorage, and (P1.3)
+ * enables multiple named, switchable conversations per wallet — see
+ * lib/ask/persistChat.ts. Opt-in, and only ever passed by AskPageChatContext
+ * for the full /dashboard/ask page's conversation. CommandBar's own
+ * useAskChat() call is a deliberately separate conversation (see
+ * AskPageChatContext's doc) and leaves this false, so its popup thread never
+ * reads or writes the page's storage, and has no conversation list at all.
  */
 export function useAskChat(options?: { persist?: boolean }) {
   const persist = options?.persist ?? false;
@@ -185,6 +203,11 @@ export function useAskChat(options?: { persist?: boolean }) {
   // Keyed by operation id so switching cards (or a stale one) never bleeds
   // progress text onto the wrong card; cleared once that operation settles.
   const [progress, setProgress] = useState<Record<string, string>>({});
+  // P1.3: the wallet's own conversation list, for the ConversationList rail.
+  // Lightweight summaries only (see persistChat's own doc on why) — kept in
+  // sync after every mutation (send, rename, delete, clear, switch, wallet
+  // change) via refreshConversations() below.
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
 
   // Whether the restore/reconcile effect below has completed at least once
   // since mount. Starts false so the SAVE effect (declared first — effect
@@ -198,13 +221,6 @@ export function useAskChat(options?: { persist?: boolean }) {
   // its one job of protecting the very first commit.
   const restoredRef = useRef(false);
 
-  // Mirrors messages/pending into sessionStorage after every change (see
-  // lib/ask/persistChat.ts) — nothing else here needs to survive a refresh:
-  // `progress` is only ever meaningful while a request this same page load
-  // made is still in flight, and `automationDraft` is just whether the modal
-  // is open, fully reconstructible from the operation's own handoff prefill
-  // (see advanceOperation below) — so a refresh naturally leaves the modal
-  // closed rather than reopening it unprompted, without losing any real data.
   // P1.2: which wallet identity the in-memory messages/pending currently
   // belong to — normalized the same way persistChat.ts does, so `null` means
   // either "no wallet connected" or "not yet reconciled". Saves always write
@@ -214,54 +230,106 @@ export function useAskChat(options?: { persist?: boolean }) {
   // already updated it synchronously, so a save that fires afterward can
   // never attribute one wallet's data to another's key.
   const currentWalletRef = useRef<string | null>(null);
+  // P1.3: which of that wallet's conversations is currently active, plus
+  // its own cached metadata (createdAt/title/whether the title was manually
+  // set) so a save can upsert without re-reading storage first. Null means
+  // "no conversation started yet in this wallet bucket" — see
+  // ensureConversation, the only place a fresh one gets allocated.
+  const activeConversationIdRef = useRef<string | null>(null);
+  const activeConversationMetaRef = useRef<ActiveConversationMeta | null>(null);
 
-  /** True when the connected wallet has changed since `startWallet` was
-   *  captured at the top of an async function — i.e. that function's result
-   *  is about to land after the user already switched to (or away from) a
-   *  different wallet. Every function below that appends a brand-new
-   *  message or replaces `pending` after an `await` checks this first and
-   *  bails out silently if stale, so a slow response begun under one wallet
-   *  can never surface in a DIFFERENT wallet's visible conversation. (An
-   *  update that instead modifies an EXISTING message by operation id — e.g.
-   *  advanceOperation's setOp, or completeAutomationDraft — doesn't need this
-   *  guard: operation ids are globally unique, so that kind of update is
-   *  already a no-op once the message array has been swapped out from under
-   *  it.) Always false when persistence is off (CommandBar's popup):
-   *  currentWalletRef never leaves null there, so this can never trip —
-   *  unchanged from today's behavior for that surface. */
-  function isStaleWallet(startWallet: string | null): boolean {
-    return currentWalletRef.current !== startWallet;
+  /** Captures {wallet, conversation} at the top of an async function, before
+   *  any await. */
+  function captureContext(): { wallet: string | null; conversationId: string | null } {
+    return { wallet: currentWalletRef.current, conversationId: activeConversationIdRef.current };
+  }
+  /** True when EITHER the connected wallet OR the active conversation has
+   *  changed since `start` was captured — i.e. this function's result is
+   *  about to land after the user already switched away from the wallet
+   *  and/or conversation it started under. Every function below that
+   *  appends a brand-new message or replaces `pending` after an `await`
+   *  checks this first and bails out silently if stale, so a slow response
+   *  begun under one wallet/conversation can never surface in a DIFFERENT
+   *  one's visible conversation. (An update that instead modifies an
+   *  EXISTING message by operation id — e.g. advanceOperation's setOp, or
+   *  completeAutomationDraft — doesn't need this guard: operation ids are
+   *  globally unique, so that kind of update is already a no-op once the
+   *  message array has been swapped out from under it.) Always false when
+   *  persistence is off (CommandBar's popup): both refs never leave null
+   *  there, so this can never trip — unchanged from today's behavior for
+   *  that surface. */
+  function isStaleContext(start: { wallet: string | null; conversationId: string | null }): boolean {
+    return currentWalletRef.current !== start.wallet || activeConversationIdRef.current !== start.conversationId;
   }
 
+  /** Refreshes the rail's list from storage — called after every mutation
+   *  so the UI never shows a stale summary (wrong title, wrong timestamp, a
+   *  since-deleted or since-pruned conversation still listed). */
+  function refreshConversations() {
+    const w = currentWalletRef.current;
+    setConversations(w ? loadHistoryIndex(w).summaries : []);
+  }
+
+  /** Allocates a real conversationId (and its metadata) the FIRST time a
+   *  brand-new conversation actually gets a message — never for an unused,
+   *  still-empty "New conversation" state, so the history list never fills
+   *  up with empty entries nobody ever used. Idempotent: once allocated for
+   *  this conversation, later calls just return the same id. Must run
+   *  synchronously, before any await, in every path that can append the
+   *  first message of a conversation — see send()'s very first line. */
+  function ensureConversation(): string {
+    if (!activeConversationMetaRef.current) {
+      const id = createConversationId();
+      activeConversationIdRef.current = id;
+      activeConversationMetaRef.current = { conversationId: id, createdAt: Date.now(), titleIsCustom: false, title: "New conversation" };
+    }
+    return activeConversationIdRef.current!;
+  }
+
+  // Mirrors messages/pending into sessionStorage after every change, under
+  // whichever conversation is currently active (see persistChat.ts's
+  // upsertConversation) — nothing else here needs to survive a refresh:
+  // `progress` is only ever meaningful while a request this same page load
+  // made is still in flight, and `automationDraft` is just whether the modal
+  // is open, fully reconstructible from the operation's own handoff prefill
+  // (see advanceOperation below) — so a refresh naturally leaves the modal
+  // closed rather than reopening it unprompted, without losing any real data.
   useEffect(() => {
     if (!persist || !restoredRef.current) return;
-    saveChatState(messages, pending, currentWalletRef.current);
+    const w = currentWalletRef.current;
+    const meta = activeConversationMetaRef.current;
+    if (!w || !meta) return; // no wallet, or no conversation started yet — nothing to save
+    const title = meta.titleIsCustom ? meta.title : deriveConversationTitle(messages);
+    meta.title = title; // keep the cached title in sync for the next save
+    const summaries = upsertConversation(w, {
+      conversationId: meta.conversationId, title, titleIsCustom: meta.titleIsCustom,
+      createdAt: meta.createdAt, updatedAt: Date.now(), messages, pending,
+    });
+    setConversations(summaries);
   }, [persist, messages, pending]);
 
-  // Restores the CONNECTED WALLET's own persisted conversation — on mount,
-  // and again every time the connected wallet identity changes (connecting
-  // for the first time, disconnecting, or switching to a different wallet;
-  // see lib/wallet/useWallet.tsx's accountsChanged handling for how
-  // wallet.address itself updates live). Client-only, so the server-rendered
-  // (always-empty) first paint is never contradicted (see the state
-  // declarations' own doc above).
+  // Restores the CONNECTED WALLET's own active conversation (and its
+  // conversation list) — on mount, and again every time the connected
+  // wallet identity changes (connecting for the first time, disconnecting,
+  // or switching to a different wallet; see lib/wallet/useWallet.tsx's
+  // accountsChanged handling for how wallet.address itself updates live).
+  // Client-only, so the server-rendered (always-empty) first paint is never
+  // contradicted (see the state declarations' own doc above).
   //
-  // P1.2's actual safety property lives here: every distinct value of
+  // P1.2/P1.3's actual safety property lives here: every distinct value of
   // wallet.address — including null, "no wallet" — is its own identity
   // bucket. Switching buckets always reloads from scratch for the NEW
-  // identity (that wallet's own record, or a clean conversation if it has
-  // none) and never carries the OLD bucket's messages/pending along — so a
-  // conversation started before connecting, or under a different wallet,
-  // can never resurface under a wallet that didn't produce it. The OLD
-  // bucket's own data isn't lost if it was a real wallet: the save effect
-  // above already wrote every change to ITS OWN key throughout, so it's
-  // sitting in storage exactly where switching back to it will find it
-  // (still subject to the existing TTL).
+  // identity (that wallet's own conversation list + active conversation, or
+  // a clean slate if it has none) and never carries the OLD bucket's
+  // messages/pending/conversation list along. The OLD bucket's own data
+  // isn't lost if it was a real wallet: the save effect above already wrote
+  // every change to ITS OWN keys throughout, so it's sitting in storage
+  // exactly where switching back to it will find it.
   //
-  // Never restores mid-execution state as executable: loadChatState itself
-  // downgrades any "confirming" card to a safe error before this ever sees
-  // it (see lib/ask/persistChat.ts's sanitizeOperation) — nothing here can
-  // revive a signature or a broadcast, only redisplay already-safe
+  // Never restores mid-execution state as executable: loadConversation
+  // itself downgrades any "confirming" card to a safe error before this
+  // ever sees it (see lib/ask/persistChat.ts's sanitizeOperation) — nothing
+  // here can revive a signature or a broadcast, only redisplay already-safe
   // history/context, and only for the wallet that actually produced it.
   //
   // useLayoutEffect, not useEffect: wallet.address can change (a real
@@ -276,13 +344,32 @@ export function useAskChat(options?: { persist?: boolean }) {
   // runs during SSR (same as useEffect), so the hydration-safety above is
   // unaffected.
   useLayoutEffect(() => {
+    currentWalletRef.current = normalizeWalletAddress(persist ? wallet.address : null);
+    activeConversationIdRef.current = null;
+    activeConversationMetaRef.current = null;
     if (!persist) { restoredRef.current = true; return; }
-    const normalized = normalizeWalletAddress(wallet.address);
-    currentWalletRef.current = normalized;
-    const restored = normalized ? loadChatState(normalized) : null;
-    setMessages(restored?.messages ?? []);
-    setPending(restored?.pending ?? null);
+    const w = currentWalletRef.current;
+    if (!w) {
+      setMessages([]);
+      setPending(null);
+      setConversations([]);
+      restoredRef.current = true;
+      return;
+    }
+    const index = loadHistoryIndex(w);
+    setConversations(index.summaries);
+    const active = index.activeConversationId ? loadConversation(w, index.activeConversationId) : null;
+    if (active) {
+      activeConversationIdRef.current = active.conversationId;
+      activeConversationMetaRef.current = { conversationId: active.conversationId, createdAt: active.createdAt, titleIsCustom: active.titleIsCustom, title: active.title };
+      setMessages(active.messages);
+      setPending(active.pending);
+    } else {
+      setMessages([]);
+      setPending(null);
+    }
     restoredRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persist, wallet.address]);
 
   // The in-chat automation modal. A scheduled/recurring handoff card no longer
@@ -317,12 +404,12 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  expired card's own already-known pair/amount, so this never needs a
    *  fresh Anthropic call just to ask for the exact same thing again. */
   async function requoteExpiredSwap(intent: Extract<Operation["intent"], { kind: "swap" }>) {
-    const startWallet = currentWalletRef.current;
+    const startContext = captureContext();
     const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
     setMessages((m) => [...m, notice]);
     const understanding: Understanding = { kind: "swap", outcome: "complete", slots: { amount: intent.fromAmount, fromAsset: intent.fromToken, toAsset: intent.toToken } };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
-    if (isStaleWallet(startWallet)) return;
+    if (isStaleContext(startContext)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -331,7 +418,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  needs a fresh Anthropic call just to ask for the exact same thing
    *  again. Mirrors requoteExpiredSwap above. */
   async function requoteExpiredTrade(intent: Extract<Operation["intent"], { kind: "trade_preview" }>) {
-    const startWallet = currentWalletRef.current;
+    const startContext = captureContext();
     const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
     setMessages((m) => [...m, notice]);
     const req = intent.execution?.request;
@@ -339,7 +426,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       ? { kind: "trade", outcome: "complete", slots: { tradeAction: req.action, fromAsset: req.inputToken, toAsset: req.outputToken, amount: req.amount, amountType: req.amountType, slippage: req.slippage } }
       : { kind: "trade", outcome: "complete", slots: { tradeAction: intent.data.action, fromAsset: intent.data.spend.token, toAsset: intent.data.receive.token, amount: intent.data.spend.amount, amountType: "exact_input", slippage: null } };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
-    if (isStaleWallet(startWallet)) return;
+    if (isStaleContext(startContext)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -366,7 +453,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  a typed "sell X for Y" already uses — a genuine new quote, never a
    *  cached or guessed one. */
   async function sellLastPurchase(userMsg: AskMessage) {
-    const startWallet = currentWalletRef.current;
+    const startContext = captureContext();
     setMessages((m) => [...m, userMsg]);
     setInput("");
     const found = findLastConfirmedTrade(messages);
@@ -381,7 +468,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       slots: { tradeAction: "sell", fromAsset: req.outputToken, toAsset: req.inputToken, amount: found.intent.data.receive.amount, amountType: "exact_input", slippage: req.slippage },
     };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
-    if (isStaleWallet(startWallet)) return;
+    if (isStaleContext(startContext)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -390,21 +477,21 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  context, via the exact same real token_lookup path a pasted contract
    *  address already uses. */
   async function answerPriceNow(userMsg: AskMessage) {
-    const startWallet = currentWalletRef.current;
+    const startContext = captureContext();
     setMessages((m) => [...m, userMsg]);
     setInput("");
     const address = findCurrentTokenAddress(messages);
     if (!address) {
       const understanding = await classifyMessage(userMsg.content, [...messages, userMsg].slice(-8).map((m) => ({ role: m.role, content: m.content })), pending);
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
-      if (isStaleWallet(startWallet)) return;
+      if (isStaleContext(startContext)) return;
       setPending(nextPending);
       setMessages((m) => [...m, message]);
       return;
     }
     const understanding: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: address } };
     const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
-    if (isStaleWallet(startWallet)) return;
+    if (isStaleContext(startContext)) return;
     setPending(nextPending);
     setMessages((m) => [...m, message]);
   }
@@ -412,6 +499,12 @@ export function useAskChat(options?: { persist?: boolean }) {
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
+    // Allocates this conversation's identity on its very first message —
+    // synchronously, before anything else (including the staleness guards
+    // below) can capture a stale/ambiguous "no conversation yet" (null)
+    // context. See ensureConversation's own doc. A no-op once a conversation
+    // is already active.
+    ensureConversation();
     setThinkingLabel(null); // cleared up front so a stale label from a previous turn never leaks into this one
 
     // Natural-language confirmation of an already-previewed payment or swap.
@@ -453,7 +546,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       return;
     }
 
-    const startWallet = currentWalletRef.current;
+    const startContext = captureContext();
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
     setMessages((m) => [...m, userMsg]);
     setInput("");
@@ -465,11 +558,11 @@ export function useAskChat(options?: { persist?: boolean }) {
         .map((m) => ({ role: m.role, content: m.content }));
       const understanding = await classifyMessage(trimmed, history, pending);
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
-      // The wallet may have changed (switched, or disconnected) while this
-      // was in flight — never let a response resolved for the OLD identity
-      // land in whatever's now showing for a different one. See
-      // isStaleWallet's own doc.
-      if (isStaleWallet(startWallet)) return;
+      // The wallet or active conversation may have changed while this was
+      // in flight — never let a response resolved for the OLD context land
+      // in whatever's now showing for a different one. See isStaleContext's
+      // own doc.
+      if (isStaleContext(startContext)) return;
 
       // A freshly-built ready card (e.g. from "actually make it 75", or a
       // corrected swap amount/token) supersedes any earlier one still
@@ -604,17 +697,117 @@ export function useAskChat(options?: { persist?: boolean }) {
     );
   }
 
+  /** Clears the live conversation back to a blank slate WITHOUT allocating a
+   *  new conversation id — one gets allocated lazily, the next time the user
+   *  actually sends something (see ensureConversation). The just-left
+   *  conversation is untouched in storage; this only clears which one is
+   *  active, so "New conversation" never deletes anything (see
+   *  deleteConversationAction/clearAllHistoryAction for the actions that do). */
   function newConversation() {
     setMessages([]);
     setInput("");
     setPending(null);
     setProgress({});
     setAutomationDraft(null);
+    activeConversationIdRef.current = null;
+    activeConversationMetaRef.current = null;
+    if (currentWalletRef.current) setActiveConversationPointer(currentWalletRef.current, null);
+  }
+
+  /** Reopens a previously saved conversation — loads its full record (already
+   *  sanitized: any "confirming" card comes back downgraded to a safe error,
+   *  same as any other restore path), makes it active, and persists which
+   *  one that is. Never auto-executes anything; the existing confirm funnel
+   *  still gates every actionable card exactly as it does for a fresh one. */
+  function openConversation(conversationId: string) {
+    const w = currentWalletRef.current;
+    if (!w) return;
+    const record = loadConversation(w, conversationId);
+    if (!record) { refreshConversations(); return; } // vanished/invalid — resync the list, nothing else to do
+    activeConversationIdRef.current = record.conversationId;
+    activeConversationMetaRef.current = { conversationId: record.conversationId, createdAt: record.createdAt, titleIsCustom: record.titleIsCustom, title: record.title };
+    setMessages(record.messages);
+    setPending(record.pending);
+    setInput("");
+    setProgress({});
+    setAutomationDraft(null);
+    setActiveConversationPointer(w, record.conversationId);
+    refreshConversations();
+  }
+
+  /** User-driven rename — after this, the auto-title deriver never
+   *  overwrites it again for this conversation (see persistChat's
+   *  renameConversation and ConversationRecord.titleIsCustom). */
+  function renameConversationAction(conversationId: string, title: string) {
+    const w = currentWalletRef.current;
+    if (!w) return;
+    const summaries = renameConversation(w, conversationId, title);
+    setConversations(summaries);
+    if (activeConversationMetaRef.current?.conversationId === conversationId) {
+      activeConversationMetaRef.current.titleIsCustom = true;
+      const renamed = summaries.find((s) => s.conversationId === conversationId);
+      if (renamed) activeConversationMetaRef.current.title = renamed.title;
+    }
+  }
+
+  /** Deletes one saved conversation. If it was the one currently on screen,
+   *  falls back to a fresh blank conversation exactly like "New conversation"
+   *  — never leaves a deleted conversation still displayed. Only ever
+   *  removes this UI record: the underlying transaction/automation, if any,
+   *  is untouched (see persistChat's deleteConversation doc). */
+  function deleteConversationAction(conversationId: string) {
+    const w = currentWalletRef.current;
+    if (!w) return;
+    const { summaries } = deleteConversation(w, conversationId);
+    setConversations(summaries);
+    if (activeConversationIdRef.current === conversationId) {
+      setMessages([]);
+      setInput("");
+      setPending(null);
+      setProgress({});
+      setAutomationDraft(null);
+      activeConversationIdRef.current = null;
+      activeConversationMetaRef.current = null;
+      setActiveConversationPointer(w, null);
+    }
+  }
+
+  /** Wipes every saved conversation for this wallet and returns to a fresh
+   *  blank one. Never touches another wallet's history, never touches
+   *  on-chain data or the automation store. */
+  function clearHistoryAction() {
+    const w = currentWalletRef.current;
+    if (!w) return;
+    clearAllHistory(w);
+    setConversations([]);
+    setMessages([]);
+    setInput("");
+    setPending(null);
+    setProgress({});
+    setAutomationDraft(null);
+    activeConversationIdRef.current = null;
+    activeConversationMetaRef.current = null;
+  }
+
+  /** Local-only search over this wallet's conversations (title + message
+   *  text) — see persistChat's searchConversations. An empty query returns
+   *  the full list unfiltered, so the caller doesn't need special-case
+   *  logic for "nothing typed yet". */
+  function searchConversationsAction(query: string): ConversationSummary[] {
+    const w = currentWalletRef.current;
+    if (!w) return [];
+    if (!query.trim()) return conversations;
+    return searchConversations(w, query);
   }
 
   return {
     wallet, messages, input, setInput, thinking, thinkingLabel, progress,
     send, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
+    // P1.3 — conversation history (only meaningful when persist: true; for
+    // CommandBar's non-persisted instance this stays an empty, inert list).
+    conversations, activeConversationId: activeConversationIdRef.current,
+    openConversation, renameConversationAction, deleteConversationAction, clearHistoryAction,
+    searchConversationsAction,
   };
 }
