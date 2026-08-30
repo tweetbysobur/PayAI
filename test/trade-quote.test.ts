@@ -63,7 +63,12 @@ let resolveSwapSideImpl: (symbol: string) => Promise<{ symbol: string; routeAddr
   throw new Error(`${symbol} isn't a token PayAI can swap yet.`);
 };
 interface StubStep { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }
-let buildPlanImpl: (from: string, to: string, amount: number, wallet: string, slippage?: number) => Promise<{ steps: StubStep[] }> =
+// quote/provider are optional: the single-hop verified-pair build path only
+// ever reads .steps, but buildNadFunMultiHopSteps's counter-leg builder also
+// reads plan.quote.amountOut and plan.provider (mirrors getSwapProvider()'s
+// real return shape — see swap.ts's SwapPlan) when routing a multi-hop
+// trade's non-Nad.Fun leg through the verified-pair path.
+let buildPlanImpl: (from: string, to: string, amount: number, wallet: string, slippage?: number) => Promise<{ steps: StubStep[]; quote?: { amountOut: number }; provider?: string }> =
   async () => { throw new Error("buildPlan not stubbed"); };
 let buildUniswapPlanDirectImpl: (
   tokenIn: string, tokenInSymbol: string, tokenInDecimals: number, tokenInIsNative: boolean,
@@ -315,6 +320,69 @@ describe("previewTrade — Nad.Fun (bonding-curve / newly-graduated tokens)", ()
     getNadFunStatusImpl = async () => { throw new Error("must not be consulted for a pair Nad.Fun already tried directly"); };
     const { previewTrade } = await import("@/lib/monad/tradeQuote");
     const r = await previewTrade({ action: "buy", inputToken: "MON", outputToken: TOKEN, amount: "1", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
+
+  it("buying a graduated Nad.Fun token with USDC now actually works, routed USDC -> MON -> TOKEN as two real legs", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    bestQuoteImpl = async (from, to, amount) => {
+      expect(from).toBe("USDC");
+      expect(to).toBe("MON");
+      expect(amount).toBe(50);
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 100, priceImpact: null } };
+    };
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(decimals).toBe(18);
+      expect(amount).toBe("100"); // sized off leg A's REAL output, not the original 50
+      expect(isBuy).toBe(true);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "5000", isBuy: true };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.receive).toEqual({ amount: "5000", token: "GRAD" });
+    expect(r.route.provider).toBe("Uniswap v3 + Nad.Fun");
+    expect(r.route.path).toEqual(["USDC", "MON", "GRAD"]); // the real, honest two-leg path
+    // Deferred, not fabricated: no blended fee line for a two-venue route.
+    expect(r.fee).toBeNull();
+  });
+
+  it("selling a bonding-curve Nad.Fun token for USDC now actually works, routed TOKEN -> MON -> USDC", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(amount).toBe("1000");
+      expect(isBuy).toBe(false);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "2", isBuy: false };
+    };
+    bestQuoteImpl = async (from, to, amount) => {
+      expect(from).toBe("MON");
+      expect(to).toBe("USDC");
+      expect(amount).toBe(2); // sized off leg A's REAL MON output
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 4, priceImpact: null } };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "sell", inputToken: TOKEN, outputToken: "USDC", amount: "1000", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.receive).toEqual({ amount: "4", token: "USDC" });
+    expect(r.route.provider).toBe("Nad.Fun + Uniswap v3");
+    expect(r.route.path).toEqual(["MEOW", "MON", "USDC"]);
+    expect(r.fee).toBeNull();
+  });
+
+  it("a token with no Nad.Fun recognition at all still gets a plain 'no route' — multi-hop is never attempted for a genuinely illiquid token", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+    bestQuoteImpl = async () => { throw new Error("must not quote a MON leg for a non-Nad.Fun token"); };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.message).toMatch(/no usable trading route/i);
@@ -596,6 +664,24 @@ describe("prepareTradeExecution — re-quotes fresh and only builds real steps w
   });
 
   it("no previous quote supplied (first confirm) — builds steps directly, no 'changed' comparison possible", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
+    buildUniswapPlanDirectImpl = async (_tokenIn, tokenInSymbol) => {
+      expect(tokenInSymbol).toBe("USDC");
+      return { steps: [{ kind: "swap", label: `Trade 50 USDC for RANDO`, tx: { to: "0xrouter", data: "0xdead", value: "0x0" } }], amountOut: "12345", priceImpact: "0.30%" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    // Every ordinary (single-leg) trade's last step now carries settleLeg —
+    // the same mechanism a multi-hop trade uses per leg, unified so
+    // orchestrate.ts's execution loop never needs two different settlement
+    // code paths.
+    expect(r.steps[r.steps.length - 1].settleLeg).toEqual({ fromToken: "USDC", toToken: "RANDO", amountIn: 50, amountOut: 12345, provider: "Uniswap v3" });
+  });
+
+  it("no previous quote supplied (first confirm) — builds steps directly, no 'changed' comparison possible (status check)", async () => {
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
     quoteUniswapDirectImpl = async () => ({ amountOut: "12345", priceImpact: "0.30%" });
     buildUniswapPlanDirectImpl = async (_tokenIn, tokenInSymbol) => {
@@ -1039,5 +1125,137 @@ describe("PayAITradeExecutor V2 dispatch — Nad.Fun via the executor (Gate 7)",
     expect(r.ok).toBe(true);
     if (!r.ok || r.status !== "ready") return;
     expect(directCalled).toBe(true);
+  });
+});
+
+/**
+ * The execution side of the Nad.Fun-through-MON route: building the two
+ * real, independently-signed on-chain legs, and tagging each leg's LAST
+ * step with `settleLeg` so a caller settles/records BOTH real transactions
+ * as they confirm — never only the second one, which would silently drop
+ * the first leg's real, fund-moving transaction from the user's own history
+ * if the second leg is then rejected or reverts.
+ */
+describe("prepareTradeExecution — Nad.Fun-through-MON multi-hop build", () => {
+  it("buying a graduated Nad.Fun token with USDC builds BOTH legs, leg B sized off leg A's REAL output, each leg's last step tagged with its own settleLeg", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getTokenBalanceImpl = async () => 1000; // plenty of USDC
+    bestQuoteImpl = async (from, to, amount) => {
+      // Called twice: once by previewTrade's own getTradeRoute, once by
+      // prepareTradeExecution's fresh build — both must ask for USDC->MON.
+      expect(from).toBe("USDC");
+      expect(to).toBe("MON");
+      expect(amount).toBe(50);
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 100, priceImpact: null } };
+    };
+    buildPlanImpl = async (from, to, amount) => {
+      expect(from).toBe("USDC");
+      expect(to).toBe("MON");
+      expect(amount).toBe(50);
+      return {
+        steps: [
+          { kind: "approve", label: "Approve USDC", tx: { to: "0xUSDC", data: "0xapprove", value: "0x0" } },
+          { kind: "swap", label: "Swap USDC for MON", tx: { to: "0xRouter", data: "0xswap", value: "0x0" } },
+        ],
+        quote: { amountOut: 100 },
+        provider: "Uniswap v3",
+      };
+    };
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(amount).toBe("100");
+      expect(isBuy).toBe(true);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "5000", isBuy: true };
+    };
+    buildNadFunBuyPlanImpl = async (token, symbol, decimals, amountInMon, slippage, wallet) => {
+      expect(amountInMon).toBe("100"); // leg B sized off leg A's REAL build output, not the preview estimate
+      expect(wallet).toBe(WALLET);
+      return { steps: [{ kind: "swap", label: "Buy GRAD on Nad.Fun", tx: { to: "0xNadFunRouter", data: "0xbuy", value: "0x0" } }], amountOut: "5000", router: "0xNadFunRouter" };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(r.steps).toHaveLength(3); // approve(USDC) + swap(USDC->MON) + buy(MON->GRAD)
+    expect(r.steps[0].label).toBe("Approve USDC");
+    expect(r.steps[0].settleLeg).toBeUndefined(); // not the last step of its leg
+    expect(r.steps[1].label).toBe("Swap USDC for MON");
+    expect(r.steps[1].settleLeg).toEqual({ fromToken: "USDC", toToken: "MON", amountIn: 50, amountOut: 100, provider: "Uniswap v3" });
+    expect(r.steps[2].label).toBe("Buy GRAD on Nad.Fun");
+    expect(r.steps[2].settleLeg).toEqual({ fromToken: "MON", toToken: "GRAD", amountIn: 100, amountOut: 5000, provider: "Nad.Fun" });
+  });
+
+  it("selling a bonding-curve Nad.Fun token for USDC builds BOTH legs in the other order, leg B sized off leg A's REAL MON output", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    getTokenBalanceImpl = async () => 2000; // plenty of MEOW
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(amount).toBe("1000");
+      expect(isBuy).toBe(false);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "2", isBuy: false };
+    };
+    buildNadFunSellPlanImpl = async (token, symbol, decimals, amountInToken, slippage, wallet) => {
+      expect(amountInToken).toBe("1000");
+      expect(wallet).toBe(WALLET);
+      return { steps: [{ kind: "swap", label: "Sell MEOW on Nad.Fun", tx: { to: "0xNadFunRouter", data: "0xsell", value: "0x0" } }], amountOut: "2", router: "0xNadFunRouter" };
+    };
+    bestQuoteImpl = async (from, to, amount) => {
+      expect(from).toBe("MON");
+      expect(to).toBe("USDC");
+      expect(amount).toBe(2);
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 4, priceImpact: null } };
+    };
+    buildPlanImpl = async (from, to, amount) => {
+      expect(from).toBe("MON");
+      expect(to).toBe("USDC");
+      expect(amount).toBe(2); // sized off leg A's REAL MON output
+      return {
+        steps: [{ kind: "swap", label: "Swap MON for USDC", tx: { to: "0xRouter", data: "0xswap", value: "0x0" } }],
+        quote: { amountOut: 4 },
+        provider: "Uniswap v3",
+      };
+    };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "sell", inputToken: TOKEN, outputToken: "USDC", amount: "1000", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(true);
+    if (!r.ok || r.status !== "ready") return;
+    expect(r.steps).toHaveLength(2); // sell(MEOW->MON) + swap(MON->USDC), no approve needed for a native MON leg
+    expect(r.steps[0].label).toBe("Sell MEOW on Nad.Fun");
+    expect(r.steps[0].settleLeg).toEqual({ fromToken: "MEOW", toToken: "MON", amountIn: 1000, amountOut: 2, provider: "Nad.Fun" });
+    expect(r.steps[1].label).toBe("Swap MON for USDC");
+    expect(r.steps[1].settleLeg).toEqual({ fromToken: "MON", toToken: "USDC", amountIn: 2, amountOut: 4, provider: "Uniswap v3" });
+  });
+
+  it("if leg A's build fails outright, nothing is returned — never a half-built multi-hop trade", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getTokenBalanceImpl = async () => 1000; // plenty of USDC — the failure must come from the build, not a balance check
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 100, priceImpact: null } });
+    buildPlanImpl = async () => { throw new Error("RPC hiccup building leg A"); };
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "5000", isBuy: true });
+    buildNadFunBuyPlanImpl = async () => { throw new Error("must not build leg B when leg A's build already failed"); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/rpc hiccup/i);
+  });
+
+  it("if leg B's build fails after leg A's already succeeded, still nothing is returned — the caller never sees a partial steps array to sign", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    getTokenBalanceImpl = async () => 1000; // plenty of USDC
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 100, priceImpact: null } });
+    buildPlanImpl = async () => ({
+      steps: [{ kind: "swap", label: "Swap USDC for MON", tx: { to: "0xRouter", data: "0xswap", value: "0x0" } }],
+      quote: { amountOut: 100 }, provider: "Uniswap v3",
+    });
+    nadFunQuoteImpl = async () => ({ provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "5000", isBuy: true });
+    buildNadFunBuyPlanImpl = async () => { throw new Error("No active Nad.Fun trading route found for GRAD right now."); };
+    const { prepareTradeExecution } = await import("@/lib/monad/tradeQuote");
+    const r = await prepareTradeExecution({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input", walletAddress: WALLET });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/nad\.fun/i);
   });
 });
