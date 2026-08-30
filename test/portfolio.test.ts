@@ -1,7 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { NextRequest } from "next/server";
 import { viewHoldings, resolveTokenMeta, type Holding } from "@/lib/hooks/usePortfolio";
 import { syncAgo } from "@/lib/hooks/useSync";
 import { fetchIncomingTransferLogs } from "@/app/api/portfolio/discover/route";
+
+let getBlockNumberImpl: () => Promise<bigint> = async () => 0n;
+let requestImpl: (params: { params: [{ fromBlock: string; toBlock: string }] }) => Promise<{ address: string }[]> = async () => [];
+vi.mock("@/lib/monad/wallet", () => ({
+  getPublicClient: () => ({
+    getBlockNumber: () => getBlockNumberImpl(),
+    request: (params: unknown) => requestImpl(params as never),
+  }),
+}));
+
+let resolveTokenImpl: (address: string) => Promise<{ address: string; symbol: string; name: string; decimals: number; verified: boolean }> =
+  async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+vi.mock("@/lib/monad/tokenRegistry", () => ({
+  resolveToken: (address: string) => resolveTokenImpl(address),
+}));
 
 function h(over: Partial<Holding> = {}): Holding {
   return {
@@ -279,5 +295,78 @@ describe("discover — transfer-log window fallback", () => {
       50,
     );
     expect(seenFrom).toBe(0n);
+  });
+});
+
+/**
+ * Monad's real block interval (~0.4s) means a single LOOKBACK_BLOCKS-wide
+ * window only ever covers ~22 hours of history — a token bought earlier in
+ * the week was outside it entirely, with no error to explain why (a real
+ * production report, not a hypothetical). GET now scans several windows,
+ * anchored at progressively older blocks, in parallel — these tests confirm
+ * a token that only shows up in an OLDER window still gets found.
+ */
+describe("GET /api/portfolio/discover — scans multiple history windows, not just the newest", () => {
+  afterEach(() => {
+    getBlockNumberImpl = async () => 0n;
+    requestImpl = async () => [];
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+  });
+
+  function req(address: string): NextRequest {
+    return new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${address}`);
+  }
+
+  it("finds a token whose only Transfer log falls in an OLDER window, beyond the first LOOKBACK_BLOCKS slice", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"; // distinct per test — GET caches per-wallet for 5 min
+    const OLD_TOKEN = "0x0000000000000000000000000000000000000ad1";
+    getBlockNumberImpl = async () => 500_000n; // 3 windows: [300k,500k], [100k,300k], [0,100k]
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      const from = BigInt(fromBlock);
+      const to = BigInt(toBlock);
+      // Only the oldest window (covering block 50,000) has this token's log.
+      if (from <= 50_000n && to >= 50_000n) return [{ address: OLD_TOKEN }];
+      return [];
+    };
+    resolveTokenImpl = async (address) => ({ address, symbol: "OLD", name: "Old Token", decimals: 18, verified: false });
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const r = await GET(req(WALLET));
+    const json = await r.json();
+    expect(json.tokens).toEqual([{ address: OLD_TOKEN, decimals: 18 }]);
+  });
+
+  it("merges tokens found across DIFFERENT windows into one result, not just the last one checked", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
+    const RECENT = "0x0000000000000000000000000000000000000a01";
+    const MIDDLE = "0x0000000000000000000000000000000000000a02";
+    const OLD = "0x0000000000000000000000000000000000000a03";
+    getBlockNumberImpl = async () => 500_000n;
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      const from = BigInt(fromBlock);
+      const to = BigInt(toBlock);
+      if (from === 300_000n && to === 500_000n) return [{ address: RECENT }];
+      if (from === 100_000n && to === 300_000n) return [{ address: MIDDLE }];
+      if (from === 0n && to === 100_000n) return [{ address: OLD }];
+      return [];
+    };
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const r = await GET(req(WALLET));
+    const json = await r.json();
+    const addresses = (json.tokens as { address: string }[]).map((t) => t.address.toLowerCase()).sort();
+    expect(addresses).toEqual([RECENT, MIDDLE, OLD].map((a) => a.toLowerCase()).sort());
+  });
+
+  it("a young chain (latest well under one window) still makes exactly one request, unchanged from before", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3";
+    getBlockNumberImpl = async () => 1_000n;
+    let callCount = 0;
+    requestImpl = async () => { callCount += 1; return []; };
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    await GET(req(WALLET));
+    expect(callCount).toBe(1);
   });
 });
