@@ -320,6 +320,69 @@ describe("previewTrade — Nad.Fun (bonding-curve / newly-graduated tokens)", ()
     expect(r.message).toMatch(/no usable trading route/i);
   });
 
+  it("buying a graduated Nad.Fun token with USDC now actually works, routed USDC -> MON -> TOKEN as two real legs", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "GRAD", name: "Graduated Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: true, isLocked: false, status: "graduated" });
+    bestQuoteImpl = async (from, to, amount) => {
+      expect(from).toBe("USDC");
+      expect(to).toBe("MON");
+      expect(amount).toBe(50);
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 100, priceImpact: null } };
+    };
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(decimals).toBe(18);
+      expect(amount).toBe("100"); // sized off leg A's REAL output, not the original 50
+      expect(isBuy).toBe(true);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "5000", isBuy: true };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.receive).toEqual({ amount: "5000", token: "GRAD" });
+    expect(r.route.provider).toBe("Uniswap v3 + Nad.Fun");
+    expect(r.route.path).toEqual(["USDC", "MON", "GRAD"]); // the real, honest two-leg path
+    // Deferred, not fabricated: no blended fee line for a two-venue route.
+    expect(r.fee).toBeNull();
+  });
+
+  it("selling a bonding-curve Nad.Fun token for USDC now actually works, routed TOKEN -> MON -> USDC", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: true, isGraduated: false, isLocked: false, status: "bonding_curve" });
+    nadFunQuoteImpl = async (token, decimals, amount, isBuy) => {
+      expect(token.toLowerCase()).toBe(TOKEN.toLowerCase());
+      expect(amount).toBe("1000");
+      expect(isBuy).toBe(false);
+      return { provider: "Nad.Fun", router: "0x6F6B8F1a20703309951a5127c45B49b1CD981A22", amountOut: "2", isBuy: false };
+    };
+    bestQuoteImpl = async (from, to, amount) => {
+      expect(from).toBe("MON");
+      expect(to).toBe("USDC");
+      expect(amount).toBe(2); // sized off leg A's REAL MON output
+      return { provider: { name: "Uniswap v3" }, quote: { amountOut: 4, priceImpact: null } };
+    };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "sell", inputToken: TOKEN, outputToken: "USDC", amount: "1000", amountType: "exact_input" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.receive).toEqual({ amount: "4", token: "USDC" });
+    expect(r.route.provider).toBe("Nad.Fun + Uniswap v3");
+    expect(r.route.path).toEqual(["MEOW", "MON", "USDC"]);
+    expect(r.fee).toBeNull();
+  });
+
+  it("a token with no Nad.Fun recognition at all still gets a plain 'no route' — multi-hop is never attempted for a genuinely illiquid token", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
+    getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
+    bestQuoteImpl = async () => { throw new Error("must not quote a MON leg for a non-Nad.Fun token"); };
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toMatch(/no usable trading route/i);
+  });
+
   it("a token that genuinely isn't a Nad.Fun token at all still gets the plain honest 'no route' message", async () => {
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "DEAD", name: "Dead Token", decimals: 18, verified: false });
     getNadFunStatusImpl = async () => ({ recognized: false, isGraduated: false, isLocked: false, status: "unsupported" });
