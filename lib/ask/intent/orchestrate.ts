@@ -214,6 +214,20 @@ function configExplorerTx(txHash: string): string {
   return `${MONAD_EXPLORER}/tx/${txHash}`;
 }
 
+/** P1.4 — the audited gap: "approval succeeded, but the trade/swap failed"
+ *  used to read as a plain, unqualified failure, with nothing telling the
+ *  user their approval was a real, separate, already-confirmed transaction.
+ *  Prefixes an error message with that context whenever a genuine approval
+ *  preceded it — a no-op passthrough when there wasn't one. Explicitly says
+ *  an approval only ever changes an allowance, never that funds moved (see
+ *  this file's own executeSwapIntent/executeTradeIntent doc for why the
+ *  approval's hash is carried as its own separate field, never folded into
+ *  the failing step's own txHash). */
+function prefixApprovalContext(message: string, approvalTx: { txHash: string; explorerUrl: string } | null): string {
+  if (!approvalTx) return message;
+  return `Your token approval already confirmed separately on Monad — that only set an allowance, no funds moved. ${message}`;
+}
+
 /** The only function allowed to request a wallet signature for a swap —
  *  called exclusively from an explicit "Confirm" click on a card this
  *  module already built and the server already quoted. */
@@ -223,14 +237,34 @@ export async function executeSwapIntent(
 ): Promise<Operation> {
   if (operation.intent.kind !== "swap" || !operation.intent.execution) return operation;
   const { plan } = operation.intent.execution;
+  // P1.4: reset every iteration — the actual bug this fixes. Previously this
+  // was declared once, outside the loop, so a step's OWN broadcast could
+  // still be sitting here from a PRIOR iteration if the current step's
+  // signature was rejected before ever reaching the wallet. That let an
+  // already-confirmed approval's hash get reported as if the SWAP itself
+  // were "submitted" — a real transaction, just the wrong one. Resetting to
+  // null at the top of every iteration means the catch block below can only
+  // ever see a hash that THIS iteration's own send actually produced.
   let broadcastHash: string | null = null;
+  // Whether the hash currently in `broadcastHash` belongs to the LAST step
+  // (the real swap) or an earlier approval — read in the catch block to
+  // label a submitted state accurately ("Approval submitted" vs "Swap
+  // submitted") rather than always naming the outer operation.
+  let broadcastIsFinalStep = false;
   // Tracks whether an earlier approval step already CONFIRMED before we
   // broadcast the swap step, so a "submitted" outcome can say "Approval
   // complete." rather than implying the whole thing is still pending.
   let approvalConfirmed = false;
+  // The approval's OWN real txHash/explorerUrl, once it confirms — carried
+  // separately from the swap's own txHash so the two are never conflated
+  // (see this function's error/submitted returns below, and OperationCard's
+  // dedicated "Approval transaction" block).
+  let approvalTx: { txHash: string; explorerUrl: string } | null = null;
   try {
     let lastHash = "";
     for (let i = 0; i < plan.steps.length; i++) {
+      broadcastHash = null;
+      broadcastIsFinalStep = false;
       const step = plan.steps[i].label;
       const isLast = i === plan.steps.length - 1;
       onProgress?.(
@@ -240,6 +274,7 @@ export async function executeSwapIntent(
       );
       lastHash = await wallet.sendTransaction(plan.steps[i].tx);
       broadcastHash = lastHash;
+      broadcastIsFinalStep = isLast;
       if (isLast) {
         savePendingSettlement({
           kind: "swap", walletAddress, txHash: lastHash,
@@ -254,8 +289,12 @@ export async function executeSwapIntent(
       );
       await wallet.waitForReceipt(lastHash);
       // This step's receipt confirmed. If it was an approval (never the last
-      // step), remember that so a later "submitted" outcome is accurate.
-      if (!isLast && plan.steps[i].kind === "approve") approvalConfirmed = true;
+      // step), remember that — including its own real hash — so a later
+      // "submitted" or error outcome is accurate and can link to it directly.
+      if (!isLast && plan.steps[i].kind === "approve") {
+        approvalConfirmed = true;
+        approvalTx = { txHash: lastHash, explorerUrl: configExplorerTx(lastHash) };
+      }
     }
     onProgress?.("Finalizing swap…");
     const r = await fetch("/api/swap/confirm", {
@@ -270,24 +309,37 @@ export async function executeSwapIntent(
       // and never call it "failed".
       if (cj.reverted) {
         clearPendingSettlement();
-        const error: OperationError = { message: cj.error || "This swap failed on-chain. No tokens were swapped.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+        const error: OperationError = {
+          message: prefixApprovalContext(cj.error || "This swap failed on-chain. No tokens were swapped.", approvalTx),
+          code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
+        };
         return { ...operation, status: "error", error };
       }
-      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: "main" } };
     }
     clearPendingSettlement();
     const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
     return { ...operation, status: "success", result };
   } catch (e) {
     if (broadcastHash) {
-      // Broadcast happened (real txHash) but the receipt wait timed out or an
-      // RPC hiccup interrupted confirmation. NOT a failure — the tx may already
-      // be on-chain. Surface it as submitted, with a clickable explorer link,
-      // and leave the pending settlement in place for background reconciliation.
-      // Never rebroadcast just because confirmation timed out.
-      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed } };
+      // THIS iteration's own step really did broadcast (a real, fresh hash —
+      // never a stale one left over from an earlier step); the receipt wait
+      // or something right after it failed. Genuinely submitted/pending for
+      // THIS specific transaction — never rebroadcast just because
+      // confirmation timed out.
+      return {
+        ...operation, status: "submitted",
+        submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: broadcastIsFinalStep ? "main" : "approval" },
+      };
     }
-    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Swap failed.", "Swap"), code: "NOT_SENT" };
+    // This step's OWN broadcast never happened (the signature was rejected,
+    // or it threw before ever reaching the wallet) — nothing new is
+    // pending. If an approval already confirmed earlier in this same
+    // attempt, say so explicitly rather than a bare, unqualified failure.
+    const error: OperationError = {
+      message: prefixApprovalContext(friendlyError(e instanceof Error ? e.message : "Swap failed.", "Swap"), approvalTx),
+      code: "NOT_SENT", approvalTx: approvalTx ?? undefined,
+    };
     return { ...operation, status: "error", error };
   }
 }
@@ -390,10 +442,22 @@ export async function executeTradeIntent(
   }
 
   const steps = build.steps;
+  // P1.4: reset every iteration — see executeSwapIntent's own doc for the
+  // exact bug this fixes (a rejected/never-broadcast step could otherwise
+  // still see an EARLIER step's own hash sitting here, misattributing an
+  // already-confirmed approval as if it were the still-pending trade).
   let broadcastHash: string | null = null;
+  // Whether the hash currently in `broadcastHash` belongs to the LAST step
+  // (the real trade) or an earlier approval — read in the catch block to
+  // label a submitted state accurately.
+  let broadcastIsFinalStep = false;
   // See executeSwapIntent: remembers a confirmed approval so a "submitted"
   // trade can say "Approval complete. Trade submitted." accurately.
   let approvalConfirmed = false;
+  // The approval's OWN real txHash/explorerUrl, once it confirms — carried
+  // separately from the trade's own txHash so the two are never conflated
+  // (see this function's error/submitted returns below).
+  let approvalTx: { txHash: string; explorerUrl: string } | null = null;
   // The most recent leg that fully confirmed ON-CHAIN (a real receipt, from
   // the wallet's own RPC — independent of whether this file's OWN settle
   // call to /api/swap/confirm afterward succeeds, hiccups, or never gets
@@ -410,6 +474,8 @@ export async function executeTradeIntent(
   try {
     let lastHash = "";
     for (let i = 0; i < steps.length; i++) {
+      broadcastHash = null;
+      broadcastIsFinalStep = false;
       const step = steps[i].label;
       const isLast = i === steps.length - 1;
       // The last step always settles — its own real settleLeg tag when
@@ -427,6 +493,7 @@ export async function executeTradeIntent(
       );
       lastHash = await wallet.sendTransaction(steps[i].tx);
       broadcastHash = lastHash;
+      broadcastIsFinalStep = isLast;
       if (effectiveLeg) {
         // A real leg (single-leg trades tag only their last step; a
         // multi-hop trade tags the last step of EACH leg) — its own
@@ -444,7 +511,10 @@ export async function executeTradeIntent(
           : "Signed — confirming on-chain…",
       );
       await wallet.waitForReceipt(lastHash);
-      if (!isLast && steps[i].kind === "approve") approvalConfirmed = true;
+      if (!isLast && steps[i].kind === "approve") {
+        approvalConfirmed = true;
+        approvalTx = { txHash: lastHash, explorerUrl: configExplorerTx(lastHash) };
+      }
       if (!effectiveLeg) continue;
 
       if (!isLast) {
@@ -477,7 +547,10 @@ export async function executeTradeIntent(
         // reconciler catches up the record later if needed.
         if (cj.reverted) {
           clearPendingSettlement();
-          const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+          const error: OperationError = {
+            message: prefixApprovalContext(cj.error || "This trade failed on-chain. No tokens were traded.", approvalTx),
+            code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
+          };
           return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
         }
         if (cj.explorerUrl) completedLeg = { txHash: lastHash, explorerUrl: cj.explorerUrl };
@@ -492,10 +565,13 @@ export async function executeTradeIntent(
         // pending settlement so the reconciler resolves it).
         if (cj.reverted) {
           clearPendingSettlement();
-          const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+          const error: OperationError = {
+            message: prefixApprovalContext(cj.error || "This trade failed on-chain. No tokens were traded.", approvalTx),
+            code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
+          };
           return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
         }
-        return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
+        return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: "main" } };
       }
       clearPendingSettlement();
       const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
@@ -508,18 +584,21 @@ export async function executeTradeIntent(
     const error: OperationError = { message: "Couldn't finalize that trade.", code: "BUILD_FAILED" };
     return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
   } catch (e) {
-    // broadcastHash having moved PAST completedLeg's own hash means the
-    // CURRENT (failing) step's own signature succeeded and broadcast a NEW
-    // transaction before the failure — a receipt-wait timeout on that new
-    // broadcast, the same honest "submitted" a single-leg trade gets. Only
-    // when broadcastHash is still sitting at the earlier completed leg's own
-    // hash — meaning THIS step's signature never even produced a broadcast —
-    // is there truly nothing left pending, which is the real PARTIAL_MULTI_HOP
-    // case below.
+    // P1.4: broadcastHash is reset every iteration now (see its own doc
+    // above), so if it's set here it can only be THIS (failing) step's own
+    // fresh broadcast — never a stale hash left over from an earlier one.
+    // The `!== completedLeg?.txHash` check below is accordingly now a
+    // defensive belt-and-suspenders comparison rather than the only thing
+    // preventing misattribution, kept for the multi-hop case where a
+    // completed leg and the current failing step could otherwise be
+    // conflated by coincidence.
     if (broadcastHash && broadcastHash !== completedLeg?.txHash) {
       // Broadcast happened but confirmation timed out — submitted, not failed.
       // Keep the pending settlement, never rebroadcast.
-      return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed } };
+      return {
+        ...operation, status: "submitted", intent: { ...operation.intent, data: freshData },
+        submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: broadcastIsFinalStep ? "main" : "approval" },
+      };
     }
     if (completedLeg) {
       // An EARLIER leg already fully confirmed on-chain — real funds moved —
@@ -531,11 +610,17 @@ export async function executeTradeIntent(
       // in-flight transaction gets.
       const error: OperationError = {
         message: `Part of this trade completed on-chain, but the next step wasn't signed, so the trade didn't finish. Check ${completedLeg.txHash} on the explorer for what actually moved — you can trade from there directly.`,
-        code: "PARTIAL_MULTI_HOP", txHash: completedLeg.txHash, explorerUrl: completedLeg.explorerUrl,
+        code: "PARTIAL_MULTI_HOP", txHash: completedLeg.txHash, explorerUrl: completedLeg.explorerUrl, approvalTx: approvalTx ?? undefined,
       };
       return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
     }
-    const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed.", "Trade"), code: "NOT_SENT" };
+    // Neither this step nor any earlier leg produced anything pending or
+    // completed — a clean pre-broadcast failure. If an approval already
+    // confirmed earlier in this same attempt, say so explicitly.
+    const error: OperationError = {
+      message: prefixApprovalContext(friendlyError(e instanceof Error ? e.message : "Trade failed.", "Trade"), approvalTx),
+      code: "NOT_SENT", approvalTx: approvalTx ?? undefined,
+    };
     return { ...operation, status: "error", error };
   }
 }
