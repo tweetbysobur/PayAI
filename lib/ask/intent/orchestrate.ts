@@ -296,7 +296,17 @@ export async function executeSwapIntent(
  *  TradeExecutionResult exactly: flat, same convention as
  *  TradePreviewApiResponse above. */
 type TradeBuildApiResponse =
-  | { ok: true; status: "ready"; preview: TradePreviewData & { ok?: true }; steps: { kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string } }[] }
+  | {
+      ok: true; status: "ready"; preview: TradePreviewData & { ok?: true };
+      steps: {
+        kind: "approve" | "swap"; label: string; tx: { to: string; data: string; value: string };
+        /** Present only on the LAST step of a real, independently-settleable
+         *  on-chain leg — see lib/monad/tradeQuote.ts's TradeExecutionStep
+         *  (server-side origin of this field) and this file's
+         *  executeTradeIntent (which reads it) for the full contract. */
+        settleLeg?: { fromToken: string; toToken: string; amountIn: number; amountOut: number; provider: string };
+      }[];
+    }
   | { ok: true; status: "changed"; preview: TradePreviewData & { ok?: true } }
   | { ok: false; message: string };
 
@@ -384,11 +394,32 @@ export async function executeTradeIntent(
   // See executeSwapIntent: remembers a confirmed approval so a "submitted"
   // trade can say "Approval complete. Trade submitted." accurately.
   let approvalConfirmed = false;
+  // The most recent leg that fully confirmed ON-CHAIN (a real receipt, from
+  // the wallet's own RPC — independent of whether this file's OWN settle
+  // call to /api/swap/confirm afterward succeeds, hiccups, or never gets
+  // reached). Only ever set for a Nad.Fun-through-MON multi-hop trade
+  // (lib/monad/tradeQuote.ts's buildNadFunMultiHopSteps) — an ordinary
+  // single-leg trade's only settleLeg-carrying step IS its last step, so
+  // this never gets a chance to matter for one. Exists so that "leg A
+  // genuinely succeeded, then leg B's signature was rejected or its own
+  // broadcast never happened" reports an honest, specific error — real
+  // funds already moved, with a real txHash to prove it — instead of
+  // reusing "submitted" (which claims an outcome is still pending, when
+  // leg A's outcome is already fully known and leg B never even broadcast).
+  let completedLeg: { txHash: string; explorerUrl: string } | null = null;
   try {
     let lastHash = "";
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i].label;
       const isLast = i === steps.length - 1;
+      // The last step always settles — its own real settleLeg tag when
+      // present (every trade prepareTradeExecution builds carries one), or
+      // the whole trade's own numbers as a defensive fallback so a settle
+      // call is never simply skipped if that tag is ever absent. An
+      // intermediate step with no tag has nothing to settle yet.
+      const effectiveLeg = steps[i].settleLeg ?? (isLast
+        ? { fromToken: freshData.spend.token, toToken: freshData.receive.token, amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount), provider: freshData.route.provider }
+        : null);
       onProgress?.(
         steps.length > 1
           ? `Step ${i + 1} of ${steps.length}: waiting for your signature (${step}) — nothing has moved yet.`
@@ -396,11 +427,15 @@ export async function executeTradeIntent(
       );
       lastHash = await wallet.sendTransaction(steps[i].tx);
       broadcastHash = lastHash;
-      if (isLast) {
+      if (effectiveLeg) {
+        // A real leg (single-leg trades tag only their last step; a
+        // multi-hop trade tags the last step of EACH leg) — its own
+        // pending-settlement record, in ITS real terms, so the reconciler
+        // can resolve exactly what this specific transaction was.
         savePendingSettlement({
           kind: "swap", walletAddress, txHash: lastHash,
-          fromToken: freshData.spend.token, toToken: freshData.receive.token,
-          amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount), savedAt: Date.now(),
+          fromToken: effectiveLeg.fromToken, toToken: effectiveLeg.toToken,
+          amountIn: effectiveLeg.amountIn, amountOut: effectiveLeg.amountOut, savedAt: Date.now(),
         });
       }
       onProgress?.(
@@ -410,36 +445,95 @@ export async function executeTradeIntent(
       );
       await wallet.waitForReceipt(lastHash);
       if (!isLast && steps[i].kind === "approve") approvalConfirmed = true;
-    }
-    onProgress?.("Finalizing trade…");
-    const r = await fetch("/api/swap/confirm", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        walletAddress, txHash: lastHash, fromToken: freshData.spend.token, toToken: freshData.receive.token,
-        amountIn: Number(freshData.spend.amount), amountOut: Number(freshData.receive.amount),
-        feature: "trade", provider: freshData.route.provider,
-      }),
-    });
-    const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
-    if (!cj.success) {
-      // Same classification as executeSwapIntent: only a confirmed revert is a
-      // failure; "couldn't confirm yet" is submitted-but-pending (keep the
-      // pending settlement so the reconciler resolves it).
-      if (cj.reverted) {
-        clearPendingSettlement();
-        const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
-        return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+      if (!effectiveLeg) continue;
+
+      if (!isLast) {
+        // An intermediate leg's OWN on-chain confirmation just succeeded —
+        // real, independent of this file's settle call below. Recorded
+        // before attempting that call, so a network hiccup calling
+        // /api/swap/confirm still leaves an honest, provable "this much
+        // already happened" if the NEXT leg then fails.
+        completedLeg = { txHash: lastHash, explorerUrl: configExplorerTx(lastHash) };
       }
-      return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
+
+      onProgress?.(isLast ? "Finalizing trade…" : `Confirming ${effectiveLeg.provider}…`);
+      const r = await fetch("/api/swap/confirm", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          walletAddress, txHash: lastHash, fromToken: effectiveLeg.fromToken, toToken: effectiveLeg.toToken,
+          amountIn: effectiveLeg.amountIn, amountOut: effectiveLeg.amountOut,
+          feature: "trade", provider: effectiveLeg.provider,
+        }),
+      });
+      const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };
+
+      if (!isLast) {
+        // Intermediate leg: only a CONFIRMED revert is fatal — the trade
+        // never got past this leg, so the next one is never signed. Any
+        // other settlement outcome (including "couldn't confirm yet") does
+        // NOT block progress: wallet.waitForReceipt above already proved
+        // this leg succeeded on-chain from the wallet's own independent
+        // read, so it's safe to keep going — the pending-settlement
+        // reconciler catches up the record later if needed.
+        if (cj.reverted) {
+          clearPendingSettlement();
+          const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+          return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+        }
+        if (cj.explorerUrl) completedLeg = { txHash: lastHash, explorerUrl: cj.explorerUrl };
+        continue;
+      }
+
+      // The LAST step overall — its settlement result decides the whole
+      // operation's returned status, exactly as a single-leg trade always has.
+      if (!cj.success) {
+        // Same classification as executeSwapIntent: only a confirmed revert is a
+        // failure; "couldn't confirm yet" is submitted-but-pending (keep the
+        // pending settlement so the reconciler resolves it).
+        if (cj.reverted) {
+          clearPendingSettlement();
+          const error: OperationError = { message: cj.error || "This trade failed on-chain. No tokens were traded.", code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl };
+          return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
+        }
+        return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed } };
+      }
+      clearPendingSettlement();
+      const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
+      return { ...operation, status: "success", intent: { ...operation.intent, data: freshData }, result };
     }
-    clearPendingSettlement();
-    const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
-    return { ...operation, status: "success", intent: { ...operation.intent, data: freshData }, result };
+    // Unreachable in practice — the last step always carries settleLeg (see
+    // prepareTradeExecution), so the loop above always returns from inside
+    // its isLast branch. Kept only so this function has an exhaustive
+    // return path if that invariant is ever violated upstream.
+    const error: OperationError = { message: "Couldn't finalize that trade.", code: "BUILD_FAILED" };
+    return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
   } catch (e) {
-    if (broadcastHash) {
+    // broadcastHash having moved PAST completedLeg's own hash means the
+    // CURRENT (failing) step's own signature succeeded and broadcast a NEW
+    // transaction before the failure — a receipt-wait timeout on that new
+    // broadcast, the same honest "submitted" a single-leg trade gets. Only
+    // when broadcastHash is still sitting at the earlier completed leg's own
+    // hash — meaning THIS step's signature never even produced a broadcast —
+    // is there truly nothing left pending, which is the real PARTIAL_MULTI_HOP
+    // case below.
+    if (broadcastHash && broadcastHash !== completedLeg?.txHash) {
       // Broadcast happened but confirmation timed out — submitted, not failed.
       // Keep the pending settlement, never rebroadcast.
       return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), approvalConfirmed } };
+    }
+    if (completedLeg) {
+      // An EARLIER leg already fully confirmed on-chain — real funds moved —
+      // and this later step's signature was then rejected, or its own
+      // broadcast never happened. The overall trade did not complete, but
+      // it did NOT simply time out either: there is nothing left pending to
+      // wait for, so this is an honest, specific error carrying the earlier
+      // leg's real, provable txHash — never the vague "submitted" a single
+      // in-flight transaction gets.
+      const error: OperationError = {
+        message: `Part of this trade completed on-chain, but the next step wasn't signed, so the trade didn't finish. Check ${completedLeg.txHash} on the explorer for what actually moved — you can trade from there directly.`,
+        code: "PARTIAL_MULTI_HOP", txHash: completedLeg.txHash, explorerUrl: completedLeg.explorerUrl,
+      };
+      return { ...operation, status: "error", intent: { ...operation.intent, data: freshData }, error };
     }
     const error: OperationError = { message: friendlyError(e instanceof Error ? e.message : "Trade failed.", "Trade"), code: "NOT_SENT" };
     return { ...operation, status: "error", error };
