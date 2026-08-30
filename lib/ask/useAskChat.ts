@@ -11,7 +11,7 @@
  * owns the conversation itself — sending a message, advancing/retrying/
  * cancelling a card, and starting over.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import {
@@ -21,7 +21,7 @@ import {
 import type { Understanding } from "@/lib/ask/intent/types";
 import type { AskMessage, Operation } from "@/lib/ask/types";
 import type { AutomationSeed, Cadence } from "@/components/dashboard/automationShared";
-import { loadChatState, saveChatState } from "@/lib/ask/persistChat";
+import { loadChatState, normalizeWalletAddress, saveChatState } from "@/lib/ask/persistChat";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -186,13 +186,16 @@ export function useAskChat(options?: { persist?: boolean }) {
   // progress text onto the wrong card; cleared once that operation settles.
   const [progress, setProgress] = useState<Record<string, string>>({});
 
-  // Whether the one-time mount restore below has run yet. Starts false so
-  // the SAVE effect (declared first — effect order within a commit follows
-  // declaration order) always no-ops on the very first commit, before the
-  // RESTORE effect (declared second) has had a chance to populate messages/
-  // pending from storage. Without this, the save effect would see the
-  // still-empty initial state on that first pass and write/clear an empty
-  // record, racing the restore that's about to replace it.
+  // Whether the restore/reconcile effect below has completed at least once
+  // since mount. Starts false so the SAVE effect (declared first — effect
+  // order within a commit follows declaration order) always no-ops on the
+  // very first commit, before the RESTORE effect (declared second) has had
+  // a chance to populate messages/pending from storage. Without this, the
+  // save effect would see the still-empty initial state on that first pass
+  // and write/clear an empty record, racing the restore that's about to
+  // replace it. Stays true after that — the restore effect re-runs on every
+  // wallet change too (see below), but by then this guard has already done
+  // its one job of protecting the very first commit.
   const restoredRef = useRef(false);
 
   // Mirrors messages/pending into sessionStorage after every change (see
@@ -202,31 +205,85 @@ export function useAskChat(options?: { persist?: boolean }) {
   // is open, fully reconstructible from the operation's own handoff prefill
   // (see advanceOperation below) — so a refresh naturally leaves the modal
   // closed rather than reopening it unprompted, without losing any real data.
+  // P1.2: which wallet identity the in-memory messages/pending currently
+  // belong to — normalized the same way persistChat.ts does, so `null` means
+  // either "no wallet connected" or "not yet reconciled". Saves always write
+  // under THIS, never under whatever `wallet.address` happens to read as at
+  // save time, which matters the instant a wallet change is in flight (see
+  // the reconcile effect below): by the time it changes, that effect has
+  // already updated it synchronously, so a save that fires afterward can
+  // never attribute one wallet's data to another's key.
+  const currentWalletRef = useRef<string | null>(null);
+
+  /** True when the connected wallet has changed since `startWallet` was
+   *  captured at the top of an async function — i.e. that function's result
+   *  is about to land after the user already switched to (or away from) a
+   *  different wallet. Every function below that appends a brand-new
+   *  message or replaces `pending` after an `await` checks this first and
+   *  bails out silently if stale, so a slow response begun under one wallet
+   *  can never surface in a DIFFERENT wallet's visible conversation. (An
+   *  update that instead modifies an EXISTING message by operation id — e.g.
+   *  advanceOperation's setOp, or completeAutomationDraft — doesn't need this
+   *  guard: operation ids are globally unique, so that kind of update is
+   *  already a no-op once the message array has been swapped out from under
+   *  it.) Always false when persistence is off (CommandBar's popup):
+   *  currentWalletRef never leaves null there, so this can never trip —
+   *  unchanged from today's behavior for that surface. */
+  function isStaleWallet(startWallet: string | null): boolean {
+    return currentWalletRef.current !== startWallet;
+  }
+
   useEffect(() => {
     if (!persist || !restoredRef.current) return;
-    saveChatState(messages, pending);
+    saveChatState(messages, pending, currentWalletRef.current);
   }, [persist, messages, pending]);
 
-  // Restores a previously persisted conversation exactly once, after mount —
-  // client-only, so the server-rendered (always-empty) first paint is never
-  // contradicted (see the state declarations' own doc above). Never restores
-  // mid-execution state as executable: loadChatState itself downgrades any
-  // "confirming" card to a safe error before this ever sees it (see
-  // lib/ask/persistChat.ts's sanitizeOperation) — nothing here can revive a
-  // signature or a broadcast, only redisplay already-safe history/context.
-  useEffect(() => {
-    if (persist) {
-      const restored = loadChatState();
-      if (restored) {
-        setMessages(restored.messages);
-        setPending(restored.pending);
-      }
-    }
+  // Restores the CONNECTED WALLET's own persisted conversation — on mount,
+  // and again every time the connected wallet identity changes (connecting
+  // for the first time, disconnecting, or switching to a different wallet;
+  // see lib/wallet/useWallet.tsx's accountsChanged handling for how
+  // wallet.address itself updates live). Client-only, so the server-rendered
+  // (always-empty) first paint is never contradicted (see the state
+  // declarations' own doc above).
+  //
+  // P1.2's actual safety property lives here: every distinct value of
+  // wallet.address — including null, "no wallet" — is its own identity
+  // bucket. Switching buckets always reloads from scratch for the NEW
+  // identity (that wallet's own record, or a clean conversation if it has
+  // none) and never carries the OLD bucket's messages/pending along — so a
+  // conversation started before connecting, or under a different wallet,
+  // can never resurface under a wallet that didn't produce it. The OLD
+  // bucket's own data isn't lost if it was a real wallet: the save effect
+  // above already wrote every change to ITS OWN key throughout, so it's
+  // sitting in storage exactly where switching back to it will find it
+  // (still subject to the existing TTL).
+  //
+  // Never restores mid-execution state as executable: loadChatState itself
+  // downgrades any "confirming" card to a safe error before this ever sees
+  // it (see lib/ask/persistChat.ts's sanitizeOperation) — nothing here can
+  // revive a signature or a broadcast, only redisplay already-safe
+  // history/context, and only for the wallet that actually produced it.
+  //
+  // useLayoutEffect, not useEffect: wallet.address can change (a real
+  // wallet-switch event) in the same commit that still holds the OLD
+  // wallet's messages in local state — a plain useEffect runs AFTER the
+  // browser paints, which would let that stale pairing (old messages, new
+  // address already showing) actually flash on screen for a frame before
+  // this clears it. A layout effect flushes its setState calls synchronously
+  // before paint, so the browser only ever paints the reconciled result —
+  // this is precisely the narrow, correctness-motivated case that
+  // justifies useLayoutEffect over the usual useEffect default. Still never
+  // runs during SSR (same as useEffect), so the hydration-safety above is
+  // unaffected.
+  useLayoutEffect(() => {
+    if (!persist) { restoredRef.current = true; return; }
+    const normalized = normalizeWalletAddress(wallet.address);
+    currentWalletRef.current = normalized;
+    const restored = normalized ? loadChatState(normalized) : null;
+    setMessages(restored?.messages ?? []);
+    setPending(restored?.pending ?? null);
     restoredRef.current = true;
-    // Runs once on mount only — `persist` is fixed for the life of a given
-    // useAskChat() call (set by which caller instantiated it), never toggled.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [persist, wallet.address]);
 
   // The in-chat automation modal. A scheduled/recurring handoff card no longer
   // navigates the user away to /dashboard/automations — it opens the SAME
@@ -260,10 +317,12 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  expired card's own already-known pair/amount, so this never needs a
    *  fresh Anthropic call just to ask for the exact same thing again. */
   async function requoteExpiredSwap(intent: Extract<Operation["intent"], { kind: "swap" }>) {
+    const startWallet = currentWalletRef.current;
     const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
     setMessages((m) => [...m, notice]);
     const understanding: Understanding = { kind: "swap", outcome: "complete", slots: { amount: intent.fromAmount, fromAsset: intent.fromToken, toAsset: intent.toToken } };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
+    if (isStaleWallet(startWallet)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -272,6 +331,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  needs a fresh Anthropic call just to ask for the exact same thing
    *  again. Mirrors requoteExpiredSwap above. */
   async function requoteExpiredTrade(intent: Extract<Operation["intent"], { kind: "trade_preview" }>) {
+    const startWallet = currentWalletRef.current;
     const notice: AskMessage = { id: nextId("msg"), role: "assistant", content: "That quote has expired. I'll get you a fresh quote.", createdAt: Date.now() };
     setMessages((m) => [...m, notice]);
     const req = intent.execution?.request;
@@ -279,6 +339,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       ? { kind: "trade", outcome: "complete", slots: { tradeAction: req.action, fromAsset: req.inputToken, toAsset: req.outputToken, amount: req.amount, amountType: req.amountType, slippage: req.slippage } }
       : { kind: "trade", outcome: "complete", slots: { tradeAction: intent.data.action, fromAsset: intent.data.spend.token, toAsset: intent.data.receive.token, amount: intent.data.spend.amount, amountType: "exact_input", slippage: null } };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
+    if (isStaleWallet(startWallet)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -305,6 +366,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  a typed "sell X for Y" already uses — a genuine new quote, never a
    *  cached or guessed one. */
   async function sellLastPurchase(userMsg: AskMessage) {
+    const startWallet = currentWalletRef.current;
     setMessages((m) => [...m, userMsg]);
     setInput("");
     const found = findLastConfirmedTrade(messages);
@@ -319,6 +381,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       slots: { tradeAction: "sell", fromAsset: req.outputToken, toAsset: req.inputToken, amount: found.intent.data.receive.amount, amountType: "exact_input", slippage: req.slippage },
     };
     const { message } = await respondToUnderstanding(understanding, wallet.address);
+    if (isStaleWallet(startWallet)) return;
     setMessages((m) => [...m, message]);
   }
 
@@ -327,18 +390,21 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  context, via the exact same real token_lookup path a pasted contract
    *  address already uses. */
   async function answerPriceNow(userMsg: AskMessage) {
+    const startWallet = currentWalletRef.current;
     setMessages((m) => [...m, userMsg]);
     setInput("");
     const address = findCurrentTokenAddress(messages);
     if (!address) {
       const understanding = await classifyMessage(userMsg.content, [...messages, userMsg].slice(-8).map((m) => ({ role: m.role, content: m.content })), pending);
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+      if (isStaleWallet(startWallet)) return;
       setPending(nextPending);
       setMessages((m) => [...m, message]);
       return;
     }
     const understanding: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: address } };
     const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+    if (isStaleWallet(startWallet)) return;
     setPending(nextPending);
     setMessages((m) => [...m, message]);
   }
@@ -387,6 +453,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       return;
     }
 
+    const startWallet = currentWalletRef.current;
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
     setMessages((m) => [...m, userMsg]);
     setInput("");
@@ -398,6 +465,11 @@ export function useAskChat(options?: { persist?: boolean }) {
         .map((m) => ({ role: m.role, content: m.content }));
       const understanding = await classifyMessage(trimmed, history, pending);
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
+      // The wallet may have changed (switched, or disconnected) while this
+      // was in flight — never let a response resolved for the OLD identity
+      // land in whatever's now showing for a different one. See
+      // isStaleWallet's own doc.
+      if (isStaleWallet(startWallet)) return;
 
       // A freshly-built ready card (e.g. from "actually make it 75", or a
       // corrected swap amount/token) supersedes any earlier one still
