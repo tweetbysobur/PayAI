@@ -234,7 +234,7 @@ export function OperationCard({
         ) : status === "success" && operation.automation ? (
           <AutomationCreatedBody automation={operation.automation} />
         ) : status === "success" && operation.result && !isInfo ? (
-          <SuccessBody intent={intent} result={operation.result} />
+          <SuccessBody intent={intent} result={operation.result} onQuickAction={onQuickAction} />
         ) : (
           <IntentBody intent={intent} onQuickAction={onQuickAction} />
         )}
@@ -822,7 +822,29 @@ function ResultSummary({ intent }: { intent: Operation["intent"] }) {
   return null;
 }
 
-function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: NonNullable<Operation["result"]> }) {
+/** The single, opt-in next action offered after a result — never more than
+ *  one, never auto-triggered, and only for an action PayAI genuinely
+ *  supports from here. After a completed BUY it's "Sell what you received";
+ *  the button only ever re-enters the normal classify → confirm funnel via
+ *  onQuickAction (the same send() the composer uses), matching the exact
+ *  phrasing useAskChat's deterministic SELL_JUST_BOUGHT_RE already resolves
+ *  against the last confirmed trade — no new execution path, no fresh
+ *  Anthropic call. Deliberately not offered after a SELL (there's nothing
+ *  obvious to chain), nor for payment/swap successes. */
+function SuccessFollowUp({ intent, onQuickAction }: { intent: Operation["intent"]; onQuickAction?: (text: string) => void }) {
+  if (!onQuickAction || intent.kind !== "trade_preview" || intent.data.action !== "buy") return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onQuickAction("Can I sell what I just bought?")}
+      className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border bg-input/30 px-3 py-2 text-xs font-medium text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+    >
+      <ArrowDownRight size={13} /> Sell what you received
+    </button>
+  );
+}
+
+function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["intent"]; result: NonNullable<Operation["result"]>; onQuickAction?: (text: string) => void }) {
   return (
     <div>
       <div className="mb-3 flex items-center gap-2.5">
@@ -866,6 +888,7 @@ function SuccessBody({ intent, result }: { intent: Operation["intent"]; result: 
       <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
         View transaction <ExternalLink size={11} />
       </a>
+      <SuccessFollowUp intent={intent} onQuickAction={onQuickAction} />
     </div>
   );
 }

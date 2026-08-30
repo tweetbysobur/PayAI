@@ -55,6 +55,24 @@ describe("TRADE_RESULT_RE / SELL_JUST_BOUGHT_RE / PRICE_NOW_RE — match the int
   });
 });
 
+describe("post-trade follow-up prompt — the offered 'Sell what you received' button", () => {
+  // OperationCard's SuccessFollowUp button sends this exact phrase via
+  // onQuickAction (== useAskChat's send()). It MUST match SELL_JUST_BOUGHT_RE
+  // so it resolves through the deterministic sell-the-last-purchase path (no
+  // fresh Anthropic call), never falling through to a generic classification.
+  // This guards the button copy and the handler from drifting apart.
+  const FOLLOW_UP_TEXT = "Can I sell what I just bought?";
+
+  it("the button's phrasing is recognized by the deterministic sell handler", () => {
+    expect(SELL_JUST_BOUGHT_RE.test(FOLLOW_UP_TEXT)).toBe(true);
+  });
+
+  it("has a confirmed trade for that handler to reverse and sell from", () => {
+    const found = findLastConfirmedTrade([confirmedTradeMessage()]);
+    expect(found?.intent.execution?.request.action).toBe("buy");
+  });
+});
+
 describe("findLastConfirmedTrade — only a real, settled trade counts", () => {
   it("finds a successful trade with a real result", () => {
     const found = findLastConfirmedTrade([confirmedTradeMessage()]);
