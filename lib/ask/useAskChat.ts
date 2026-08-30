@@ -11,7 +11,7 @@
  * owns the conversation itself — sending a message, advancing/retrying/
  * cancelling a card, and starting over.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import {
@@ -21,6 +21,7 @@ import {
 import type { Understanding } from "@/lib/ask/intent/types";
 import type { AskMessage, Operation } from "@/lib/ask/types";
 import type { AutomationSeed, Cadence } from "@/components/dashboard/automationShared";
+import { loadChatState, saveChatState } from "@/lib/ask/persistChat";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -144,8 +145,26 @@ export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
  *  change what gets sent or how it's classified server-side. */
 const CLIENT_EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
 
-export function useAskChat() {
+/**
+ * `persist: true` survives a browser refresh via sessionStorage (see
+ * lib/ask/persistChat.ts) — opt-in, and only ever passed by
+ * AskPageChatContext for the full /dashboard/ask page's conversation.
+ * CommandBar's own useAskChat() call is a deliberately separate conversation
+ * (see AskPageChatContext's doc) and leaves this false, so its popup thread
+ * never reads or writes the page's storage slot (or vice versa).
+ */
+export function useAskChat(options?: { persist?: boolean }) {
+  const persist = options?.persist ?? false;
   const wallet = useWallet();
+  // Both start EMPTY on every render path, server included — never read
+  // sessionStorage inside a lazy initializer here. This page is still
+  // server-rendered for its first HTML (a plain "use client" page doesn't
+  // opt out of that), and the server obviously has no sessionStorage; seeding
+  // the initial client render from it directly produced a real, verified
+  // hydration mismatch (React discarding and regenerating the whole tree) the
+  // instant a stored conversation existed. Restoring instead happens in an
+  // effect below, which only ever runs client-side after hydration — the
+  // one render right after mount reconciles to whatever's actually stored.
   const [messages, setMessages] = useState<AskMessage[]>([]);
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -166,6 +185,48 @@ export function useAskChat() {
   // Keyed by operation id so switching cards (or a stale one) never bleeds
   // progress text onto the wrong card; cleared once that operation settles.
   const [progress, setProgress] = useState<Record<string, string>>({});
+
+  // Whether the one-time mount restore below has run yet. Starts false so
+  // the SAVE effect (declared first — effect order within a commit follows
+  // declaration order) always no-ops on the very first commit, before the
+  // RESTORE effect (declared second) has had a chance to populate messages/
+  // pending from storage. Without this, the save effect would see the
+  // still-empty initial state on that first pass and write/clear an empty
+  // record, racing the restore that's about to replace it.
+  const restoredRef = useRef(false);
+
+  // Mirrors messages/pending into sessionStorage after every change (see
+  // lib/ask/persistChat.ts) — nothing else here needs to survive a refresh:
+  // `progress` is only ever meaningful while a request this same page load
+  // made is still in flight, and `automationDraft` is just whether the modal
+  // is open, fully reconstructible from the operation's own handoff prefill
+  // (see advanceOperation below) — so a refresh naturally leaves the modal
+  // closed rather than reopening it unprompted, without losing any real data.
+  useEffect(() => {
+    if (!persist || !restoredRef.current) return;
+    saveChatState(messages, pending);
+  }, [persist, messages, pending]);
+
+  // Restores a previously persisted conversation exactly once, after mount —
+  // client-only, so the server-rendered (always-empty) first paint is never
+  // contradicted (see the state declarations' own doc above). Never restores
+  // mid-execution state as executable: loadChatState itself downgrades any
+  // "confirming" card to a safe error before this ever sees it (see
+  // lib/ask/persistChat.ts's sanitizeOperation) — nothing here can revive a
+  // signature or a broadcast, only redisplay already-safe history/context.
+  useEffect(() => {
+    if (persist) {
+      const restored = loadChatState();
+      if (restored) {
+        setMessages(restored.messages);
+        setPending(restored.pending);
+      }
+    }
+    restoredRef.current = true;
+    // Runs once on mount only — `persist` is fixed for the life of a given
+    // useAskChat() call (set by which caller instantiated it), never toggled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The in-chat automation modal. A scheduled/recurring handoff card no longer
   // navigates the user away to /dashboard/automations — it opens the SAME

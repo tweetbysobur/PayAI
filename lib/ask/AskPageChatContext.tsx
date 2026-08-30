@@ -17,6 +17,13 @@
  * is the existing, intentional design (see useAskChat's own doc: two
  * surfaces, same pipeline, not necessarily the same thread), not something
  * this fixes or changes.
+ *
+ * P1.1: this is also the ONE instance that opts into sessionStorage
+ * persistence (`persist: true`) — a browser refresh restores this
+ * conversation exactly like in-app navigation already does, instead of
+ * silently wiping it. CommandBar's own useAskChat() call stays non-persisted
+ * (its default), so the two conversations never read or write the same
+ * storage slot. See lib/ask/persistChat.ts for the mechanism.
  */
 import { createContext, useContext } from "react";
 import { useAskChat } from "./useAskChat";
@@ -26,7 +33,7 @@ type AskChat = ReturnType<typeof useAskChat>;
 const AskPageChatContext = createContext<AskChat | null>(null);
 
 export function AskPageChatProvider({ children }: { children: React.ReactNode }) {
-  const chat = useAskChat();
+  const chat = useAskChat({ persist: true });
   return <AskPageChatContext.Provider value={chat}>{children}</AskPageChatContext.Provider>;
 }
 
