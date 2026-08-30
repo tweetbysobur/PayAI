@@ -74,9 +74,14 @@ export interface TradePreviewRequest {
 
 export interface TradeRouteInfo {
   provider: string;
-  /** Always [inputSymbol, outputSymbol] — a direct hop. Neither Uniswap's
-   *  QuoterV2 call nor Kuru's simulate call used anywhere in this codebase
-   *  does multi-hop routing, so a longer path is never fabricated here. */
+  /** [inputSymbol, outputSymbol] for a direct hop — still the overwhelming
+   *  majority of trades, since neither Uniswap's QuoterV2 call nor Kuru's
+   *  simulate call used anywhere in this codebase does multi-hop routing on
+   *  its own. [inputSymbol, "MON", outputSymbol] for the one real exception:
+   *  a Nad.Fun-only token (see getNadFunMultiHopRoute's own doc) routed
+   *  through two independent, separately-signed on-chain legs. Never a
+   *  fabricated path — every hop here is a real quote that was actually
+   *  obtained. */
   path: string[];
 }
 
@@ -236,12 +241,109 @@ async function getNadFunRoute(input: ResolvedTradeSide, output: ResolvedTradeSid
   return q ? { provider: "Nad.Fun", amountOut: q.amountOut, priceImpact: null } : null;
 }
 
+/** Joins the two leg providers in a multi-hop route's composite provider
+ *  string (e.g. "Uniswap v3 + Nad.Fun") — a single constant so construction
+ *  (getNadFunMultiHopRoute) and detection (isMultiHopProvider) can never
+ *  drift apart. */
+const MULTI_HOP_JOIN = " + ";
+
+/** True for a composite multi-hop provider string built by
+ *  getNadFunMultiHopRoute — distinguishes it from a single real venue name
+ *  (which never contains this join) so callers never mistake a two-leg
+ *  route for one Uniswap/Kuru/Nad.Fun trade (see previewTrade's fee block
+ *  and venueForProvider's own doc for why that distinction matters: a
+ *  naive `/uniswap/i` match against "Uniswap v3 + Nad.Fun" would otherwise
+ *  wrongly select the Uniswap executor for a trade that isn't one). */
+function isMultiHopProvider(provider: string): boolean {
+  return provider.includes(MULTI_HOP_JOIN);
+}
+
+/** Quotes counterSide -> MON ("toMon") or MON -> counterSide ("fromMon"),
+ *  reusing bestQuote() when both sides are verified (symbol-safe) or
+ *  quoteUniswapDirect() otherwise — the exact same two primitives
+ *  getTradeRoute()'s own verified/arbitrary split already uses, just aimed
+ *  at MON specifically rather than the caller's real output token. */
+async function quoteToMon(counterSide: ResolvedTradeSide, monSide: ResolvedTradeSide, amount: string, direction: "toMon" | "fromMon"): Promise<RawRoute | null> {
+  const [inSide, outSide] = direction === "toMon" ? [counterSide, monSide] : [monSide, counterSide];
+  if (inSide.verified && outSide.verified) {
+    try {
+      const { provider, quote } = await bestQuote(inSide.symbol, outSide.symbol, Number(amount));
+      return { provider: provider.name, amountOut: String(quote.amountOut), priceImpact: quote.priceImpact != null ? `${(quote.priceImpact * 100).toFixed(2)}%` : null };
+    } catch {
+      return null;
+    }
+  }
+  const direct = await quoteUniswapDirect(inSide.address, inSide.decimals, outSide.address, outSide.decimals, amount);
+  return direct ? { provider: "Uniswap v3", amountOut: direct.amountOut, priceImpact: direct.priceImpact } : null;
+}
+
+/**
+ * A Nad.Fun-only token routed through MON as a real, two-leg intermediate
+ * hop — the follow-up to nadFunCounterAssetHint's diagnosis: rather than
+ * only EXPLAINING that "0xD10cf1...785657777 trades on Nad.Fun, but only
+ * against MON," actually quote the honest two-transaction path (spend ->
+ * MON -> token, or token -> MON -> receive) so the trade can genuinely
+ * happen without the user manually doing two separate trades themselves.
+ *
+ * Only reached after every direct route in getTradeRoute() has already
+ * failed, and only proceeds when the non-MON side is actually Nad.Fun-
+ * recognized (mirrors nadFunCounterAssetHint's own gating) — a genuinely
+ * illiquid token still gets an honest "no route" rather than a fabricated
+ * multi-hop quote. Both legs are real, independently-obtained quotes
+ * (quoteToMon reuses bestQuote()/quoteUniswapDirect(); nadFunQuote() is the
+ * same Lens-backed read every other Nad.Fun quote in this file uses) —
+ * never a guessed or interpolated number.
+ *
+ * Deliberately two real on-chain legs, not a fabricated single hop: there is
+ * no deployed contract on Monad that atomically chains a Uniswap swap and a
+ * Nad.Fun trade in one transaction, so this always means two separate
+ * signatures at execution time (see buildNadFunMultiHopSteps) — the preview
+ * here exists to show that honestly, not to pretend it's one trade.
+ */
+async function getNadFunMultiHopRoute(action: TradeAction, input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string): Promise<RawRoute | null> {
+  const isBuy = action === "buy";
+  const tokenSide = isBuy ? output : input;
+  const counterSide = isBuy ? input : output;
+  // Either side already being MON means nadFunSides() above would have
+  // tried (and failed) the direct route — hopping "through" MON when one
+  // side already IS MON is meaningless, so this only ever applies to a
+  // genuinely non-MON counter-asset.
+  if (tokenSide.isNative || counterSide.isNative) return null;
+
+  let status;
+  try {
+    status = await getNadFunStatus(tokenSide.address);
+  } catch {
+    return null;
+  }
+  if (!status.recognized) return null;
+
+  const monSide = await resolveTradeSide("MON");
+
+  if (isBuy) {
+    // Leg A: counter-asset -> MON. Leg B: MON -> token, sized off Leg A's
+    // real quoted output (never the original request amount).
+    const legA = await quoteToMon(counterSide, monSide, amount, "toMon");
+    if (!legA) return null;
+    const legB = await nadFunQuote(tokenSide.address, tokenSide.decimals, legA.amountOut, true);
+    if (!legB) return null;
+    return { provider: `${legA.provider}${MULTI_HOP_JOIN}Nad.Fun`, amountOut: legB.amountOut, priceImpact: legA.priceImpact };
+  }
+  // Leg A: token -> MON. Leg B: MON -> counter-asset, sized off Leg A's
+  // real quoted MON output.
+  const legA = await nadFunQuote(tokenSide.address, tokenSide.decimals, amount, false);
+  if (!legA) return null;
+  const legB = await quoteToMon(counterSide, monSide, legA.amountOut, "fromMon");
+  if (!legB) return null;
+  return { provider: `Nad.Fun${MULTI_HOP_JOIN}${legB.provider}`, amountOut: legB.amountOut, priceImpact: legB.priceImpact };
+}
+
 /** The real quote: bestQuote() (symbol-safe, both sides verified), Nad.Fun
- *  (a bonding-curve or newly-graduated MON<->token pair), or
- *  quoteUniswapDirect() (address-based, at least one side arbitrary) — the
- *  exact same primitives Step 2's market intelligence and Step 6's Nad.Fun
- *  provider already use. */
-async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string): Promise<RawRoute | null> {
+ *  (a bonding-curve or newly-graduated MON<->token pair), quoteUniswapDirect()
+ *  (address-based, at least one side arbitrary), or — only once all three of
+ *  those have already failed — the two-leg Nad.Fun-through-MON route (see
+ *  getNadFunMultiHopRoute's own doc). */
+async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide, amount: string, action: TradeAction): Promise<RawRoute | null> {
   if (input.verified && output.verified) {
     try {
       const { provider, quote } = await bestQuote(input.symbol, output.symbol, Number(amount));
@@ -253,7 +355,8 @@ async function getTradeRoute(input: ResolvedTradeSide, output: ResolvedTradeSide
   const nadFun = await getNadFunRoute(input, output, amount);
   if (nadFun) return nadFun;
   const direct = await quoteUniswapDirect(input.address, input.decimals, output.address, output.decimals, amount);
-  return direct ? { provider: "Uniswap v3", amountOut: direct.amountOut, priceImpact: direct.priceImpact } : null;
+  if (direct) return { provider: "Uniswap v3", amountOut: direct.amountOut, priceImpact: direct.priceImpact };
+  return getNadFunMultiHopRoute(action, input, output, amount);
 }
 
 /**
@@ -363,11 +466,12 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   // and it leaves every normal-sized amount's display untouched.
   const rawAmountStr = String(amountResult.amount);
   const amountStr = /e/i.test(rawAmountStr) ? toParseableAmount(amountResult.amount, inputSide.decimals) : rawAmountStr;
-  const route = await getTradeRoute(inputSide, outputSide, amountStr);
+  const route = await getTradeRoute(inputSide, outputSide, amountStr, req.action);
   if (!route) {
     const nadFunHint = await nadFunCounterAssetHint(inputSide, outputSide);
     return { ok: false, message: nadFunHint ?? `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
   }
+  const multiHop = isMultiHopProvider(route.provider);
 
   const grossOut = Number(route.amountOut);
   // When this trade will route through PayAITradeExecutor (Uniswap/Kuru, flag
@@ -375,17 +479,23 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   // the honest "you receive" is net of that fee. Nad.Fun and the flag-off path
   // pay no PayAI fee, so their numbers are unchanged. The net figure here is an
   // estimate (gross scaled by the fee); prepareTradeExecution re-quotes the net
-  // exactly and sets the real on-chain minOut.
+  // exactly and sets the real on-chain minOut. A multi-hop route never gets a
+  // single blended fee line here — venueForProvider would otherwise mismatch a
+  // composite "Uniswap v3 + Nad.Fun" string against a single venue (see
+  // isMultiHopProvider's own doc); each leg's real fee, if any, is disclosed
+  // honestly per-leg at build time instead (buildNadFunMultiHopSteps).
   let fee: TradePreviewOk["fee"] = null;
   let effOut = grossOut;
   let effReceiveStr = route.amountOut;
-  const previewVenue = venueForProvider(route.provider);
-  const previewExec = previewVenue ? selectExecutor(previewVenue) : null;
-  if (previewExec) {
-    const feeBps = await getExecutorFeeBps(previewExec);
-    effOut = grossOut * (1 - feeBps / 10000);
-    effReceiveStr = fmt(effOut);
-    fee = { percent: `${(feeBps / 100).toFixed(2)}%`, amount: fmt(amountResult.amount * (feeBps / 10000)), token: inputSide.symbol };
+  if (!multiHop) {
+    const previewVenue = venueForProvider(route.provider);
+    const previewExec = previewVenue ? selectExecutor(previewVenue) : null;
+    if (previewExec) {
+      const feeBps = await getExecutorFeeBps(previewExec);
+      effOut = grossOut * (1 - feeBps / 10000);
+      effReceiveStr = fmt(effOut);
+      fee = { percent: `${(feeBps / 100).toFixed(2)}%`, amount: fmt(amountResult.amount * (feeBps / 10000)), token: inputSide.symbol };
+    }
   }
 
   const rate = amountResult.amount > 0 ? effOut / amountResult.amount : 0;
@@ -401,7 +511,7 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
     minimumReceived: `${fmt(minReceived)} ${outputSide.symbol}`,
     priceImpact: route.priceImpact,
     highPriceImpact: impactFraction != null && impactFraction > MAX_PRICE_IMPACT,
-    route: { provider: route.provider, path: [inputSide.symbol, outputSide.symbol] },
+    route: { provider: route.provider, path: multiHop ? [inputSide.symbol, "MON", outputSide.symbol] : [inputSide.symbol, outputSide.symbol] },
     slippage: `${(slippageResult.slippage * 100).toFixed(2)}%`,
     network: "Monad",
     quotedAt: Date.now(),
