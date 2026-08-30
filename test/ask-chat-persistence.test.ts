@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearChatState, loadChatState, saveChatState } from "@/lib/ask/persistChat";
+import { clearChatState, loadChatState, normalizeWalletAddress, saveChatState } from "@/lib/ask/persistChat";
 import { getPendingSettlement, savePendingSettlement, clearPendingSettlement } from "@/lib/hooks/pendingSettlement";
 import type { AskMessage, Operation, PaymentIntent, SwapIntent, TokenIntelligenceIntent } from "@/lib/ask/types";
 import type { Understanding } from "@/lib/ask/intent/types";
 
-const WALLET = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+const WALLET_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const WALLET_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const TOKEN_ADDR = "0x1234567890abcdef1234567890abcdef12345678";
 
 /** A real Storage-shaped in-memory fake — sessionStorage doesn't exist in
@@ -18,6 +19,7 @@ function fakeSessionStorage() {
     setItem: (k: string, v: string) => { store.set(k, v); },
     removeItem: (k: string) => { store.delete(k); },
     get size() { return store.size; },
+    keys: () => [...store.keys()],
   };
 }
 
@@ -36,37 +38,64 @@ function assistantMsg(id: string, content: string, createdAt: number, operation?
 }
 
 const READY_PAYMENT_INTENT: PaymentIntent = {
-  kind: "payment", network: "monad", token: "USDC", amount: "10", recipient: WALLET,
-  execution: { unsignedTx: { to: "0xforwarder", data: "0xabc", from: WALLET }, confirmRawText: "send 10 USDC", requestId: "req_1" },
+  kind: "payment", network: "monad", token: "USDC", amount: "10", recipient: WALLET_A,
+  execution: { unsignedTx: { to: "0xforwarder", data: "0xabc", from: WALLET_A }, confirmRawText: "send 10 USDC", requestId: "req_1" },
 };
 function readyPaymentOp(id: string): Operation {
   return { id, intent: READY_PAYMENT_INTENT, status: "ready" };
 }
 
-describe("Ask PayAI conversation persistence — round trip", () => {
-  it("1. restores a conversation that was saved before a simulated refresh", () => {
-    const messages = [userMsg("u1", "send 10 usdc to bob", 1000), assistantMsg("a1", "Here's the payment", 1001, readyPaymentOp("op1"))];
-    saveChatState(messages, null);
-    const restored = loadChatState();
-    expect(restored?.messages).toHaveLength(2);
-    expect(restored?.messages[1].operation?.status).toBe("ready");
+describe("P1.2 — wallet-scoped Ask PayAI conversation persistence", () => {
+  it("1. the same wallet restores its own conversation correctly", () => {
+    saveChatState([userMsg("u1", "hi from wallet A", 1000)], null, WALLET_A);
+    const restored = loadChatState(WALLET_A);
+    expect(restored?.messages).toHaveLength(1);
+    expect(restored?.messages[0].content).toBe("hi from wallet A");
   });
 
-  it("2. messages restore in the exact original order", () => {
-    const messages = [userMsg("u1", "first", 1000), assistantMsg("a1", "reply one", 1001), userMsg("u2", "second", 1002), assistantMsg("a2", "reply two", 1003)];
-    saveChatState(messages, null);
-    const restored = loadChatState();
-    expect(restored?.messages.map((m) => m.id)).toEqual(["u1", "a1", "u2", "a2"]);
+  it("2. a different wallet never sees the previous wallet's conversation", () => {
+    saveChatState([userMsg("u1", "wallet A's private context", 1000)], null, WALLET_A);
+    const asB = loadChatState(WALLET_B);
+    expect(asB).toBeNull();
   });
 
-  it("3. pending intent/context restores", () => {
-    const pending: Understanding = { kind: "trade", outcome: "incomplete", slots: { tradeAction: "buy", toAsset: TOKEN_ADDR }, question: "How much would you like to spend?" };
-    saveChatState([userMsg("u1", "buy this token", 1000)], pending);
-    const restored = loadChatState();
-    expect(restored?.pending).toEqual(pending);
+  it("3. switching from Wallet A to Wallet B isolates each — nothing from A is visible under B's identity", () => {
+    saveChatState([userMsg("u1", "A's conversation", 1000)], null, WALLET_A);
+    // Simulates useAskChat's reconcile effect on a wallet-change event: it
+    // loads under the NEW identity only, never carrying A's in-memory state
+    // along with it.
+    const bView = loadChatState(WALLET_B) ?? { messages: [], pending: null };
+    expect(bView.messages).toHaveLength(0);
+    // A's own record is untouched by B becoming active — still there under
+    // A's own key.
+    expect(loadChatState(WALLET_A)?.messages).toHaveLength(1);
   });
 
-  it("4. token context (a token_intelligence card) restores so follow-ups still resolve 'it'/'that token'", () => {
+  it("4. Wallet B's own pre-existing conversation restores when B connects", () => {
+    saveChatState([userMsg("u1", "A's conversation", 1000)], null, WALLET_A);
+    saveChatState([userMsg("u1", "B's own conversation", 2000)], null, WALLET_B);
+    const bView = loadChatState(WALLET_B);
+    expect(bView?.messages[0].content).toBe("B's own conversation");
+  });
+
+  it("5. switching back to Wallet A restores A's conversation, untouched by B's activity in between", () => {
+    saveChatState([userMsg("u1", "A's conversation", 1000)], null, WALLET_A);
+    // B connects, has its own separate activity — writes to its OWN key.
+    saveChatState([userMsg("u1", "B chats a bunch", 2000), userMsg("u2", "more from B", 2001)], null, WALLET_B);
+    // Switch back to A.
+    const aView = loadChatState(WALLET_A);
+    expect(aView?.messages).toHaveLength(1);
+    expect(aView?.messages[0].content).toBe("A's conversation");
+  });
+
+  it("6. a pending intent is wallet-scoped — never answers a follow-up with another wallet's in-flight context", () => {
+    const pendingA: Understanding = { kind: "trade", outcome: "incomplete", slots: { tradeAction: "buy", toAsset: TOKEN_ADDR }, question: "How much would you like to spend?" };
+    saveChatState([userMsg("u1", "buy this token", 1000)], pendingA, WALLET_A);
+    expect(loadChatState(WALLET_B)?.pending ?? null).toBeNull();
+    expect(loadChatState(WALLET_A)?.pending).toEqual(pendingA);
+  });
+
+  it("7. token context (a token_intelligence card) is wallet-scoped", () => {
     const tokenIntent: TokenIntelligenceIntent = {
       kind: "token_intelligence", network: "monad", address: TOKEN_ADDR, status: "token",
       data: {
@@ -76,136 +105,139 @@ describe("Ask PayAI conversation persistence — round trip", () => {
       },
     };
     const op: Operation = { id: "op_tok", intent: tokenIntent, status: "success" };
-    saveChatState([assistantMsg("a1", "Here's RANDO", 1000, op)], null);
-    const restored = loadChatState();
-    const restoredOp = restored?.messages[0].operation;
-    expect(restoredOp?.intent.kind).toBe("token_intelligence");
+    saveChatState([assistantMsg("a1", "Here's RANDO", 1000, op)], null, WALLET_A);
+    expect(loadChatState(WALLET_B)).toBeNull(); // B has no token context of A's to inherit
+    const restoredOp = loadChatState(WALLET_A)?.messages[0].operation;
     expect(restoredOp?.intent.kind === "token_intelligence" && restoredOp.intent.address).toBe(TOKEN_ADDR);
   });
 
-  it("5. a still-actionable ('ready') operation restores exactly as it was — same intent fields, same status", () => {
-    saveChatState([assistantMsg("a1", "Review payment", 1000, readyPaymentOp("op1"))], null);
-    const restored = loadChatState();
-    const op = restored?.messages[0].operation;
-    expect(op?.status).toBe("ready");
-    expect(op?.intent.kind === "payment" && op.intent.execution?.unsignedTx.to).toBe("0xforwarder");
-  });
+  it("8. an actionable ('ready') operation restores safely and cannot auto-execute", () => {
+    saveChatState([assistantMsg("a1", "Review payment", 1000, readyPaymentOp("op1"))], null, WALLET_A);
+    const op = loadChatState(WALLET_A)?.messages[0].operation;
+    expect(op?.status).toBe("ready"); // still requires the existing explicit confirm click
 
-  it("6. a restored operation can never resume mid-execution — 'confirming' is downgraded, not resurrected", () => {
     const confirmingOp: Operation = { id: "op1", intent: READY_PAYMENT_INTENT, status: "confirming" };
-    saveChatState([assistantMsg("a1", "Signing…", 1000, confirmingOp)], null);
-    const restored = loadChatState();
-    const op = restored?.messages[0].operation;
-    expect(op?.status).not.toBe("confirming");
-    expect(op?.status).toBe("error");
-    expect(op?.error?.code).toBe("INTERRUPTED");
+    saveChatState([assistantMsg("a1", "Signing…", 1000, confirmingOp)], null, WALLET_B);
+    const restored = loadChatState(WALLET_B)?.messages[0].operation;
+    expect(restored?.status).not.toBe("confirming");
+    expect(restored?.status).toBe("error");
+    expect(restored?.error?.code).toBe("INTERRUPTED");
   });
 
-  it("7. the downgraded card still requires the same explicit confirm click as any other error state — no bypass path exists in the restore itself", () => {
-    // loadChatState is a pure read: it never calls advanceOperation, never
-    // dispatches a signature, never mutates anything outside the returned
-    // value. The only route back to "ready" is retryOperation -> send(),
-    // the exact same funnel a normal error already goes through.
-    const confirmingOp: Operation = { id: "op1", intent: READY_PAYMENT_INTENT, status: "confirming" };
-    saveChatState([assistantMsg("a1", "Signing…", 1000, confirmingOp)], null);
-    loadChatState();
-    // No fetch, no wallet call, nothing — restoring never itself calls out.
-    expect(true).toBe(true);
+  it("9. a 'submitted' (broadcast, unconfirmed) operation restores safely, still wallet-scoped", () => {
+    const swapIntent: SwapIntent = { kind: "swap", network: "monad", fromToken: "USDC", toToken: "MON", fromAmount: "10" };
+    const submittedOp: Operation = { id: "op1", intent: swapIntent, status: "submitted", submitted: { txHash: "0xdead", explorerUrl: "https://explorer.monad.xyz/tx/0xdead" } };
+    saveChatState([assistantMsg("a1", "Swap submitted", 1000, submittedOp)], null, WALLET_A);
+    expect(loadChatState(WALLET_B)).toBeNull(); // not B's transaction to see
+    const op = loadChatState(WALLET_A)?.messages[0].operation;
+    expect(op?.status).toBe("submitted");
+    expect(op?.submitted?.txHash).toBe("0xdead");
+    expect(op?.result).toBeUndefined(); // never silently upgraded to success
   });
 
-  it("8. never persists anything shaped like a signed artifact or a credential", () => {
-    saveChatState([assistantMsg("a1", "Review payment", 1000, readyPaymentOp("op1"))], null);
-    const raw = fake.getItem("payai_ask_conversation_v1")!;
+  it("10. old v1 (wallet-unaware) storage is rejected safely and cleaned up", () => {
+    fake.setItem("payai_ask_conversation_v1", JSON.stringify({ v: 1, savedAt: Date.now(), messages: [userMsg("u1", "old", 1)], pending: null }));
+    expect(loadChatState(WALLET_A)).toBeNull();
+    expect(fake.getItem("payai_ask_conversation_v1")).toBeNull(); // actively discarded, not just ignored
+  });
+
+  it("11. a malformed or mismatched walletAddress inside a stored record is rejected", () => {
+    // Hand-edited / corrupted: the record's OWN walletAddress field doesn't
+    // match the key it's stored under (or isn't address-shaped at all).
+    fake.setItem(`payai_ask_conversation_v2:${WALLET_A}`, JSON.stringify({ v: 2, savedAt: Date.now(), walletAddress: "not-an-address", messages: [userMsg("u1", "hi", 1)], pending: null }));
+    expect(loadChatState(WALLET_A)).toBeNull();
+
+    fake.setItem(`payai_ask_conversation_v2:${WALLET_A}`, JSON.stringify({ v: 2, savedAt: Date.now(), walletAddress: WALLET_B, messages: [userMsg("u1", "hi", 1)], pending: null }));
+    expect(loadChatState(WALLET_A)).toBeNull();
+  });
+
+  it("normalizeWalletAddress rejects anything that isn't a real address shape", () => {
+    expect(normalizeWalletAddress(null)).toBeNull();
+    expect(normalizeWalletAddress(undefined)).toBeNull();
+    expect(normalizeWalletAddress("")).toBeNull();
+    expect(normalizeWalletAddress("not-an-address")).toBeNull();
+    expect(normalizeWalletAddress("0x123")).toBeNull();
+    // Real checksum casing only ever affects the hex digits, never the "0x"
+    // prefix — mirrors what an actual EIP-55 checksummed address looks like.
+    const checksummedShape = "0x" + WALLET_A.slice(2).toUpperCase();
+    expect(normalizeWalletAddress(checksummedShape)).toBe(WALLET_A.toLowerCase());
+  });
+
+  it("12. no connected wallet never restores or persists wallet-specific state", () => {
+    saveChatState([userMsg("u1", "should never be written anywhere", 1000)], null, null);
+    expect(fake.size).toBe(0); // nothing was written at all — no identity to write under
+    expect(loadChatState(null)).toBeNull();
+  });
+
+  it("13. TTL behavior is unchanged — 24h sliding, per wallet", () => {
+    const dayAndAHalfAgo = Date.now() - 1.5 * 24 * 60 * 60 * 1000;
+    fake.setItem(`payai_ask_conversation_v2:${WALLET_A}`, JSON.stringify({ v: 2, savedAt: dayAndAHalfAgo, walletAddress: WALLET_A, messages: [userMsg("u1", "old", dayAndAHalfAgo)], pending: null }));
+    expect(loadChatState(WALLET_A)).toBeNull();
+
+    saveChatState([userMsg("u1", "fresh", Date.now())], null, WALLET_A);
+    expect(loadChatState(WALLET_A)).not.toBeNull();
+  });
+
+  it("14. a clean state (nothing stored for this wallet) behaves exactly like before — empty conversation", () => {
+    expect(loadChatState(WALLET_A)).toBeNull();
+  });
+
+  it("15. an automation handoff card restores safely, still wallet-scoped, without reopening any modal on its own", () => {
+    const op: Operation = {
+      id: "op1",
+      intent: { kind: "recurring_payment", network: "monad", token: "USDC", amount: "5", recipient: WALLET_A, frequency: "weekly", startDate: new Date().toISOString(), handoff: { prefill: { amount: 5, token: "USDC", recipient: WALLET_A, domain: null, cadence: "weekly", nextRun: Date.now() + 1000 } } },
+      status: "ready",
+      confirmLabel: "Set up automation",
+      confirmIcon: "go",
+    };
+    saveChatState([assistantMsg("a1", "Set up a weekly payment", 1000, op)], null, WALLET_A);
+    expect(loadChatState(WALLET_B)).toBeNull(); // B never inherits A's automation draft
+    const restoredOp = loadChatState(WALLET_A)?.messages[0].operation;
+    expect(restoredOp?.status).toBe("ready");
+    expect(restoredOp?.intent.kind === "recurring_payment" && restoredOp.intent.handoff?.prefill.amount).toBe(5);
+  });
+
+  it("never persists anything shaped like a signed artifact or a credential", () => {
+    saveChatState([assistantMsg("a1", "Review payment", 1000, readyPaymentOp("op1"))], null, WALLET_A);
+    const raw = fake.getItem(`payai_ask_conversation_v2:${WALLET_A}`)!;
     // "unsignedTx" (the pre-signature request PayAI itself builds) is
     // expected and safe — only a JSON KEY named "signedTx" (a claim that
     // something is already signed) would be the real red flag.
     expect(raw).not.toMatch(/privateKey|"signature"|"signedTx"|mnemonic|"seed"/i);
   });
 
-  it("9. malformed JSON in storage is discarded, not thrown", () => {
-    fake.setItem("payai_ask_conversation_v1", "{not json");
-    expect(() => loadChatState()).not.toThrow();
-    expect(loadChatState()).toBeNull();
-    expect(fake.getItem("payai_ask_conversation_v1")).toBeNull(); // cleared, not left corrupt
+  it("malformed JSON in a wallet's own record is discarded, not thrown", () => {
+    fake.setItem(`payai_ask_conversation_v2:${WALLET_A}`, "{not json");
+    expect(() => loadChatState(WALLET_A)).not.toThrow();
+    expect(loadChatState(WALLET_A)).toBeNull();
   });
 
-  it("10. an unrecognized schema version is discarded", () => {
-    fake.setItem("payai_ask_conversation_v1", JSON.stringify({ v: 999, savedAt: Date.now(), messages: [userMsg("u1", "hi", 1)], pending: null }));
-    expect(loadChatState()).toBeNull();
+  it("clearing a wallet's conversation only removes THAT wallet's record", () => {
+    saveChatState([userMsg("u1", "A", 1000)], null, WALLET_A);
+    saveChatState([userMsg("u1", "B", 1000)], null, WALLET_B);
+    clearChatState(WALLET_A);
+    expect(loadChatState(WALLET_A)).toBeNull();
+    expect(loadChatState(WALLET_B)).not.toBeNull();
   });
 
-  it("11. an expired session (older than the TTL) is discarded", () => {
-    const dayAndAHalfAgo = Date.now() - 1.5 * 24 * 60 * 60 * 1000;
-    fake.setItem("payai_ask_conversation_v1", JSON.stringify({ v: 1, savedAt: dayAndAHalfAgo, messages: [userMsg("u1", "hi", dayAndAHalfAgo)], pending: null }));
-    expect(loadChatState()).toBeNull();
+  it("saving an empty conversation clears that wallet's record rather than persisting an empty shell", () => {
+    saveChatState([userMsg("u1", "hi", 1000)], null, WALLET_A);
+    saveChatState([], null, WALLET_A);
+    expect(loadChatState(WALLET_A)).toBeNull();
   });
 
-  it("a session saved moments ago (well within the TTL) is NOT discarded", () => {
-    saveChatState([userMsg("u1", "hi", Date.now())], null);
-    expect(loadChatState()).not.toBeNull();
-  });
-
-  it("12. a 'submitted' (broadcast, unconfirmed) card restores safely as submitted — never silently upgraded to success or downgraded to error", () => {
-    const swapIntent: SwapIntent = { kind: "swap", network: "monad", fromToken: "USDC", toToken: "MON", fromAmount: "10" };
-    const submittedOp: Operation = { id: "op1", intent: swapIntent, status: "submitted", submitted: { txHash: "0xdead", explorerUrl: "https://explorer.monad.xyz/tx/0xdead" } };
-    saveChatState([assistantMsg("a1", "Swap submitted", 1000, submittedOp)], null);
-    const restored = loadChatState();
-    const op = restored?.messages[0].operation;
-    expect(op?.status).toBe("submitted");
-    expect(op?.submitted?.txHash).toBe("0xdead");
-    expect(op?.result).toBeUndefined();
-  });
-
-  it("13. the existing pendingSettlement reconciler (a separate, localStorage-based mechanism) is untouched by this feature", () => {
-    // Different storage (localStorage vs sessionStorage here), different key,
-    // different module — this only proves the two coexist without collision.
+  it("the existing pendingSettlement reconciler (a separate, localStorage-based mechanism) is untouched by this feature", () => {
     vi.stubGlobal("localStorage", fakeSessionStorage());
-    savePendingSettlement({ kind: "swap", walletAddress: WALLET, txHash: "0xabc", savedAt: Date.now() });
-    expect(getPendingSettlement(WALLET)?.txHash).toBe("0xabc");
+    savePendingSettlement({ kind: "swap", walletAddress: WALLET_A, txHash: "0xabc", savedAt: Date.now() });
+    expect(getPendingSettlement(WALLET_A)?.txHash).toBe("0xabc");
     clearPendingSettlement();
-    expect(getPendingSettlement(WALLET)).toBeNull();
-  });
-
-  it("14. an automation handoff card (still 'ready') restores with its prefill intact, without anything reopening a modal on its own", () => {
-    // automationDraft (whether the AutomationCreator modal is open) is
-    // deliberately NOT part of what's persisted — see useAskChat's own
-    // comment. What DOES need to survive is the handoff card itself, so the
-    // user can click it again to reopen the modal.
-    const op: Operation = {
-      id: "op1",
-      intent: { kind: "recurring_payment", network: "monad", token: "USDC", amount: "5", recipient: WALLET, frequency: "weekly", startDate: new Date().toISOString(), handoff: { prefill: { amount: 5, token: "USDC", recipient: WALLET, domain: null, cadence: "weekly", nextRun: Date.now() + 1000 } } },
-      status: "ready",
-      confirmLabel: "Set up automation",
-      confirmIcon: "go",
-    };
-    saveChatState([assistantMsg("a1", "Set up a weekly payment", 1000, op)], null);
-    const restored = loadChatState();
-    const restoredOp = restored?.messages[0].operation;
-    expect(restoredOp?.status).toBe("ready");
-    expect(restoredOp?.intent.kind === "recurring_payment" && restoredOp.intent.handoff?.prefill.amount).toBe(5);
-  });
-
-  it("15. existing behavior is unchanged when there is nothing stored — starts exactly as a fresh conversation would", () => {
-    expect(loadChatState()).toBeNull();
-  });
-
-  it("clearing a conversation removes the persisted record entirely", () => {
-    saveChatState([userMsg("u1", "hi", 1000)], null);
-    expect(loadChatState()).not.toBeNull();
-    clearChatState();
-    expect(loadChatState()).toBeNull();
-  });
-
-  it("saving an empty conversation (e.g. after 'New conversation') clears any prior record rather than persisting an empty shell", () => {
-    saveChatState([userMsg("u1", "hi", 1000)], null);
-    saveChatState([], null);
-    expect(loadChatState()).toBeNull();
+    expect(getPendingSettlement(WALLET_A)).toBeNull();
   });
 
   it("storage being unavailable (private mode / SSR) degrades to null and never throws", () => {
     vi.stubGlobal("sessionStorage", undefined);
-    expect(() => loadChatState()).not.toThrow();
-    expect(loadChatState()).toBeNull();
-    expect(() => saveChatState([userMsg("u1", "hi", 1000)], null)).not.toThrow();
+    expect(() => loadChatState(WALLET_A)).not.toThrow();
+    expect(loadChatState(WALLET_A)).toBeNull();
+    expect(() => saveChatState([userMsg("u1", "hi", 1000)], null, WALLET_A)).not.toThrow();
   });
 });
