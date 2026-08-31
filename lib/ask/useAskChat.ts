@@ -151,6 +151,32 @@ export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
  *  change what gets sent or how it's classified server-side. */
 const CLIENT_EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
 
+/** P1.5 — the same idea as CLIENT_EVM_ADDRESS_RE above, extended to the
+ *  other common request shapes: a plain "…" dots row reads as frozen no
+ *  matter what's actually happening underneath it, and a bare "Loading…"
+ *  doesn't tell the user PayAI even understood the shape of the request.
+ *  Each regex here is a light, best-effort, DISPLAY-ONLY guess — never
+ *  imported from classify.ts's own (server-only, Anthropic-importing)
+ *  detectors, and never a substitute for the real classification that
+ *  follows. Order matters: checked most-specific-first so e.g. "sell my
+ *  MON" (a trade signal) doesn't fall through to the payment guess just
+ *  because "my" and an asset also appear in a transfer. A message that
+ *  matches nothing here keeps the plain animated dots (guessThinkingLabel
+ *  returns null) — never a wrong or overconfident label. */
+const CLIENT_TRADE_SIGNAL_RE = /\b(buy|purchase|sell|swap|trade)\b/i;
+const CLIENT_PAYMENT_SIGNAL_RE = /\b(send|pay)\b/i;
+const CLIENT_STATUS_SIGNAL_RE = /\b(go(es)?\s+through|went\s+through|confirmed|is\s+it\s+(done|pending)|status|succeed(ed)?|failed)\b/i;
+const CLIENT_WALLET_QUERY_RE = /\b(balance|history|transactions?|activity|automations?|schedule|recurring)\b/i;
+
+export function guessThinkingLabel(text: string): string | null {
+  if (CLIENT_EVM_ADDRESS_RE.test(text)) return "Checking the token…";
+  if (CLIENT_TRADE_SIGNAL_RE.test(text)) return "Preparing your trade…";
+  if (CLIENT_PAYMENT_SIGNAL_RE.test(text)) return "Preparing your payment…";
+  if (CLIENT_STATUS_SIGNAL_RE.test(text)) return "Checking Monad…";
+  if (CLIENT_WALLET_QUERY_RE.test(text)) return "Checking your wallet…";
+  return null;
+}
+
 /** What the currently active conversation's own identity is, cached so a
  *  save doesn't need to re-read storage to know its own createdAt/title
  *  state. Null means "no conversation started yet" — see ensureConversation
@@ -550,7 +576,7 @@ export function useAskChat(options?: { persist?: boolean }) {
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
     setMessages((m) => [...m, userMsg]);
     setInput("");
-    setThinkingLabel(CLIENT_EVM_ADDRESS_RE.test(trimmed) ? "Looking up token…" : null);
+    setThinkingLabel(guessThinkingLabel(trimmed));
     setThinking(true);
     try {
       const history: ConversationTurn[] = [...messages, userMsg]
