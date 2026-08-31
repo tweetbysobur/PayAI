@@ -7,10 +7,24 @@
  * P1.3 — a wallet can hold MULTIPLE named conversations, not just one: a
  * lightweight per-wallet index (title/timestamps/message count only) backs
  * the ConversationList rail, and each conversation's full transcript lives
- * in its own key, loaded only when actually opened or searched. Browser-
- * only, sessionStorage-only — no backend, no database, no cross-device or
- * cross-tab sync (same accepted limitation as P1.1/P1.2: each tab's
- * sessionStorage is independent).
+ * in its own key, loaded only when actually opened or searched.
+ * P1.6 — switched from sessionStorage to localStorage. sessionStorage is
+ * cleared the moment a tab is actually closed — including a mobile browser
+ * silently closing and later restoring a backgrounded tab under memory
+ * pressure, which looks identical to an ordinary refresh from the user's
+ * side but wiped the conversation exactly like a real tab close would (the
+ * reported bug this fixes). localStorage survives a closed tab and a full
+ * browser restart, until "Clear history" is used or the browser's own site
+ * data is cleared. Browser-only, no backend, no database.
+ *
+ * One real behavior change from the switch: localStorage (unlike
+ * sessionStorage) IS shared across every tab of the same origin. Two tabs
+ * open on the same wallet now read/write the same underlying records —
+ * there's still no LIVE push between them (no `storage` event listener
+ * here), so a second tab only sees another tab's latest save the next time
+ * it itself reads storage (mount, wallet switch, conversation switch), not
+ * instantly — but a tab can no longer silently diverge onto its own,
+ * permanently separate history the way two sessionStorage tabs used to.
  *
  * Scope is deliberately narrow: the full /dashboard/ask page's conversation
  * (via AskPageChatContext) opts into this; CommandBar's own useAskChat()
@@ -24,13 +38,16 @@
  * recently active wallet, so switching A -> B and back would lose A's data
  * the moment B wrote anything of its own. Per-wallet keys mean each
  * wallet's history survives independently, completely undisturbed by
- * another wallet's activity in the same tab.
+ * another wallet's activity.
  *
  * SECURITY: only ever restores data this module itself wrote for the EXACT
  * wallet currently connected (or nothing, if no wallet is connected — see
  * normalizeWalletAddress). Never restores anything that could let a
  * transaction execute without a fresh click through the existing confirm
- * funnel — see sanitizeRestoredMessages, the one place that matters.
+ * funnel — see sanitizeRestoredMessages, the one place that matters. Since
+ * localStorage now persists indefinitely (not just for the tab's session),
+ * this data also outlives the browser session on a shared/public device
+ * until "Clear history" is used or the browser's own site data is cleared.
  */
 import type { AskMessage, Operation } from "@/lib/ask/types";
 import type { Understanding } from "@/lib/ask/intent/types";
@@ -275,7 +292,7 @@ function sortByRecency(summaries: ConversationSummary[]): ConversationSummary[] 
 
 function tryWriteJson(key: string, value: unknown): boolean {
   try {
-    sessionStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, JSON.stringify(value));
     return true;
   } catch {
     // Storage unavailable (private mode) or quota exceeded — callers handle
@@ -286,7 +303,7 @@ function tryWriteJson(key: string, value: unknown): boolean {
 }
 
 function removeConv(normalized: string, conversationId: string): void {
-  try { sessionStorage.removeItem(convKey(normalized, conversationId)); } catch { /* no-op */ }
+  try { localStorage.removeItem(convKey(normalized, conversationId)); } catch { /* no-op */ }
 }
 
 /** Reads the raw index for a wallet with light structural validation —
@@ -296,19 +313,19 @@ function removeConv(normalized: string, conversationId: string): void {
  *  public entry point everything else in this file builds on. */
 function readIndexRaw(normalized: string): HistoryIndexStored | null {
   try {
-    const raw = sessionStorage.getItem(indexKey(normalized));
+    const raw = localStorage.getItem(indexKey(normalized));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<HistoryIndexStored>;
-    if (parsed.v !== SCHEMA_VERSION) { try { sessionStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
-    if (normalizeWalletAddress(parsed.walletAddress) !== normalized) { try { sessionStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
-    if (!Array.isArray(parsed.summaries) || !parsed.summaries.every(looksLikeSummary)) { try { sessionStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
+    if (parsed.v !== SCHEMA_VERSION) { try { localStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
+    if (normalizeWalletAddress(parsed.walletAddress) !== normalized) { try { localStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
+    if (!Array.isArray(parsed.summaries) || !parsed.summaries.every(looksLikeSummary)) { try { localStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ } return null; }
     return {
       v: SCHEMA_VERSION, walletAddress: normalized,
       activeConversationId: typeof parsed.activeConversationId === "string" ? parsed.activeConversationId : null,
       summaries: parsed.summaries,
     };
   } catch {
-    try { sessionStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ }
+    try { localStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ }
     return null;
   }
 }
@@ -329,7 +346,7 @@ function migrateLegacyConversation(normalized: string): { activeConversationId: 
   let legacyPending: Understanding | null = null;
   let legacySavedAt: number | null = null;
   try {
-    const raw = sessionStorage.getItem(legacyKey);
+    const raw = localStorage.getItem(legacyKey);
     if (raw) {
       const parsed = JSON.parse(raw) as { v?: unknown; savedAt?: unknown; walletAddress?: unknown; messages?: unknown; pending?: unknown };
       if (
@@ -346,7 +363,7 @@ function migrateLegacyConversation(normalized: string): { activeConversationId: 
   } catch {
     // Malformed — nothing to migrate.
   }
-  try { sessionStorage.removeItem(legacyKey); } catch { /* no-op */ }
+  try { localStorage.removeItem(legacyKey); } catch { /* no-op */ }
 
   if (!legacyMessages || legacyMessages.length === 0 || legacySavedAt === null) return null;
 
@@ -373,7 +390,7 @@ function migrateLegacyConversation(normalized: string): { activeConversationId: 
 export function loadHistoryIndex(walletAddress: string | null): { activeConversationId: string | null; summaries: ConversationSummary[] } {
   // Best-effort cleanup of P1.1's original wallet-unaware key — see its own
   // constant doc. Never read, only removed on sight.
-  try { sessionStorage.removeItem(LEGACY_V1_KEY); } catch { /* no-op */ }
+  try { localStorage.removeItem(LEGACY_V1_KEY); } catch { /* no-op */ }
 
   const normalized = normalizeWalletAddress(walletAddress);
   if (!normalized) return { activeConversationId: null, summaries: [] };
@@ -398,7 +415,7 @@ export function loadConversation(walletAddress: string | null, conversationId: s
   const normalized = normalizeWalletAddress(walletAddress);
   if (!normalized) return null;
   try {
-    const raw = sessionStorage.getItem(convKey(normalized, conversationId));
+    const raw = localStorage.getItem(convKey(normalized, conversationId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<ConversationRecordStored>;
     if (parsed.v !== SCHEMA_VERSION) { removeConv(normalized, conversationId); return null; }
@@ -541,7 +558,7 @@ export function clearAllHistory(walletAddress: string | null): void {
   if (!normalized) return;
   const index = readIndexRaw(normalized);
   if (index) for (const s of index.summaries) removeConv(normalized, s.conversationId);
-  try { sessionStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ }
+  try { localStorage.removeItem(indexKey(normalized)); } catch { /* no-op */ }
 }
 
 /**
