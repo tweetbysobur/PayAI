@@ -24,6 +24,7 @@ import "server-only";
 import { parseUnits, type Address } from "viem";
 import { getNetwork } from "./config";
 import { getPublicClient } from "./wallet";
+import { withTimeout } from "./rpcTimeout";
 
 const PRICE_TTL_MS = 60_000;
 
@@ -40,6 +41,17 @@ const USDC = (process.env.MONAD_MAINNET_USDC || "0x754704Bc059F8C67012fEd69BC8A3
 const USDC_DECIMALS = Number(process.env.MONAD_USDC_DECIMALS ?? 6);
 
 const FEE_TIERS = [500, 3000, 10000] as const;
+
+/** Bounds ONE token's price probe inside getUsdPrices' batch below. A quoter
+ *  read that stalls (the provider accepts the call and simply never answers,
+ *  same failure class as the portfolio-discovery gap this mirrors) doesn't
+ *  reject — Promise.allSettled inside quoteUnitPrice tolerates a REJECTED fee
+ *  tier, but does nothing for one that never settles at all, and neither does
+ *  getUsdPrices' own Promise.all across tokens. Without a bound here, ONE
+ *  wallet holding stuck a stalled quoter call previously meant every OTHER
+ *  token in the same portfolio silently never got a USD value either — not
+ *  just the flaky one. */
+const PRICE_TIMEOUT_MS = 4_000;
 
 const QUOTER_ABI = [
   {
@@ -150,7 +162,10 @@ export async function getUsdPrices(
     if (!unique.has(k)) unique.set(k, t);
   }
   const entries = await Promise.all(
-    [...unique.entries()].map(async ([k, t]) => [k, await getUsdPrice(t.address, t.decimals).catch(() => null)] as const),
+    [...unique.entries()].map(async ([k, t]) => {
+      const usd = await withTimeout(getUsdPrice(t.address, t.decimals).catch(() => null), PRICE_TIMEOUT_MS, null);
+      return [k, usd] as const;
+    }),
   );
   return Object.fromEntries(entries);
 }
