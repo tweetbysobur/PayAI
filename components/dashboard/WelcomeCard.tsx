@@ -15,17 +15,31 @@ import { AskMark } from "@/components/AskMark";
  * than what to do next. This answers "what now?" with four concrete starting
  * points, and disappears for good once there is real activity to show
  * (`show={false}`), so it never becomes clutter for an established user.
+ *
+ * "DeFi tokens" used to appear in the Ask PayAI tile's own blurb, which
+ * overclaimed: Ask PayAI trades any Monad token by symbol or contract
+ * address (Uniswap/Kuru/Nad.Fun) — real, live, and already described
+ * accurately below — but it doesn't do broader DeFi protocol actions
+ * (lending, staking, liquidity provision), so naming "DeFi tokens" there
+ * blurred a real capability into a nonexistent one. That protocol-level
+ * capability gets its own honest, clearly-marked "coming soon" tile instead
+ * of a nonexistent CTA that reused the automation flow's slot — matching the
+ * sidebar's own `soon` convention (see Sidebar.tsx's NAV, e.g. Invoices).
  */
-const ACTIONS = [
+const ACTIONS: {
+  href: string; title: string; blurb: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  primary?: boolean; soon?: boolean;
+}[] = [
   {
     href: "/dashboard/ask",
     title: "Trade with Ask PayAI",
-    blurb: "Swap, trade DeFi tokens, and pay — just describe it.",
+    blurb: "Send, trade any token, or automate — just describe it.",
     icon: AskMark,
     primary: true,
   },
   { href: "/dashboard/payments", title: "Send Money", blurb: "Pay any address or .nad name.", icon: Send },
-  { href: "/dashboard/automations", title: "Create Payment Automation", blurb: "Schedule a payment that runs on its own.", icon: Repeat },
+  { href: "/dashboard", title: "DeFi Protocols", blurb: "Lending, staking, and liquidity — coming soon.", icon: Repeat, soon: true },
   { href: "/connect", title: "Import Existing Wallet", blurb: "Use MetaMask, Rabby or Backpack instead.", icon: Download },
 ];
 
@@ -37,7 +51,7 @@ const ACTIONS = [
  *  "Trade & DeFi" bucket below, which exists only for this tour's grouping
  *  and never touches the sidebar's real section value. */
 const TOUR_BLURBS: Record<string, string> = {
-  "/dashboard/ask": "Trade, swap DeFi tokens, and pay — all in natural language.",
+  "/dashboard/ask": "Send, trade, or automate — all in natural language.",
   "/dashboard/payments": "Pay any wallet address or .nad name.",
   "/dashboard/automations": "Set up recurring or scheduled payments.",
   // Activity, Analytics and Compliance live as tabs on this same page now,
@@ -87,7 +101,7 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
         Welcome to PayAI{username ? `, @${username}` : ""}.
       </h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Your wallet is ready. Send, trade, swap DeFi tokens, or automate — what would you like to do first?
+        Your wallet is ready. Send, trade, or automate — what would you like to do first?
       </p>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -101,11 +115,12 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
             >
               <Link
                 href={a.href}
+                aria-disabled={a.soon}
                 className={`group flex h-full items-start gap-3 rounded-xl border px-4 py-4 transition-all duration-150 ${
                   a.primary
                     ? "border-primary/40 bg-primary/[0.06] hover:border-primary"
                     : "border-border bg-panel hover:border-primary/40 hover:bg-input/40"
-                }`}
+                } ${a.soon ? "pointer-events-none opacity-50" : ""}`}
               >
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${a.primary ? "bg-primary/15 text-primary-ink" : "bg-input text-muted-foreground"}`}>
                   <Icon size={18} />
@@ -113,7 +128,9 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                     {a.title}
-                    <ArrowRight size={13} className="text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />
+                    {a.soon
+                      ? <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">Soon</span>
+                      : <ArrowRight size={13} className="text-muted-foreground transition-transform duration-200 group-hover:translate-x-0.5" />}
                   </span>
                   <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{a.blurb}</span>
                 </span>
