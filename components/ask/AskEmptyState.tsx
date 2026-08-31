@@ -56,21 +56,16 @@ export const CAPABILITY_SHORTCUTS: CapabilityShortcut[] = [
 export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-4 py-10 sm:py-12">
-      {/* The identity block. Mirrors the dashboard's welcome card and the
-          landing hero — a purple wash behind the mark, then confident display
-          type — rather than the flat icon-and-paragraph this used to be. */}
+      {/* The identity block: a bare mark, then confident display type —
+          rather than the flat icon-and-paragraph this used to be. No glow
+          behind the mark (a blurred blob reads as a stock decoration, not
+          craft); the mark itself carries the weight. */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
         className="relative flex flex-col items-center"
       >
-        {/* Decorative glow. Sits behind the mark and is inert to pointers so it
-            can never intercept a click meant for the tiles below. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -top-10 left-1/2 h-32 w-56 -translate-x-1/2 rounded-full bg-primary/20 blur-3xl"
-        />
         <AskLogo size={48} className="relative text-primary" />
       </motion.div>
 
@@ -107,7 +102,7 @@ export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.18 + i * 0.04, duration: 0.3 }}
               onClick={() => onPick(s.label)}
-              className="group flex items-start gap-3 rounded-xl border border-border bg-panel p-3.5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="group flex items-start gap-3 rounded-xl border border-border bg-panel p-3.5 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink transition group-hover:bg-primary/20">
                 <Icon size={16} />

@@ -235,7 +235,7 @@ function AuthFlow() {
                                 disabled={!agreed}
                                 onClick={() => wallet.connectEmbeddedOAuth(s.method)}
                                 title={`Continue with ${s.label}`}
-                                className="relative flex flex-col items-center gap-1.5 rounded-xl border border-border px-2 py-3 text-xs font-medium text-foreground transition-all duration-150 enabled:hover:-translate-y-0.5 enabled:hover:border-primary/40 enabled:hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-45"
+                                className="relative flex flex-col items-center gap-1.5 rounded-xl border border-border px-2 py-3 text-xs font-medium text-foreground transition-all duration-150 enabled:hover:border-primary/40 enabled:hover:bg-input/40 disabled:cursor-not-allowed disabled:opacity-45"
                               >
                                 <BrandIcon name={s.method} size={17} />
                                 {s.label}

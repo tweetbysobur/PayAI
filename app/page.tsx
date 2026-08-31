@@ -45,29 +45,13 @@ const FAQS = [
 export default function LandingPage() {
   return (
     <main className="relative min-h-screen overflow-hidden bg-background">
-      {/* Ambient depth — a restrained purple glow with a lighter violet hint,
-          plus a faint grid. Craft, not decoration: keeps the canvas from
-          reading flat/templated without competing with content. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[720px] overflow-hidden">
-        {/* GPU-cheap radial glow (no filter:blur) — purple wash with a lighter violet hint. */}
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(680px 460px at 50% -8%, hsl(var(--primary) / 0.22), transparent 70%), radial-gradient(340px 280px at 85% 18%, hsl(var(--secondary) / 0.10), transparent 72%)",
-          }}
-        />
-        {/* Faint grid, masked to fade downward — adds craft without noise. */}
-        <div
-          className="absolute inset-0 opacity-[0.04]"
-          style={{
-            backgroundImage:
-              "linear-gradient(hsl(var(--foreground)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--foreground)) 1px, transparent 1px)",
-            backgroundSize: "56px 56px",
-            maskImage: "radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%)",
-            WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%)",
-          }}
-        />
+      {/* Ambient depth: a single hairline rule at the optical center of the
+          hero, not a radial glow blob or a graph-paper grid — both read as
+          the default AI-landing-page backdrop regardless of hue. This is a
+          directional marker, not a halo: it doesn't bleed or fade outward
+          from a point. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 flex justify-center">
+        <div className="h-64 w-px bg-gradient-to-b from-primary/25 to-transparent" />
       </div>
 
       <SiteNav />
@@ -99,7 +83,7 @@ export default function LandingPage() {
                   is no recording to play, and a button promising one that
                   opens a text page is a promise broken on the first click.
                   Relabel it the day a demo exists. */}
-              <Link href="/how-it-works" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input">
+              <Link href="/how-it-works" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input">
                 <PlayCircle size={15} className="text-primary-ink" /> See how it works
               </Link>
             </div>

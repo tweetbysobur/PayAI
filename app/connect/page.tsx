@@ -281,7 +281,7 @@ export default function ConnectPage() {
                                   key={d.info.rdns}
                                   onClick={() => connectWith(d)}
                                   disabled={pending !== null}
-                                  className="group flex w-full items-center gap-3 rounded-lg border border-border px-3.5 py-3 text-sm text-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 disabled:opacity-60"
+                                  className="group flex w-full items-center gap-3 rounded-lg border border-border px-3.5 py-3 text-sm text-foreground transition-all duration-150 hover:border-primary/40 hover:bg-input/40 disabled:opacity-60"
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={d.info.icon} alt="" width={22} height={22} className="h-[22px] w-[22px] rounded-md" />
@@ -308,7 +308,7 @@ export default function ConnectPage() {
                       <button
                         onClick={connectWalletConnect}
                         disabled={pending !== null}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/50 hover:bg-input/40 disabled:opacity-60"
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-4 py-3 text-sm font-medium text-foreground transition-all duration-150 hover:border-primary/50 hover:bg-input/40 disabled:opacity-60"
                       >
                         {pending === "__wc__" ? <Loader2 size={16} className="animate-spin text-primary-ink" /> : <QrCode size={16} className="text-primary-ink" />}
                         {pending === "__wc__" ? "Connecting…" : "WalletConnect"}
@@ -400,7 +400,7 @@ function WalletRow({ name, url, live, pending, onConnect }: {
       )}
     </>
   );
-  const cls = "group flex w-full items-center gap-3 rounded-xl border border-border px-3.5 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 disabled:opacity-60";
+  const cls = "group flex w-full items-center gap-3 rounded-xl border border-border px-3.5 py-3 transition-all duration-150 hover:border-primary/40 hover:bg-input/40 disabled:opacity-60";
   return live
     ? <button onClick={() => onConnect(live)} disabled={pending !== null} className={cls}>{content}</button>
     : <a href={url} target="_blank" rel="noreferrer" className={cls}>{content}</a>;

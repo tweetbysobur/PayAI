@@ -148,7 +148,7 @@ export function OnboardingFlow() {
                       { icon: LayoutDashboard, title: "Explore Dashboard", body: "Look around first", href: "/dashboard" },
                     ].map((a) => (
                       <button key={a.title} onClick={() => goTo(a.href)}
-                        className="group flex flex-col items-start rounded-xl border border-border p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        className="group flex flex-col items-start rounded-xl border border-border p-4 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <span className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><a.icon size={16} /></span>
                         <span className="text-sm font-semibold text-foreground">{a.title}</span>
                         <span className="mt-0.5 text-xs text-muted-foreground">{a.body}</span>
