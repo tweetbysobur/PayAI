@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { findCurrentTokenAddress, findLastConfirmedTrade, PRICE_NOW_RE, SELL_JUST_BOUGHT_RE, TRADE_RESULT_RE } from "@/lib/ask/useAskChat";
+import { findCurrentTokenAddress, findLastConfirmedTrade, postBuyHoldingAddress, PRICE_NOW_RE, SELL_JUST_BOUGHT_RE, TRADE_RESULT_RE } from "@/lib/ask/useAskChat";
 import { respondToUnderstanding } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
 import type { AskMessage, Operation, TradePreviewIntent } from "@/lib/ask/types";
@@ -70,6 +70,45 @@ describe("post-trade follow-up prompt — the offered 'Sell what you received' b
   it("has a confirmed trade for that handler to reverse and sell from", () => {
     const found = findLastConfirmedTrade([confirmedTradeMessage()]);
     expect(found?.intent.execution?.request.action).toBe("buy");
+  });
+});
+
+describe("postBuyHoldingAddress — automatically showing a fresh holding after a completed buy", () => {
+  it("a completed buy of an arbitrary (address-identified) token qualifies", () => {
+    const { operation } = confirmedTradeMessage();
+    expect(postBuyHoldingAddress(operation!)).toBe(TOKEN);
+  });
+
+  it("a completed SELL does not qualify -- showing the just-disposed-of token would be misleading", () => {
+    const { operation } = confirmedTradeMessage();
+    const sellOp: Operation = { ...operation!, intent: { ...(operation!.intent as TradePreviewIntent), data: { ...(operation!.intent as TradePreviewIntent).data, action: "sell" } } };
+    expect(postBuyHoldingAddress(sellOp)).toBeNull();
+  });
+
+  it("a curated-symbol buy (MON/USDC) does not qualify -- there is no contract address to look up", () => {
+    const { operation } = confirmedTradeMessage({ outputToken: "MON" });
+    expect(postBuyHoldingAddress(operation!)).toBeNull();
+  });
+
+  it("a trade that only errored (never settled) does not qualify", () => {
+    const { operation } = confirmedTradeMessage();
+    const erroredOp: Operation = { ...operation!, status: "error", error: { message: "reverted", code: "REVERTED" } };
+    expect(postBuyHoldingAddress(erroredOp)).toBeNull();
+  });
+
+  it("a trade preview with no execution (no wallet connected at preview time) does not qualify", () => {
+    const { operation } = confirmedTradeMessage();
+    const noExecOp: Operation = { ...operation!, intent: { ...(operation!.intent as TradePreviewIntent), execution: undefined } };
+    expect(postBuyHoldingAddress(noExecOp)).toBeNull();
+  });
+
+  it("a non-trade operation (e.g. a plain payment) does not qualify", () => {
+    const paymentOp: Operation = {
+      id: "op_pay", status: "success",
+      intent: { kind: "payment", network: "monad", token: "USDC", amount: "10", recipient: "0x1234567890abcdef1234567890abcdef12345678", recipientDomain: null },
+      result: { txHash: "0x" + "e".repeat(64), explorerUrl: "https://explorer.monad.xyz/tx/0xe" },
+    };
+    expect(postBuyHoldingAddress(paymentOp)).toBeNull();
   });
 });
 
