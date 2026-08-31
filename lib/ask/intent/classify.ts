@@ -180,14 +180,44 @@ function counterAssetFor(otherSide: string | null | undefined): string {
   return otherSide && otherSide.toUpperCase() === "USDC" ? "MON" : "USDC";
 }
 
+/** The only symbols PayAI can resolve a trade side by NAME alone (mirrors —
+ *  deliberately not imports, to keep this module free of any RPC/module
+ *  dependency for what's just a cheap, synchronous slot check —
+ *  lib/monad/tokenRegistry.ts's curated set plus native MON; lib/monad/swap.ts's
+ *  own resolveSwapSide error names this identical list). Anything else that
+ *  isn't a real 0x address can't actually be traded by that name at all. */
+const CURATED_TRADE_SYMBOLS = new Set(["MON", "WMON", "USDC", "USDT0", "AUSD", "WETH", "WBTC"]);
+
+/** True for a non-null value that names neither a real contract address nor
+ *  one of PayAI's curated symbols — i.e. a bare word nothing downstream can
+ *  actually resolve to a tradable asset. Used below to recognize the specific
+ *  case that used to reach the trade builder and fail with a confusing
+ *  "isn't a token PayAI can swap yet" error: when a context token is already
+ *  known (a real address, from an earlier token_lookup), the model sometimes
+ *  fills toAsset/fromAsset with THAT SAME token's own display symbol — it
+ *  appears in the visible conversation (this module's own tokenLookupLead
+ *  reply), so the model reasonably treats it as "already named" — rather
+ *  than leaving the field null the way it would for a genuinely new,
+ *  unidentified token. Left as a bare symbol, that string is unresolvable
+ *  (resolveTradeSide only accepts a real address OR a curated symbol) even
+ *  though the trade is for a token PayAI can perfectly well quote by its
+ *  real address. Treating it the same as "not named" and substituting the
+ *  real context address is strictly more correct: it's never a deliberate
+ *  reference to some OTHER, different unsupported asset — there is no way
+ *  for a bare invented symbol to mean anything else in this specific
+ *  situation. */
+function isUnresolvedBareSymbol(v: string | null | undefined): boolean {
+  return !!v && !EVM_ADDRESS_RE.test(v) && !CURATED_TRADE_SYMBOLS.has(v.toUpperCase());
+}
+
 function applyTradeContext(slots: AskSlots, contextTokenAddress: string | null): AskSlots {
   if (slots.tradeAction !== "buy" && slots.tradeAction !== "sell") return slots;
   const next = { ...slots };
   if (next.tradeAction === "buy") {
-    if (!next.toAsset && contextTokenAddress) next.toAsset = contextTokenAddress;
+    if ((!next.toAsset || isUnresolvedBareSymbol(next.toAsset)) && contextTokenAddress) next.toAsset = contextTokenAddress;
     if (!next.fromAsset && next.amountType === "usd") next.fromAsset = counterAssetFor(next.toAsset);
   } else {
-    if (!next.fromAsset && contextTokenAddress) next.fromAsset = contextTokenAddress;
+    if ((!next.fromAsset || isUnresolvedBareSymbol(next.fromAsset)) && contextTokenAddress) next.fromAsset = contextTokenAddress;
     if (!next.toAsset) next.toAsset = counterAssetFor(next.fromAsset);
   }
   return next;
