@@ -28,6 +28,8 @@ import {
   searchConversations, setActiveConversationPointer, upsertConversation,
   type ConversationSummary,
 } from "@/lib/ask/persistChat";
+import { useSync } from "@/lib/hooks/useSync";
+import { warmPortfolioDiscovery } from "@/lib/hooks/usePortfolio";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -207,7 +209,7 @@ interface ActiveConversationMeta {
 }
 
 /**
- * `persist: true` survives a browser refresh via sessionStorage, and (P1.3)
+ * `persist: true` survives a browser refresh — and now a closed tab — via localStorage, and (P1.3)
  * enables multiple named, switchable conversations per wallet — see
  * lib/ask/persistChat.ts. Opt-in, and only ever passed by AskPageChatContext
  * for the full /dashboard/ask page's conversation. CommandBar's own
@@ -218,10 +220,19 @@ interface ActiveConversationMeta {
 export function useAskChat(options?: { persist?: boolean }) {
   const persist = options?.persist ?? false;
   const wallet = useWallet();
+  // P1.6: keeps a completed payment/swap/trade in sync with the rest of the
+  // dashboard the same way the older console (lib/hooks/useAgentConsole.ts)
+  // already does — see lib/hooks/useSync.tsx's own doc ("you never need to
+  // refresh after a swap"). Ask PayAI's own execution paths never called
+  // this, so a token bought (or a balance changed) through chat could sit
+  // invisible on the Overview/Portfolio page well past when it actually
+  // settled, until the next automatic 20s heartbeat happened to also clear
+  // portfolio-discovery's own cache window — see advanceOperation below.
+  const { sync } = useSync();
   // Both start EMPTY on every render path, server included — never read
-  // sessionStorage inside a lazy initializer here. This page is still
+  // localStorage inside a lazy initializer here. This page is still
   // server-rendered for its first HTML (a plain "use client" page doesn't
-  // opt out of that), and the server obviously has no sessionStorage; seeding
+  // opt out of that), and the server obviously has no localStorage; seeding
   // the initial client render from it directly produced a real, verified
   // hydration mismatch (React discarding and regenerating the whole tree) the
   // instant a stored conversation existed. Restoring instead happens in an
@@ -330,7 +341,7 @@ export function useAskChat(options?: { persist?: boolean }) {
     return activeConversationIdRef.current!;
   }
 
-  // Mirrors messages/pending into sessionStorage after every change, under
+  // Mirrors messages/pending into localStorage after every change, under
   // whichever conversation is currently active (see persistChat.ts's
   // upsertConversation) — nothing else here needs to survive a refresh:
   // `progress` is only ever meaningful while a request this same page load
@@ -558,6 +569,33 @@ export function useAskChat(options?: { persist?: boolean }) {
     setMessages((m) => [...m, message]);
   }
 
+  /** Brings the rest of the dashboard (balances, portfolio, history,
+   *  notifications) in sync with a just-settled payment/swap/trade — the
+   *  same promise lib/hooks/useSync.tsx already makes for the older console
+   *  (lib/hooks/useAgentConsole.ts's own `void sync()` after settlement),
+   *  which Ask PayAI's own execution paths never called until now. Without
+   *  it, a token bought (or any balance changed) through chat could sit
+   *  stale on the Overview/Portfolio page well past when it actually
+   *  settled, waiting on the next automatic 20s heartbeat.
+   *
+   *  `warmDiscovery` additionally forces one fresh portfolio-discovery scan
+   *  for this wallet FIRST, bypassing its own 5-minute cache (see
+   *  warmPortfolioDiscovery's own doc) — only a swap/trade can introduce a
+   *  token this wallet has never held before, so a plain payment (always an
+   *  already-known MON/USDC) skips this extra call. Doing it before `sync()`
+   *  matters: sync() only re-triggers each mounted usePortfolio's own
+   *  refetch, which is only useful once the shared cache it will hit is
+   *  actually fresh.
+   *
+   *  Only ever fires on a confirmed "success" — never for "submitted"
+   *  (nothing has actually settled yet) or "error". Fire-and-forget: never
+   *  blocks or changes the operation card's own result either way. */
+  async function syncDashboardAfter(result: Operation, warmDiscovery: boolean) {
+    if (result.status !== "success") return;
+    if (warmDiscovery && wallet.address) await warmPortfolioDiscovery(wallet.address);
+    void sync();
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
@@ -675,6 +713,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       const result = await executeSendPayment(op, wallet, setProgressFor);
       clearProgressFor();
       setOp(result);
+      await syncDashboardAfter(result, false);
       return;
     }
     if (op.intent.kind === "swap" && op.intent.execution) {
@@ -696,6 +735,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       const result = await executeSwapIntent(op, wallet, wallet.address, setProgressFor);
       clearProgressFor();
       setOp(result);
+      await syncDashboardAfter(result, true);
       return;
     }
     if (op.intent.kind === "trade_preview" && op.intent.execution) {
@@ -716,6 +756,7 @@ export function useAskChat(options?: { persist?: boolean }) {
       const result = await executeTradeIntent(op, wallet, wallet.address, setProgressFor);
       clearProgressFor();
       setOp(result);
+      await syncDashboardAfter(result, true);
       await showPostBuyHolding(result, startContext);
       return;
     }

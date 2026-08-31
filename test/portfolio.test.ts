@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
-import { viewHoldings, resolveTokenMeta, type Holding } from "@/lib/hooks/usePortfolio";
+import { viewHoldings, resolveTokenMeta, warmPortfolioDiscovery, type Holding } from "@/lib/hooks/usePortfolio";
 import { syncAgo } from "@/lib/hooks/useSync";
 import { fetchIncomingTransferLogs } from "@/app/api/portfolio/discover/route";
 
@@ -418,4 +418,104 @@ describe("GET /api/portfolio/discover — one stalled token's metadata must not 
     expect(json.tokens).toEqual([{ address: FAST, decimals: 18 }]);
     expect(Date.now() - started, "must not have waited out a real production-length timeout").toBeLessThan(8_000);
   }, 10_000);
+});
+
+/**
+ * The other half of the real production report ("bought a memecoin, it's
+ * not showing in my portfolio"): even once a token is genuinely discovered
+ * (see the timeout fixes above), a wallet whose portfolio was viewed or
+ * auto-synced any time in the preceding CACHE_MS kept serving that
+ * now-stale token list for the rest of the window -- with no way to force
+ * it, not even the manual Sync button, since every caller hit the same
+ * unconditional cache check. `?fresh=1` is the one, narrow exception:
+ * fired ONLY right after a trade completes (see warmPortfolioDiscovery and
+ * useAskChat's syncDashboardAfter), never on the routine 20s auto-sync
+ * heartbeat, which must keep respecting the cache exactly as before.
+ */
+describe("GET /api/portfolio/discover — ?fresh=1 bypasses the cache for one explicit re-scan", () => {
+  afterEach(() => {
+    getBlockNumberImpl = async () => 0n;
+    requestImpl = async () => [];
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+  });
+
+  it("a normal (non-fresh) call still serves the cached result within the window", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa5";
+    const OLD = "0x0000000000000000000000000000000000000c01";
+    const NEW = "0x0000000000000000000000000000000000000c02";
+    getBlockNumberImpl = async () => 500_000n;
+    let scanCount = 0;
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+        scanCount += 1;
+        return scanCount === 1 ? [{ address: OLD }] : [{ address: OLD }, { address: NEW }];
+      }
+      return [];
+    };
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const first = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(first.tokens.map((t: { address: string }) => t.address)).toEqual([OLD]);
+
+    // A plain re-fetch (what the routine auto-sync heartbeat does) must NOT
+    // pick up the second token yet -- it should still be served the cache.
+    const second = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(second.cached).toBe(true);
+    expect(second.tokens.map((t: { address: string }) => t.address)).toEqual([OLD]);
+  });
+
+  it("?fresh=1 forces a real re-scan and updates the cache for every subsequent (even non-fresh) reader", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa6";
+    const OLD = "0x0000000000000000000000000000000000000c03";
+    const NEW = "0x0000000000000000000000000000000000000c04";
+    getBlockNumberImpl = async () => 500_000n;
+    let scanCount = 0;
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+        scanCount += 1;
+        return scanCount === 1 ? [{ address: OLD }] : [{ address: OLD }, { address: NEW }];
+      }
+      return [];
+    };
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const first = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(first.tokens.map((t: { address: string }) => t.address)).toEqual([OLD]);
+
+    // The freshly-bought token now shows up on the wallet's own explicit
+    // post-trade check...
+    const fresh = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}&fresh=1`))).json();
+    expect(fresh.tokens.map((t: { address: string }) => t.address).sort()).toEqual([NEW, OLD].sort());
+
+    // ...AND a plain, non-fresh re-fetch afterward (the routine heartbeat)
+    // now also sees it, because warming the cache benefits every reader, not
+    // just the one call that requested it.
+    const afterWarm = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(afterWarm.cached).toBe(true);
+    expect(afterWarm.tokens.map((t: { address: string }) => t.address).sort()).toEqual([NEW, OLD].sort());
+  });
+});
+
+describe("warmPortfolioDiscovery — the client-side trigger for the fresh re-scan above", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("requests a fresh (cache-bypassing) scan for the given wallet", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => { calls.push(url); return new Response("{}"); }));
+    await warmPortfolioDiscovery("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("address=0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(calls[0]).toContain("fresh=1");
+    vi.unstubAllGlobals();
+  });
+
+  it("never throws even when the request fails outright -- the routine heartbeat still catches up later", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    await expect(warmPortfolioDiscovery("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).resolves.toBeUndefined();
+    vi.unstubAllGlobals();
+  });
 });

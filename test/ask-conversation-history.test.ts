@@ -12,10 +12,10 @@ import type { Understanding } from "@/lib/ask/intent/types";
 const WALLET_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const WALLET_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-/** A real Storage-shaped in-memory fake — sessionStorage doesn't exist in
- *  this Node test environment (same situation test/ask-orchestrate.test.ts
- *  documents for localStorage), so this stands in for it. */
-function fakeSessionStorage() {
+/** A real Storage-shaped in-memory fake — localStorage doesn't exist in
+ *  this Node test environment
+ *  so this stands in for it. */
+function fakeLocalStorage() {
   const store = new Map<string, string>();
   return {
     getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
@@ -26,10 +26,10 @@ function fakeSessionStorage() {
   };
 }
 
-let fake: ReturnType<typeof fakeSessionStorage>;
+let fake: ReturnType<typeof fakeLocalStorage>;
 beforeEach(() => {
-  fake = fakeSessionStorage();
-  vi.stubGlobal("sessionStorage", fake);
+  fake = fakeLocalStorage();
+  vi.stubGlobal("localStorage", fake);
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -344,7 +344,7 @@ describe("P1.3 — Ask PayAI conversation history", () => {
   it("26. a storage quota failure never throws a user-facing error and never corrupts the active conversation", () => {
     let failNextWrite = true;
     const originalSetItem = fake.setItem;
-    vi.stubGlobal("sessionStorage", {
+    vi.stubGlobal("localStorage", {
       ...fake,
       setItem: (k: string, v: string) => {
         if (failNextWrite) { failNextWrite = false; throw new DOMException("Quota exceeded", "QuotaExceededError"); }
@@ -356,7 +356,7 @@ describe("P1.3 — Ask PayAI conversation history", () => {
   });
 
   it("27. existing P1.1 behavior is preserved — an empty query returns everything, storage unavailable degrades to empty/null", () => {
-    vi.stubGlobal("sessionStorage", undefined);
+    vi.stubGlobal("localStorage", undefined);
     expect(() => loadHistoryIndex(WALLET_A)).not.toThrow();
     expect(loadHistoryIndex(WALLET_A)).toEqual({ activeConversationId: null, summaries: [] });
     expect(() => saveConvo(WALLET_A, createConversationId(), [userMsg("u1", "hi", 1)])).not.toThrow();
@@ -421,7 +421,7 @@ describe("P1.3 — Ask PayAI conversation history", () => {
   });
 
   it("the existing pendingSettlement reconciler (separate, localStorage-based) is untouched by this feature", () => {
-    vi.stubGlobal("localStorage", fakeSessionStorage());
+    vi.stubGlobal("localStorage", fakeLocalStorage());
     savePendingSettlement({ kind: "swap", walletAddress: WALLET_A, txHash: "0xabc", savedAt: Date.now() });
     expect(getPendingSettlement(WALLET_A)?.txHash).toBe("0xabc");
     clearPendingSettlement();

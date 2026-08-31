@@ -141,8 +141,23 @@ export async function GET(req: NextRequest) {
   }
   const key = address.toLowerCase();
 
+  // ?fresh=1 skips the cache-hit check below — used ONLY right after a trade
+  // completes (see usePortfolio's warmPortfolioDiscovery), to update this
+  // wallet's cache entry with the token it may have just received. Without
+  // this, a wallet whose portfolio was viewed (or auto-synced) any time in
+  // the preceding CACHE_MS kept serving that now-stale token list for the
+  // rest of the window — a freshly bought token stayed invisible for up to 5
+  // minutes with no way to force it, not even the manual Sync button, since
+  // every refresh still hit the same unconditional cache check. The routine
+  // 20-second auto-sync heartbeat still respects the cache as before (this
+  // is deliberately NOT a blanket bypass — see CACHE_MS's own doc on why a
+  // log scan every 20 seconds must stay the exception, not the norm); this
+  // one explicit, targeted case is the only thing allowed to skip it, and it
+  // still repopulates the same cache afterward so every OTHER reader
+  // benefits from the fresh result too, not just this one call.
+  const fresh = req.nextUrl.searchParams.get("fresh") === "1";
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < CACHE_MS) {
+  if (!fresh && hit && Date.now() - hit.at < CACHE_MS) {
     return NextResponse.json({ tokens: hit.tokens, cached: true });
   }
 

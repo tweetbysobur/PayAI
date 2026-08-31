@@ -114,6 +114,27 @@ export async function resolveTokenMeta(
 }
 
 /**
+ * Forces a fresh portfolio-discovery scan for one wallet, bypassing
+ * /api/portfolio/discover's own 5-minute cache — call this right after a
+ * trade completes, so a token that may have just arrived doesn't stay
+ * invisible for the rest of that window. This alone does not update any
+ * mounted usePortfolio's own state (it has no reference to this specific
+ * hook instance); pair it with the shared dashboard sync() (see
+ * lib/hooks/useSync.tsx) immediately after, whose resulting refresh() call
+ * will now hit this wallet's just-updated cache entry instead of the stale
+ * one. Fire-and-forget: a failure here just means the NEXT automatic sync
+ * (still cache-respecting) eventually catches up, same as before this
+ * existed — never a user-facing error.
+ */
+export async function warmPortfolioDiscovery(address: string): Promise<void> {
+  try {
+    await fetch(`/api/portfolio/discover?address=${address}&fresh=1`);
+  } catch {
+    /* best-effort — the routine cache-respecting sync heartbeat still runs */
+  }
+}
+
+/**
  * `locked` is optional and only matters for callers passing an embedded
  * wallet's `readAddress`: that string stays identical through a lock/unlock
  * cycle (it's the remembered address, not the live one), so unlocking is
