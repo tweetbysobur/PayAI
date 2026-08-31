@@ -128,8 +128,8 @@ export function ProductOverviewSection() {
           >
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-primary/40" />
             <div className="flex items-center gap-4">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-primary-ink transition-colors group-hover:bg-primary/30">
-                <ASK_PAYAI.icon size={24} />
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center text-primary">
+                <ASK_PAYAI.icon size={30} />
               </span>
               <div className="min-w-0">
                 <h3 className="text-lg font-semibold tracking-tight text-foreground">{ASK_PAYAI.title}</h3>
@@ -155,8 +155,8 @@ export function ProductOverviewSection() {
                 href={p.href}
                 className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary-ink transition-colors group-hover:bg-primary/20">
-                  <p.icon size={19} />
+                <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
+                  <p.icon size={23} />
                 </span>
                 <h3 className="text-base font-semibold tracking-tight text-foreground">{p.title}</h3>
                 <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
@@ -367,8 +367,8 @@ export function PaymentOperationsSection() {
                 href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
                 className="group flex h-full flex-col rounded-xl border border-border bg-panel p-5 transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-                  <o.icon size={18} />
+                <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+                  <o.icon size={22} />
                 </span>
                 <h3 className="text-sm font-semibold text-foreground">{o.title}</h3>
                 <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground">{o.body}</p>
@@ -708,8 +708,8 @@ export function AnalyticsSection() {
               transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
               className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30"
             >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-                <a.icon size={18} />
+              <div className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+                <a.icon size={22} />
               </div>
               <h3 className="text-sm font-semibold text-foreground">{a.title}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{a.body}</p>

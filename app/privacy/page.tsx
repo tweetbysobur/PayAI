@@ -31,7 +31,7 @@ export default function Privacy() {
 
       <div className="mx-auto max-w-3xl px-6 pb-20 pt-6">
         <div className="mb-8">
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Lock size={24} /></div>
+          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center text-primary"><Lock size={30} /></div>
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">Privacy</h1>
           <p className="mt-2 text-xs text-muted-foreground">Last updated July 2026</p>
         </div>
