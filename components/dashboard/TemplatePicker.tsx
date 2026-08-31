@@ -150,7 +150,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
                               initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
                               className={`flex flex-col rounded-xl border p-4 text-left transition-all duration-150 ${
                                 launchable
-                                  ? "group border-border bg-gradient-to-b from-primary/[0.04] to-transparent hover:-translate-y-0.5 hover:border-primary/40 hover:from-primary/[0.08]"
+                                  ? "group border-border bg-gradient-to-b from-primary/[0.04] to-transparent hover:border-primary/40 hover:from-primary/[0.08]"
                                   : "border-border/70 bg-panel/30"
                               }`}
                             >

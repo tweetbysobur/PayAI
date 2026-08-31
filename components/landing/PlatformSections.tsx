@@ -86,7 +86,7 @@ export function SupportedTokens() {
                   initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: "-40px" }}
                   transition={{ delay: Math.min(i * 0.05, 0.3), duration: 0.4, ease: "easeOut" }}
-                  className="group flex items-center gap-3 rounded-xl border border-border bg-panel/50 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
+                  className="group flex items-center gap-3 rounded-xl border border-border bg-panel/50 p-4 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
                 >
                   <TokenLogo token={t.symbol} logoURI={t.logoURI} size={34} />
                   <div className="min-w-0 flex-1">
@@ -505,7 +505,7 @@ export function DeveloperApi() {
 
 function DevPoint({ icon: Icon, title, body }: { icon: typeof Code2; title: string; body: string }) {
   return (
-    <div className="flex gap-3.5 rounded-xl border border-border bg-panel/40 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30">
+    <div className="flex gap-3.5 rounded-xl border border-border bg-panel/40 p-5 transition-all duration-200 hover:border-primary/30">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink">
         <Icon size={16} />
       </span>
@@ -542,7 +542,7 @@ export function EcosystemIntegrations() {
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}
               transition={{ delay: i * 0.07, duration: 0.45, ease: "easeOut" }}
-              className="group flex gap-4 rounded-xl border border-border bg-panel/50 p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
+              className="group flex gap-4 rounded-xl border border-border bg-panel/50 p-6 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
             >
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                 {it.brand ? <MonadMark size={18} /> : <it.icon size={18} />}

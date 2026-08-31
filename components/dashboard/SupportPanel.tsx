@@ -117,7 +117,7 @@ export function SupportPanel() {
                 key={c.id}
                 onClick={() => setCategory(c.id)}
                 className={`flex items-start gap-3 rounded-lg border p-3.5 text-left transition-all duration-150 ${
-                  category === c.id ? "border-primary/50 bg-primary/[0.06]" : "border-border hover:-translate-y-0.5 hover:border-primary/30 hover:bg-input/40"
+                  category === c.id ? "border-primary/50 bg-primary/[0.06]" : "border-border hover:border-primary/30 hover:bg-input/40"
                 }`}
               >
                 <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${category === c.id ? "bg-primary/15 text-primary-ink" : "bg-input text-muted-foreground"}`}><c.icon size={15} /></span>

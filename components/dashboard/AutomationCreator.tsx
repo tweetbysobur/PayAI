@@ -399,7 +399,7 @@ function ModeCard({ selected, disabled, onSelect, badge, title, description, pro
       className={`group relative flex flex-col rounded-xl border p-5 text-left transition-all duration-200 ${
         disabled ? "cursor-not-allowed border-border opacity-45"
         : selected ? "border-primary/60 bg-primary/[0.06] shadow-lg shadow-primary/10"
-        : "border-border hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40"}`}>
+        : "border-border hover:border-primary/40 hover:bg-input/40"}`}>
       <span aria-hidden className={`absolute right-4 top-4 h-3.5 w-3.5 rounded-full border-2 transition-colors ${selected ? "border-primary bg-primary" : "border-muted-foreground/40 group-hover:border-primary/50"}`} />
       <span className="pr-6 text-base font-semibold tracking-tight text-foreground">{title}</span>
       <span className="mt-2"><Badge tone={badge === "Recommended" ? "primary" : "success"}>{badge}</Badge></span>

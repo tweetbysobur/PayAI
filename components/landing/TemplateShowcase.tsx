@@ -74,7 +74,7 @@ export function TemplateShowcase() {
               className={`inline-flex min-h-11 items-center rounded-full border px-4 py-1.5 text-xs font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 active === c.id
                   ? "border-primary/50 bg-primary/10 text-primary-ink"
-                  : "border-border text-muted-foreground hover:-translate-y-0.5 hover:border-primary/30 hover:text-foreground"
+                  : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"
               }`}
             >
               <span aria-hidden className="mr-1">{c.emoji}</span>
@@ -101,7 +101,7 @@ export function TemplateShowcase() {
             {shown.map((t) => (
               <div
                 key={t.id}
-                className="group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-panel"
+                className="group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                   <t.icon size={16} />
@@ -119,7 +119,7 @@ export function TemplateShowcase() {
         <div className="mt-10 text-center">
           <Link
             href="/auth"
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input"
           >
             {/* "all N" would promise N usable workflows; the live count is the
                 honest number to put on a call to action. */}

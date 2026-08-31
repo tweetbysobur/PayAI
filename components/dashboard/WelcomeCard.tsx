@@ -101,7 +101,7 @@ export function WelcomeCard({ address, show }: { address?: string | null; show: 
             >
               <Link
                 href={a.href}
-                className={`group flex h-full items-start gap-3 rounded-xl border px-4 py-4 transition-all duration-150 hover:-translate-y-0.5 ${
+                className={`group flex h-full items-start gap-3 rounded-xl border px-4 py-4 transition-all duration-150 ${
                   a.primary
                     ? "border-primary/40 bg-primary/[0.06] hover:border-primary"
                     : "border-border bg-panel hover:border-primary/40 hover:bg-input/40"

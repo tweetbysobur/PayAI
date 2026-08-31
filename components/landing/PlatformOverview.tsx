@@ -124,9 +124,9 @@ export function ProductOverviewSection() {
         >
           <Link
             href={ASK_PAYAI.href}
-            className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/[0.1] via-panel to-panel p-7 shadow-[0_25px_70px_-30px_hsl(var(--primary)/0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+            className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-primary/40 bg-panel p-7 shadow-[0_1px_0_0_hsl(var(--primary)/0.25)_inset] transition-colors duration-200 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
           >
-            <div aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/20" />
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-primary/40" />
             <div className="flex items-center gap-4">
               <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary/20 text-primary-ink transition-colors group-hover:bg-primary/30">
                 <ASK_PAYAI.icon size={24} />
@@ -153,7 +153,7 @@ export function ProductOverviewSection() {
             >
               <Link
                 href={p.href}
-                className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary-ink transition-colors group-hover:bg-primary/20">
                   <p.icon size={19} />
@@ -365,7 +365,7 @@ export function PaymentOperationsSection() {
             >
               <Link
                 href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
-                className="group flex h-full flex-col rounded-xl border border-border bg-panel p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-xl border border-border bg-panel p-5 transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
                   <o.icon size={18} />
@@ -427,7 +427,7 @@ export function AIOperatorSection() {
           </p>
           <Link
             href="/dashboard/ask"
-            className="mt-7 inline-flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input"
+            className="mt-7 inline-flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input"
           >
             Try Ask PayAI <ArrowRight size={14} className="text-primary-ink" />
           </Link>

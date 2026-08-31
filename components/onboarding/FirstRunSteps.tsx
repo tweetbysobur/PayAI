@@ -194,7 +194,7 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                   <Link
                     key={a.id}
                     href={a.href}
-                    className="flex flex-col items-start gap-2 rounded-xl border border-border px-3.5 py-3 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40"
+                    className="flex flex-col items-start gap-2 rounded-xl border border-border px-3.5 py-3 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Icon size={16} /></span>
                     <span className="min-w-0">
@@ -227,13 +227,13 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                 return t.soon ? (
                   <div key={t.id} className="flex cursor-not-allowed items-center gap-3 rounded-xl border border-border px-3.5 py-3 opacity-60">{row}</div>
                 ) : (
-                  <Link key={t.id} href={t.href} className="flex items-center gap-3 rounded-xl border border-border px-3.5 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input/40">{row}</Link>
+                  <Link key={t.id} href={t.href} className="flex items-center gap-3 rounded-xl border border-border px-3.5 py-3 transition-all duration-150 hover:border-primary/40 hover:bg-input/40">{row}</Link>
                 );
               })}
 
               <Link
                 href="/dashboard/automations"
-                className="group flex items-center gap-3 rounded-xl border-2 border-primary/40 bg-gradient-to-b from-primary/[0.06] to-transparent px-3.5 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary"
+                className="group flex items-center gap-3 rounded-xl border-2 border-primary/40 bg-gradient-to-b from-primary/[0.06] to-transparent px-3.5 py-3 transition-all duration-150 hover:border-primary"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary-ink"><WalletIcon size={16} /></span>
                 <span className="min-w-0 flex-1 text-left">

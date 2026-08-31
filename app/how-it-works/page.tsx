@@ -72,7 +72,7 @@ export default function HowItWorksPage() {
             <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
               <Sparkles size={15} /> Launch PayAI
             </Link>
-            <Link href="/product" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-input">
+            <Link href="/product" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input">
               See the product <ArrowRight size={14} className="text-primary-ink" />
             </Link>
           </div>
@@ -104,7 +104,7 @@ export default function HowItWorksPage() {
                 initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-50px" }}
                 transition={{ delay: i * 0.08, duration: 0.45, ease: "easeOut" }}
-                className="flex flex-col rounded-2xl border border-border bg-panel/50 p-6 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 sm:p-7"
+                className="flex flex-col rounded-2xl border border-border bg-panel/50 p-6 transition-all duration-200 hover:border-primary/35 sm:p-7"
               >
                 <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary-ink">
                   <m.icon size={18} />
