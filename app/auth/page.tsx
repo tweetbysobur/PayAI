@@ -383,8 +383,8 @@ function AuthFlow() {
                     animate={{ scale: [1, 1.12, 1], opacity: [0.5, 0.15, 0.5] }}
                     transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                   />
-                  <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
-                    <Fingerprint size={28} />
+                  <span className="flex h-16 w-16 items-center justify-center text-primary">
+                    <Fingerprint size={30} />
                   </span>
                 </div>
                 <p className="text-base font-semibold text-foreground">Confirm on your device</p>

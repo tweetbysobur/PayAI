@@ -87,8 +87,8 @@ export function IntentSection() {
           <ul className="space-y-4">
             {WITHOUT_PAYAI.map((w) => (
               <li key={w.t} className="flex items-start gap-3.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-input/70 text-muted-foreground">
-                  <w.icon size={16} />
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground">
+                  <w.icon size={19} />
                 </span>
                 <span className="pt-2 text-sm leading-relaxed text-muted-foreground">{w.t}</span>
               </li>
@@ -110,8 +110,8 @@ export function IntentSection() {
           <ul className="space-y-4">
             {WITH_PAYAI.map((w) => (
               <li key={w.t} className="flex items-start gap-3.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary-ink">
-                  <w.icon size={16} />
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center text-primary">
+                  <w.icon size={19} />
                 </span>
                 <span className="pt-2 text-sm font-medium leading-relaxed text-foreground">{w.t}</span>
               </li>

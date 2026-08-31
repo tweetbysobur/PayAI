@@ -99,7 +99,7 @@ export function AutomationWorkflow({ active = true }: { active?: boolean }) {
 
                 {stage.key === "approve" && (
                   <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
-                    <motion.span initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"><Fingerprint size={26} /></motion.span>
+                    <motion.span initial={{ scale: 0.85 }} animate={{ scale: 1 }} className="flex h-14 w-14 items-center justify-center text-primary"><Fingerprint size={32} /></motion.span>
                     <p className="text-sm font-semibold text-foreground">Approve in your wallet</p>
                     <p className="max-w-[200px] text-[11px] text-muted-foreground">One signature authorizes the schedule. Your keys never leave your wallet.</p>
                     <div className="mt-1 rounded-lg bg-primary px-4 py-2 text-[11px] font-medium text-primary-foreground">Sign</div>

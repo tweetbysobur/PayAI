@@ -99,8 +99,8 @@ export function CoreProductSection() {
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.08, duration: 0.4 }}
               className="rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:border-primary/30"
             >
-              <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12 text-primary-ink">
-                <c.icon size={19} />
+              <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
+                <c.icon size={23} />
               </span>
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">{c.label}</p>
               <p className="mt-3 rounded-lg border border-border bg-background/50 px-3 py-2.5 text-[13px] italic leading-snug text-foreground">
@@ -246,8 +246,8 @@ export function CapabilitiesSection() {
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }}
               className="flex items-center gap-3.5 rounded-xl border border-border bg-panel/50 p-4"
             >
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-                <c.icon size={17} />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center text-primary">
+                <c.icon size={21} />
               </span>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-foreground">{c.title}</p>
@@ -328,8 +328,8 @@ export function VerificationSection() {
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.06, duration: 0.3 }}
               className="rounded-xl border border-border bg-panel p-5"
             >
-              <span className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-                {c.brand ? <MonadMark size={18} /> : <c.icon size={18} />}
+              <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+                {c.brand ? <MonadMark size={22} /> : <c.icon size={22} />}
               </span>
               <h3 className="text-sm font-semibold text-foreground">{c.title}</h3>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{c.body}</p>

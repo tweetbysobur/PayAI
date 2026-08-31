@@ -104,8 +104,8 @@ export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
               onClick={() => onPick(s.label)}
               className="group flex items-start gap-3 rounded-xl border border-border bg-panel p-3.5 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink transition group-hover:bg-primary/20">
-                <Icon size={16} />
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center text-primary transition-transform duration-150 group-hover:scale-110">
+                <Icon size={19} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">

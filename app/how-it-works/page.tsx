@@ -52,8 +52,11 @@ const MODES = [
 export default function HowItWorksPage() {
   return (
     <main className="min-h-screen bg-background">
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[420px] overflow-hidden">
-        <div className="absolute left-1/2 top-[-180px] h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-primary/10 blur-[100px]" />
+      {/* Same ambient treatment as the landing/product pages: a single
+          hairline rule at the hero's optical center, not a blurred glow
+          blob. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 flex justify-center">
+        <div className="h-64 w-px bg-gradient-to-b from-primary/25 to-transparent" />
       </div>
 
       <SiteNav />

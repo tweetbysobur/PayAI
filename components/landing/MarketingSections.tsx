@@ -47,9 +47,9 @@ export function UseCasesSection() {
         </motion.div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           {USE_CASES.map((u, i) => (
-            <motion.div key={u.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }} whileHover={{ y: -3 }}>
+            <motion.div key={u.title} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }}>
               <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><u.icon size={18} /></div>
+                <div className="mb-3 flex h-10 w-10 items-center justify-center text-primary"><u.icon size={22} /></div>
                 <h3 className="text-sm font-semibold text-foreground">{u.title}</h3>
                 <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{u.body}</p>
               </div>
@@ -243,9 +243,9 @@ export function SecuritySection() {
         </motion.div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {TECHNOLOGY.map((t, i) => (
-            <motion.div key={t.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }} whileHover={{ y: -3 }}>
+            <motion.div key={t.title} initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ delay: i * 0.05, duration: 0.35 }}>
               <div className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><t.icon size={18} /></div>
+                <div className="mb-3 flex h-10 w-10 items-center justify-center text-primary"><t.icon size={22} /></div>
                 <h3 className="text-sm font-semibold text-foreground">{t.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t.body}</p>
               </div>

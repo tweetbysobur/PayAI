@@ -163,8 +163,8 @@ export default function ConnectPage() {
             {step === "consent" && (
               <motion.div key="consent" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }} className="p-8">
                 <div className="mb-6 flex items-center justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
-                    <ShieldCheck size={26} />
+                  <div className="flex h-14 w-14 items-center justify-center text-primary">
+                    <ShieldCheck size={30} />
                   </div>
                 </div>
                 <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Before you connect</h2>
@@ -212,8 +212,8 @@ export default function ConnectPage() {
             {step === "wallets" && (
               <motion.div key="wallets" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.25 }} className="p-8">
                 <div className="mb-6 flex items-center justify-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
-                    <WalletIcon size={26} />
+                  <div className="flex h-14 w-14 items-center justify-center text-primary">
+                    <WalletIcon size={30} />
                   </div>
                 </div>
                 <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Choose a wallet</h2>

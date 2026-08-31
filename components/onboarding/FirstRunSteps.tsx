@@ -138,8 +138,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
             transition={{ duration: 0.22 }} className="p-7 sm:p-8"
           >
             <div className="mb-5 flex items-center justify-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
-                <ArrowDownLeft size={26} />
+              <span className="flex h-14 w-14 items-center justify-center text-primary">
+                <ArrowDownLeft size={30} />
               </span>
             </div>
             <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Fund your wallet</h1>
@@ -178,8 +178,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
             transition={{ duration: 0.22 }} className="p-7 sm:p-8"
           >
             <div className="mb-5 flex items-center justify-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink">
-                <Sparkles size={26} />
+              <span className="flex h-14 w-14 items-center justify-center text-primary">
+                <Sparkles size={30} />
               </span>
             </div>
             <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">What would you like to do first?</h1>
@@ -196,7 +196,7 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                     href={a.href}
                     className="flex flex-col items-start gap-2 rounded-xl border border-border px-3.5 py-3 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Icon size={16} /></span>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center text-primary"><Icon size={19} /></span>
                     <span className="min-w-0">
                       <span className="block text-sm font-medium text-foreground">{a.name}</span>
                       <span className="block text-[11px] text-muted-foreground">{a.blurb}</span>
@@ -212,8 +212,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                 const Icon = t.icon;
                 const row = (
                   <>
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground">
-                      <Icon size={16} />
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground">
+                      <Icon size={19} />
                     </span>
                     <span className="min-w-0 flex-1 text-left">
                       <span className="block text-sm font-medium text-foreground">{t.name}</span>
@@ -235,7 +235,7 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
                 href="/dashboard/automations"
                 className="group flex items-center gap-3 rounded-xl border-2 border-primary/40 bg-gradient-to-b from-primary/[0.06] to-transparent px-3.5 py-3 transition-all duration-150 hover:border-primary"
               >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary-ink"><WalletIcon size={16} /></span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center text-primary"><WalletIcon size={19} /></span>
                 <span className="min-w-0 flex-1 text-left">
                   <span className="block text-sm font-semibold text-foreground">Build a custom automation</span>
                   <span className="block truncate text-[11px] text-muted-foreground">Available now — set your own schedule and amount.</span>

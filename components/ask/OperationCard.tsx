@@ -219,8 +219,8 @@ export function OperationCard({
       className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-panel shadow-sm"
     >
       <div className="flex items-center gap-2.5 border-b border-border/70 px-4 py-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
-          <Icon size={15} />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center text-primary">
+          <Icon size={18} />
         </span>
         <p className="flex-1 text-sm font-semibold text-foreground">{title}</p>
         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${chip.tone}`}>{chip.label}</span>
