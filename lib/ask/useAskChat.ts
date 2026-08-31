@@ -144,6 +144,24 @@ export function findCurrentTokenAddress(msgs: AskMessage[]): string | null {
   return null;
 }
 
+/** The address to automatically show a fresh holding for right after a
+ *  trade finishes, or null when this isn't that case. Pure and exported
+ *  (same convention as isQuoteStale/findCurrentTokenAddress above) so the
+ *  decision — WHICH trade outcomes trigger the automatic lookup — is
+ *  directly testable without rendering the hook.
+ *
+ *  Only a completed BUY of an arbitrary, address-identified token
+ *  qualifies: a curated-symbol buy (MON/USDC) has no contract address to
+ *  look up (and that balance is already visible via "check my balance"), a
+ *  SELL just disposed of the token so showing its balance would be
+ *  misleading, and anything short of "success" has no real holding to
+ *  report yet. */
+export function postBuyHoldingAddress(result: Operation): string | null {
+  if (result.status !== "success" || result.intent.kind !== "trade_preview" || result.intent.data.action !== "buy") return null;
+  const receivedAddress = result.intent.execution?.request.outputToken;
+  return receivedAddress && ADDR_RE.test(receivedAddress) ? receivedAddress : null;
+}
+
 /** Same shape as classify.ts's own EVM_ADDRESS_RE, duplicated (not imported)
  *  deliberately: classify.ts pulls in the Anthropic SDK and other
  *  server-only weight this client bundle shouldn't carry just for one
@@ -522,6 +540,24 @@ export function useAskChat(options?: { persist?: boolean }) {
     setMessages((m) => [...m, message]);
   }
 
+  /** After a completed BUY of an arbitrary, address-identified token,
+   *  automatically shows what the wallet now holds of it — real balance and
+   *  real value in $ and MON — without the user having to ask or re-paste
+   *  the contract address. Reuses the EXACT same token-intelligence lookup a
+   *  pasted CA already dispatches through (a real /api/ask/token read, never
+   *  a fresh Anthropic call — token_lookup is always deterministically
+   *  routed, see classify.ts's own detectTokenLookup) and only ever reads;
+   *  it never signs or executes anything, so this is purely a response-layer
+   *  addition, not a second execution path. */
+  async function showPostBuyHolding(result: Operation, startContext: { wallet: string | null; conversationId: string | null }) {
+    const receivedAddress = postBuyHoldingAddress(result);
+    if (!receivedAddress) return;
+    const understanding: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: receivedAddress } };
+    const { message } = await respondToUnderstanding(understanding, wallet.address);
+    if (isStaleContext(startContext)) return;
+    setMessages((m) => [...m, message]);
+  }
+
   async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || thinking) return;
@@ -675,10 +711,12 @@ export function useAskChat(options?: { persist?: boolean }) {
         await requoteExpiredTrade(op.intent);
         return;
       }
+      const startContext = captureContext();
       setOp({ ...op, status: "confirming" });
       const result = await executeTradeIntent(op, wallet, wallet.address, setProgressFor);
       clearProgressFor();
       setOp(result);
+      await showPostBuyHolding(result, startContext);
       return;
     }
     if ((op.intent.kind === "scheduled_payment" || op.intent.kind === "recurring_payment") && op.intent.handoff) {
