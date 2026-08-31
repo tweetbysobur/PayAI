@@ -187,12 +187,29 @@ export async function GET(req: NextRequest) {
     const contracts = [...new Set(logs.map((l) => l.address.toLowerCase()))];
     // Resolve metadata so the caller gets real decimals — a balance read with
     // the wrong decimals is a wrong number, which is worse than no number.
+    //
+    // Bounded per-contract, same reasoning as fetchIncomingTransferLogs above:
+    // resolveToken()'s symbol()/name()/decimals() reads are plain readContract
+    // calls with no timeout of their own, and a provider can stall on one of
+    // those exactly the way it can stall on a wide getLogs range — accepting
+    // the call instead of rejecting it, just never answering. Before this,
+    // ONE such contract among a wallet's discovered tokens hung the entire
+    // Promise.all below, which meant the whole route ran past its 30s
+    // maxDuration, the client's fetch failed, and usePortfolio's discovery
+    // silently degrades to "no extra tokens found" (see its own doc) — a
+    // wallet holding several tokens then showed only the two base assets
+    // (MON, USDC) with no error anywhere. withTimeout here means one bad
+    // contract is skipped instead of blocking every other token's resolution.
     const tokens = (
       await Promise.all(
         contracts.slice(0, 50).map(async (c) => {
           try {
-            const t = await resolveToken(c);
-            return { address: t.address, decimals: t.decimals };
+            const t = await withTimeout<{ address: string; decimals: number } | typeof TIMED_OUT>(
+              resolveToken(c).then((r) => ({ address: r.address, decimals: r.decimals })),
+              TIMEOUT_MS,
+              TIMED_OUT,
+            );
+            return t === TIMED_OUT ? null : t;
           } catch {
             return null; // not a readable ERC-20; skip rather than guess
           }

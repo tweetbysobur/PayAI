@@ -370,3 +370,52 @@ describe("GET /api/portfolio/discover — scans multiple history windows, not ju
     expect(callCount).toBe(1);
   });
 });
+
+/**
+ * The exact production report this fixes: a wallet holding several tokens
+ * showed only MON and USDC in the Portfolio card. Traced to the metadata
+ * resolution step run right after log discovery — resolveToken()'s
+ * symbol()/name()/decimals() reads had no timeout of their own, unlike the
+ * getLogs scan above (which was already hardened against a provider that
+ * accepts a call and simply never answers it, rather than rejecting it).
+ * ONE such contract among the discovered addresses hung the whole
+ * Promise.all, the route ran past its own maxDuration, the client's fetch
+ * failed, and usePortfolio's discovery silently degrades to "found nothing
+ * extra" — leaving only the two base tokens, with no error surfaced anywhere.
+ */
+describe("GET /api/portfolio/discover — one stalled token's metadata must not hide every other one", () => {
+  afterEach(() => {
+    getBlockNumberImpl = async () => 0n;
+    requestImpl = async () => [];
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+  });
+
+  function req(address: string): NextRequest {
+    return new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${address}`);
+  }
+
+  it("skips a contract whose metadata read never answers, and still returns every other discovered token", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4";
+    const FAST = "0x0000000000000000000000000000000000000b01";
+    const STALLED = "0x0000000000000000000000000000000000000b02";
+    getBlockNumberImpl = async () => 500_000n;
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+        return [{ address: FAST }, { address: STALLED }];
+      }
+      return [];
+    };
+    resolveTokenImpl = (address) => {
+      if (address.toLowerCase() === STALLED) return new Promise(() => {}); // a dead/stalled contract -- never answers
+      return Promise.resolve({ address, symbol: "FAST", name: "Fast Token", decimals: 18, verified: false });
+    };
+
+    const started = Date.now();
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const r = await GET(req(WALLET));
+    const json = await r.json();
+    expect(json.tokens).toEqual([{ address: FAST, decimals: 18 }]);
+    expect(Date.now() - started, "must not have waited out a real production-length timeout").toBeLessThan(8_000);
+  }, 10_000);
+});
