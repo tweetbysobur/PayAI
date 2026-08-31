@@ -162,6 +162,65 @@ describe("understand — LLM path", () => {
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.slots.txHash).toBe("0xabc123");
   });
+
+  /**
+   * The exact production report this fixes: viewing an arbitrary token's
+   * card names it by symbol in the reply text ("MONCAT — ..."), so that
+   * symbol is now sitting in the visible conversation history. Clicking
+   * "Buy this token" is a FRESH trade request (always a real Anthropic
+   * read — see routeRequest's own rule), and the model can reasonably read
+   * "MONCAT" back out of that history and fill toAsset with the bare
+   * symbol itself, rather than leaving it null the way it would for a
+   * token it had never seen named. A bare symbol PayAI doesn't curate is
+   * unresolvable downstream (resolveTradeSide only accepts a real address
+   * or a curated symbol) even though the trade is for a token PayAI can
+   * quote perfectly well by its real address — it used to reach the trade
+   * builder and fail with "MONCAT isn't a token PayAI can swap yet. Try
+   * MON, USDC, USDT0, AUSD, WETH, or WBTC.", flatly contradicting the
+   * token card that had just shown it as tradable.
+   */
+  it("a fresh buy naming the context token by its own bare display symbol resolves to the real contract address, not the unresolvable symbol", async () => {
+    const MONCAT = "0xaaaabbbbccccddddeeeeffff0000111122223333";
+    mockCreate.mockResolvedValue(
+      toolResponse({ kind: "trade", outcome: "incomplete", slots: { tradeAction: "buy", toAsset: "MONCAT", amount: null, fromAsset: null }, question: "How much would you like to spend on MONCAT, and in what — MON, USDC, or a dollar amount?" }),
+    );
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
+    const history = [
+      { role: "user" as const, content: MONCAT },
+      { role: "assistant" as const, content: "MONCAT — Some Cat Token. ≈ $0.002 per MONCAT, via Nad.Fun." },
+    ];
+    const u = await understand("Buy this token", history, pending);
+    expect(u.outcome).toBe("incomplete");
+    if (u.outcome === "incomplete") expect(u.slots.toAsset).toBe(MONCAT); // never the bare, unresolvable "MONCAT"
+  });
+
+  it("a fresh sell naming the context token by its own bare display symbol resolves the same way", async () => {
+    const MONCAT = "0xaaaabbbbccccddddeeeeffff0000111122223333";
+    mockCreate.mockResolvedValue(
+      toolResponse({ kind: "trade", outcome: "complete", slots: { tradeAction: "sell", fromAsset: "MONCAT", toAsset: "USDC", amount: "100", amountType: "exact_input" } }),
+    );
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
+    const u = await understand("Sell 100 of this for USDC", [], pending);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.fromAsset).toBe(MONCAT);
+  });
+
+  it("a model-provided CURATED symbol (a deliberate different choice) is respected, never overridden by the context token", async () => {
+    const MONCAT = "0xaaaabbbbccccddddeeeeffff0000111122223333";
+    // "Actually get WETH instead" while a MONCAT lookup is pending -- WETH is
+    // a real, curated, tradable symbol, so this must NOT be silently
+    // replaced by the context address.
+    mockCreate.mockResolvedValue(
+      toolResponse({ kind: "trade", outcome: "complete", slots: { tradeAction: "buy", toAsset: "WETH", fromAsset: "USDC", amount: "20", amountType: "exact_input" } }),
+    );
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
+    const u = await understand("Actually get WETH instead", [], pending);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.toAsset).toBe("WETH");
+  });
 });
 
 describe("understand — key-free deterministic fallback", () => {
