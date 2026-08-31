@@ -103,6 +103,26 @@ describe("router — deterministic follow-ups resolve from context without anoth
     expect(r.anthropic).toBe(false);
     if (r.understanding?.outcome === "complete") expect(r.understanding.slots.amount).toBe("75");
   });
+
+  // P1.5 — filling one of several still-missing slots used to ask
+  // `` `And ${slotKey}?` ``, leaking a raw camelCase field name straight into
+  // the chat ("And frequency?"). Naming the recipient here should read as a
+  // natural question about what's STILL missing, never the internal key.
+  it("filling 'recipient' on a recurring payment still missing 'frequency' asks naturally, never the raw slot name", async () => {
+    const incompletePending: Understanding = {
+      kind: "recurring_payment", outcome: "incomplete",
+      slots: { amount: "100", asset: "USDC", recipient: null, frequency: null },
+      question: "Who should receive it?",
+    };
+    const r = await routeRequest("0x1234567890abcdef1234567890abcdef12345678", incompletePending);
+    expect(r.route).toBe("follow_up");
+    expect(r.anthropic).toBe(false);
+    expect(r.understanding?.outcome).toBe("incomplete");
+    if (r.understanding?.outcome === "incomplete") {
+      expect(r.understanding.question).not.toMatch(/frequency/i);
+      expect(r.understanding.question.toLowerCase()).toContain("often");
+    }
+  });
 });
 
 describe("router — an ambiguous follow-up still calls Anthropic, never guesses", () => {

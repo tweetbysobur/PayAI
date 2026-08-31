@@ -201,6 +201,36 @@ function tradeQuestionFor(missing: (keyof AskSlots)[]): string {
   return "Could you tell me a bit more about that trade?";
 }
 
+/** P1.5 — the one still-missing slot, asked naturally. Used by
+ *  tryMergePending's generic incomplete-fill loop below, the ONE place that
+ *  previously fell back to a bare `` `And ${slotKey}?` `` — which reads as
+ *  "And recipientCount?" or "And frequency?", a raw camelCase field name
+ *  leaking straight into the chat. Every other question path in this file
+ *  (classifyFresh's send_payment/schedule branches, tradeQuestionFor above)
+ *  already asks naturally; this closes the one spot that didn't. Kind-aware
+ *  only where the plain phrasing would otherwise be misleading (a swap or
+ *  distribution's "amount" doesn't mean "send"). */
+function naturalMissingSlotQuestion(kind: AskIntentKind, key: keyof AskSlots): string {
+  switch (key) {
+    case "amount":
+      return kind === "swap" || kind === "trade" ? "How much would you like to swap?"
+        : kind === "distribution" ? "How much should each recipient get?"
+        : "How much would you like to send?";
+    case "asset": case "fromAsset": case "toAsset":
+      return "Which token should I use?";
+    case "recipient":
+      return "Who should receive it?";
+    case "when":
+      return "When should this run?";
+    case "frequency":
+      return "How often should this repeat?";
+    case "recipientCount":
+      return "How many recipients?";
+    default:
+      return "Could you tell me a bit more?";
+  }
+}
+
 /** Turns whatever the model (or a malformed/adversarial tool call) returned
  *  into a well-typed Understanding. Never trusts kind/outcome to be
  *  consistent — a mismatch or an unrecognized kind always degrades to
@@ -494,7 +524,7 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
       const stillMissing = REQUIRED_SLOTS[pending.kind].filter((k) => !filled[k]);
       return stillMissing.length === 0
         ? { kind: pending.kind, outcome: "complete", slots: filled }
-        : { kind: pending.kind, outcome: "incomplete", slots: filled, question: `And ${stillMissing[0]}?` };
+        : { kind: pending.kind, outcome: "incomplete", slots: filled, question: naturalMissingSlotQuestion(pending.kind, stillMissing[0]) };
     }
   }
 
