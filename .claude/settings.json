@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__list_teams",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__list_projects",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_project",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__list_deployments",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_deployment",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_deployment_build_logs",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_git_deployment_context",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_runtime_errors",
+      "mcp__6295aa1c-143d-4f5c-acc1-0630d937e23e__get_runtime_logs"
+    ]
+  }
+}
