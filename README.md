@@ -4,8 +4,7 @@
 
 # PayAI
 
-**The payment automation layer on Monad — wallets, payments, swaps, bulk
-distributions, and automation, in one platform.**
+**Turn Natural Language intent into on chain execution.**
 
 [Live app](https://usepayai.xyz) · [Report an issue](https://github.com/tweetbysobur/PayAI/issues)
 
