@@ -142,3 +142,49 @@ describe("getUsdPrices — one stalled token's quote must not block every other 
     expect(Date.now() - started, "must not have waited out a real production-length timeout").toBeLessThan(8_000);
   }, 10_000);
 });
+
+/**
+ * The same stall bound, but on the SINGULAR export — which has callers of its
+ * own on a user-facing path. tokenIntelligence's probeMarket awaits
+ * getUsdPrice twice inside a Promise.all with no bound of its own, so a
+ * stalled quoter hung the entire "what is this token? 0x..." lookup: nothing
+ * rejected, so neither that Promise.all nor the API route's try/catch could
+ * ever release the request.
+ *
+ * And once bounded, the non-answer must not be REMEMBERED. Caching it as null
+ * would pin "Unavailable" for the full 60s TTL — on price, and through
+ * price x totalSupply on market cap and FDV too — so a user pasting the same
+ * contract address again a second later got the same empty card replayed from
+ * memory instead of a fresh read.
+ */
+describe("getUsdPrice — a stalled quoter is bounded, and its non-answer is never cached", () => {
+  const STALLED_TOKEN = "0xddddeeeeffff0000111122223333aaaabbbbcccc";
+
+  it("returns null instead of hanging, and the very next call re-probes rather than replaying the null", async () => {
+    let stalled = true;
+    quoteFn = (_tokenIn, wei) => {
+      if (stalled) return new Promise<bigint>(() => {}); // accepted, never answered
+      return wei / 10n ** 12n; // healthy again: a linear $1-per-unit pool
+    };
+    const { getUsdPrice } = await import("@/lib/monad/prices");
+
+    const started = Date.now();
+    expect(await getUsdPrice(STALLED_TOKEN, 18)).toBeNull();
+    expect(Date.now() - started, "must not have waited out an unbounded stall").toBeLessThan(8_000);
+
+    // The chain never told us anything, so there was nothing to remember.
+    stalled = false;
+    expect(await getUsdPrice(STALLED_TOKEN, 18)).toBe(1);
+  }, 10_000);
+
+  it("a quoter that DID answer and found no pool is still cached -- only the non-answer is exempt", async () => {
+    quoteFn = () => { throw new Error("execution reverted: no pool"); };
+    const { getUsdPrice } = await import("@/lib/monad/prices");
+    expect(await getUsdPrice(STALLED_TOKEN, 18)).toBeNull();
+    const callsAfterFirst = simulateCallCount;
+    expect(callsAfterFirst).toBeGreaterThan(0);
+
+    expect(await getUsdPrice(STALLED_TOKEN, 18)).toBeNull();
+    expect(simulateCallCount, "a real 'no pool' verdict is a fact worth caching").toBe(callsAfterFirst);
+  });
+});
