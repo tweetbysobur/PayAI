@@ -42,6 +42,12 @@ export async function POST(req: NextRequest) {
      *  receipt is still the source of truth for whether it succeeded at
      *  all; this and the amounts are display-only). */
     provider?: string;
+    /** The received token's real contract address, when the trade named it
+     *  by address rather than a curated symbol — see TxLogEntry's
+     *  outputTokenAddress. Validated as an address below and dropped if it
+     *  isn't one; display/discovery metadata only, never used for
+     *  settlement, amounts, or any on-chain decision. */
+    outputTokenAddress?: string;
   };
   try {
     body = await req.json();
@@ -50,6 +56,13 @@ export async function POST(req: NextRequest) {
   }
   const { walletAddress, txHash, fromToken, toToken, amountIn, amountOut, provider } = body;
   const feature = body.feature === "trade" ? "trade" : "swap";
+  // Only ever stored when it really is an address — a symbol here would be
+  // useless to the portfolio (which reads balanceOf by contract) and would
+  // quietly reintroduce the bare-symbol confusion this field exists to end.
+  const outputTokenAddress =
+    typeof body.outputTokenAddress === "string" && isAddress(body.outputTokenAddress)
+      ? body.outputTokenAddress
+      : null;
   if (!txHash || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) {
     return NextResponse.json({ error: "A valid txHash is required." }, { status: 400 });
   }
@@ -166,6 +179,7 @@ export async function POST(req: NextRequest) {
     summary: successSummary,
     outputAmount: effAmountOut,
     outputToken: toToken ?? null,
+    outputTokenAddress,
     provider: provider ?? null,
   });
 

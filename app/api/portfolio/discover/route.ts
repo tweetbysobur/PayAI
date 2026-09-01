@@ -161,6 +161,40 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ tokens: hit.tokens, cached: true });
   }
 
+  // Tokens this wallet is KNOWN to have acquired through PayAI itself, read
+  // from its own settled trade history — no chain scan involved.
+  //
+  // The log scan below is the only way to find a token that arrived from
+  // somewhere else (an airdrop, an external transfer), so it stays. But it is
+  // also the single most rate-limit-prone query in the product — an
+  // address-less, 200k-block-wide eth_getLogs, fanned out across several
+  // windows at once — and when a provider throttles or refuses it, the catch
+  // below cannot tell that apart from "this wallet holds nothing new" and
+  // returns an empty list. A token the user bought minutes ago through PayAI
+  // then vanished from their portfolio entirely, which is exactly the
+  // reported failure.
+  //
+  // PayAI already knows those tokens without asking the chain anything: it
+  // executed the trade and recorded the received token's real contract
+  // address at settlement (see TxLogEntry.outputTokenAddress). Seeding from
+  // that makes a bought token appear even when the scan returns nothing at
+  // all. Deliberately kept in its OWN try/catch, ahead of the scan, so the
+  // two sources fail independently — a thrown scan can no longer take the
+  // reliable half down with it.
+  const seeded: string[] = [];
+  try {
+    const { resolveTenantId } = await import("@/lib/platform/tenant");
+    const { listTx } = await import("@/lib/platform/store");
+    const rows = await listTx(await resolveTenantId(req), { sender: address });
+    for (const row of rows) {
+      const a = row.outputTokenAddress;
+      if (typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a)) seeded.push(a.toLowerCase());
+    }
+  } catch {
+    // History unavailable — the scan below is still a complete source on its
+    // own, exactly as it was before this seed existed.
+  }
+
   try {
     const { getPublicClient } = await import("@/lib/monad/wallet");
     const { resolveToken } = await import("@/lib/monad/tokenRegistry");
@@ -199,7 +233,9 @@ export async function GET(req: NextRequest) {
     }
     const logs = (await Promise.all(windowAnchors.map(fetchWindow))).flat();
 
-    const contracts = [...new Set(logs.map((l) => l.address.toLowerCase()))];
+    // Seeded-first so a known, just-bought token keeps its slot even if the
+    // scan returned more than the 50-contract resolution cap below.
+    const contracts = [...new Set([...seeded, ...logs.map((l) => l.address.toLowerCase())])];
     // Resolve metadata so the caller gets real decimals — a balance read with
     // the wrong decimals is a wrong number, which is worse than no number.
     //
@@ -235,9 +271,40 @@ export async function GET(req: NextRequest) {
     cache.set(key, { at: Date.now(), tokens });
     return NextResponse.json({ tokens });
   } catch {
-    // Discovery is additive: the portfolio still renders its base tokens, so
-    // a failure here degrades to "no extra tokens found", never to an error
-    // the user has to act on.
-    return NextResponse.json({ tokens: [] });
+    // The chain scan failed outright (a refused or throttled getLogs, an
+    // unreachable RPC). Discovery is additive, so this still degrades rather
+    // than erroring — but it degrades to what PayAI independently KNOWS this
+    // wallet acquired, not to nothing. Returning [] here regardless of the
+    // seed is what made a just-bought token disappear from the portfolio
+    // whenever the provider throttled that one query.
+    //
+    // Resolved through the same metadata path as the scan's own results,
+    // because a balance read with wrong decimals is a wrong number; a token
+    // whose metadata can't be read is dropped rather than guessed at. Not
+    // cached: this is the degraded answer, and caching it would keep the
+    // full result out for the rest of the window once the scan recovers.
+    if (seeded.length === 0) return NextResponse.json({ tokens: [] });
+    try {
+      const { resolveToken } = await import("@/lib/monad/tokenRegistry");
+      const tokens = (
+        await Promise.all(
+          [...new Set(seeded)].slice(0, 50).map(async (c) => {
+            try {
+              const t = await withTimeout<{ address: string; decimals: number } | typeof TIMED_OUT>(
+                resolveToken(c).then((r) => ({ address: r.address, decimals: r.decimals })),
+                TIMEOUT_MS,
+                TIMED_OUT,
+              );
+              return t === TIMED_OUT ? null : t;
+            } catch {
+              return null;
+            }
+          }),
+        )
+      ).filter((t): t is { address: string; decimals: number } => t !== null);
+      return NextResponse.json({ tokens, degraded: true });
+    } catch {
+      return NextResponse.json({ tokens: [] });
+    }
   }
 }
