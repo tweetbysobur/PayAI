@@ -1006,3 +1006,97 @@ describe("inspectAddress — Latency Task 3: availableBuyTokens/getProgress no l
     expect(r.data.market.marketCapUsd).toBeNull();
   });
 });
+
+/**
+ * The market probe is ENRICHMENT layered on top of an already-identified
+ * token, and it fans out to several independent network reads. Three ways
+ * that used to cost the user the whole card, or pin an empty one in place:
+ *
+ *  1. A snapshot where every source came back empty was written to the 20s
+ *     cache as if it were a fact about the token, so retrying immediately
+ *     replayed the same "Price / Market Cap / FDV / Liquidity: Unavailable"
+ *     card from memory instead of re-reading the chain. Under RPC rate
+ *     limiting — several concurrent reads, and being throttled is
+ *     indistinguishable from "no pool" at this layer — one bad moment became
+ *     a stuck one.
+ *  2. Any ONE branch rejecting rejected probeMarket's own Promise.all, which
+ *     rejected inspectAddress, which the API route turned into "Couldn't
+ *     reach Monad to check that address" — discarding the name, symbol,
+ *     supply and balance it had already read successfully.
+ *  3. A branch that STALLED never rejected at all, so no try/catch anywhere
+ *     above it could release the request.
+ */
+describe("inspectAddress — the market probe degrades, it never takes the whole card down", () => {
+  function setUpArbitraryToken() {
+    codeAt[TOKEN.toLowerCase()] = "0x6080604052";
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "MEOW", name: "Meow Coin", decimals: 18, verified: false });
+    readContractImpl = () => 1_000_000_000000000000000000n;
+  }
+
+  it("a snapshot that learned nothing is NOT cached -- the next lookup genuinely retries", async () => {
+    setUpArbitraryToken();
+    let probes = 0;
+    quoteUniswapDirectImpl = async () => { probes += 1; return null; }; // every source empty
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+
+    const first = await inspectAddress(TOKEN);
+    if (first.kind !== "token") throw new Error("expected token");
+    expect(first.data.market.marketCapUsd).toBeNull();
+    const probesAfterFirst = probes;
+    expect(probesAfterFirst).toBeGreaterThan(0);
+
+    // Well inside the 20s TTL: a real snapshot would rightly be served from
+    // cache here, but an empty one is a failure, not something to remember.
+    await inspectAddress(TOKEN);
+    expect(probes, "an empty snapshot must not pin 'Unavailable' for the whole TTL").toBeGreaterThan(probesAfterFirst);
+  });
+
+  it("a snapshot that DID learn something is still cached -- only the empty one is exempt", async () => {
+    setUpArbitraryToken();
+    let probes = 0;
+    quoteUniswapDirectImpl = async () => { probes += 1; return { amountOut: "42", priceImpact: null }; };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+
+    await inspectAddress(TOKEN);
+    const probesAfterFirst = probes;
+    expect(probesAfterFirst).toBeGreaterThan(0);
+
+    await inspectAddress(TOKEN);
+    expect(probes, "a real snapshot is exactly what the cache exists for").toBe(probesAfterFirst);
+  });
+
+  it("one market branch throwing still returns the identified token, with the market block honestly empty", async () => {
+    setUpArbitraryToken();
+    getDexScreenerSnapshotImpl = async () => { throw new Error("market data provider blew up"); };
+    const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+
+    const r = await inspectAddress(TOKEN);
+    expect(r.kind, "identification already succeeded -- it must not be discarded").toBe("token");
+    if (r.kind !== "token") throw new Error("expected token");
+    expect(r.data.symbol).toBe("MEOW");
+    expect(r.data.totalSupply).toBe("1000000");
+    expect(r.data.market.price).toBeNull();
+    expect(r.data.market.routes).toEqual([]);
+    // No signal is invented to explain the gap -- "no_liquidity" would assert
+    // something this code does not actually know.
+    expect(r.data.market.signals).toEqual([]);
+  });
+
+  it("a market branch that STALLS is bounded -- the card still renders instead of hanging the request", async () => {
+    setUpArbitraryToken();
+    getDexScreenerSnapshotImpl = () => new Promise(() => {}); // accepted, never answered
+    vi.useFakeTimers();
+    try {
+      const { inspectAddress } = await import("@/lib/monad/tokenIntelligence");
+      const pending = inspectAddress(TOKEN);
+      await vi.advanceTimersByTimeAsync(10_000); // past the market-probe bound
+      const r = await pending;
+      expect(r.kind).toBe("token");
+      if (r.kind !== "token") throw new Error("expected token");
+      expect(r.data.symbol).toBe("MEOW");
+      expect(r.data.market.price).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

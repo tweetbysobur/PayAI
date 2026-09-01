@@ -42,16 +42,34 @@ const USDC_DECIMALS = Number(process.env.MONAD_USDC_DECIMALS ?? 6);
 
 const FEE_TIERS = [500, 3000, 10000] as const;
 
-/** Bounds ONE token's price probe inside getUsdPrices' batch below. A quoter
- *  read that stalls (the provider accepts the call and simply never answers,
- *  same failure class as the portfolio-discovery gap this mirrors) doesn't
- *  reject — Promise.allSettled inside quoteUnitPrice tolerates a REJECTED fee
- *  tier, but does nothing for one that never settles at all, and neither does
- *  getUsdPrices' own Promise.all across tokens. Without a bound here, ONE
- *  wallet holding stuck a stalled quoter call previously meant every OTHER
- *  token in the same portfolio silently never got a USD value either — not
- *  just the flaky one. */
+/** Bounds ONE token's price probe. A quoter read that stalls (the provider
+ *  accepts the call and simply never answers, same failure class as the
+ *  portfolio-discovery gap this mirrors) doesn't reject — Promise.allSettled
+ *  inside quoteUnitPrice tolerates a REJECTED fee tier, but does nothing for
+ *  one that never settles at all, and neither does any caller's Promise.all
+ *  across tokens. Without a bound, ONE wallet holding stuck on a stalled
+ *  quoter call meant every OTHER token in the same portfolio silently never
+ *  got a USD value either — not just the flaky one.
+ *
+ *  This lives INSIDE getUsdPrice rather than only around getUsdPrices' batch,
+ *  because the singular export has callers of its own on user-facing paths —
+ *  tokenIntelligence's probeMarket awaits it twice in a Promise.all with no
+ *  bound of its own, so a stall there hung the whole "what is this token?"
+ *  lookup with nothing above it able to release the request. */
 const PRICE_TIMEOUT_MS = 4_000;
+
+/** Distinguishes "the quoter answered, and there is no pool deep enough to
+ *  price this honestly" — a real, stable fact worth caching for the TTL —
+ *  from "the quoter never answered in time", which is transient and must not
+ *  be pinned. Both hand the caller the same null, so only the cache write
+ *  needs to tell them apart.
+ *
+ *  This matters well beyond one price field: tokenIntelligence computes market
+ *  cap and FDV as price x totalSupply, so caching a stalled read as null took
+ *  the whole valuation block down with it, and kept it down for a full minute
+ *  — pasting the same contract address again a second later was served the
+ *  same empty answer from cache instead of re-reading the chain. */
+const TIMED_OUT = Symbol("price-probe-timed-out");
 
 const QUOTER_ABI = [
   {
@@ -135,7 +153,17 @@ export async function getUsdPrice(address: string, decimals: number): Promise<nu
   // payments product a confidently wrong dollar figure is worse than none. So
   // when the two probes disagree materially we return null and the UI shows
   // nothing rather than a number nobody should rely on.
-  const [small, large] = await Promise.all([quoteUnitPrice("1"), quoteUnitPrice("10")]);
+  const probed = await withTimeout<[number | null, number | null] | typeof TIMED_OUT>(
+    Promise.all([quoteUnitPrice("1"), quoteUnitPrice("10")]),
+    PRICE_TIMEOUT_MS,
+    TIMED_OUT,
+  );
+  // Deliberately not cached: the chain never told us anything, so there is
+  // nothing here to remember. Returning null still reads as "unavailable" to
+  // the caller, but the very next attempt re-reads instead of replaying this
+  // non-answer for the rest of the TTL.
+  if (probed === TIMED_OUT) return null;
+  const [small, large] = probed;
 
   let usd: number | null = null;
   if (small !== null) {
@@ -163,7 +191,10 @@ export async function getUsdPrices(
   }
   const entries = await Promise.all(
     [...unique.entries()].map(async ([k, t]) => {
-      const usd = await withTimeout(getUsdPrice(t.address, t.decimals).catch(() => null), PRICE_TIMEOUT_MS, null);
+      // The stall bound now lives inside getUsdPrice itself (see
+      // PRICE_TIMEOUT_MS), so all that's left to do here is keep one token's
+      // outright rejection from failing the whole batch.
+      const usd = await getUsdPrice(t.address, t.decimals).catch(() => null);
       return [k, usd] as const;
     }),
   );

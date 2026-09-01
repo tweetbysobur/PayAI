@@ -82,6 +82,7 @@ import {
 } from "./nadfun";
 import { getUsdPrice } from "./prices";
 import { getDexScreenerSnapshot } from "./dexscreener";
+import { withTimeout } from "./rpcTimeout";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -388,17 +389,25 @@ async function routesForArbitraryToken(
   return attempts.filter((r): r is TokenRoute => r !== null);
 }
 
+/** The quote assets that make sense for THIS token — everything in
+ *  `quoteAssets` except the token pairing with itself. Shared by route
+ *  discovery and by the snapshot's own `quoteAssetsChecked`, so the list the
+ *  card reports as "checked" can never drift from the list actually probed. */
+function applicableQuoteAssets(info: TokenInfo, address: Address, quoteAssets: readonly string[] = QUOTE_ASSETS): string[] {
+  const stablecoin = getStablecoin();
+  return quoteAssets.filter((qa) => {
+    if (qa === "USDC" && address.toLowerCase() === stablecoin.address.toLowerCase()) return false;
+    if (qa === "MON" && info.symbol.toUpperCase() === "MON") return false;
+    return true;
+  });
+}
+
 /** Discovers real routes for `amount` of the token against every quote
  *  asset that applies (excluding the token pairing with itself), dispatched
  *  to the verified or arbitrary-token path per this module's own
  *  contract-address-is-truth rule. */
 async function discoverRoutes(info: TokenInfo, address: Address, quoteAssets: readonly string[], amount: string): Promise<TokenRoute[]> {
-  const stablecoin = getStablecoin();
-  const candidates = quoteAssets.filter((qa) => {
-    if (qa === "USDC" && address.toLowerCase() === stablecoin.address.toLowerCase()) return false;
-    if (qa === "MON" && info.symbol.toUpperCase() === "MON") return false;
-    return true;
-  });
+  const candidates = applicableQuoteAssets(info, address, quoteAssets);
   if (candidates.length === 0) return [];
   return info.verified
     ? routesForVerifiedToken(info, candidates, amount)
@@ -582,12 +591,7 @@ async function probeMarket(
   const hit = marketCache.get(key);
   if (hit && Date.now() - hit.at < MARKET_TTL_MS) return hit.data;
 
-  const stablecoin = getStablecoin();
-  const quoteAssetsChecked = QUOTE_ASSETS.filter((qa) => {
-    if (qa === "USDC" && address.toLowerCase() === stablecoin.address.toLowerCase()) return false;
-    if (qa === "MON" && info.symbol.toUpperCase() === "MON") return false;
-    return true;
-  });
+  const quoteAssetsChecked = applicableQuoteAssets(info, address);
 
   const [routes, directUsdPrice, nadFunLiquidity, dexScreener, monUsdPrice] = await Promise.all([
     discoverRoutes(info, address, QUOTE_ASSETS, "1"),
@@ -663,8 +667,46 @@ async function probeMarket(
     signals: computeSignals(routes, usdPrice, quoteAssetsChecked, liquidityResolved != null),
     lastUpdated: Date.now(),
   };
-  marketCache.set(key, { data, at: Date.now() });
+  // Only remember a snapshot that actually learned something. A snapshot where
+  // every source came back empty is a FAILURE, not a fact about the token, and
+  // caching it pinned "Price / Market Cap / FDV / Liquidity: Unavailable" onto
+  // the card for the full TTL — so pasting the same contract address again a
+  // moment later replayed the same empty card from memory instead of retrying.
+  // Under RPC rate limiting (the fan-out below is several concurrent reads, and
+  // getting throttled is indistinguishable from "no pool" at this layer) that
+  // turned one bad moment into a stuck one. A snapshot with any real signal in
+  // it still caches exactly as before — that is the case the cache exists for.
+  if (routes.length > 0 || usdPrice != null || liquidityResolved != null || dexScreener != null) {
+    marketCache.set(key, { data, at: Date.now() });
+  }
   return data;
+}
+
+/** Ceiling on the whole market fan-out below. Every branch of it is a network
+ *  read — route discovery across providers, the Uniswap price probes, Nad.Fun
+ *  reserves, DexScreener — and a read that STALLS does not reject, so neither
+ *  probeMarket's own Promise.all nor the API route's try/catch would ever
+ *  release the request. Generous enough that a merely slow probe still returns
+ *  real data; short enough that a stuck one still leaves a usable card. */
+const MARKET_PROBE_TIMEOUT_MS = 9_000;
+
+/** The honest "nothing could be learned about this market" snapshot: every
+ *  figure null, no routes, and no signal invented to explain the gap (in
+ *  particular NOT "no_liquidity", which would assert something this code
+ *  does not know). Used when the market probe stalls or fails outright —
+ *  identification already succeeded by that point, so the name, symbol,
+ *  supply and the user's own balance are all real and worth showing. Losing
+ *  the market block should degrade the card, not collapse the whole lookup
+ *  into "Couldn't reach Monad to check that address", which is both less
+ *  useful and less accurate. Same principle as readTotalSupply's own
+ *  null-on-failure, one level up. */
+function emptyMarketData(quoteAssetsChecked: string[]): TokenMarketData {
+  return {
+    price: null, priceQuoteAsset: null, priceMon: null, marketCapUsd: null, fdvUsd: null,
+    liquidity: null, volume24h: null, buyVolume24h: null, sellVolume24h: null,
+    transactions24h: null, buys24h: null, sells24h: null, holders: null, priceChange24h: null,
+    quoteAssetsChecked, routes: [], signals: [], lastUpdated: Date.now(),
+  };
 }
 
 /**
@@ -722,11 +764,20 @@ export async function inspectAddress(
     nadFunAvailableBuyTokens(addr, info.decimals),
     getNadFunProgress(addr),
   ]);
-  const [userBalance, market, creatorInfo] = await Promise.all([
+  // The market probe is ENRICHMENT, not identification: by this point the
+  // token is already fully identified, so a market read that fails or never
+  // answers must not take the whole lookup down with it. Bounded (a stalled
+  // read never rejects, so try/catch alone would hang here forever) and
+  // caught (any one branch rejecting would reject probeMarket's own
+  // Promise.all) — either way the card still renders, with the market block
+  // honestly empty. Without this, one flaky DEX read turned a perfectly
+  // readable token into "Couldn't reach Monad to check that address."
+  const [userBalance, marketProbe, creatorInfo] = await Promise.all([
     walletAddress ? readBalance(pub, addr, walletAddress as Address, info.decimals) : Promise.resolve(null),
-    probeMarket(info, addr, totalSupply, nadFunStatus),
+    withTimeout(probeMarket(info, addr, totalSupply, nadFunStatus).catch(() => null), MARKET_PROBE_TIMEOUT_MS, null),
     nadFunStatus.recognized ? getNadFunCreatorInfo(addr) : Promise.resolve(null),
   ]);
+  const market = marketProbe ?? emptyMarketData(applicableQuoteAssets(info, addr));
 
   let nadFun: TokenNadFunInfo | null = null;
   let creator: string | null = null;
@@ -754,7 +805,15 @@ export async function inspectAddress(
   let quote: QuotedAmount | null | undefined;
   if (quoteRequest?.amount) {
     const quoteAsset = quoteRequest.quoteAsset ?? market.routes[0]?.outputToken ?? QUOTE_ASSETS[0];
-    const routes = await discoverRoutes(info, addr, [quoteAsset], quoteRequest.amount);
+    // Same reasoning as the market probe above, for the same reason: this is
+    // one more optional enrichment read, and `route: null` already means "no
+    // usable route was found for that pair" — a stall or a throw here must
+    // land on that honest answer, not discard everything already resolved.
+    const routes = await withTimeout(
+      discoverRoutes(info, addr, [quoteAsset], quoteRequest.amount).catch((): TokenRoute[] => []),
+      MARKET_PROBE_TIMEOUT_MS,
+      [],
+    );
     quote = { amount: quoteRequest.amount, quoteAsset, route: routes[0] ?? null };
   }
 
