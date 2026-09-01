@@ -15,6 +15,15 @@ export const dynamic = "force-dynamic";
  * liquidity.
  */
 export async function GET(req: NextRequest) {
+  // Unauthenticated and RPC-amplifying: the 25-token cap below bounds ONE
+  // request, but each token costs two probes across three fee tiers, so a
+  // request of 25 addresses nobody has priced before is up to 150 quoter
+  // calls — and prices.ts's 60s cache is no defense at all against a caller
+  // supplying fresh random addresses every time, since none of them hit it.
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "prices", { max: 60, windowSec: 60 });
+  if (limited) return limited;
+
   const raw = new URL(req.url).searchParams.get("tokens") ?? "";
   const tokens = raw
     .split(",")
