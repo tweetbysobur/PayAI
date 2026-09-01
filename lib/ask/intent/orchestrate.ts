@@ -42,6 +42,12 @@ function idemKey(tag: string): string {
   return `ask-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** A real EVM contract address, as opposed to a curated display symbol —
+ *  used only to decide whether a trade's received token has an address
+ *  worth recording for portfolio discovery (see TxLogEntry's
+ *  outputTokenAddress and executeTradeIntent's settle call below). */
+const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+
 type SwapPlan = NonNullable<SwapIntent["execution"]>["plan"];
 /** One row of real transaction history, as /api/agent's show_history query
  *  returns it — this is lib/platform/types.ts's TxLogEntry verbatim (minus
@@ -533,6 +539,17 @@ export async function executeTradeIntent(
           walletAddress, txHash: lastHash, fromToken: effectiveLeg.fromToken, toToken: effectiveLeg.toToken,
           amountIn: effectiveLeg.amountIn, amountOut: effectiveLeg.amountOut,
           feature: "trade", provider: effectiveLeg.provider,
+          // The received token's REAL address, recorded only on the leg that
+          // actually ends the trade — settleLeg's own tokens are display
+          // symbols, which can't be resolved back to an arbitrary token's
+          // contract. Without this the portfolio had no record of what was
+          // just acquired and could only rediscover it by scanning chain
+          // logs (see TxLogEntry.outputTokenAddress). Sent only when it
+          // really is an address: a curated-symbol trade (MON/USDC) has no
+          // arbitrary contract to remember and is already a base asset.
+          ...(isLast && ADDRESS_RE.test(request.outputToken)
+            ? { outputTokenAddress: request.outputToken }
+            : {}),
         }),
       });
       const cj = (await r.json()) as { explorerUrl?: string; error?: string; success?: boolean; reverted?: boolean };

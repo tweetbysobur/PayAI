@@ -19,6 +19,13 @@ vi.mock("@/lib/monad/tokenRegistry", () => ({
   resolveToken: (address: string) => resolveTokenImpl(address),
 }));
 
+/** The wallet's own settled trade history — the chain-scan-free half of
+ *  discovery (see the route's own doc on why it exists). Empty by default so
+ *  every pre-existing test still exercises the scan exactly as before. */
+let listTxImpl: () => Promise<{ outputTokenAddress?: string | null }[]> = async () => [];
+vi.mock("@/lib/platform/tenant", () => ({ resolveTenantId: async () => "test-tenant" }));
+vi.mock("@/lib/platform/store", () => ({ listTx: () => listTxImpl() }));
+
 function h(over: Partial<Holding> = {}): Holding {
   return {
     address: "0x1111111111111111111111111111111111111111",
@@ -497,6 +504,91 @@ describe("GET /api/portfolio/discover — ?fresh=1 bypasses the cache for one ex
     const afterWarm = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
     expect(afterWarm.cached).toBe(true);
     expect(afterWarm.tokens.map((t: { address: string }) => t.address).sort()).toEqual([NEW, OLD].sort());
+  });
+});
+
+/**
+ * The reported production failure, reproduced at its root: a token bought
+ * through PayAI minutes earlier was absent from the portfolio entirely.
+ *
+ * Discovery's only source was an address-less, 200k-block-wide eth_getLogs
+ * fanned out across 8 windows at once — the single most rate-limit-prone
+ * query in the product. When a provider throttles or refuses it, the route
+ * cannot distinguish that from "this wallet holds nothing new" and returned
+ * an empty list. PayAI already knew the answer without asking the chain: it
+ * executed the trade and now records the received token's real contract
+ * address at settlement (TxLogEntry.outputTokenAddress).
+ */
+describe("GET /api/portfolio/discover — a bought token survives a failing chain scan", () => {
+  afterEach(() => {
+    getBlockNumberImpl = async () => 0n;
+    requestImpl = async () => [];
+    resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+    listTxImpl = async () => [];
+  });
+
+  const BOUGHT = "0x0000000000000000000000000000000000000d01";
+
+  it("returns the just-bought token even when the log scan throws outright (a refused/throttled getLogs)", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa7";
+    getBlockNumberImpl = async () => { throw new Error("rate limited"); };
+    listTxImpl = async () => [{ outputTokenAddress: BOUGHT }];
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(json.tokens.map((t: { address: string }) => t.address.toLowerCase())).toEqual([BOUGHT]);
+    expect(json.degraded, "the caller should be able to tell this was the fallback half").toBe(true);
+  });
+
+  it("returns the just-bought token when the scan succeeds but finds nothing (logs outside the window)", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa8";
+    getBlockNumberImpl = async () => 500_000n;
+    requestImpl = async () => []; // scan works, just returns no transfers
+    listTxImpl = async () => [{ outputTokenAddress: BOUGHT }];
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(json.tokens.map((t: { address: string }) => t.address.toLowerCase())).toEqual([BOUGHT]);
+  });
+
+  it("merges both sources without duplicating a token the scan ALSO found", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9";
+    const AIRDROPPED = "0x0000000000000000000000000000000000000d02";
+    getBlockNumberImpl = async () => 500_000n;
+    requestImpl = async ({ params }) => {
+      const [{ fromBlock, toBlock }] = params;
+      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+        return [{ address: BOUGHT }, { address: AIRDROPPED }]; // scan sees the bought one too
+      }
+      return [];
+    };
+    listTxImpl = async () => [{ outputTokenAddress: BOUGHT }];
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    const addrs = json.tokens.map((t: { address: string }) => t.address.toLowerCase()).sort();
+    expect(addrs).toEqual([BOUGHT, AIRDROPPED].sort());
+  });
+
+  it("ignores a non-address value in history — a bare symbol can never reach the balance reader", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab10";
+    getBlockNumberImpl = async () => { throw new Error("rate limited"); };
+    // "MONCAT" is what outputToken (the display symbol) holds; only a real
+    // address belongs in outputTokenAddress.
+    listTxImpl = async () => [{ outputTokenAddress: "MONCAT" }, { outputTokenAddress: null }];
+
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(json.tokens).toEqual([]);
+  });
+
+  it("a wallet with no trade history and a failing scan still degrades quietly to empty, never an error", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab11";
+    getBlockNumberImpl = async () => { throw new Error("rate limited"); };
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    const r = await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`));
+    expect(r.status).toBe(200);
+    expect((await r.json()).tokens).toEqual([]);
   });
 });
 

@@ -52,6 +52,26 @@ export interface TxLogEntry {
    *  for swap/trade entries recorded before this field existed. */
   outputAmount?: number | null;
   outputToken?: string | null;
+  /**
+   * Swap/trade only — the received token's real CONTRACT ADDRESS, when the
+   * trade identified it by address rather than by a curated symbol.
+   *
+   * `outputToken` above is only ever a display SYMBOL ("MONCAT"), which is
+   * not resolvable back to a contract for an arbitrary token — a bare symbol
+   * means nothing outside the curated registry. Execution already knows the
+   * real address at settle time (executeTradeIntent's own
+   * `request.outputToken`), so throwing it away here left the portfolio with
+   * no record of what the wallet had just acquired, and therefore wholly
+   * dependent on /api/portfolio/discover's wide `eth_getLogs` scan — the one
+   * query shape production RPC most often rate-limits or refuses, whose
+   * failure is indistinguishable from "this wallet holds nothing new".
+   * Persisting it makes a freshly bought token discoverable from the user's
+   * own settled history, with no chain scan involved at all.
+   *
+   * Display-only and additive: nothing reads this for execution, validation,
+   * or amounts, and every entry recorded before it existed simply omits it.
+   */
+  outputTokenAddress?: string | null;
   /** Swap/trade only — which DEX actually served the trade ("Uniswap v3",
    *  "Kuru"). Absent for a payment. */
   provider?: string | null;
