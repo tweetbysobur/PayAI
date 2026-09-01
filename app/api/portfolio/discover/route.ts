@@ -141,6 +141,16 @@ export async function GET(req: NextRequest) {
   }
   const key = address.toLowerCase();
 
+  // This route is unauthenticated (a wallet's incoming transfers are public
+  // chain data, so there is nothing here to authenticate against), and it is
+  // by far the most expensive endpoint in the app: maxDuration 30, up to
+  // (history chunks x 4) address-less getLogs queries — the query shape
+  // providers charge the most for and rate-limit hardest. Unlimited, that is
+  // a straightforward way to burn the project's RPC quota from anywhere.
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "discover", { max: 12, windowSec: 60 });
+  if (limited) return limited;
+
   // ?fresh=1 skips the cache-hit check below — used ONLY right after a trade
   // completes (see usePortfolio's warmPortfolioDiscovery), to update this
   // wallet's cache entry with the token it may have just received. Without
@@ -159,6 +169,26 @@ export async function GET(req: NextRequest) {
   const hit = cache.get(key);
   if (!fresh && hit && Date.now() - hit.at < CACHE_MS) {
     return NextResponse.json({ tokens: hit.tokens, cached: true });
+  }
+
+  // ?fresh=1 removes the CACHE_MS ceiling that was the only thing bounding how
+  // OFTEN the scan below could actually run, so it needs a ceiling of its own —
+  // otherwise the bypass added for one legitimate post-trade refresh doubles as
+  // an open invitation to replay the most expensive query in the codebase.
+  // Keyed on the WALLET, not the caller's IP: the IP bucket above already
+  // covers one host, and this is what stops a distributed caller (or anyone
+  // rotating IPs) from concentrating the same forced rescan on one address.
+  // The real caller needs exactly one of these per trade — see
+  // warmPortfolioDiscovery — so a handful a minute is generous for it and
+  // still far below anything that hurts.
+  if (fresh) {
+    const freshLimited = await rateLimited(req, "discover-fresh", { max: 4, windowSec: 60, subject: key });
+    // Not an error for the user: the cached list is a real answer, just
+    // possibly a few minutes old. Serving it beats both a 429 and a rescan.
+    if (freshLimited) {
+      if (hit) return NextResponse.json({ tokens: hit.tokens, cached: true, throttled: true });
+      return freshLimited;
+    }
   }
 
   // Tokens this wallet is KNOWN to have acquired through PayAI itself, read

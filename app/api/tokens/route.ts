@@ -12,6 +12,17 @@ export const dynamic = "force-dynamic";
  *   (no params)      → the full verified token list for the active network.
  */
 export async function GET(req: NextRequest) {
+  // Unauthenticated, and ?address= resolves ARBITRARY caller-supplied
+  // addresses — three on-chain reads each, into a cache tokenRegistry keeps
+  // PERMANENTLY (correct for immutable metadata, but it means a caller
+  // feeding random addresses grows server memory that is never reclaimed as
+  // well as spending RPC). The no-params and ?q= paths are cheap; the limit
+  // is shared rather than split because the expensive one is the only one
+  // worth abusing and a legitimate picker session stays far under it.
+  const { rateLimited } = await import("@/lib/platform/ratelimit");
+  const limited = await rateLimited(req, "tokens", { max: 60, windowSec: 60 });
+  if (limited) return limited;
+
   const url = new URL(req.url);
   const address = url.searchParams.get("address");
   const q = url.searchParams.get("q");

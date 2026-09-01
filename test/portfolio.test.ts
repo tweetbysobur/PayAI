@@ -525,6 +525,12 @@ describe("GET /api/portfolio/discover — a bought token survives a failing chai
     requestImpl = async () => [];
     resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
     listTxImpl = async () => [];
+    // The route's rate limiter is real and its in-memory bucket is on
+    // globalThis, so without this every request in this file keys on the same
+    // absent-IP subject and later cases 429 on the earlier ones' budget. Same
+    // reset the other route suites use (see linked-wallets.test.ts).
+    const g = globalThis as unknown as { __veripayRL?: Map<string, unknown> };
+    g.__veripayRL?.clear();
   });
 
   const BOUGHT = "0x0000000000000000000000000000000000000d01";
