@@ -15,7 +15,7 @@ import { getContract, isConfigured } from "./store.js";
  *   SNIPE_QUANTITY      how many per attempt (default 1)
  *   SNIPE_MAX_FEE_GWEI  maxFeePerGas in gwei (default: provider suggestion x2)
  *   SNIPE_PRIORITY_GWEI maxPriorityFeePerGas in gwei (default 2)
- *   SNIPE_ATTEMPTS      max attempts (default 20)
+ *   SNIPE_ATTEMPTS      max attempts (default 0 = unlimited: keep firing until it lands)
  *   SNIPE_INTERVAL_MS   delay between attempts (default 400)
  *   SNIPE_START_ISO     optional ISO time to wait for before firing (e.g. 2026-09-04T15:00:00Z)
  *
@@ -57,7 +57,8 @@ async function main() {
   const cfg = getContract();
 
   const quantity = Number(process.env.SNIPE_QUANTITY || "1");
-  const attempts = Number(process.env.SNIPE_ATTEMPTS || "20");
+  const attempts = Number(process.env.SNIPE_ATTEMPTS || "0"); // 0 = unlimited
+  const unlimited = attempts <= 0;
   const intervalMs = Number(process.env.SNIPE_INTERVAL_MS || "400");
   const priorityGwei = process.env.SNIPE_PRIORITY_GWEI || "2";
 
@@ -76,8 +77,9 @@ async function main() {
   await waitUntil(process.env.SNIPE_START_ISO);
 
   let nonce = await provider.getTransactionCount(wallet.address, "pending");
+  console.log(unlimited ? "Auto mode: firing until it lands. Ctrl+C to stop." : `Up to ${attempts} attempts.`);
 
-  for (let i = 1; i <= attempts; i++) {
+  for (let i = 1; unlimited || i <= attempts; i++) {
     try {
       const tx = await wallet.sendTransaction({
         to: prepared.to,
