@@ -16,7 +16,9 @@ export interface ContractConfig {
   price: string;
 }
 
-const FILE = resolve(process.cwd(), "data", "contract.json");
+// DATA_DIR lets a host mount a persistent volume (e.g. a Railway volume at
+// /app/data) so /setcontract survives restarts. Defaults to ./data.
+const FILE = resolve(process.env.DATA_DIR || resolve(process.cwd(), "data"), "contract.json");
 
 function seedFromEnv(): ContractConfig {
   return {

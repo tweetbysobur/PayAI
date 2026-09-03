@@ -43,6 +43,24 @@ In Telegram, as an admin:
 
 Then any user runs `/mint`.
 
+## Deploy to Railway
+
+Railway is the recommended host: always on, free tier, no public URL needed
+(the bot uses long polling).
+
+1. Push this repo to GitHub (done).
+2. On railway.app, New Project -> Deploy from GitHub repo -> pick this repo.
+3. In the service settings, set Root Directory to `mint-bot`.
+4. Add variables (from `.env.example`): `TELEGRAM_BOT_TOKEN`, `ADMIN_TELEGRAM_IDS`,
+   `MONAD_NETWORK`, and later `NFT_CONTRACT_ADDRESS`. Add `CUSTODIAL_PRIVATE_KEY`
+   only if you want custodial mode.
+5. Deploy. `railway.json` handles build and start.
+
+Persisting `/setcontract` across restarts: add a Railway Volume mounted at
+`/app/data` and set `DATA_DIR=/app/data`. Without a volume the live config
+resets to the env values on redeploy, so also set `NFT_CONTRACT_ADDRESS` in
+Railway once your NFT is live as the durable source of truth.
+
 ## Matching your contract
 
 `/setfn <name> <shape>` covers the common ERC-721 mint signatures:

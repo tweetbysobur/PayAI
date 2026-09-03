@@ -4,6 +4,9 @@
   "private": true,
   "description": "Telegram bot that mints NFTs on Monad. Custodial and non-custodial modes. Contract address is set at runtime.",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
