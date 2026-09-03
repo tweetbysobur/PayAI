@@ -12,6 +12,8 @@
     "start": "node dist/index.js",
     "snipe": "tsx src/snipe.ts",
     "snipe:multi": "tsx src/snipe-multi.ts",
+    "gen-wallets": "tsx src/gen-wallets.ts",
+    "check-wallets": "tsx src/check-wallets.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit"
   },

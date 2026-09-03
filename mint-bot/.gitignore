@@ -4,4 +4,5 @@ dist/
 .env.local
 data/
 wallets.txt
+wallets-addresses.txt
 check-wallet.mjs
