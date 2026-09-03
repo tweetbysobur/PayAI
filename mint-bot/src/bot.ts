@@ -15,7 +15,10 @@ function isAdmin(id?: number): boolean {
   return id !== undefined && adminIds.has(String(id));
 }
 
-const custodialKey = (process.env.CUSTODIAL_PRIVATE_KEY || "").trim();
+// Accept the private key with or without the 0x prefix — wallet apps export
+// it both ways — and normalize to the 0x form ethers expects.
+const rawKey = (process.env.CUSTODIAL_PRIVATE_KEY || "").trim().replace(/^0x/i, "");
+const custodialKey = rawKey ? `0x${rawKey}` : "";
 const custodialEnabled = /^0x[a-fA-F0-9]{64}$/.test(custodialKey);
 
 export function buildBot(): Telegraf {
