@@ -1,4 +1,8 @@
 import "dotenv/config";
+import dns from "node:dns";
+// Force IPv4 DNS resolution first to avoid EAI_AGAIN name-lookup failures on
+// some Windows/IPv6 setups.
+dns.setDefaultResultOrder("ipv4first");
 import { buildBot } from "./bot.js";
 import { getChain } from "./chain.js";
 import { getContract, isConfigured } from "./store.js";

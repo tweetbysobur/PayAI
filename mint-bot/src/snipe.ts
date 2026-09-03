@@ -1,4 +1,8 @@
 import "dotenv/config";
+import dns from "node:dns";
+// Force IPv4 DNS resolution first. Some Windows setups fail Node's IPv6 name
+// lookup with EAI_AGAIN even when the network is fine; this avoids that.
+dns.setDefaultResultOrder("ipv4first");
 import { ethers } from "ethers";
 import { getChain, getProvider, txUrl } from "./chain.js";
 import { prepareMint } from "./mint.js";
