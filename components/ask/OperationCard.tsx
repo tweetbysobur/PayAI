@@ -933,6 +933,21 @@ function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["int
           <Row label="Network">{intent.data.network}</Row>
         </div>
       )}
+      {/* CONFIRMED on-chain figures only — result.confirmedDetails comes from
+          the action's own parseResult() over the real, receipt-verified
+          logs (see orchestrate.ts's executeProtocolActionIntent), never from
+          the pre-execution quote (intent.data.details, which this success
+          view deliberately never renders). Absent when parseResult had
+          nothing to report, so nothing is ever invented to fill the gap. */}
+      {intent.kind === "protocol_action" && result.confirmedDetails && Object.keys(result.confirmedDetails).length > 0 && (
+        <div className="mb-2.5 divide-y divide-border/60">
+          {Object.entries(result.confirmedDetails)
+            .filter(([k]) => k !== "status")
+            .map(([k, v]) => (
+              <Row key={k} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
+            ))}
+        </div>
+      )}
       <div className="rounded-lg border border-border bg-input/40 p-3">
         <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
         <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-primary-ink hover:underline">
