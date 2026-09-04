@@ -67,6 +67,11 @@ async function main() {
   const priorityGwei = process.env.SNIPE_PRIORITY_GWEI || "2";
 
   const prepared = prepareMint(wallet.address, quantity);
+  // Raw-input override: paste the exact input data (and value) from a known-good
+  // public mint transaction to replay it verbatim, bypassing ABI encoding.
+  const rawData = (process.env.SNIPE_RAW_DATA || "").trim();
+  const data = rawData ? (rawData.startsWith("0x") ? rawData : `0x${rawData}`) : prepared.data;
+  const value = process.env.SNIPE_VALUE ? ethers.parseEther(process.env.SNIPE_VALUE) : prepared.value;
 
   const fee = await provider.getFeeData();
   const maxFee = process.env.SNIPE_MAX_FEE_GWEI
@@ -81,7 +86,7 @@ async function main() {
   // Affordability guard: refuse to run unless the wallet covers price + gas.
   const balance = await provider.getBalance(wallet.address);
   const gasBuffer = maxFee * 300_000n;
-  const needed = prepared.value + gasBuffer;
+  const needed = value + gasBuffer;
   if (balance < needed) {
     console.log(
       `Balance ${ethers.formatEther(balance)} MON is below needed ~${ethers.formatEther(needed)} MON (price + gas). Not minting.`,
@@ -98,8 +103,8 @@ async function main() {
     try {
       const tx = await wallet.sendTransaction({
         to: prepared.to,
-        data: prepared.data,
-        value: prepared.value,
+        data,
+        value,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: priorityFee,
         nonce,

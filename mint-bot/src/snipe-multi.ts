@@ -70,12 +70,17 @@ async function runWallet(
     const wallet = new ethers.Wallet(key, opts.provider);
     label = `${label} ${wallet.address.slice(0, 8)}`;
     const prepared = prepareMint(wallet.address, opts.quantity);
+    // Raw-input override: replay the exact input/value from a known-good public
+    // mint transaction across every wallet.
+    const rawData = (process.env.SNIPE_RAW_DATA || "").trim();
+    const data = rawData ? (rawData.startsWith("0x") ? rawData : `0x${rawData}`) : prepared.data;
+    const value = process.env.SNIPE_VALUE ? ethers.parseEther(process.env.SNIPE_VALUE) : prepared.value;
 
     // Affordability guard: skip this wallet unless it can cover the mint price
     // plus a gas buffer. Protects against overspend and wasted gas.
     const balance = await opts.provider.getBalance(wallet.address);
     const gasBuffer = opts.maxFee * 300_000n; // generous gas headroom
-    const needed = prepared.value + gasBuffer;
+    const needed = value + gasBuffer;
     if (balance < needed) {
       console.log(
         `${label}: skipped, balance ${ethers.formatEther(balance)} < needed ~${ethers.formatEther(needed)} MON`,
@@ -89,8 +94,8 @@ async function runWallet(
       try {
         const tx = await wallet.sendTransaction({
           to: prepared.to,
-          data: prepared.data,
-          value: prepared.value,
+          data,
+          value,
           maxFeePerGas: opts.maxFee,
           maxPriorityFeePerGas: opts.priorityFee,
           nonce,
