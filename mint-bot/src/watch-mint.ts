@@ -36,6 +36,20 @@ const ABI = [
   "function mint(uint8 stage, uint256 qty, uint8 allotment, bytes32[] proof) payable",
 ];
 
+/** Retry a call through transient DNS/network failures (e.g. EAI_AGAIN). */
+async function withRetry<T>(fn: () => Promise<T>, tries = 8, delayMs = 800): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw last;
+}
+
 function loadKeys(): string[] {
   const file = resolve(process.cwd(), "wallets.txt");
   if (!existsSync(file)) throw new Error("Create wallets.txt with one private key per line.");
@@ -109,7 +123,7 @@ async function main() {
   const contract = new ethers.Contract(address, ABI, provider);
   const iface = new ethers.Interface(ABI);
 
-  const feeData = await provider.getFeeData();
+  const feeData = await withRetry(() => provider.getFeeData());
   const maxFee = process.env.SNIPE_MAX_FEE_GWEI
     ? ethers.parseUnits(process.env.SNIPE_MAX_FEE_GWEI, "gwei")
     : (feeData.maxFeePerGas ?? ethers.parseUnits("50", "gwei")) * 2n;
