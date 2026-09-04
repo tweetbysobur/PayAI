@@ -70,6 +70,19 @@ async function runWallet(
     const wallet = new ethers.Wallet(key, opts.provider);
     label = `${label} ${wallet.address.slice(0, 8)}`;
     const prepared = prepareMint(wallet.address, opts.quantity);
+
+    // Affordability guard: skip this wallet unless it can cover the mint price
+    // plus a gas buffer. Protects against overspend and wasted gas.
+    const balance = await opts.provider.getBalance(wallet.address);
+    const gasBuffer = opts.maxFee * 300_000n; // generous gas headroom
+    const needed = prepared.value + gasBuffer;
+    if (balance < needed) {
+      console.log(
+        `${label}: skipped, balance ${ethers.formatEther(balance)} < needed ~${ethers.formatEther(needed)} MON`,
+      );
+      return;
+    }
+
     let nonce = await opts.provider.getTransactionCount(wallet.address, "pending");
 
     for (let i = 1; opts.unlimited || i <= opts.attempts; i++) {

@@ -78,6 +78,17 @@ async function main() {
   console.log(`fn=${cfg.mintFunction}(${cfg.mintArgs}) qty=${quantity} price=${cfg.price} ${chain.symbol}`);
   console.log(`maxFee=${ethers.formatUnits(maxFee, "gwei")} gwei priority=${priorityGwei} gwei`);
 
+  // Affordability guard: refuse to run unless the wallet covers price + gas.
+  const balance = await provider.getBalance(wallet.address);
+  const gasBuffer = maxFee * 300_000n;
+  const needed = prepared.value + gasBuffer;
+  if (balance < needed) {
+    console.log(
+      `Balance ${ethers.formatEther(balance)} MON is below needed ~${ethers.formatEther(needed)} MON (price + gas). Not minting.`,
+    );
+    process.exit(1);
+  }
+
   await waitUntil(process.env.SNIPE_START_ISO);
 
   let nonce = await provider.getTransactionCount(wallet.address, "pending");
