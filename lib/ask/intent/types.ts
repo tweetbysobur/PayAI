@@ -36,6 +36,17 @@ export const ASK_INTENT_KINDS = [
   // can target an arbitrary, uncurated token by contract address without
   // touching that already-working, already-hardened execution path at all.
   "trade",
+  // SDK protocol action (Phase 2) — a capability a REGISTERED Stage 1
+  // protocol exposes (lib/sdk), mapped to by protocolId/actionId/version +
+  // structured inputs. This kind has the LOWEST priority of all: it is only
+  // ever produced by the deterministic detector in classify.ts AFTER every
+  // curated detector above has declined, so a curated intent always wins.
+  // Deliberately NOT part of the Anthropic classifier's schema (see
+  // CLASSIFY_KINDS in classify.ts) — the model can never emit it; only the
+  // deterministic, registry-gated detector can. Everything it produces is
+  // re-validated against the reviewed registry + Phase 1 validators before
+  // anything is quoted, built, or signed.
+  "protocol_action",
 ] as const;
 
 export type AskIntentKind = (typeof ASK_INTENT_KINDS)[number];
@@ -84,6 +95,17 @@ export interface AskSlots {
    *  left null to mean "use PayAI's own default". Validated against the
    *  existing MAX_SLIPPAGE ceiling before use, never silently clamped. */
   slippage?: string | null;
+  /** "protocol_action" intent only (Phase 2): the SDK identity the
+   *  deterministic detector resolved from the registry. These are never
+   *  free-text from the user — protocolId/actionId are matched to a
+   *  registered action, and actionVersion is the version that was CURRENT at
+   *  detection time, pinned here so confirmation resolves that exact version
+   *  and can never silently drift to a newer one. The action's own inputs
+   *  (for WMON, just `amount` above) are carried in the existing scalar
+   *  slots. */
+  protocolId?: string | null;
+  actionId?: string | null;
+  actionVersion?: string | null;
 }
 
 /**

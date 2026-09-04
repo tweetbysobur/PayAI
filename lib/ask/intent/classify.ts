@@ -32,13 +32,25 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { ASK_INTENT_KINDS, type AskIntentKind, type AskSlots, type Understanding } from "./types";
+import { ensureBuiltinsRegistered } from "@/lib/sdk/bootstrap";
+import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
+import { getChain } from "@/lib/monad/config";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
   content: string;
 }
 
-const CLASSIFY_KINDS = [...ASK_INTENT_KINDS, "unsupported", "unclear", "chat"] as const;
+// The kinds the Anthropic classifier is allowed to emit. "protocol_action"
+// is deliberately EXCLUDED: SDK protocol actions are only ever produced by
+// the deterministic, registry-gated detector below (detectProtocolAction),
+// never inferred by the model — so the model can never select a protocol,
+// action, or version on its own. Everything else in ASK_INTENT_KINDS is
+// fair game for the model.
+const CLASSIFY_KINDS = [
+  ...ASK_INTENT_KINDS.filter((k) => k !== "protocol_action"),
+  "unsupported", "unclear", "chat",
+] as const;
 
 /** Slots each actionable kind actually needs before it's ready for a preview. */
 export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
@@ -63,6 +75,12 @@ export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
   // before this is ever checked (from the previously identified token, or a
   // sensible USDC default) — see that function's own doc for exactly when.
   trade: ["tradeAction", "amount", "fromAsset", "toAsset"],
+  // protocol_action is only ever produced COMPLETE by the deterministic
+  // detector (never via the LLM schema or the generic slot-completeness
+  // path), so this list is for type-exhaustiveness and defensive
+  // completeness only. protocolId/actionId identify the registered action;
+  // amount is WMON's single input.
+  protocol_action: ["protocolId", "actionId", "amount"],
 };
 
 const SYSTEM_PROMPT = `You are the natural-language understanding layer for Ask PayAI, a non-custodial crypto payments product on Monad. Users type however they naturally would — casual language, slang, typos, incomplete thoughts, corrections. Your only job is to figure out what they're trying to do and extract exactly the information they've actually given. You never execute anything; you only describe intent for a separate, already-secure system to validate and act on.
@@ -758,6 +776,12 @@ async function classifyFresh(text: string, pending: Understanding | null = null)
       : { kind: "send_payment", outcome: "incomplete", slots, question: missing.includes("amount") ? `How much${slots.asset ? ` ${slots.asset}` : ""} would you like to send?` : missing.includes("recipient") ? `Who should receive ${slots.amount ? `the ${slots.amount}${slots.asset ? ` ${slots.asset}` : ""}` : "it"}?` : "Which token — MON or USDC?" };
   }
 
+  // LAST — every curated detector above has already declined. An SDK
+  // protocol action is only ever considered here, so it can never take
+  // priority over a payment, swap, trade, schedule, or query.
+  const protocolAction = detectProtocolAction(text);
+  if (protocolAction) return protocolAction;
+
   return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you tell me more?" };
 }
 
@@ -829,6 +853,56 @@ const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
  *  word match (\b...\b), so it does NOT match inside "tradable" — "Is this
  *  token tradable? 0x..." correctly stays a lookup. */
 const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|recurring|automate|distribute|split)\b/i;
+
+/**
+ * Deterministic detection of an SDK protocol action (Phase 2). This is the
+ * ONLY producer of the "protocol_action" kind — the Anthropic classifier
+ * can't emit it (see CLASSIFY_KINDS) — and it is called LAST in classifyFresh,
+ * after every curated detector has already declined, so a curated intent
+ * always wins over a superficially similar protocol-action phrase.
+ *
+ * It never invents identity: protocolId/actionId come from matching an
+ * explicit, tightly-scoped phrase to a REGISTERED action, actionVersion is
+ * the version currently registered (pinned so confirmation resolves exactly
+ * that one), and the action is only offered when it is actually registered
+ * AND pinned to the chain this deployment is on. The amount is the literal
+ * number from the text — never guessed. Nothing here builds calldata, names
+ * a target, or produces a transaction; it stops at "which registered action,
+ * and with what amount", exactly as Phase 2C requires.
+ *
+ * Phase 2 recognizes only WMON wrap/unwrap. The patterns are intentionally
+ * narrow ("wrap 1 MON", "unwrap 1 WMON") — a broader natural-language surface
+ * is a later concern, and being conservative here means this can never shadow
+ * a curated intent by over-matching.
+ */
+const WRAP_RE = /\bwrap\s+([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
+const UNWRAP_RE = /\bunwrap\s+([0-9]+(?:\.[0-9]+)?)\s*w?mon\b/i;
+
+function detectProtocolAction(text: string): Understanding | null {
+  ensureBuiltinsRegistered();
+  const activeChainId = getChain().id;
+
+  const resolve = (actionId: "wrap" | "unwrap", amount: string): Understanding | null => {
+    const version = getCurrentActionVersion("wmon", actionId);
+    if (!version) return null; // not registered -> not offered
+    const action = getAction("wmon", actionId, version);
+    // Only offer an action that is actually registered AND on this chain —
+    // the classifier must never surface an action it couldn't execute.
+    if (!action || action.chainId !== activeChainId) return null;
+    return {
+      kind: "protocol_action", outcome: "complete",
+      slots: { ...emptySlots(), protocolId: "wmon", actionId, actionVersion: version, amount },
+    };
+  };
+
+  // unwrap is checked before wrap so "unwrap ... mon" (which also contains
+  // the substring "wrap") is never misread as a wrap.
+  const unwrap = text.match(UNWRAP_RE);
+  if (unwrap) return resolve("unwrap", unwrap[1]);
+  const wrap = text.match(WRAP_RE);
+  if (wrap) return resolve("wrap", wrap[1]);
+  return null;
+}
 
 /** Detects "what is this token, 0x...", a bare address, "check this CA:
  *  0x...", etc. — purely mechanical (one regex match plus a negative
@@ -938,6 +1012,15 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   if (READONLY_KINDS.has(fresh.kind)) {
     const route: RouteCategory = TRANSACTION_KINDS.has(fresh.kind) ? "transaction_query" : "wallet_query";
     return { route, anthropic: false, understanding: fresh, fallback: fresh };
+  }
+  // A detected SDK protocol action is DETERMINISTIC and registry-gated (see
+  // detectProtocolAction) — it must never be sent to Anthropic. The LLM
+  // schema deliberately excludes "protocol_action" (see CLASSIFY_KINDS), so
+  // routing it to a live call would just lose it; and there is nothing for a
+  // model to interpret — the action, version, and amount were all resolved
+  // mechanically. Returned as the authoritative understanding, no call spent.
+  if (fresh.kind === "protocol_action") {
+    return { route: "actionable_operation", anthropic: false, understanding: fresh, fallback: fresh };
   }
   // A FRESH send_payment/swap/schedule_payment/recurring_payment/
   // distribution always gets a real Anthropic read, even when the

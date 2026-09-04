@@ -20,7 +20,7 @@
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
-import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
+import type { AskMessage, AutomationHandoff, Operation, OperationError, ProtocolActionData, ProtocolActionIntent, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
@@ -169,6 +169,11 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
         : null;
       return { message, nextPending };
     }
+    case "protocol_action":
+      // No pending carry-forward in Phase 2: WMON wrap/unwrap is a
+      // single-shot, fully-specified action, not a multi-turn correction
+      // flow like trade/payment. Nothing needs to stay pending to amend.
+      return { message: await dispatchProtocolAction(u.slots, walletAddress), nextPending: null };
   }
 }
 
@@ -1093,4 +1098,162 @@ async function dispatchTrade(
     : null;
   const { operation } = tradePreviewCard(data, request);
   return { id: nextId("msg"), role: "assistant", content: tradePreviewLead(data), createdAt: Date.now(), operation };
+}
+
+/* ── SDK protocol actions (Phase 2) ─────────────────────────────────────────
+ * dispatchProtocolAction previews a REGISTERED action's quote (client-side,
+ * via /api/ask/action — the SDK registry is server-only, so nothing here
+ * touches it directly). executeProtocolActionIntent, on an explicit confirm,
+ * builds the real steps server-side (/api/ask/action/build, which runs Layer
+ * A + Layer B) and drives them through the SAME wallet.sendTransaction /
+ * waitForReceipt loop every other execution path uses — no second signer, no
+ * second sender. It never sees a private key and never builds calldata
+ * itself. */
+
+interface ProtocolActionPreviewResponse {
+  ok: boolean;
+  message?: string;
+  protocol?: { id: string; name: string; logoUrl?: string | null };
+  action?: { id: string; name: string; description: string; version: string };
+  chainId?: number;
+  inputs?: Record<string, string>;
+  summary?: string;
+  details?: Record<string, string>;
+  quotedAt?: number;
+}
+
+async function dispatchProtocolAction(
+  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null },
+  walletAddress: string | null,
+): Promise<AskMessage> {
+  if (!slots.protocolId || !slots.actionId || !slots.actionVersion) {
+    return assistantText("I couldn't identify that protocol action.");
+  }
+  // WMON's only input is `amount`; a future multi-input action would map its
+  // own slots here. Kept explicit rather than spreading all slots so nothing
+  // unintended is ever forwarded as an action input.
+  const inputs: Record<string, string> = {};
+  if (slots.amount) inputs.amount = slots.amount;
+
+  let json: ProtocolActionPreviewResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/action", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocolId: slots.protocolId, actionId: slots.actionId, version: slots.actionVersion, inputs }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to prepare that action. Try again in a moment.");
+  }
+  if (!json || !json.ok || !json.protocol || !json.action || json.chainId == null) {
+    return assistantText(json?.message ?? "Couldn't prepare that action right now.");
+  }
+
+  const data: ProtocolActionData = {
+    protocol: json.protocol,
+    action: json.action,
+    chainId: json.chainId,
+    network: "Monad",
+    inputs: json.inputs ?? inputs,
+    summary: json.summary ?? "",
+    details: json.details ?? {},
+    quotedAt: json.quotedAt ?? Date.now(),
+  };
+  // Only a wallet-connected preview carries the request needed to execute —
+  // same rule as tradePreviewCard. Without a wallet it's an informational
+  // preview that never enters the confirm funnel.
+  const execution = walletAddress
+    ? { request: { protocolId: json.protocol.id, actionId: json.action.id, version: json.action.version, inputs: data.inputs, chainId: json.chainId } }
+    : undefined;
+  const intent: ProtocolActionIntent = { kind: "protocol_action", network: "monad", data, ...(execution ? { execution } : {}) };
+  const operation: Operation = {
+    id: nextId("op"), intent,
+    status: execution ? "ready" : "success",
+    ...(execution ? { confirmLabel: `Confirm ${json.action.name}` } : {}),
+  };
+  return { id: nextId("msg"), role: "assistant", content: json.summary ?? `${json.action.name} ready.`, createdAt: Date.now(), operation };
+}
+
+interface ProtocolActionBuildResponse {
+  ok: boolean;
+  message?: string;
+  code?: string;
+  steps?: { kind: "approve" | "action"; label: string; tx: { to: string; data: string; value: string } }[];
+  summary?: string;
+  details?: Record<string, string>;
+}
+
+/**
+ * Executes a previewed protocol action after explicit confirmation. Builds
+ * real steps server-side (which re-resolves the EXACT pinned version, re-runs
+ * Layer A + Layer B), then signs/broadcasts each step through the existing
+ * wallet interface and verifies the outcome via /api/ask/action/confirm.
+ * Mirrors executeTradeIntent's status handling (submitted vs error vs
+ * success) so the UI lifecycle is identical.
+ */
+export async function executeProtocolActionIntent(
+  operation: Operation,
+  wallet: SendPaymentWallet & { isWrongNetwork?: boolean },
+  walletAddress: string,
+): Promise<Operation> {
+  if (operation.intent.kind !== "protocol_action" || !operation.intent.execution) return operation;
+  const { request } = operation.intent.execution;
+
+  if (wallet.isWrongNetwork) {
+    return { ...operation, status: "error", error: { message: "You're connected to the wrong network — switch your wallet to Monad and try again.", code: "WRONG_NETWORK" } };
+  }
+
+  let build: ProtocolActionBuildResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/action/build", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...request, walletAddress, quotedAt: operation.intent.data.quotedAt }),
+    });
+    build = await r.json();
+  } catch {
+    return { ...operation, status: "error", error: { message: "Couldn't reach Monad to prepare that action. Try again in a moment.", code: "BUILD_FAILED" } };
+  }
+  if (!build || !build.ok || !build.steps || build.steps.length === 0) {
+    return { ...operation, status: "error", error: { message: build?.message ?? "Couldn't prepare that action.", code: build?.code ?? "BUILD_FAILED" } };
+  }
+
+  const steps = build.steps;
+  let broadcastHash: string | null = null;
+  try {
+    let lastHash = "";
+    for (let i = 0; i < steps.length; i++) {
+      broadcastHash = null;
+      lastHash = await wallet.sendTransaction(steps[i].tx);
+      broadcastHash = lastHash;
+      await wallet.waitForReceipt(lastHash);
+    }
+
+    // Verify the final transaction on-chain + parse its real result.
+    let confirm: { ok?: boolean; success?: boolean; reverted?: boolean; explorerUrl?: string; message?: string; details?: Record<string, string> } | null = null;
+    try {
+      const r = await fetch("/api/ask/action/confirm", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ protocolId: request.protocolId, actionId: request.actionId, version: request.version, txHash: lastHash, walletAddress }),
+      });
+      confirm = await r.json();
+    } catch {
+      // Broadcast succeeded but our own verify call failed to reach the
+      // server — submitted, not failed. Never rebroadcast.
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: configExplorerTx(lastHash), step: "main" } };
+    }
+
+    if (confirm?.reverted) {
+      return { ...operation, status: "error", error: { message: confirm.message || "The action reverted on-chain. No funds moved.", code: "REVERTED", txHash: lastHash, explorerUrl: confirm.explorerUrl } };
+    }
+    if (!confirm?.ok || !confirm.success) {
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: confirm?.explorerUrl || configExplorerTx(lastHash), step: "main" } };
+    }
+    return { ...operation, status: "success", result: { txHash: lastHash, explorerUrl: confirm.explorerUrl ?? configExplorerTx(lastHash) } };
+  } catch (e) {
+    if (broadcastHash) {
+      // Broadcast happened but confirmation timed out — submitted, not failed.
+      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), step: "main" } };
+    }
+    return { ...operation, status: "error", error: { message: friendlyError(e instanceof Error ? e.message : "Action failed.", "Action"), code: "NOT_SENT" } };
+  }
 }
