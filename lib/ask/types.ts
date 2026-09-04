@@ -415,6 +415,17 @@ export interface TransactionResult {
   explorerUrl: string;
   blockNumber?: number;
   gasFee?: string;
+  /**
+   * CONFIRMED on-chain result details — populated ONLY from an action's
+   * parseResult() after settlement independently verified the receipt (see
+   * app/api/ask/action/confirm/route.ts). Never quote/preview data: a
+   * ProtocolActionIntent's `data.details` is what quote() PREDICTED before
+   * anything was signed, and must never be shown as if it were this. Absent
+   * for every non-protocol_action kind (payment/swap/trade don't have a
+   * parseResult step) and for a protocol_action whose parseResult produced
+   * nothing to show.
+   */
+  confirmedDetails?: Readonly<Record<string, string>>;
 }
 
 export interface OperationError {

@@ -1248,7 +1248,17 @@ export async function executeProtocolActionIntent(
     if (!confirm?.ok || !confirm.success) {
       return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: confirm?.explorerUrl || configExplorerTx(lastHash), step: "main" } };
     }
-    return { ...operation, status: "success", result: { txHash: lastHash, explorerUrl: confirm.explorerUrl ?? configExplorerTx(lastHash) } };
+    // confirm.details is the action's own parseResult() output, computed
+    // server-side from the REAL, receipt-verified logs — never the quote's
+    // predicted numbers. Carried into result.confirmedDetails specifically
+    // so the UI can render it as what actually happened, distinct from
+    // operation.intent.data.details (the pre-execution prediction), rather
+    // than silently falling back to showing the prediction as if it were
+    // the outcome.
+    return {
+      ...operation, status: "success",
+      result: { txHash: lastHash, explorerUrl: confirm.explorerUrl ?? configExplorerTx(lastHash), confirmedDetails: confirm.details },
+    };
   } catch (e) {
     if (broadcastHash) {
       // Broadcast happened but confirmation timed out — submitted, not failed.
