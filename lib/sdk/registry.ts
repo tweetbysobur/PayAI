@@ -173,6 +173,25 @@ export function listActionVersions(protocolId: string, actionId: string): string
   return versions ? [...versions.keys()] : [];
 }
 
+/** The highest registered semver of an action, or null if it isn't
+ *  registered. This is the ONLY place a "current version" is chosen, and it
+ *  is used solely at PREVIEW time to decide which version to PIN into the
+ *  operation. Confirmation never calls this — it resolves the exact pinned
+ *  version instead (see validate.ts's resolveExecutable), so a newer version
+ *  registered between preview and confirm can never silently take over an
+ *  in-flight operation. Compares numeric semver components, so "1.10.0"
+ *  correctly outranks "1.9.0". */
+export function getCurrentActionVersion(protocolId: string, actionId: string): string | null {
+  const versions = listActionVersions(protocolId, actionId);
+  if (versions.length === 0) return null;
+  return versions.sort((a, b) => {
+    const pa = a.split(".").map(Number);
+    const pb = b.split(".").map(Number);
+    for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pb[i] - pa[i];
+    return 0;
+  })[0];
+}
+
 /** Every registered action, across all protocols and versions. */
 export function listActions(): Action[] {
   const out: Action[] = [];

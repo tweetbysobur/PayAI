@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   Send, Clock3, Repeat, ArrowLeftRight, Users, Wallet, Search,
   CheckCircle2, XCircle, Loader2, ExternalLink, Fingerprint, ArrowUpRight, ArrowDownRight,
-  Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw,
+  Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw, Blocks,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import {
@@ -71,6 +71,7 @@ const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title:
   wallet_operation: { icon: Wallet, title: "" }, // overridden per-operation below
   token_intelligence: { icon: Coins, title: "Token Info" },
   trade_preview: { icon: TrendingUp, title: "Trade Preview" },
+  protocol_action: { icon: Blocks, title: "Protocol Action" },
 };
 
 /** What "Review ___" should say — a swap isn't a payment, a distribution
@@ -85,6 +86,7 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
   wallet_operation: "",
   token_intelligence: "",
   trade_preview: "trade",
+  protocol_action: "action",
 };
 
 const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
@@ -350,7 +352,48 @@ function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; on
       return <TokenIntelligenceBody intent={intent} onQuickAction={onQuickAction} />;
     case "trade_preview":
       return <TradePreviewBody intent={intent} />;
+    case "protocol_action":
+      return <ProtocolActionBody intent={intent} />;
   }
+}
+
+/** SDK protocol-action preview (Phase 2). Every value comes from the
+ *  server-produced ProtocolActionData (the registered action's real quote +
+ *  validated inputs) — nothing is invented here. Uses the existing card
+ *  language (the same Row/label treatment payment and trade previews use),
+ *  and shows the one thing a protocol action adds over a plain trade: an
+ *  explicit protocol identity and the action being run. */
+function ProtocolActionBody({ intent }: { intent: Extract<Operation["intent"], { kind: "protocol_action" }> }) {
+  const d = intent.data;
+  return (
+    <>
+      <div className="mb-2.5 flex items-center gap-2">
+        {/* Real protocol identity — name from the registry, never a
+            fabricated logo. WMON's amounts render with the existing TokenLogo
+            (MON) treatment the rest of the app already uses. */}
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary-ink"><Blocks size={14} /></span>
+        <span className="text-sm font-semibold text-foreground">{d.protocol.name}</span>
+        <span className="text-xs text-muted-foreground">· {d.action.name}</span>
+      </div>
+      {d.summary && <p className="mb-2.5 text-sm text-foreground">{d.summary}</p>}
+      <div className="divide-y divide-border/60">
+        {Object.entries(d.inputs).map(([k, v]) => (
+          <Row key={`in-${k}`} label={k.charAt(0).toUpperCase() + k.slice(1)}>{v}</Row>
+        ))}
+        {Object.entries(d.details).map(([k, v]) => (
+          <Row key={`det-${k}`} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
+        ))}
+        <Row label="Network">{d.network}</Row>
+        <Row label="Version">{d.action.version}</Row>
+      </div>
+      {d.warnings && d.warnings.length > 0 && (
+        <div className="mt-2.5 flex items-start gap-1.5 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          <span>{d.warnings.join(" ")}</span>
+        </div>
+      )}
+    </>
+  );
 }
 
 const TX_STATUS_META: Record<WalletTransactionView["status"], { icon: typeof CheckCircle2; tone: string; label: string }> = {
@@ -819,6 +862,16 @@ function ResultSummary({ intent }: { intent: Operation["intent"] }) {
       </div>
     );
   }
+  if (intent.kind === "protocol_action") {
+    const d = intent.data;
+    return (
+      <div className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary-ink"><Blocks size={12} /></span>
+        <span className="text-sm font-semibold text-foreground">{d.protocol.name}</span>
+        <span className="text-sm text-muted-foreground">· {d.action.name}</span>
+      </div>
+    );
+  }
   return null;
 }
 
@@ -853,6 +906,7 @@ function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["int
           <p className="text-sm font-semibold text-foreground">
             {intent.kind === "swap" ? "Swap complete"
               : intent.kind === "trade_preview" ? "Trade completed"
+              : intent.kind === "protocol_action" ? `${intent.data.action.name} complete`
               : intent.kind === "distribution" ? "Distribution sent"
               : intent.kind === "recurring_payment" ? "Automation created"
               : intent.kind === "scheduled_payment" ? "Payment scheduled"

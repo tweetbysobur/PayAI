@@ -345,6 +345,45 @@ export interface TradePreviewIntent extends IntentBase {
   };
 }
 
+/** An SDK protocol-action preview (Phase 2). Everything here is populated by
+ *  the server from a REGISTERED action's real quote — the protocol/action
+ *  identity, the validated inputs, and `quote()`'s own summary/details.
+ *  Nothing is invented in the UI. PRE-EXECUTION ONLY: rendering this never
+ *  signs or builds anything (build happens only at confirm, server-side, via
+ *  /api/ask/action/build) — the same discipline TradePreviewData documents. */
+export interface ProtocolActionData {
+  protocol: { id: string; name: string; logoUrl?: string | null };
+  action: { id: string; name: string; description: string; version: string };
+  chainId: number;
+  network: "Monad";
+  /** The validated inputs, already display-ready (e.g. { amount: "1.5" }). */
+  inputs: Record<string, string>;
+  /** From the action's quote(): a one-line summary and formatted detail rows. */
+  summary: string;
+  details: Record<string, string>;
+  /** Date.now() the quote was produced — staleness is re-checked at confirm,
+   *  mirroring TradePreviewData.quotedAt. */
+  quotedAt: number;
+  /** Any action-declared cautions, shown clearly — never fabricated. */
+  warnings?: string[];
+}
+
+export interface ProtocolActionIntent extends IntentBase {
+  kind: "protocol_action";
+  data: ProtocolActionData;
+  /**
+   * Present only when a wallet was connected at preview time — the exact,
+   * PINNED identity + inputs needed to re-resolve and build real steps at
+   * confirm time (see /api/ask/action/build and orchestrate.ts's
+   * executeProtocolActionIntent). `version` is pinned here so confirmation
+   * resolves that precise version, never "latest". Absent means preview-only
+   * (no wallet), so the card never enters the confirm funnel.
+   */
+  execution?: {
+    request: { protocolId: string; actionId: string; version: string; inputs: Record<string, string>; chainId: number };
+  };
+}
+
 export type Intent =
   | PaymentIntent
   | ScheduledPaymentIntent
@@ -353,7 +392,8 @@ export type Intent =
   | DistributionIntent
   | WalletOperationIntent
   | TokenIntelligenceIntent
-  | TradePreviewIntent;
+  | TradePreviewIntent
+  | ProtocolActionIntent;
 
 /**
  * Where an Operation sits in the mandatory funnel:

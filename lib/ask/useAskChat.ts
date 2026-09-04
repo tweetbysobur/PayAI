@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { executeSendPayment } from "@/lib/ask/sendPayment/orchestrator";
 import {
-  classifyMessage, executeSwapIntent, executeTradeIntent, respondToUnderstanding,
+  classifyMessage, executeSwapIntent, executeTradeIntent, executeProtocolActionIntent, respondToUnderstanding,
   type ConversationTurn,
 } from "@/lib/ask/intent/orchestrate";
 import type { Understanding } from "@/lib/ask/intent/types";
@@ -48,6 +48,17 @@ export function retryTextFor(op: NonNullable<AskMessage["operation"]>): string |
   if (op.intent.kind === "trade_preview") {
     const d = op.intent.data;
     return `${d.action === "buy" ? "Buy" : "Sell"} ${d.spend.amount} ${d.spend.token} for ${d.receive.token}`;
+  }
+  if (op.intent.kind === "protocol_action") {
+    // Rebuild the natural phrase the detector recognizes, so "Try again"
+    // re-enters the normal classify → preview funnel rather than replaying a
+    // stored request. Phase 2 knows only WMON wrap/unwrap.
+    const amount = op.intent.data.inputs.amount ?? "";
+    if (op.intent.data.protocol.id === "wmon" && amount) {
+      if (op.intent.data.action.id === "wrap") return `Wrap ${amount} MON`;
+      if (op.intent.data.action.id === "unwrap") return `Unwrap ${amount} WMON`;
+    }
+    return null;
   }
   return null;
 }
@@ -758,6 +769,28 @@ export function useAskChat(options?: { persist?: boolean }) {
       setOp(result);
       await syncDashboardAfter(result, true);
       await showPostBuyHolding(result, startContext);
+      return;
+    }
+    if (op.intent.kind === "protocol_action" && op.intent.execution) {
+      if (!wallet.address) {
+        setOp({ ...op, status: "error", error: { message: "Your wallet disconnected — reconnect and try again.", code: "NO_WALLET" } });
+        return;
+      }
+      // Same staleness discipline as trade/swap: never execute against a
+      // quote old enough to have moved — the build endpoint re-checks
+      // freshness server-side too, but failing fast here avoids a needless
+      // round-trip and a confusing server-side QUOTE_STALE.
+      if (isQuoteStale(op.intent.data.quotedAt)) {
+        setOp({ ...op, status: "error", error: { message: "That quote has expired — ask again to get a fresh one.", code: "QUOTE_EXPIRED" } });
+        return;
+      }
+      setOp({ ...op, status: "confirming" });
+      const result = await executeProtocolActionIntent(op, wallet, wallet.address);
+      setOp(result);
+      // A wrap/unwrap changes the wallet's WMON/MON balance — refresh the
+      // dashboard the same way a completed trade does. Never warms discovery
+      // (no new arbitrary token was acquired), so `false`.
+      await syncDashboardAfter(result, false);
       return;
     }
     if ((op.intent.kind === "scheduled_payment" || op.intent.kind === "recurring_payment") && op.intent.handoff) {

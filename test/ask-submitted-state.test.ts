@@ -378,14 +378,22 @@ describe("Scenario 11 & 12 — multi-step (approve → trade) never disguises wh
 describe("Scenario 13 — payment execution is untouched by this change", () => {
   const orchestrateSrc = readFileSync(new URL("../lib/ask/intent/orchestrate.ts", import.meta.url), "utf8");
 
-  it("only swap/trade execution produces a 'submitted' status — payment paths never do", () => {
+  it("only swap/trade/protocol-action execution produces a 'submitted' status — payment paths never do", () => {
     // Guard against a future edit leaking the submitted state into a code path
-    // (payments) that doesn't have a pending-settlement reconciler wired the
-    // same way. Both submitted producers live in the execute*Intent functions.
+    // (payments) that doesn't have a broadcast-but-unconfirmed reconciler
+    // wired the same way. Every submitted producer lives in an execute*Intent
+    // function and is backed by a real on-chain verification (a receipt wait
+    // plus a server confirm route).
     const submittedCount = (orchestrateSrc.match(/status: "submitted"/g) ?? []).length;
-    // Exactly the four submitted returns: swap (confirm + catch) and trade
-    // (confirm + catch). No more — a fifth would mean it leaked elsewhere.
-    expect(submittedCount).toBe(4);
+    // Exactly seven submitted returns:
+    //   - swap: confirm + catch (2)
+    //   - trade: confirm + catch (2)
+    //   - protocol_action (Phase 2): confirm-unreachable + confirm-not-success
+    //     + catch (3) — the same broadcast-then-unconfirmed semantics, verified
+    //     via wallet.waitForReceipt + /api/ask/action/confirm.
+    // No more — an eighth would mean it leaked into a path without that
+    // verification (e.g. the payment send path).
+    expect(submittedCount).toBe(7);
   });
 
   it("does not reference the payment send path inside the submitted classification", () => {
