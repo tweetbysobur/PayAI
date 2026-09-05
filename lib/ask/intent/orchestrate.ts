@@ -1223,16 +1223,38 @@ export async function executeProtocolActionIntent(
 
   const steps = build.steps;
   let broadcastHash: string | null = null;
+  // An ERC-20 split is two wallet actions: approve, then splitPayment. Track
+  // the approval's OWN hash so it is NEVER shown as the settlement hash, and so
+  // a split that fails AFTER a successful approval can say exactly that.
+  let approvalTx: { txHash: string; explorerUrl: string } | null = null;
+  let approvalConfirmed = false;
+  let broadcastIsApproval = false;
   try {
     let lastHash = "";
     for (let i = 0; i < steps.length; i++) {
+      const isLast = i === steps.length - 1;
+      const isApprove = steps[i].kind === "approve";
       broadcastHash = null;
+      broadcastIsApproval = isApprove && !isLast;
       lastHash = await wallet.sendTransaction(steps[i].tx);
       broadcastHash = lastHash;
-      await wallet.waitForReceipt(lastHash);
+      const receipt = (await wallet.waitForReceipt(lastHash)) as { status?: string | number } | undefined;
+
+      // A pre-settlement approval MUST actually confirm before we sign the
+      // split. If it reverted, stop here — never sign the settlement against a
+      // failed allowance, and never imply the split happened.
+      if (isApprove && !isLast) {
+        const st = receipt?.status;
+        const approvalOk = st === undefined || st === "success" || st === 1 || st === "0x1";
+        if (!approvalOk) {
+          return { ...operation, status: "error", error: { message: "The token approval reverted on-chain. No funds moved.", code: "APPROVAL_FAILED", txHash: lastHash, explorerUrl: configExplorerTx(lastHash) } };
+        }
+        approvalConfirmed = true;
+        approvalTx = { txHash: lastHash, explorerUrl: configExplorerTx(lastHash) };
+      }
     }
 
-    // Verify the final transaction on-chain + parse its real result.
+    // Verify the FINAL (settlement) transaction on-chain + parse its real result.
     let confirm: { ok?: boolean; success?: boolean; reverted?: boolean; explorerUrl?: string; message?: string; details?: Record<string, string> } | null = null;
     try {
       const r = await fetch("/api/ask/action/confirm", {
@@ -1241,16 +1263,19 @@ export async function executeProtocolActionIntent(
       });
       confirm = await r.json();
     } catch {
-      // Broadcast succeeded but our own verify call failed to reach the
-      // server — submitted, not failed. Never rebroadcast.
-      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: configExplorerTx(lastHash), step: "main" } };
+      // Settlement broadcast succeeded but our own verify call failed to reach
+      // the server — submitted, not failed. Never rebroadcast. Approval (if
+      // any) already confirmed and is carried distinctly.
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: configExplorerTx(lastHash), step: "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
     }
 
     if (confirm?.reverted) {
-      return { ...operation, status: "error", error: { message: confirm.message || "The action reverted on-chain. No funds moved.", code: "REVERTED", txHash: lastHash, explorerUrl: confirm.explorerUrl } };
+      // Settlement reverted. If an approval already succeeded, say so — the two
+      // hashes stay distinct and no false whole-operation success is implied.
+      return { ...operation, status: "error", error: { message: prefixApprovalContext(confirm.message || "The split reverted on-chain. No funds moved.", approvalTx), code: "REVERTED", txHash: lastHash, explorerUrl: confirm.explorerUrl, approvalTx: approvalTx ?? undefined } };
     }
     if (!confirm?.ok || !confirm.success) {
-      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: confirm?.explorerUrl || configExplorerTx(lastHash), step: "main" } };
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: confirm?.explorerUrl || configExplorerTx(lastHash), step: "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
     }
     // confirm.details is the action's own parseResult() output, computed
     // server-side from the REAL, receipt-verified logs — never the quote's
@@ -1258,7 +1283,8 @@ export async function executeProtocolActionIntent(
     // so the UI can render it as what actually happened, distinct from
     // operation.intent.data.details (the pre-execution prediction), rather
     // than silently falling back to showing the prediction as if it were
-    // the outcome.
+    // the outcome. The settlement result uses the SETTLEMENT hash only; the
+    // approval hash was surfaced separately above.
     return {
       ...operation, status: "success",
       result: { txHash: lastHash, explorerUrl: confirm.explorerUrl ?? configExplorerTx(lastHash), confirmedDetails: confirm.details },
@@ -1266,8 +1292,10 @@ export async function executeProtocolActionIntent(
   } catch (e) {
     if (broadcastHash) {
       // Broadcast happened but confirmation timed out — submitted, not failed.
-      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), step: "main" } };
+      // Name WHICH transaction is pending so an approval is never mislabeled as
+      // the settlement.
+      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), step: broadcastIsApproval ? "approval" : "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
     }
-    return { ...operation, status: "error", error: { message: friendlyError(e instanceof Error ? e.message : "Action failed.", "Action"), code: "NOT_SENT" } };
+    return { ...operation, status: "error", error: { message: prefixApprovalContext(friendlyError(e instanceof Error ? e.message : "Action failed.", "Action"), approvalTx), code: "NOT_SENT", approvalTx: approvalTx ?? undefined } };
   }
 }

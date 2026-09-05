@@ -34,8 +34,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { ASK_INTENT_KINDS, type AskIntentKind, type AskSlots, type Understanding } from "./types";
 import { ensureBuiltinsRegistered } from "@/lib/sdk/bootstrap";
 import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
-import { getChain } from "@/lib/monad/config";
-import { parseEther, formatEther } from "viem";
+import { getChain, getStablecoin } from "@/lib/monad/config";
+import { parseUnits, formatUnits } from "viem";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -879,14 +879,16 @@ const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|
 const WRAP_RE = /\bwrap\s+([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
 const UNWRAP_RE = /\bunwrap\s+([0-9]+(?:\.[0-9]+)?)\s*w?mon\b/i;
 
-/** A native-MON split: the literal verb "split"/"distribute", an explicit MON
- *  total, and 2–3 EXPLICIT 0x addresses. Deliberately narrow (like WRAP_RE):
- *  every recipient is a literal address from the text and every amount is
- *  derived from the stated total by exact division — nothing is invented, and
- *  the "split"/"distribute" verb doesn't collide with the curated send/pay
- *  detectors that run before this. */
+/** A split: the literal verb "split"/"distribute", an explicit total in a
+ *  SAFELY-RESOLVABLE token (native MON, or the one configured stablecoin USDC),
+ *  and 2–3 EXPLICIT 0x addresses. Deliberately narrow (like WRAP_RE): every
+ *  recipient is a literal address from the text, the token maps to a known
+ *  address deterministically (never an LLM-invented or inferred contract), and
+ *  every amount is derived from the stated total by exact division — nothing is
+ *  invented. The "split"/"distribute" verb doesn't collide with the curated
+ *  send/pay detectors that run before this. */
 const SPLIT_VERB_RE = /\b(?:split|distribute)\b/i;
-const SPLIT_AMOUNT_RE = /([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
+const SPLIT_AMOUNT_RE = /([0-9]+(?:\.[0-9]+)?)\s*(mon|usdc)\b/i;
 const EVM_ADDRESS_GLOBAL_RE = /0x[0-9a-fA-F]{40}/g;
 
 function detectProtocolAction(text: string): Understanding | null {
@@ -929,6 +931,26 @@ function detectSplitPayment(text: string, activeChainId: number): Understanding 
   const amountMatch = text.match(SPLIT_AMOUNT_RE);
   if (!amountMatch) return null;
 
+  // Resolve the token deterministically — MON (native) or the ONE configured
+  // stablecoin (USDC). Any other symbol is not resolved here (never guessed),
+  // so it falls through to clarification rather than executing.
+  const unit = amountMatch[2].toLowerCase();
+  let token: string;
+  let decimals: number;
+  if (unit === "mon") {
+    token = "0x0000000000000000000000000000000000000000";
+    decimals = 18;
+  } else {
+    // usdc
+    try {
+      const usdc = getStablecoin();
+      token = usdc.address;
+      decimals = usdc.decimals;
+    } catch {
+      return null; // stablecoin not configured on this deployment — fail closed
+    }
+  }
+
   const seen = new Set<string>();
   const recipients: string[] = [];
   for (const m of text.matchAll(EVM_ADDRESS_GLOBAL_RE)) {
@@ -947,25 +969,25 @@ function detectSplitPayment(text: string, activeChainId: number): Understanding 
   const action = getAction("payai-settlement", "split_payment", version);
   if (!action || action.chainId !== activeChainId) return null;
 
-  // Exact equal split of the stated total, in wei, remainder to the last
-  // recipient so the sum is EXACTLY the total — no dust invented or lost.
-  let totalWei: bigint;
+  // Exact equal split of the stated total, in base units, remainder to the
+  // last recipient so the sum is EXACTLY the total — no dust invented or lost.
+  let totalUnits: bigint;
   try {
-    totalWei = parseEther(amountMatch[1]);
+    totalUnits = parseUnits(amountMatch[1], decimals);
   } catch {
     return null;
   }
-  if (totalWei <= 0n) return null;
+  if (totalUnits <= 0n) return null;
   const n = BigInt(recipients.length);
-  const per = totalWei / n;
+  const per = totalUnits / n;
   if (per <= 0n) return null;
-  const remainder = totalWei - per * n;
+  const remainder = totalUnits - per * n;
 
-  const actionInputs: Record<string, string> = { token: "0x0000000000000000000000000000000000000000" };
+  const actionInputs: Record<string, string> = { token };
   recipients.forEach((addr, i) => {
-    const wei = i === recipients.length - 1 ? per + remainder : per;
+    const units = i === recipients.length - 1 ? per + remainder : per;
     actionInputs[`recipient${i + 1}`] = addr;
-    actionInputs[`amount${i + 1}`] = formatEther(wei);
+    actionInputs[`amount${i + 1}`] = formatUnits(units, decimals);
   });
 
   return {

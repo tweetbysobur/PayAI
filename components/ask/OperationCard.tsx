@@ -378,11 +378,12 @@ function ProtocolActionBody({ intent }: { intent: Extract<Operation["intent"], {
       {d.summary && <p className="mb-2.5 text-sm text-foreground">{d.summary}</p>}
       <div className="divide-y divide-border/60">
         {Object.entries(d.inputs)
-          // Skip a multi-recipient action's raw recipientN/amountN pairs and a
-          // native-token sentinel — those are shown, already formatted, in
-          // `details` below. A single-input action (WMON's `amount`) is
-          // unaffected and still renders here.
-          .filter(([k, v]) => !/^(recipient|amount)\d+$/.test(k) && !(k === "token" && /^0x0{40}$/i.test(v)))
+          // Skip a multi-recipient action's raw recipientN/amountN pairs and
+          // the raw `token` (a zero sentinel for native, or a bare ERC-20
+          // address) — those are shown, already formatted with the token
+          // symbol, in `details` below. A single-input action (WMON's
+          // `amount`) has none of these keys and still renders here.
+          .filter(([k]) => !/^(recipient|amount)\d+$/.test(k) && k !== "token")
           .map(([k, v]) => (
             <Row key={`in-${k}`} label={k.charAt(0).toUpperCase() + k.slice(1)}>{v}</Row>
           ))}

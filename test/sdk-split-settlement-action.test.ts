@@ -125,7 +125,9 @@ describe("quote", () => {
     await expect(getSplit().quote({ recipient1: A, amount1: "1", recipient2: B })).rejects.toThrow();
     await expect(getSplit().quote({ recipient1: A, amount1: "1", amount2: "2" })).rejects.toThrow();
   });
-  it("rejects a non-native token (native-only v1)", async () => {
+  it("fails closed on a token that can't be resolved as an ERC-20 (ERC-20 enablement is covered in sdk-split-erc20)", async () => {
+    // config is mocked here without a stablecoin, and this token can't be read
+    // on-chain in the test env, so it fails closed rather than proceeding.
     await expect(getSplit().quote({ recipient1: A, amount1: "1", token: "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60" })).rejects.toThrow();
   });
 });
