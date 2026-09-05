@@ -127,6 +127,23 @@ export interface UnsignedActionStep {
   kind: "approve" | "action";
   label: string;
   tx: { to: Address; data: `0x${string}`; value: string };
+  /**
+   * REQUIRED on an "approve" step, ignored on an "action" step. Declares the
+   * intent of the allowance so Layer B (lib/sdk/validate.ts's
+   * validateApprovalStep) can prove the step does exactly — and only — that:
+   *   - `token`   — the ERC-20 the approval is sent to; must equal tx.to.
+   *   - `spender` — who receives the allowance; must be an allowlisted target
+   *     (a canonical PayAI contract), never an arbitrary or caller-controlled
+   *     address. This is the theft-critical field.
+   *   - `amount`  — the exact allowance, in base units; must be positive and
+   *     must NOT be unlimited (uint256 max).
+   * These are NEVER trusted on their own: Layer B decodes the real
+   * approve(address,uint256) calldata and requires it to match this
+   * declaration EXACTLY (selector, length, spender, amount) before the step is
+   * allowed to reach a signer. An "approve" step that omits this, or whose
+   * calldata diverges from it, is rejected in full.
+   */
+  approval?: { token: Address; spender: Address; amount: string };
 }
 
 export interface Action extends ActionMetadata {
