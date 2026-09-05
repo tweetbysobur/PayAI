@@ -377,9 +377,15 @@ function ProtocolActionBody({ intent }: { intent: Extract<Operation["intent"], {
       </div>
       {d.summary && <p className="mb-2.5 text-sm text-foreground">{d.summary}</p>}
       <div className="divide-y divide-border/60">
-        {Object.entries(d.inputs).map(([k, v]) => (
-          <Row key={`in-${k}`} label={k.charAt(0).toUpperCase() + k.slice(1)}>{v}</Row>
-        ))}
+        {Object.entries(d.inputs)
+          // Skip a multi-recipient action's raw recipientN/amountN pairs and a
+          // native-token sentinel — those are shown, already formatted, in
+          // `details` below. A single-input action (WMON's `amount`) is
+          // unaffected and still renders here.
+          .filter(([k, v]) => !/^(recipient|amount)\d+$/.test(k) && !(k === "token" && /^0x0{40}$/i.test(v)))
+          .map(([k, v]) => (
+            <Row key={`in-${k}`} label={k.charAt(0).toUpperCase() + k.slice(1)}>{v}</Row>
+          ))}
         {Object.entries(d.details).map(([k, v]) => (
           <Row key={`det-${k}`} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
         ))}
