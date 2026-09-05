@@ -1123,17 +1123,21 @@ interface ProtocolActionPreviewResponse {
 }
 
 async function dispatchProtocolAction(
-  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null },
+  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null; actionInputs?: Record<string, string> | null },
   walletAddress: string | null,
 ): Promise<AskMessage> {
   if (!slots.protocolId || !slots.actionId || !slots.actionVersion) {
     return assistantText("I couldn't identify that protocol action.");
   }
-  // WMON's only input is `amount`; a future multi-input action would map its
-  // own slots here. Kept explicit rather than spreading all slots so nothing
-  // unintended is ever forwarded as an action input.
-  const inputs: Record<string, string> = {};
-  if (slots.amount) inputs.amount = slots.amount;
+  // A multi-input action (e.g. split_payment) carries its full input map in
+  // slots.actionInputs, populated deterministically by the detector; a
+  // single-input action (WMON) uses the scalar `amount` slot. Either way the
+  // server re-validates every field against the action's schema (Layer A), so
+  // nothing here is trusted — this only forwards what the detector resolved.
+  const inputs: Record<string, string> = slots.actionInputs
+    ? { ...slots.actionInputs }
+    : {};
+  if (!slots.actionInputs && slots.amount) inputs.amount = slots.amount;
 
   let json: ProtocolActionPreviewResponse | null = null;
   try {

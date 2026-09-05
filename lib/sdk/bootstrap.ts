@@ -12,10 +12,12 @@
  * guards every registration behind a "not already there" check and a
  * process-level `done` latch. Safe to call on every request.
  *
- * The ONLY protocol registered in Phase 2 is WMON — deliberately. Adding a
- * second protocol is a later phase; this file is the one place that decides
- * what is active, so "what can Ask PayAI reach through the SDK" is auditable
- * in a single glance.
+ * Registered protocols (this file is the one place that decides what Ask PayAI
+ * can reach through the SDK, so it's auditable in a single glance):
+ *   - WMON       — wrap/unwrap MON ⇄ WMON (Phase 1/2).
+ *   - payai-settlement — split_payment, native MON split across recipients
+ *     through the audited, mainnet-deployed SplitSettlement contract (Phase 5).
+ *     Registers only on a chain where SplitSettlement is deployed (mainnet).
  *
  * Server-only: the action modules it registers are server-only (they read
  * app config and build calldata).
@@ -23,6 +25,7 @@
 import "server-only";
 import { getProtocol, registerProtocol } from "./registry";
 import { createWmonProtocol } from "./actions/wmon";
+import { createSplitSettlementProtocol } from "./actions/split-settlement";
 
 let done = false;
 
@@ -31,6 +34,10 @@ export function ensureBuiltinsRegistered(): void {
   if (!getProtocol("wmon")) {
     const wmon = createWmonProtocol();
     if (wmon) registerProtocol(wmon);
+  }
+  if (!getProtocol("payai-settlement")) {
+    const split = createSplitSettlementProtocol();
+    if (split) registerProtocol(split);
   }
   done = true;
 }

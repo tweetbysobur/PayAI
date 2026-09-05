@@ -106,6 +106,14 @@ export interface AskSlots {
   protocolId?: string | null;
   actionId?: string | null;
   actionVersion?: string | null;
+  /** "protocol_action" only: the full input map for an action whose inputs
+   *  don't fit the single scalar `amount` slot (e.g. split_payment's
+   *  recipient1/amount1/recipient2/… fields). Populated ONLY by the
+   *  deterministic detector from explicit, literal values in the user's text —
+   *  never free-form, never LLM-generated. WMON leaves this null and uses
+   *  `amount` above. Forwarded verbatim to /api/ask/action, where Layer A
+   *  re-validates every field against the action's schema. */
+  actionInputs?: Record<string, string> | null;
 }
 
 /**

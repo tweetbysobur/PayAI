@@ -35,6 +35,7 @@ import { ASK_INTENT_KINDS, type AskIntentKind, type AskSlots, type Understanding
 import { ensureBuiltinsRegistered } from "@/lib/sdk/bootstrap";
 import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
 import { getChain } from "@/lib/monad/config";
+import { parseEther, formatEther } from "viem";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -878,6 +879,16 @@ const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|
 const WRAP_RE = /\bwrap\s+([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
 const UNWRAP_RE = /\bunwrap\s+([0-9]+(?:\.[0-9]+)?)\s*w?mon\b/i;
 
+/** A native-MON split: the literal verb "split"/"distribute", an explicit MON
+ *  total, and 2–3 EXPLICIT 0x addresses. Deliberately narrow (like WRAP_RE):
+ *  every recipient is a literal address from the text and every amount is
+ *  derived from the stated total by exact division — nothing is invented, and
+ *  the "split"/"distribute" verb doesn't collide with the curated send/pay
+ *  detectors that run before this. */
+const SPLIT_VERB_RE = /\b(?:split|distribute)\b/i;
+const SPLIT_AMOUNT_RE = /([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
+const EVM_ADDRESS_GLOBAL_RE = /0x[0-9a-fA-F]{40}/g;
+
 function detectProtocolAction(text: string): Understanding | null {
   ensureBuiltinsRegistered();
   const activeChainId = getChain().id;
@@ -901,7 +912,70 @@ function detectProtocolAction(text: string): Understanding | null {
   if (unwrap) return resolve("unwrap", unwrap[1]);
   const wrap = text.match(WRAP_RE);
   if (wrap) return resolve("wrap", wrap[1]);
+
+  const split = detectSplitPayment(text, activeChainId);
+  if (split) return split;
   return null;
+}
+
+/** Deterministic native-MON split detection. Returns a COMPLETE understanding
+ *  only when the split action is registered on this chain and the text carries
+ *  a MON total plus 2–3 explicit, distinct 0x recipient addresses. Otherwise
+ *  null — a "split" phrase missing that information falls through to the normal
+ *  clarify path rather than routing to execution (never invents recipients or
+ *  amounts). */
+function detectSplitPayment(text: string, activeChainId: number): Understanding | null {
+  if (!SPLIT_VERB_RE.test(text)) return null;
+  const amountMatch = text.match(SPLIT_AMOUNT_RE);
+  if (!amountMatch) return null;
+
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  for (const m of text.matchAll(EVM_ADDRESS_GLOBAL_RE)) {
+    const addr = m[0];
+    const key = addr.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipients.push(addr);
+  }
+  // Need a real split: at least two recipients, and no more than the SDK
+  // schema exposes (3). Anything else is not safely constructable here.
+  if (recipients.length < 2 || recipients.length > 3) return null;
+
+  const version = getCurrentActionVersion("payai-settlement", "split_payment");
+  if (!version) return null;
+  const action = getAction("payai-settlement", "split_payment", version);
+  if (!action || action.chainId !== activeChainId) return null;
+
+  // Exact equal split of the stated total, in wei, remainder to the last
+  // recipient so the sum is EXACTLY the total — no dust invented or lost.
+  let totalWei: bigint;
+  try {
+    totalWei = parseEther(amountMatch[1]);
+  } catch {
+    return null;
+  }
+  if (totalWei <= 0n) return null;
+  const n = BigInt(recipients.length);
+  const per = totalWei / n;
+  if (per <= 0n) return null;
+  const remainder = totalWei - per * n;
+
+  const actionInputs: Record<string, string> = { token: "0x0000000000000000000000000000000000000000" };
+  recipients.forEach((addr, i) => {
+    const wei = i === recipients.length - 1 ? per + remainder : per;
+    actionInputs[`recipient${i + 1}`] = addr;
+    actionInputs[`amount${i + 1}`] = formatEther(wei);
+  });
+
+  return {
+    kind: "protocol_action", outcome: "complete",
+    slots: {
+      ...emptySlots(),
+      protocolId: "payai-settlement", actionId: "split_payment", actionVersion: version,
+      actionInputs,
+    },
+  };
 }
 
 /** Detects "what is this token, 0x...", a bare address, "check this CA:
