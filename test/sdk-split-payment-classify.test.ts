@@ -71,9 +71,37 @@ describe("native-MON split detection", () => {
     expect((r.understanding ?? r.fallback).kind).not.toBe("protocol_action");
   });
 
-  it("a USDC split is not matched (native-only detector requires MON)", async () => {
+  it("a USDC split IS matched when the stablecoin is configured (ERC-20 enabled), with the USDC token address", async () => {
+    const prior = process.env.MONAD_MAINNET_USDC;
+    process.env.MONAD_MAINNET_USDC = "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60";
+    try {
+      const { routeRequest } = await import("@/lib/ask/intent/classify");
+      const r = await routeRequest(`split 100 USDC between ${A} and ${B}`, null);
+      const u = r.understanding!;
+      if (u.outcome !== "complete") throw new Error("expected complete");
+      expect(u.kind).toBe("protocol_action");
+      expect(u.slots.actionInputs!.token.toLowerCase()).toBe("0x754704bc059f5a0ce29e278a6d0eba96b6aafb60");
+      expect(u.slots.actionInputs!.amount1).toBe("50"); // 100 USDC / 2, exact at 6dp
+    } finally {
+      if (prior === undefined) delete process.env.MONAD_MAINNET_USDC; else process.env.MONAD_MAINNET_USDC = prior;
+    }
+  });
+
+  it("a USDC split FAILS CLOSED (not matched) when no stablecoin is configured — never guesses an address", async () => {
+    const prior = process.env.MONAD_MAINNET_USDC;
+    delete process.env.MONAD_MAINNET_USDC;
+    try {
+      const { routeRequest } = await import("@/lib/ask/intent/classify");
+      const r = await routeRequest(`split 100 USDC between ${A} and ${B}`, null);
+      expect((r.understanding ?? r.fallback).kind).not.toBe("protocol_action");
+    } finally {
+      if (prior !== undefined) process.env.MONAD_MAINNET_USDC = prior;
+    }
+  });
+
+  it("an unknown token symbol is never resolved to an address (falls through)", async () => {
     const { routeRequest } = await import("@/lib/ask/intent/classify");
-    const r = await routeRequest(`split 100 USDC between ${A} and ${B}`, null);
+    const r = await routeRequest(`split 100 FOOCOIN between ${A} and ${B}`, null);
     expect((r.understanding ?? r.fallback).kind).not.toBe("protocol_action");
   });
 

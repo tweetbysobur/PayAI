@@ -87,7 +87,7 @@ describe("build route (/api/ask/action/build) for split_payment", () => {
     expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase()]);
   });
 
-  it("a non-native token is rejected (native-only v1) — no steps produced", async () => {
+  it("a token that can't be resolved (no stablecoin configured, unreadable on-chain) fails closed — no steps", async () => {
     const { POST } = await import("@/app/api/ask/action/build/route");
     const res = await POST(req("https://usepayai.xyz/api/ask/action/build", {
       protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0",
