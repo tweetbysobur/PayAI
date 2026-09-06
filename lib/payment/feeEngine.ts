@@ -2,20 +2,30 @@
  * PayAI Fee Engine — a self-contained module the execution engine never has
  * to import or know about. Every feature (Send Payment, Swap, Wallet
  * Automation, Reserved Funds) asks this module "what would this cost?"
- * BEFORE execution, purely to calculate and display a number. Execution
- * itself (lib/payment/engine.ts, lib/monad/contracts.ts, the AutomationVault
- * calls) never imports this file and never has its money-moving logic
- * touched by it — that separation is deliberate: turning fees on later is a
- * config change in THIS file, never a change to how funds move.
+ * BEFORE execution, purely to calculate and DISPLAY a number in the UI.
+ * Execution itself (lib/payment/engine.ts, lib/monad/contracts.ts, the
+ * AutomationVault calls) never imports this file and never has its
+ * money-moving logic touched by it — that separation is deliberate: this
+ * module can never be the thing that accidentally moves money, no matter
+ * what its config says.
  *
- * BETA: every fee below is zero. Nothing here routes money anywhere; the
- * treasury address is read only for display/audit purposes (so a receipt
- * can show where a fee *would* go), never passed into a transfer today.
- * Turning on a real fee later still requires a second, deliberate step:
- * wiring that non-zero amount into an actual on-chain transfer (a contract
- * fee split, or a second app-level transfer to the treasury). This module
- * intentionally does not do that itself, so a config change alone can never
- * accidentally move funds.
+ * The REAL fee — the transfer that actually happens on-chain — lives in the
+ * contract each feature settles through, not here:
+ *   - Trading (Uniswap/Kuru/Nad.Fun): PayAITradeExecutor/V2, live since
+ *     2026-08-24, feeBps=25 (0.25%), Safe-controlled treasury. See
+ *     contracts/LIVE_CONTRACTS.md.
+ *   - Send Payment / Wallet Automation / Reserved Funds: PayAIForwarderV2 /
+ *     PaymentExecutorV2 / AutomationVaultV2 (contracts/contracts/*V2.sol),
+ *     same feeBps/treasury mechanism, mirroring the trade executor exactly.
+ *     Built and tested; going live is a separate, deliberate mainnet deploy
+ *     + Vercel env-var cutover, tracked outside this file.
+ *
+ * This file's job is narrower and purely honest-display: the bps/fixed
+ * value configured here for a feature should always match what that
+ * feature's live contract will actually charge, so a user never sees a
+ * number before signing that turns out to be wrong. It is a config change,
+ * synced to whichever contract is currently wired in — never a code change,
+ * and never itself the thing doing the charging.
  */
 
 export type FeeFeature = "send_payment" | "swap" | "wallet_automation" | "reserved_funds";
