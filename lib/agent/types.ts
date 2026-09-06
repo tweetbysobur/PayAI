@@ -14,6 +14,7 @@ import type {
   Token,
   TransactionResult,
 } from "../payment/types";
+import type { Receipt } from "../payment/feeMath";
 
 /** The structured intent extracted from a user's natural-language request. */
 export interface ParsedIntent {
@@ -90,4 +91,13 @@ export interface AgentResult {
   unsignedTx?: UnsignedTx;
   /** The sanitized text to replay against /api/agent/confirm once signed. */
   confirmRawText?: string;
+  /**
+   * The real receipt (payment amount, platform fee, gas, total), computed
+   * SERVER-SIDE via lib/payment/feeEngine.ts's buildReceipt() — present only
+   * on an "executed" result. Client code must render this field directly and
+   * never recompute a receipt itself: feeEngine.ts is server-only (it reads
+   * live fee config from process.env), so a client-side calculation can only
+   * ever silently see a zeroed-out config, not the real one.
+   */
+  receipt?: Receipt;
 }
