@@ -5,6 +5,11 @@ import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServic
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { savePendingSettlement, getPendingSettlement, clearPendingSettlement, type PendingSettlement } from "@/lib/hooks/pendingSettlement";
 import { useSync } from "@/lib/hooks/useSync";
+// feeMath.ts is the pure, env-free half of the fee engine (see its own doc
+// comment) — safe to import here. See lib/agent/types.ts's
+// AgentResult.receipt doc comment for why the receipt itself must always
+// come FROM the API response, never be recomputed here.
+import type { Receipt } from "@/lib/payment/feeMath";
 
 /* Client-side mirror of the API result shapes — identical contract used by
    every command-center layout, so all three variants stay functionally real
@@ -43,6 +48,9 @@ export interface AgentResult {
   // both omit it). See app/api/agent/route.ts.
   approvalTx?: { to: string; data: string; value?: string; from: string } | null;
   approvalLabel?: string | null;
+  /** The real receipt, computed server-side. Render this directly — never
+   *  recompute a receipt client-side (see the import comment above). */
+  receipt?: Receipt;
 }
 export interface Health {
   model: string;
