@@ -60,36 +60,31 @@
  * auto-registered at import and NOT wired into bootstrap.ts in this phase
  * (bootstrap.ts is Ask PayAI's registration surface; wiring it in is a
  * separate, later decision, not part of this SDK-only implementation).
+ *
+ * Phase 7B note: the Pool/DataProvider constants and the asset/amount/
+ * reserve-verification helpers below were extracted into ../shared.ts
+ * (verbatim, no behavior change) so the withdraw action can reuse them
+ * instead of duplicating them. This file's own quote()/build()/
+ * parseResult() logic — the part that is genuinely specific to supply — is
+ * untouched.
  */
 import "server-only";
-import { encodeFunctionData, decodeEventLog, formatUnits, parseUnits, getAddress, type Address } from "viem";
-import { isAddress } from "@/lib/payees/directory";
+import { encodeFunctionData, decodeEventLog, formatUnits, type Address } from "viem";
 import { getChain } from "@/lib/monad/config";
 import { getPublicClient } from "@/lib/monad/wallet";
-import { resolveToken } from "@/lib/monad/tokenRegistry";
 import type { Action, ActionInputs, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
+import {
+  POOL, DATA_PROVIDER, DATA_PROVIDER_ABI, MONAD_MAINNET_CHAIN_ID,
+  resolveAaveAsset, toAaveUnits, resolveRequiredAddress, AaveActionInputError,
+} from "../shared";
 
 const PROTOCOL_ID = "aave-v3-monad";
 const ACTION_ID = "supply";
 const VERSION = "1.0.0";
 
-/** The only chain this protocol is ever registered on. Aave V3 is not
- *  deployed anywhere else PayAI runs. */
-const MONAD_MAINNET_CHAIN_ID = 143;
-
-/** Canonical Aave V3 Pool proxy on Monad mainnet — independently verified
- *  from `aave-dao/aave-address-book`'s `src/AaveV3Monad.sol`, cross-linked
- *  there to https://monadscan.com/address/0x69a5F9AD4f96ebf0a0C792dD42a01cC5C0102fef.
- *  This is the ONLY address the real "supply" transaction step is ever
- *  permitted to target — Layer B (lib/sdk/validate.ts) enforces this against
- *  build()'s actual output, not against this file's good intentions. */
-const POOL: Address = "0x69a5F9AD4f96ebf0a0C792dD42a01cC5C0102fef";
-
-/** AaveProtocolDataProvider — same source/verification as POOL above,
- *  cross-linked to https://monadscan.com/address/0xB65A68B98274ef7D9a60E0C0747dD1BEc3D32fad.
- *  Read-only: used ONLY to (a) verify an asset is a real Aave-listed reserve
- *  and (b) read an informational supply APY. Never a transaction target. */
-const DATA_PROVIDER: Address = "0xB65A68B98274ef7D9a60E0C0747dD1BEc3D32fad";
+/** Backward-compatible alias — Phase 7A's own test suite and any external
+ *  reference imports this name. Same class as shared.ts's AaveActionInputError. */
+export const AaveSupplyInputError = AaveActionInputError;
 
 /** Standard Aave V3 Pool ABI surface this action uses — identical across
  *  every Aave V3 deployment (the whole point of the address-book pattern):
@@ -119,134 +114,12 @@ const POOL_EVENTS = [
   },
 ] as const;
 
-/** Standard AaveProtocolDataProvider read surface — identical across every
- *  Aave V3 deployment. `getAllReservesTokens` is what makes asset
- *  verification a LIVE chain read rather than a hand-maintained list that
- *  could silently drift from what Aave actually lists. `getReserveData`'s
- *  `liquidityRate` is the current supply APR in ray units (1e27), used only
- *  for the informational quote display. */
-const DATA_PROVIDER_ABI = [
-  {
-    type: "function", name: "getAllReservesTokens", stateMutability: "view", inputs: [],
-    outputs: [{
-      type: "tuple[]",
-      components: [{ name: "symbol", type: "string" }, { name: "tokenAddress", type: "address" }],
-    }],
-  },
-  {
-    type: "function", name: "getReserveData", stateMutability: "view",
-    inputs: [{ name: "asset", type: "address" }],
-    outputs: [
-      { name: "unbacked", type: "uint256" }, { name: "accruedToTreasuryScaled", type: "uint256" },
-      { name: "totalAToken", type: "uint256" }, { name: "totalStableDebt", type: "uint256" },
-      { name: "totalVariableDebt", type: "uint256" }, { name: "liquidityRate", type: "uint256" },
-      { name: "variableBorrowRate", type: "uint256" }, { name: "stableBorrowRate", type: "uint256" },
-      { name: "averageStableBorrowRate", type: "uint256" }, { name: "liquidityIndex", type: "uint256" },
-      { name: "variableBorrowIndex", type: "uint256" }, { name: "lastUpdateTimestamp", type: "uint256" },
-    ],
-  },
-] as const;
-
+/** Standard ERC-20 approve — supply-only (withdraw has no approval step). */
 const ERC20_APPROVE_ABI = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const RAY = 10n ** 27n;
-
-/** Thrown for a user-input problem (bad asset, unlisted reserve, bad
- *  amount, bad onBehalfOf). quote()/build() throw it; callers surface it —
- *  same convention as split-settlement's SplitInputError. */
-export class AaveSupplyInputError extends Error {}
-
-/** In-memory cache of the live reserves list, so a burst of quote()/build()
- *  calls doesn't re-fetch the whole reserve set per call. Short TTL (unlike
- *  tokenRegistry's permanent ERC-20-metadata cache) because Aave governance
- *  can list a new reserve at any time and this must reflect that within a
- *  bounded window, not only after a redeploy. Mirrors reverse-resolver.ts's
- *  5-minute TTL pattern. */
-const RESERVES_CACHE_TTL_MS = 5 * 60 * 1000;
-let reservesCache: { addresses: Set<string>; expiresAt: number } | null = null;
-
-/** Reads the REAL, current Aave-listed reserve set from the chain. Never
- *  cached beyond RESERVES_CACHE_TTL_MS, and never assumed on a read
- *  failure — callers must fail closed when this throws. */
-async function fetchListedReserves(): Promise<Set<string>> {
-  if (reservesCache && reservesCache.expiresAt > Date.now()) return reservesCache.addresses;
-  const pub = getPublicClient();
-  const tokens = await pub.readContract({
-    address: DATA_PROVIDER, abi: DATA_PROVIDER_ABI, functionName: "getAllReservesTokens",
-  }) as readonly { symbol: string; tokenAddress: Address }[];
-  const addresses = new Set(tokens.map((t) => t.tokenAddress.toLowerCase()));
-  reservesCache = { addresses, expiresAt: Date.now() + RESERVES_CACHE_TTL_MS };
-  return addresses;
-}
-
-/** Fail-closed reserve check: an RPC failure, a malformed response, or an
- *  asset simply not being in the list are ALL treated as "not verified" —
- *  never "assume it's fine". */
-async function isAaveListedReserve(asset: Address): Promise<boolean> {
-  try {
-    const reserves = await fetchListedReserves();
-    return reserves.has(asset.toLowerCase());
-  } catch {
-    return false;
-  }
-}
-
-interface AssetCtx { address: Address; decimals: number; symbol: string }
-
-/**
- * Resolves and verifies the supply asset: must be a real, on-chain-readable
- * ERC-20 (lib/monad/tokenRegistry's own resolver — the same trusted metadata
- * source split-settlement uses) AND an Aave-listed reserve (live chain read,
- * above). Rejects the native-MON sentinel outright: Aave's supply() takes an
- * ERC-20 reserve, never native value — there is no native-MON supply path in
- * this action (a user who wants to supply MON supplies WMON, which IS a
- * listed reserve like any other ERC-20).
- */
-async function resolveAaveAsset(assetInput: string): Promise<AssetCtx> {
-  const t = assetInput?.trim();
-  if (!t || !isAddress(t) || t.toLowerCase() === ZERO_ADDRESS) {
-    throw new AaveSupplyInputError(`"${assetInput}" is not a valid ERC-20 asset address.`);
-  }
-  let info;
-  try {
-    info = await resolveToken(t);
-  } catch {
-    throw new AaveSupplyInputError(`Couldn't read "${t}" as an ERC-20 token on Monad.`);
-  }
-  const address = getAddress(t);
-  const listed = await isAaveListedReserve(address);
-  if (!listed) {
-    throw new AaveSupplyInputError(`"${info.symbol}" (${address}) is not a reserve Aave V3 lists on Monad — refusing to supply an unverified asset.`);
-  }
-  return { address, decimals: info.decimals, symbol: info.symbol };
-}
-
-/** Amount → base units at the asset's real decimals, rejecting a value that
- *  rounds to zero. Same discipline as split-settlement's own toUnits(). */
-function toUnits(amount: string, decimals: number): bigint {
-  let units: bigint;
-  try {
-    units = parseUnits(amount, decimals);
-  } catch {
-    throw new AaveSupplyInputError(`"${amount}" is not a valid amount.`);
-  }
-  if (units <= 0n) throw new AaveSupplyInputError(`"${amount}" is below the smallest unit of this asset.`);
-  return units;
-}
-
-/** Validates onBehalfOf as a normal, non-zero address. A zero address would
- *  make Aave's own supply() revert (or, worse on some reserves, behave in an
- *  undefined way) — rejected here, before it ever reaches a signer. */
-function resolveOnBehalfOf(raw: string): Address {
-  const v = raw?.trim();
-  if (!v || !isAddress(v) || v.toLowerCase() === ZERO_ADDRESS) {
-    throw new AaveSupplyInputError(`"${raw}" is not a valid onBehalfOf address.`);
-  }
-  return getAddress(v);
-}
 
 /** Best-effort, informational-only supply APY. Never thrown from quote() —
  *  a read failure just omits the line, exactly like split-settlement's own
@@ -279,8 +152,8 @@ function supplyAction(chainId: number): Action {
     },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
       const ctx = await resolveAaveAsset(inputs.asset);
-      const onBehalfOf = resolveOnBehalfOf(inputs.onBehalfOf);
-      const units = toUnits(inputs.amount, ctx.decimals);
+      const onBehalfOf = resolveRequiredAddress(inputs.onBehalfOf, "onBehalfOf");
+      const units = toAaveUnits(inputs.amount, ctx.decimals);
       const apy = await readSupplyApyPercent(ctx.address);
       const details: Record<string, string> = {
         asset: `${ctx.symbol} (${ctx.address})`,
@@ -300,8 +173,8 @@ function supplyAction(chainId: number): Action {
       // the reserve listing so a reserve delisted between quote and build
       // is refused rather than silently supplied to.
       const ctx = await resolveAaveAsset(inputs.asset);
-      const onBehalfOf = resolveOnBehalfOf(inputs.onBehalfOf);
-      const units = toUnits(inputs.amount, ctx.decimals);
+      const onBehalfOf = resolveRequiredAddress(inputs.onBehalfOf, "onBehalfOf");
+      const units = toAaveUnits(inputs.amount, ctx.decimals);
 
       const steps: UnsignedActionStep[] = [
         {
@@ -389,10 +262,8 @@ export function createAaveV3MonadSupplyProtocol(): ProtocolAdapter | null {
  *  strings independently (and silently drifting from the real values). */
 export const __testing = { POOL, DATA_PROVIDER, MONAD_MAINNET_CHAIN_ID };
 
-/** Test-only: forget the cached reserve list so a test that changed the
- *  mocked reserve set isn't served a stale, previously-cached answer. Not
- *  called anywhere in application code — mirrors registry.ts's own
- *  __resetRegistryForTests() convention. */
-export function __resetReservesCacheForTests(): void {
-  reservesCache = null;
-}
+/** Test-only: forget the cached reserve list (now shared.ts's own module
+ *  state) so a test that changed the mocked reserve set isn't served a
+ *  stale, previously-cached answer. Re-exported here so Phase 7A's own
+ *  test suite keeps working against the same import path unchanged. */
+export { __resetReservesCacheForTests } from "../shared";
