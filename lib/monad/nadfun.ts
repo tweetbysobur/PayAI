@@ -341,7 +341,14 @@ export async function getNadFunStatus(token: Address): Promise<NadFunStatus> {
   return { recognized: true, isGraduated: graduated, isLocked: locked, status };
 }
 
-interface LensAmountOut { router: Address; amountOutWei: bigint }
+interface LensAmountOut {
+  router: Address;
+  amountOutWei: bigint;
+  /** True only for the DEX-reserve fallback below — see its own doc for why
+   *  this can't be exact the way a normal Lens quote is. Absent (falsy) for
+   *  every ordinary Lens-sourced quote, which remains exact. */
+  estimatedBeforeFees?: boolean;
+}
 interface LensAmountIn { router: Address; amountInWei: bigint }
 
 /** Raw Lens read for a quote, with the router-allowlist check applied right
@@ -360,6 +367,92 @@ async function lensGetAmountOut(pub: ReturnType<typeof getPublicClient>, token: 
   } catch {
     return null;
   }
+}
+
+/**
+ * Fallback quote, tried ONLY when the Lens's own `getAmountOut` fails —
+ * either it reverts outright, or it returns a router this module doesn't
+ * allowlist. Real, confirmed failure mode, not a hypothetical: for a graduated
+ * token whose `isGraduated()` flag hasn't been updated to match (verified
+ * live — see this module's own top doc for a concrete example), the Lens
+ * still tries to route through the bonding curve, which reverts with
+ * `ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS` because the curve itself is
+ * exhausted/migrated — even though a real, liquid DEX pool for this token
+ * plainly exists. Without this fallback, a genuinely tradable token reads as
+ * "no route found" for no real reason.
+ *
+ * Sourced from REAL on-chain reserves (`getPair` + `getReserves`, the same
+ * read `getNadFunGraduatedPoolLiquidity` already trusts for display), using
+ * the standard constant-product (`x*y=k`) invariant every Uniswap-V2-style
+ * pool actually settles against. This is legitimate on-chain math, not a
+ * guess — but it deliberately does NOT subtract Nad.Fun's own DEX swap fee,
+ * because that fee cannot be independently confirmed: `dexRouter` is
+ * Nad.Fun's own custom contract, not a standard Uniswap Router02 (verified —
+ * its `getAmountsOut`/`factory()` both revert), so there is no on-chain way
+ * to read the fee, and assuming a percentage (e.g. Uniswap's standard 0.30%)
+ * would risk stating a number that is simply wrong. The real fee only ever
+ * REDUCES output below this no-fee figure, so this is a safe, honest UPPER
+ * BOUND rather than an exact quote — `estimatedBeforeFees: true` marks it as
+ * such, so every caller must treat it as an estimate (and widen the
+ * execution-time slippage floor to accommodate the unknown fee — see
+ * FALLBACK_QUOTE_FEE_BUFFER below) rather than presenting it with the same
+ * confidence as a real Lens quote.
+ *
+ * The router returned here is ALWAYS the hardcoded, already-allowlisted
+ * `NADFUN_MAINNET.dexRouter` — never a value read from any contract call —
+ * so this fallback can never point a trade at an unverified address, the
+ * same guarantee the Lens path gets from ALLOWED_ROUTERS.
+ */
+async function dexReserveFallbackQuote(
+  pub: ReturnType<typeof getPublicClient>, token: Address, amountInWei: bigint, isBuy: boolean,
+): Promise<LensAmountOut | null> {
+  if (amountInWei <= 0n) return null;
+  try {
+    const pool = (await pub.readContract({
+      address: NADFUN_MAINNET.dexFactory, abi: DEX_FACTORY_ABI, functionName: "getPair", args: [NADFUN_MAINNET.wmon, token],
+    })) as Address;
+    if (!pool || /^0x0+$/.test(pool)) return null; // no DEX pool exists — genuinely no route, not a Lens glitch
+
+    const [reserves, token0] = await Promise.all([
+      pub.readContract({ address: pool, abi: UNISWAP_V2_PAIR_ABI, functionName: "getReserves" }) as Promise<readonly [bigint, bigint, number]>,
+      pub.readContract({ address: pool, abi: UNISWAP_V2_PAIR_ABI, functionName: "token0" }) as Promise<Address>,
+    ]);
+    const [reserve0, reserve1] = reserves;
+    const wmonIsToken0 = token0.toLowerCase() === NADFUN_MAINNET.wmon.toLowerCase();
+    const monReserve = wmonIsToken0 ? reserve0 : reserve1;
+    const tokenReserve = wmonIsToken0 ? reserve1 : reserve0;
+    const [reserveIn, reserveOut] = isBuy ? [monReserve, tokenReserve] : [tokenReserve, monReserve];
+    if (reserveIn <= 0n || reserveOut <= 0n) return null;
+
+    // x*y=k, no fee subtracted (see doc above) — a real trade returns
+    // somewhat less than this once the DEX's own fee is applied.
+    const amountOutWei = (amountInWei * reserveOut) / (reserveIn + amountInWei);
+    if (amountOutWei <= 0n) return null;
+    return { router: NADFUN_MAINNET.dexRouter, amountOutWei, estimatedBeforeFees: true };
+  } catch {
+    return null;
+  }
+}
+
+/** Extra slippage margin applied ONLY on top of a fallback quote's own
+ *  amountOutMin, to cover the unknown real DEX fee `dexReserveFallbackQuote`
+ *  can't subtract — kept separate from the user's own chosen slippage
+ *  tolerance so widening it here can never silently eat into what they
+ *  actually asked for; it strictly adds to it. 3% comfortably covers any
+ *  swap-fee tier a Uniswap-V2-style fork would plausibly use (standard is
+ *  0.30%) with real margin for the pool moving between quote and execution. */
+const FALLBACK_QUOTE_FEE_BUFFER = 0.03;
+
+/** Tries the Lens first (unchanged behavior — exact, real-time); only on
+ *  failure does it fall back to the reserve-based estimate above. Centralized
+ *  here so nadFunQuote/buildNadFunBuyPlan/buildNadFunSellPlan all get the
+ *  same fallback behavior instead of three separate copies. */
+async function quoteWithFallback(
+  pub: ReturnType<typeof getPublicClient>, token: Address, amountInWei: bigint, isBuy: boolean,
+): Promise<LensAmountOut | null> {
+  const q = await lensGetAmountOut(pub, token, amountInWei, isBuy);
+  if (q) return q;
+  return dexReserveFallbackQuote(pub, token, amountInWei, isBuy);
 }
 
 async function lensGetAmountIn(pub: ReturnType<typeof getPublicClient>, token: Address, amountOutWei: bigint, isBuy: boolean): Promise<LensAmountIn | null> {
@@ -640,13 +733,20 @@ export interface NadFunRouteQuote {
   /** Human-readable amount of the OUT side for this exact request. */
   amountOut: string;
   isBuy: boolean;
+  /** True when this came from the DEX-reserve fallback rather than a real
+   *  Lens quote — see dexReserveFallbackQuote's doc. Callers displaying this
+   *  MUST label it as an estimate, since the real DEX fee isn't subtracted. */
+  estimatedBeforeFees?: boolean;
 }
 
 /**
  * Quotes buying `token` by spending `amountIn` MON (isBuy=true), or selling
  * `amountIn` of `token` for MON (isBuy=false). The router is whatever the
  * Lens's OWN read names for this exact call — never inferred from
- * `isGraduated()` alone, per this module's doc.
+ * `isGraduated()` alone, per this module's doc — with a DEX-reserve fallback
+ * (see quoteWithFallback/dexReserveFallbackQuote) for the real case where the
+ * Lens itself is wrong about a token's phase and reverts on a route that
+ * genuinely exists.
  */
 export async function nadFunQuote(token: Address, tokenDecimals: number, amountIn: string, isBuy: boolean): Promise<NadFunRouteQuote | null> {
   if (getNetwork() !== "mainnet") return null;
@@ -658,10 +758,13 @@ export async function nadFunQuote(token: Address, tokenDecimals: number, amountI
   } catch {
     return null;
   }
-  const q = await lensGetAmountOut(pub, token, amountInWei, isBuy);
+  const q = await quoteWithFallback(pub, token, amountInWei, isBuy);
   if (!q) return null;
   const decimalsOut = isBuy ? tokenDecimals : 18;
-  return { provider: "Nad.Fun", router: q.router, amountOut: formatUnits(q.amountOutWei, decimalsOut), isBuy };
+  return {
+    provider: "Nad.Fun", router: q.router, amountOut: formatUnits(q.amountOutWei, decimalsOut), isBuy,
+    ...(q.estimatedBeforeFees ? { estimatedBeforeFees: true } : {}),
+  };
 }
 
 export interface NadFunExactOutQuote {
@@ -755,6 +858,9 @@ export interface NadFunPlanResult {
   steps: UnsignedStep[];
   amountOut: string;
   router: Address;
+  /** True when amountOut came from the DEX-reserve fallback rather than a
+   *  real Lens quote — the UI must show this as an estimate, not a fact. */
+  estimatedBeforeFees?: boolean;
 }
 
 function assertTradable(slippage: number): void {
@@ -779,10 +885,15 @@ export async function buildNadFunBuyPlan(
   assertTradable(slippage);
   const pub = getPublicClient();
   const amountInWei = parseUnits(normalizeDecimalString(amountInMon, 18), 18);
-  const q = await lensGetAmountOut(pub, token, amountInWei, true);
+  const q = await quoteWithFallback(pub, token, amountInWei, true);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
-  const amountOutMin = minOutWei(q.amountOutWei, slippage);
+  // A fallback quote didn't subtract the real DEX fee (see
+  // dexReserveFallbackQuote's doc) — widen the floor by that fixed buffer so
+  // the trade doesn't spuriously revert on a fee this module can't read,
+  // without touching the user's own chosen slippage tolerance at all.
+  const effectiveSlippage = q.estimatedBeforeFees ? slippage + FALLBACK_QUOTE_FEE_BUFFER : slippage;
+  const amountOutMin = minOutWei(q.amountOutWei, effectiveSlippage);
   const data = encodeFunctionData({
     abi: NADFUN_ROUTER_ABI, functionName: "buy",
     args: [{ amountOutMin, token, to: wallet, deadline: deadline() }],
@@ -791,6 +902,7 @@ export async function buildNadFunBuyPlan(
     steps: [{ kind: "swap", label: `Buy ${tokenSymbol} on Nad.Fun`, tx: { to: q.router, data, value: `0x${amountInWei.toString(16)}` } }],
     amountOut: formatUnits(q.amountOutWei, tokenDecimals),
     router: q.router,
+    ...(q.estimatedBeforeFees ? { estimatedBeforeFees: true } : {}),
   };
 }
 
@@ -808,10 +920,12 @@ export async function buildNadFunSellPlan(
   assertTradable(slippage);
   const pub = getPublicClient();
   const amountInWei = parseUnits(normalizeDecimalString(amountInToken, tokenDecimals), tokenDecimals);
-  const q = await lensGetAmountOut(pub, token, amountInWei, false);
+  const q = await quoteWithFallback(pub, token, amountInWei, false);
   if (!q) throw new Error(`No active Nad.Fun trading route found for ${tokenSymbol} right now.`);
 
-  const amountOutMin = minOutWei(q.amountOutWei, slippage);
+  // See buildNadFunBuyPlan's identical comment.
+  const effectiveSlippage = q.estimatedBeforeFees ? slippage + FALLBACK_QUOTE_FEE_BUFFER : slippage;
+  const amountOutMin = minOutWei(q.amountOutWei, effectiveSlippage);
   const steps: UnsignedStep[] = [];
 
   const allowance = (await pub.readContract({
@@ -838,7 +952,10 @@ export async function buildNadFunSellPlan(
     },
   });
 
-  return { steps, amountOut: formatUnits(q.amountOutWei, 18), router: q.router };
+  return {
+    steps, amountOut: formatUnits(q.amountOutWei, 18), router: q.router,
+    ...(q.estimatedBeforeFees ? { estimatedBeforeFees: true } : {}),
+  };
 }
 
 export interface NadFunExactOutPlanResult {
@@ -918,4 +1035,4 @@ export async function buildNadFunExactOutSellPlan(
 /** Exported for tests only — lets a test assert the exact configured
  *  addresses without duplicating them, and construct a malicious/unknown
  *  router to prove ALLOWED_ROUTERS actually rejects it. */
-export const __testing = { NADFUN_MAINNET, ALLOWED_ROUTERS };
+export const __testing = { NADFUN_MAINNET, ALLOWED_ROUTERS, FALLBACK_QUOTE_FEE_BUFFER };
