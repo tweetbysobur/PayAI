@@ -94,7 +94,12 @@ const POOL_EVENTS = [
   },
 ] as const;
 
-function withdrawAction(chainId: number): Action {
+/** Exported (Phase 7C) so the consolidated ../index.ts factory can compose
+ *  this action into one combined ProtocolAdapter alongside supply's own,
+ *  without duplicating any of its quote()/build()/parseResult() logic.
+ *  Mechanical visibility change only — nothing about this function's body
+ *  changed. */
+export function withdrawAction(chainId: number): Action {
   return {
     protocolId: PROTOCOL_ID, actionId: ACTION_ID, version: VERSION,
     name: "Withdraw from Aave", description: "Withdraw an Aave-listed reserve from the Aave V3 Pool on Monad.",

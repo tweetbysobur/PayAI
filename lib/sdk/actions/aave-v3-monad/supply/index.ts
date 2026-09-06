@@ -140,7 +140,12 @@ async function readSupplyApyPercent(asset: Address): Promise<string | null> {
   }
 }
 
-function supplyAction(chainId: number): Action {
+/** Exported (Phase 7C) so the consolidated ../index.ts factory can compose
+ *  this action into one combined ProtocolAdapter alongside withdraw's own,
+ *  without duplicating any of its quote()/build()/parseResult() logic.
+ *  Mechanical visibility change only — nothing about this function's body
+ *  changed. */
+export function supplyAction(chainId: number): Action {
   return {
     protocolId: PROTOCOL_ID, actionId: ACTION_ID, version: VERSION,
     name: "Supply to Aave", description: "Supply an Aave-listed reserve into the Aave V3 Pool on Monad.",
