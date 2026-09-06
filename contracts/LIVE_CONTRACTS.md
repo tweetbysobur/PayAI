@@ -233,6 +233,71 @@ Deploy / verify / config-check / canary tooling lives in
 `canary-kuru-mainnet-v2.js`, `canary-nadfun-mainnet-v2.js`, with the full
 sequence in `contracts/GATE8_RUNBOOK.md`.
 
+## Fee-v2 suite (Forwarder/Executor/Vault) — deployed + verified on mainnet, 2026-09-06
+
+Extends PayAI's 0.25% service fee — already live on trading since 2026-08-24
+(`PayAITradeExecutor`/`V2`) — to the three payment paths that had NO fee
+mechanism at all before this: interactive Send Payment, custodial/automated
+payments, Wallet Automation pulls, and Reserved Funds releases. Three
+separate, new, non-upgradeable contracts. **None of the V1 contracts they
+extend (`PayAIForwarder`, `PaymentExecutor`, `AutomationVault`) were
+modified or redeployed** — all three keep working exactly as before, and
+are the rollback path for as long as V2 stays uncut-over. Same fee
+mechanism as the trade executor throughout: Safe-settable `feeBps` (capped
+at `MAX_FEE_BPS` = 100, i.e. 1%), `fee = floor(amount * feeBps / 10000)`
+(never overcharges by rounding). Full design + 49-test proof:
+`contracts/contracts/{PayAIForwarderV2,PaymentExecutorV2,AutomationVaultV2}.sol`
+and their matching `contracts/test/*V2.test.js` files.
+
+Every owner/agent/cap/registry value below was **read directly from the
+live V1 contracts by the deploy script itself, at deploy time** (not
+hardcoded from memory or an earlier doc) — the script cross-checks each one
+and aborts before deploying if any live value doesn't match its assumption.
+
+| Field | Value |
+|---|---|
+| PayAIForwarderV2 | `0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D` — owner = the PayAI Safe (`0xA282833B...798C0b0`, matching live `PayAIForwarder`'s owner exactly), treasury = the same Safe |
+| PaymentExecutorV2 | `0x5cAf11937aCbaaFd774c3906a5086A7507fae84D` — owner = the **cold EOA wallet** `0x8EED298C65887bB53a61E28c19a7252b9DC2364F` (matching live `PaymentExecutor`'s owner exactly — **note this is a different address from the Safe**, confirmed by direct on-chain read before deploying), treasury = the Safe. `merchantRegistry`/`dailyCap`/`maxTxAmount`/`dailyCapNative`/`maxTxAmountNative` all copied live from the current `PaymentExecutor` (`0xf723BE80...508AF`) at deploy time: `2,000,000 USDC` daily / `1,000,000 USDC` per-tx / `2,000,000 MON` daily / `1,000,000 MON` per-tx. |
+| AutomationVaultV2 | `0xc4dEd0939E400f568472bee30C4B123a96F85b35` — owner = the same cold EOA wallet (matching live `AutomationVault`'s owner exactly), treasury = the Safe |
+| Agent (all three) | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same agent as every other contract in this suite) |
+| feeBps (all three) | `25` (0.25%); `MAX_FEE_BPS` = 100 (1%) |
+| Fee scope | `PaymentExecutorV2`: charged on every settlement (`executePayment`/`executePaymentFrom`/`executePaymentNative`/`payRequest`), taken from the gross `amount` the on-chain caps already bind — the merchant receives `amount - fee`, `Payment.amount` itself stays gross (unchanged field semantics), the actual fee is emitted separately via `FeeCollected` for the same payment id. `AutomationVaultV2`: charged ONLY on `release()` (an actual payout) — `reserve()` and `refund()` are byte-for-byte unchanged from V1 and remain fee-free, since depositing your own money and getting your own unspent money back aren't transactions PayAI charges for. `PayAIForwarderV2`: charged on every forwarded payment, both legs (recipient's net share, treasury's fee share) pulled/sent independently so the asset never transits the contract's own balance for ERC-20. |
+| Deploy tx (Forwarder + Executor) | Both from the first `deploy-fee-v2-suite.js` run. The script printed addresses only, not tx hashes — every field this table actually needs (owner/treasury/feeBps/registry/caps/agent) was independently re-verified via direct on-chain reads after deploy (see "Post-deploy verification" below), so this isn't treated as a gap worth guessing a hash to fill. |
+| Deploy tx (Vault, failed attempt) | `0x97676063e6062ef26f4a5b4f5b56b7a250794a969f4f529378c6da6f8993d21b`, block 102,422,042 — `status: 0` at exactly its `gasLimit` (2,000,000), a plain out-of-gas, not a logic revert. The address in that receipt never became live code. |
+| Deploy tx (Vault, succeeded) | Retried immediately via `deploy-automation-vault-v2-only.js` at a 3,500,000 gas limit — succeeded, address confirmed live via the on-chain reads below. The Forwarder and Executor from the first run were reused as-is, not redeployed, to avoid wasting gas creating unwanted duplicates. |
+| Source verification | **Sourcify full match**, all three — `https://monadexplorer.com/contracts/full_match/143/<address>/`. Compiler: solc `0.8.24`, optimizer on, 200 runs, **no viaIR** (a stack-too-deep in `PaymentExecutorV2`'s ERC-20 settlement path was fixed by extracting the two-leg fee delivery into a shared `_payErc20WithFee` helper — the same kind of refactor Gate 3 used for `PayAITradeExecutor`, not by enabling `viaIR`). |
+| Post-deploy verification | Every owner/treasury/feeBps/merchantRegistry/agent/cap value above was independently re-read on-chain (not assumed from the deploy script's own printed output) immediately after deployment, confirming an exact match. |
+
+**Deployed, verified, and confirmed on-chain — NOT yet enabled in
+production.** `MONAD_MAINNET_PAYAI_FORWARDER` / `MONAD_MAINNET_PAYMENT_EXECUTOR`
+/ `MONAD_MAINNET_AUTOMATION_VAULT` in Vercel still point at the V1
+addresses below; every payment and automation continues settling through
+them, fee-free, exactly as before. Two things remain before any real
+traffic can reach the fee-v2 suite:
+
+1. **Cold-wallet action required** (`0x8EED298C65887bB53a61E28c19a7252b9DC2364F`)
+   — `MerchantRegistry(0xadf04A50a2319D8B57245Db2aEB101DAb517AA72).setRecorder(0x5cAf11937aCbaaFd774c3906a5086A7507fae84D, true)`.
+   `PayAIForwarderV2` and `AutomationVaultV2` need no such wiring — their
+   constructors already set the correct owner/agent/treasury directly.
+2. **Deliberate Vercel env-var cutover**, once step 1 is confirmed on-chain:
+   `MONAD_MAINNET_PAYAI_FORWARDER=0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D`,
+   `MONAD_MAINNET_PAYMENT_EXECUTOR=0x5cAf11937aCbaaFd774c3906a5086A7507fae84D`,
+   `MONAD_MAINNET_AUTOMATION_VAULT=0xc4dEd0939E400f568472bee30C4B123a96F85b35`,
+   `PAYAI_TREASURY_ADDRESS=0xA282833B52b1B66D58bD2007081dCC037798C0b0`,
+   `PAYAI_FEE_SEND_PAYMENT_BPS=25`, `PAYAI_FEE_WALLET_AUTOMATION_BPS=25`,
+   `PAYAI_FEE_RESERVED_FUNDS_BPS=25`. Because every automation created
+   before this cutover has its own `executorAddress`/`vaultAddress` pinned
+   (see `lib/platform/types.ts`'s `PaymentAutomation.executorAddress` doc
+   comment), this ONLY affects payments/automations created AFTER it —
+   nothing existing breaks or starts being charged a fee it wasn't created
+   expecting.
+
+The OLD `PayAIForwarder` (`0x4ce7B303...F80709`), OLD `PaymentExecutor`
+(`0xf723BE80...508AF`), and OLD `AutomationVault` (`0x87D42314...64cA47`)
+keep working the entire time, before, during, and after this — nothing
+about this deployment affects them, and cutover is reversible at any point
+by simply pointing the env vars back.
+
 ## Correction (2026-08-15): a screenshot-transcription error, now fixed
 
 An earlier version of this file, and a commit that "fixed" a supposed typo
