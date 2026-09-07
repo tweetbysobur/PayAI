@@ -1,0 +1,17 @@
+{
+  "network": "monad",
+  "chainId": 143,
+  "payAIForwarderV2": "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D",
+  "paymentExecutorV2": "0x5cAf11937aCbaaFd774c3906a5086A7507fae84D",
+  "automationVaultV2": "0xc4dEd0939E400f568472bee30C4B123a96F85b35",
+  "forwarderOwner": "0xA282833B52b1B66D58bD2007081dCC037798C0b0",
+  "executorOwner": "0x8EED298C65887bB53a61E28c19a7252b9DC2364F",
+  "vaultOwner": "0x8EED298C65887bB53a61E28c19a7252b9DC2364F",
+  "treasury": "0xA282833B52b1B66D58bD2007081dCC037798C0b0",
+  "feeBps": 25,
+  "merchantRegistry": "0xadf04A50a2319D8B57245Db2aEB101DAb517AA72",
+  "agent": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "deployer": "0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a",
+  "deployedAt": "2026-09-06T08:32:00.898Z",
+  "note": "Adds the 0.25% PayAI fee (already live on trading) to Send Payment, Wallet Automation, and Reserved Funds. V1 contracts untouched. Forwarder+Executor deployed in the first (partial) run of deploy-fee-v2-suite.js; Vault deployed by this retry script after the first attempt's vault deploy ran out of gas at a 2,000,000 limit."
+}

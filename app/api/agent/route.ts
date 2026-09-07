@@ -512,7 +512,17 @@ export async function POST(req: NextRequest) {
 
     trace.push({ step: "execution", status: "ok", detail: `${transaction.detail}${transaction.gasFee ? ` Gas ${transaction.gasFee}.` : ""}` });
     trace.push({ step: "decision", status: "ok", detail: "Executed." });
-    return respond(base("executed", { guardrail, compliance, risk, riskScore: risk.score, transaction }));
+    // Real receipt, computed server-side (feeEngine.ts is server-only — see
+    // its doc comment for why this must never be recomputed client-side).
+    const { buildReceipt } = await import("@/lib/payment/feeEngine");
+    const receipt = intent.amount != null
+      ? buildReceipt({
+          feature: "send_payment", amount: intent.amount, token: intent.token,
+          gasFee: transaction.gasFee, status: "executed",
+          txHash: transaction.txHash, explorerUrl: transaction.explorerUrl,
+        })
+      : undefined;
+    return respond(base("executed", { guardrail, compliance, risk, riskScore: risk.score, transaction, receipt }));
   } catch (err) {
     const detail = err instanceof Error ? err.message : "Pipeline error";
     trace.push({ step: "error", status: "blocked", detail });

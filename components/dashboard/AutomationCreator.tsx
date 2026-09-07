@@ -13,7 +13,7 @@ import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelec
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { toParseableAmount } from "@/lib/monad/verify";
-import { calculateFee } from "@/lib/payment/feeEngine";
+import { calculateFeeFromConfig, ZERO_FEE_CONFIG, type FeeConfigResponse } from "@/lib/payment/feeMath";
 import type { TemplateCategory } from "@/lib/automation/templates";
 import {
   NATIVE_TOKEN_ADDRESS, ERC20_APPROVE_ABI, PURPOSES,
@@ -63,6 +63,11 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   const [savingStep, setSavingStep] = useState<string | null>(null);
   const [fundingMode, setFundingMode] = useState<FundingMode>("wallet");
   const [config, setConfig] = useState<OnchainConfig | null>(null);
+  // The real, current fee rate — fetched from the server (see GET /api/fees;
+  // lib/payment/feeEngine.ts, which knows this, reads process.env and is
+  // server-only, so it cannot be imported here). Defaults to the honest
+  // all-zero config until the fetch resolves, never a guessed non-zero rate.
+  const [feeConfig, setFeeConfig] = useState<FeeConfigResponse>(ZERO_FEE_CONFIG);
   /** Set only when this creation started from an Automation Template — carried
    *  through to the create() call so the record stores what it came from.
    *  Never set for a duplicate or an AI-parsed draft. */
@@ -75,7 +80,8 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0 || (balanceNum != null && amountNum > balanceNum);
   const finalPurpose = purpose === "Other" ? customPurpose.trim() : purpose;
   const estimateGas = tokenInfo?.address === NATIVE_TOKEN_ADDRESS ? "0.002 MON" : "0.004 MON";
-  const platformFee = calculateFee(fundingMode === "reserved" ? "reserved_funds" : "wallet_automation", amountNum || 0);
+  const feeFeature = fundingMode === "reserved" ? "reserved_funds" : "wallet_automation";
+  const platformFee = calculateFeeFromConfig(feeConfig[feeFeature], feeFeature, amountNum || 0);
 
   useEffect(() => {
     if (!open) return;
@@ -143,6 +149,15 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
     if (!open) return;
     let cancelled = false;
     fetch("/api/automation-config").then((r) => r.json()).then((c: OnchainConfig) => { if (!cancelled) setConfig(c); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Load the current fee rate — see feeConfig's own comment for why this
+  // can't just be imported and computed locally.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch("/api/fees").then((r) => r.json()).then((c: FeeConfigResponse) => { if (!cancelled) setFeeConfig(c); }).catch(() => {});
     return () => { cancelled = true; };
   }, [open]);
 

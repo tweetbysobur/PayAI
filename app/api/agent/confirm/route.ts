@@ -266,6 +266,16 @@ export async function POST(req: NextRequest) {
     summary: `${intent.summary} (signed by connected wallet).`,
   });
 
+  // Real receipt, computed server-side (feeEngine.ts is server-only — see
+  // its doc comment for why this must never be recomputed client-side).
+  const { buildReceipt } = await import("@/lib/payment/feeEngine");
+  const paymentReceipt = intent.amount != null
+    ? buildReceipt({
+        feature: "send_payment", amount: intent.amount, token: intent.token,
+        gasFee: gasFee ?? undefined, status: "executed", txHash, explorerUrl,
+      })
+    : undefined;
+
   const result: AgentResult = {
     decision: "executed",
     intent, source, guardrail, compliance, risk,
@@ -287,6 +297,7 @@ export async function POST(req: NextRequest) {
       gasFee: gasFee ?? undefined,
       detail: "Sent directly from your connected wallet.",
     },
+    receipt: paymentReceipt,
   };
 
   const responseBody = {

@@ -284,6 +284,112 @@ describe("nadFunQuote — buy/sell via the Lens, router named by the Lens itself
   });
 });
 
+describe("DEX-reserve fallback — when the Lens itself is wrong about a token's phase", () => {
+  const WMON = "0x3bd359c1119da7da1d913d1c4d2b7c461115433a";
+  const PAIR = "0x48c3bb34227aebe5205ebeaa1b960c53d7edb17b";
+
+  /** Real, live-observed failure mode: a graduated token whose `isGraduated()`
+   *  hasn't caught up, so the Lens still tries the bonding curve and reverts,
+   *  even though a real DEX pool exists. Reproduces the exact revert message
+   *  seen live against a real mainnet token (The Busy Bull of Monad). */
+  function stubLensRevertsButPoolExists({ wmonReserve = 1_000n, tokenReserve = 2_000n, wmonIsToken0 = true }: { wmonReserve?: bigint; tokenReserve?: bigint; wmonIsToken0?: boolean } = {}) {
+    onRead = ({ address, functionName }) => {
+      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
+      if (functionName === "getPair") return PAIR;
+      if (address.toLowerCase() === PAIR && functionName === "getReserves") {
+        return wmonIsToken0 ? [wmonReserve, tokenReserve, 0] : [tokenReserve, wmonReserve, 0];
+      }
+      if (address.toLowerCase() === PAIR && functionName === "token0") return wmonIsToken0 ? WMON : TOKEN;
+      throw new Error(`unexpected: ${functionName}`);
+    };
+  }
+
+  it("nadFunQuote falls back to the real DEX reserves and marks the quote as an estimate", async () => {
+    // Reserves in wei: 1000 MON, 2000 tokens (both 18dp).
+    stubLensRevertsButPoolExists({ wmonReserve: 1_000_000000000000000000n, tokenReserve: 2_000_000000000000000000n });
+    const { nadFunQuote, __testing } = await loadNadFun();
+    const q = await nadFunQuote(TOKEN as `0x${string}`, 18, "1", true); // buy: 1 whole MON in
+    expect(q).not.toBeNull();
+    expect(q!.router).toBe(__testing.NADFUN_MAINNET.dexRouter); // hardcoded, never the broken Lens's own return
+    expect(q!.estimatedBeforeFees).toBe(true);
+    // x*y=k: amountOutWei = amountInWei * reserveOut / (reserveIn + amountInWei)
+    //   = 1e18 * 2000e18 / (1000e18 + 1e18)
+    const amountInWei = 1_000000000000000000n;
+    const reserveIn = 1_000_000000000000000000n;
+    const reserveOut = 2_000_000000000000000000n;
+    const expectedOutWei = (amountInWei * reserveOut) / (reserveIn + amountInWei);
+    expect(Number(q!.amountOut)).toBeCloseTo(Number(expectedOutWei) / 1e18, 9);
+  });
+
+  it("a real Lens quote (no revert) is NEVER marked as an estimate", async () => {
+    const { __testing } = await loadNadFun();
+    onRead = () => [__testing.NADFUN_MAINNET.bondingCurveRouter, 9000_000000000000000000n];
+    const { nadFunQuote } = await loadNadFun();
+    const q = await nadFunQuote(TOKEN as `0x${string}`, 18, "1", true);
+    expect(q!.estimatedBeforeFees).toBeUndefined();
+  });
+
+  it("no DEX pool exists either -- a genuinely untradable token still correctly returns null, not a fabricated route", async () => {
+    onRead = ({ functionName }) => {
+      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
+      if (functionName === "getPair") return "0x0000000000000000000000000000000000000000"; // no pool
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { nadFunQuote } = await loadNadFun();
+    const q = await nadFunQuote(TOKEN as `0x${string}`, 18, "1", true);
+    expect(q).toBeNull();
+  });
+
+  it("buildNadFunBuyPlan uses the fallback quote, targets the hardcoded dexRouter, and widens the slippage floor by the fixed fee buffer", async () => {
+    stubLensRevertsButPoolExists({ wmonReserve: 1_000_000000000000000000n, tokenReserve: 2_000_000000000000000000n });
+    const { buildNadFunBuyPlan, __testing } = await loadNadFun();
+    const plan = await buildNadFunBuyPlan(TOKEN as `0x${string}`, "BULL", 18, "1", 0.01, WALLET as `0x${string}`);
+    expect(plan.steps[0].tx.to).toBe(__testing.NADFUN_MAINNET.dexRouter);
+    expect(plan.estimatedBeforeFees).toBe(true);
+
+    const decoded = decodeFunctionData({ abi: ROUTER_BUY_ABI, data: plan.steps[0].tx.data });
+    const params = decoded.args[0] as { amountOutMin: bigint };
+    // 1% user slippage + the fixed fallback fee buffer, not just the 1% alone.
+    const amountInWei = 1_000000000000000000n; // the actual trade: "1" MON
+    const reserveIn = 1_000_000000000000000000n;
+    const reserveOut = 2_000_000000000000000000n;
+    const rawAmountOut = (amountInWei * reserveOut) / (reserveIn + amountInWei);
+    const expectedFloor = (rawAmountOut * BigInt(Math.round((1 - (0.01 + __testing.FALLBACK_QUOTE_FEE_BUFFER)) * 1_000_000))) / 1_000_000n;
+    expect(params.amountOutMin).toBe(expectedFloor);
+  });
+
+  it("buildNadFunSellPlan uses the fallback quote the same way", async () => {
+    stubLensRevertsButPoolExists({ wmonReserve: 1_000_000000000000000000n, tokenReserve: 2_000_000000000000000000n });
+    const { buildNadFunSellPlan, __testing } = await loadNadFun();
+    // Sell path also needs an allowance read against the token contract.
+    const baseOnRead = onRead;
+    onRead = (call) => {
+      if (call.functionName === "allowance") return 10n ** 30n; // already approved, skip the approve step
+      return baseOnRead(call);
+    };
+    const plan = await buildNadFunSellPlan(TOKEN as `0x${string}`, "BULL", 18, "1", 0.01, WALLET as `0x${string}`);
+    expect(plan.steps.at(-1)!.tx.to).toBe(__testing.NADFUN_MAINNET.dexRouter);
+    expect(plan.estimatedBeforeFees).toBe(true);
+  });
+
+  it("never trusts the DEX factory's getPair result as a router -- the trade always targets the hardcoded dexRouter, never a value read from the chain", async () => {
+    onRead = ({ functionName }) => {
+      if (functionName === "getAmountOut") throw new Error("execution reverted: ERR_BONDING_CURVE_LIBRARY_INVALID_INPUTS");
+      if (functionName === "getPair") return ATTACKER; // even a malicious/wrong "pool" address
+      if (functionName === "getReserves") return [1_000n, 2_000n, 0];
+      if (functionName === "token0") return WMON;
+      throw new Error(`unexpected: ${functionName}`);
+    };
+    const { nadFunQuote, __testing } = await loadNadFun();
+    const q = await nadFunQuote(TOKEN as `0x${string}`, 18, "1", true);
+    // The router is ALWAYS the hardcoded dexRouter constant, regardless of
+    // what getPair returned -- getPair only ever locates the pair to read
+    // reserves FROM, it is never itself treated as a trade target.
+    expect(q!.router).toBe(__testing.NADFUN_MAINNET.dexRouter);
+    expect(q!.router).not.toBe(ATTACKER);
+  });
+});
+
 describe("nadFunAvailableBuyTokens — bonding-curve capacity", () => {
   it("reports available token + required MON in human units", async () => {
     onRead = ({ functionName }) => {
