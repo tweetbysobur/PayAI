@@ -11,7 +11,7 @@ import type { WalletState } from "@/lib/wallet/useWallet";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
-import { calculateFee } from "@/lib/payment/feeEngine";
+import { calculateFeeFromConfig, ZERO_FEE_CONFIG, type FeeConfigResponse } from "@/lib/payment/feeMath";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import {
@@ -161,6 +161,9 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Lagos");
   const [purpose, setPurpose] = useState("Business");
   const [config, setConfig] = useState<OnchainConfig | null>(null);
+  // The real, current fee rate — see AutomationCreator.tsx's identical field
+  // for why this can't just be imported and computed locally.
+  const [feeConfig, setFeeConfig] = useState<FeeConfigResponse>(ZERO_FEE_CONFIG);
   const [resolvedRows, setResolvedRows] = useState<ResolvedRow[] | null>(null);
   const [resolving, setResolving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -187,6 +190,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
 
   function loadConfig() {
     fetch("/api/automation-config").then((r) => r.json()).then(setConfig).catch(() => {});
+    fetch("/api/fees").then((r) => r.json()).then(setFeeConfig).catch(() => {});
   }
 
   const reset = useCallback(() => {
@@ -339,7 +343,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const totalToPay = resolvedRows?.reduce((s, r) => s + r.amount, 0) ?? distribution.total;
   const { balance } = useTokenBalance(tokenInfo?.address ?? null, tokenInfo?.decimals ?? null, wallet.address);
   const insufficientBalance = balance != null && totalToPay > Number(balance);
-  const platformFee = calculateFee("wallet_automation", totalToPay || 0);
+  const platformFee = calculateFeeFromConfig(feeConfig.wallet_automation, "wallet_automation", totalToPay || 0);
   const estimateGas = `~${(0.002 * Math.max(1, resolvedRows?.length ?? drafts.length)).toFixed(4)} MON`;
 
   const endUntilMs = new Date(`${endDate}T23:59:59`).getTime();

@@ -16,7 +16,6 @@ import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useCopy } from "@/lib/hooks/useCopy";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
 import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
-import { buildReceipt } from "@/lib/payment/feeEngine";
 
 const NEXT_STEP: Record<string, string> = {
   needs_review: "This payment is being reviewed. You'll be notified once it clears.",
@@ -406,19 +405,12 @@ export default function Payments() {
                     </div>
                   )}
 
-                  {/* Receipt — amount, platform fee, gas, total, status. Fee is
-                      free during beta; the line stays visible so pricing is
-                      never a surprise once it isn't. */}
-                  {c.res.decision === "executed" && c.res.intent.amount != null && (() => {
-                    const receipt = buildReceipt({
-                      feature: "send_payment",
-                      amount: c.res.intent.amount,
-                      token: c.res.intent.token,
-                      gasFee: c.res.transaction?.gasFee,
-                      status: c.res.decision,
-                      txHash: c.res.transaction?.txHash,
-                      explorerUrl: c.res.transaction?.explorerUrl,
-                    });
+                  {/* Receipt — amount, platform fee, gas, total, status. Computed
+                      SERVER-SIDE (see AgentResult.receipt's doc comment) and
+                      rendered exactly as returned — never recomputed here, since
+                      the live fee config only exists in the server's environment. */}
+                  {c.res.decision === "executed" && c.res.receipt && (() => {
+                    const receipt = c.res.receipt;
                     return (
                       <div className="mt-4 border-t border-border pt-4 text-left">
                         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>

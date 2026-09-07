@@ -147,7 +147,7 @@ export function PortfolioCard({ address, locked }: { address: string | null; loc
                 transition={{ duration: 0.18 }}
                 className="group flex items-center gap-3 rounded-xl border border-border px-3.5 py-3 transition hover:border-primary/30"
               >
-                <TokenLogo token={h.symbol} size={28} />
+                <TokenLogo token={h.symbol} logoURI={h.logoURI} size={28} />
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 truncate text-sm font-medium text-foreground">
                     {h.symbol}
