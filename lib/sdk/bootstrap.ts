@@ -18,6 +18,13 @@
  *   - payai-settlement — split_payment, native MON split across recipients
  *     through the audited, mainnet-deployed SplitSettlement contract (Phase 5).
  *     Registers only on a chain where SplitSettlement is deployed (mainnet).
+ *   - aave-v3-monad — supply/withdraw against the verified Aave V3 Pool on
+ *     Monad mainnet (Phase 7A-7C), the first EXTERNAL (non-PayAI-owned)
+ *     protocol. Registered via the single consolidated factory
+ *     (createAaveV3MonadProtocol — see lib/sdk/actions/aave-v3-monad/index.ts)
+ *     so both actions share one protocolId registration, never two. Registers
+ *     only on Monad mainnet, same "register nothing rather than pin to a
+ *     missing target" discipline as the other two.
  *
  * Server-only: the action modules it registers are server-only (they read
  * app config and build calldata).
@@ -26,6 +33,7 @@ import "server-only";
 import { getProtocol, registerProtocol } from "./registry";
 import { createWmonProtocol } from "./actions/wmon";
 import { createSplitSettlementProtocol } from "./actions/split-settlement";
+import { createAaveV3MonadProtocol } from "./actions/aave-v3-monad";
 
 let done = false;
 
@@ -38,6 +46,10 @@ export function ensureBuiltinsRegistered(): void {
   if (!getProtocol("payai-settlement")) {
     const split = createSplitSettlementProtocol();
     if (split) registerProtocol(split);
+  }
+  if (!getProtocol("aave-v3-monad")) {
+    const aave = createAaveV3MonadProtocol();
+    if (aave) registerProtocol(aave);
   }
   done = true;
 }
