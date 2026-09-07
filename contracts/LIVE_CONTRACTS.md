@@ -233,6 +233,43 @@ Deploy / verify / config-check / canary tooling lives in
 `canary-kuru-mainnet-v2.js`, `canary-nadfun-mainnet-v2.js`, with the full
 sequence in `contracts/GATE8_RUNBOOK.md`.
 
+## SplitSettlement — deployed + verified + smoke-tested on mainnet, 2026-09-05
+
+PayAI's user-signed, no-custody primitive for atomically splitting one payment
+across up to 10 recipients in a single transaction (SDK Phase 4B/4C). Separate,
+non-upgradeable contract; holds no funds between calls, no agent role, no fee,
+no treasury, no arbitrary-call surface — the payer is always `msg.sender`.
+Native MON routes `payer -> recipients` in one atomic tx (delta-based
+zero-retention, tolerates a forced pre-existing balance); ERC-20 routes
+`payer -> each recipient` directly via `transferFrom` with recipient
+balance-delta checks. One aggregate `SplitPaymentExecuted` event. Unrelated to
+every contract above; none were touched. **Not wired into the app** — this is a
+standalone deploy; SDK/Ask integration is a later phase, gated separately.
+
+| Field | Value |
+|---|---|
+| Address | `0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F` |
+| Chain | Monad mainnet (143) |
+| Deployer / Contract Creator | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a` (same key as the suite above) |
+| Owner (admin: pause + ownership only, cannot move funds) | **`0xA282833B52b1B66D58bD2007081dCC037798C0b0`** — the PayAI Safe multisig, set in the constructor (owner from block zero; no EOA-owner window). Read back on-chain via the contract's own `owner()` in the deploy script. |
+| Deploy tx | `0x6d4e2bfdf44f0141271785728d5f187333ed6e48fc7b164f9a82c64b18acfe6d` (block 102,106,943) |
+| Source verification | **Sourcify full match** — `https://monadexplorer.com/contracts/full_match/143/0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F/` |
+| Constructor state (read back on-chain) | `owner() == Safe`, `paused() == false`, `settlementCount() == 0` at deploy, `MAX_RECIPIENTS() == 10` |
+| Real native smoke test | tx `0x476684b9cb5a59f1103dd8537ed42d0e8b390e4049249e2edb2d7a6ef648d472` (block 102,108,730) — 0.002 MON split to `[deployer, deployer]` (duplicate recipients), `SplitPaymentExecuted` `settlementId 0`, `totalAmount 0.002`, contract balance 0 after (zero-retention). `settlementCount` now 1. |
+
+Audited source: commit `4520723` (`contracts/SplitSettlement.sol`), solc `0.8.24`,
+optimizer on, 200 runs, MIT. Creation-bytecode sha256
+`31aea72e21ee2ce69dde58ce9f5b68b7f899eceefad272e38818bc4bc17d70d2`. Deploy /
+smoke tooling: `contracts/scripts/deploy-split-settlement.js`,
+`scripts/smoke-split-settlement.js`.
+
+> **Note — one orphan deploy.** A first, identical instance was deployed at
+> `0xfCD284AD855a0D1E0e1f1154C038D70cC33357dd` (block 102,106,693) during the
+> same session (the deploy script was run twice). It is harmless — same audited
+> bytecode, Safe-owned, holds no funds, referenced by nothing — and is NOT the
+> canonical contract. Use `0xaC98…Af6F` (the row above) everywhere; ignore the
+> orphan (the Safe may `setPaused(true)` on it for tidiness, but it isn't
+> required).
 ## Fee-v2 suite (Forwarder/Executor/Vault) — deployed + verified on mainnet, 2026-09-06
 
 Extends PayAI's 0.25% service fee — already live on trading since 2026-08-24
