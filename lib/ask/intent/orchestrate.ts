@@ -20,7 +20,7 @@
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
-import type { AskMessage, AutomationHandoff, Operation, OperationError, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
+import type { AskMessage, AutomationHandoff, Operation, OperationError, ProtocolActionData, ProtocolActionIntent, RecurringPaymentIntent, ScheduledPaymentIntent, SwapIntent, TokenData, TokenIntelligenceIntent, TradePreviewData, TradePreviewIntent, TransactionResult, WalletOperationIntent, WalletTransactionView } from "@/lib/ask/types";
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
@@ -169,6 +169,11 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
         : null;
       return { message, nextPending };
     }
+    case "protocol_action":
+      // No pending carry-forward in Phase 2: WMON wrap/unwrap is a
+      // single-shot, fully-specified action, not a multi-turn correction
+      // flow like trade/payment. Nothing needs to stay pending to amend.
+      return { message: await dispatchProtocolAction(u.slots, walletAddress), nextPending: null };
   }
 }
 
@@ -1093,4 +1098,220 @@ async function dispatchTrade(
     : null;
   const { operation } = tradePreviewCard(data, request);
   return { id: nextId("msg"), role: "assistant", content: tradePreviewLead(data), createdAt: Date.now(), operation };
+}
+
+/* ── SDK protocol actions (Phase 2) ─────────────────────────────────────────
+ * dispatchProtocolAction previews a REGISTERED action's quote (client-side,
+ * via /api/ask/action — the SDK registry is server-only, so nothing here
+ * touches it directly). executeProtocolActionIntent, on an explicit confirm,
+ * builds the real steps server-side (/api/ask/action/build, which runs Layer
+ * A + Layer B) and drives them through the SAME wallet.sendTransaction /
+ * waitForReceipt loop every other execution path uses — no second signer, no
+ * second sender. It never sees a private key and never builds calldata
+ * itself. */
+
+interface ProtocolActionPreviewResponse {
+  ok: boolean;
+  message?: string;
+  protocol?: { id: string; name: string; logoUrl?: string | null };
+  action?: { id: string; name: string; description: string; version: string };
+  chainId?: number;
+  inputs?: Record<string, string>;
+  summary?: string;
+  details?: Record<string, string>;
+  quotedAt?: number;
+}
+
+async function dispatchProtocolAction(
+  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null; actionInputs?: Record<string, string> | null },
+  walletAddress: string | null,
+): Promise<AskMessage> {
+  if (!slots.protocolId || !slots.actionId || !slots.actionVersion) {
+    return assistantText("I couldn't identify that protocol action.");
+  }
+  // Aave's supply/withdraw actions require an explicit destination address
+  // (onBehalfOf / to) that the deterministic detector deliberately never
+  // supplies (see classify.ts's detectAaveAction) — it has no wallet
+  // context and must never invent one. This dispatch function is the first
+  // point that legitimately knows the REAL connected wallet, so it is the
+  // one place that fills it in — never a placeholder, never module-level
+  // state, just this call's own `walletAddress` parameter. Without a
+  // connected wallet there is no real address to use, so this refuses
+  // outright rather than sending an empty/fake destination.
+  if (slots.protocolId === "aave-v3-monad" && !walletAddress) {
+    return assistantText("Connect your wallet to use Aave — I need to know where the funds should go.");
+  }
+  // A multi-input action (e.g. split_payment) carries its full input map in
+  // slots.actionInputs, populated deterministically by the detector; a
+  // single-input action (WMON) uses the scalar `amount` slot. Either way the
+  // server re-validates every field against the action's schema (Layer A), so
+  // nothing here is trusted — this only forwards what the detector resolved.
+  const inputs: Record<string, string> = slots.actionInputs
+    ? { ...slots.actionInputs }
+    : {};
+  if (!slots.actionInputs && slots.amount) inputs.amount = slots.amount;
+  if (slots.protocolId === "aave-v3-monad" && walletAddress) {
+    if (slots.actionId === "supply" && !inputs.onBehalfOf) inputs.onBehalfOf = walletAddress;
+    if (slots.actionId === "withdraw" && !inputs.to) inputs.to = walletAddress;
+  }
+
+  let json: ProtocolActionPreviewResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/action", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ protocolId: slots.protocolId, actionId: slots.actionId, version: slots.actionVersion, inputs }),
+    });
+    json = await r.json();
+  } catch {
+    return assistantText("Couldn't reach Monad to prepare that action. Try again in a moment.");
+  }
+  if (!json || !json.ok || !json.protocol || !json.action || json.chainId == null) {
+    return assistantText(json?.message ?? "Couldn't prepare that action right now.");
+  }
+
+  const data: ProtocolActionData = {
+    protocol: json.protocol,
+    action: json.action,
+    chainId: json.chainId,
+    network: "Monad",
+    inputs: json.inputs ?? inputs,
+    summary: json.summary ?? "",
+    details: json.details ?? {},
+    quotedAt: json.quotedAt ?? Date.now(),
+  };
+  // Only a wallet-connected preview carries the request needed to execute —
+  // same rule as tradePreviewCard. Without a wallet it's an informational
+  // preview that never enters the confirm funnel.
+  const execution = walletAddress
+    ? { request: { protocolId: json.protocol.id, actionId: json.action.id, version: json.action.version, inputs: data.inputs, chainId: json.chainId } }
+    : undefined;
+  const intent: ProtocolActionIntent = { kind: "protocol_action", network: "monad", data, ...(execution ? { execution } : {}) };
+  const operation: Operation = {
+    id: nextId("op"), intent,
+    status: execution ? "ready" : "success",
+    ...(execution ? { confirmLabel: `Confirm ${json.action.name}` } : {}),
+  };
+  return { id: nextId("msg"), role: "assistant", content: json.summary ?? `${json.action.name} ready.`, createdAt: Date.now(), operation };
+}
+
+interface ProtocolActionBuildResponse {
+  ok: boolean;
+  message?: string;
+  code?: string;
+  steps?: { kind: "approve" | "action"; label: string; tx: { to: string; data: string; value: string } }[];
+  summary?: string;
+  details?: Record<string, string>;
+}
+
+/**
+ * Executes a previewed protocol action after explicit confirmation. Builds
+ * real steps server-side (which re-resolves the EXACT pinned version, re-runs
+ * Layer A + Layer B), then signs/broadcasts each step through the existing
+ * wallet interface and verifies the outcome via /api/ask/action/confirm.
+ * Mirrors executeTradeIntent's status handling (submitted vs error vs
+ * success) so the UI lifecycle is identical.
+ */
+export async function executeProtocolActionIntent(
+  operation: Operation,
+  wallet: SendPaymentWallet & { isWrongNetwork?: boolean },
+  walletAddress: string,
+): Promise<Operation> {
+  if (operation.intent.kind !== "protocol_action" || !operation.intent.execution) return operation;
+  const { request } = operation.intent.execution;
+
+  if (wallet.isWrongNetwork) {
+    return { ...operation, status: "error", error: { message: "You're connected to the wrong network — switch your wallet to Monad and try again.", code: "WRONG_NETWORK" } };
+  }
+
+  let build: ProtocolActionBuildResponse | null = null;
+  try {
+    const r = await fetch("/api/ask/action/build", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...request, walletAddress, quotedAt: operation.intent.data.quotedAt }),
+    });
+    build = await r.json();
+  } catch {
+    return { ...operation, status: "error", error: { message: "Couldn't reach Monad to prepare that action. Try again in a moment.", code: "BUILD_FAILED" } };
+  }
+  if (!build || !build.ok || !build.steps || build.steps.length === 0) {
+    return { ...operation, status: "error", error: { message: build?.message ?? "Couldn't prepare that action.", code: build?.code ?? "BUILD_FAILED" } };
+  }
+
+  const steps = build.steps;
+  let broadcastHash: string | null = null;
+  // An ERC-20 split is two wallet actions: approve, then splitPayment. Track
+  // the approval's OWN hash so it is NEVER shown as the settlement hash, and so
+  // a split that fails AFTER a successful approval can say exactly that.
+  let approvalTx: { txHash: string; explorerUrl: string } | null = null;
+  let approvalConfirmed = false;
+  let broadcastIsApproval = false;
+  try {
+    let lastHash = "";
+    for (let i = 0; i < steps.length; i++) {
+      const isLast = i === steps.length - 1;
+      const isApprove = steps[i].kind === "approve";
+      broadcastHash = null;
+      broadcastIsApproval = isApprove && !isLast;
+      lastHash = await wallet.sendTransaction(steps[i].tx);
+      broadcastHash = lastHash;
+      const receipt = (await wallet.waitForReceipt(lastHash)) as { status?: string | number } | undefined;
+
+      // A pre-settlement approval MUST actually confirm before we sign the
+      // split. If it reverted, stop here — never sign the settlement against a
+      // failed allowance, and never imply the split happened.
+      if (isApprove && !isLast) {
+        const st = receipt?.status;
+        const approvalOk = st === undefined || st === "success" || st === 1 || st === "0x1";
+        if (!approvalOk) {
+          return { ...operation, status: "error", error: { message: "The token approval reverted on-chain. No funds moved.", code: "APPROVAL_FAILED", txHash: lastHash, explorerUrl: configExplorerTx(lastHash) } };
+        }
+        approvalConfirmed = true;
+        approvalTx = { txHash: lastHash, explorerUrl: configExplorerTx(lastHash) };
+      }
+    }
+
+    // Verify the FINAL (settlement) transaction on-chain + parse its real result.
+    let confirm: { ok?: boolean; success?: boolean; reverted?: boolean; explorerUrl?: string; message?: string; details?: Record<string, string> } | null = null;
+    try {
+      const r = await fetch("/api/ask/action/confirm", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ protocolId: request.protocolId, actionId: request.actionId, version: request.version, txHash: lastHash, walletAddress }),
+      });
+      confirm = await r.json();
+    } catch {
+      // Settlement broadcast succeeded but our own verify call failed to reach
+      // the server — submitted, not failed. Never rebroadcast. Approval (if
+      // any) already confirmed and is carried distinctly.
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: configExplorerTx(lastHash), step: "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
+    }
+
+    if (confirm?.reverted) {
+      // Settlement reverted. If an approval already succeeded, say so — the two
+      // hashes stay distinct and no false whole-operation success is implied.
+      return { ...operation, status: "error", error: { message: prefixApprovalContext(confirm.message || "The split reverted on-chain. No funds moved.", approvalTx), code: "REVERTED", txHash: lastHash, explorerUrl: confirm.explorerUrl, approvalTx: approvalTx ?? undefined } };
+    }
+    if (!confirm?.ok || !confirm.success) {
+      return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: confirm?.explorerUrl || configExplorerTx(lastHash), step: "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
+    }
+    // confirm.details is the action's own parseResult() output, computed
+    // server-side from the REAL, receipt-verified logs — never the quote's
+    // predicted numbers. Carried into result.confirmedDetails specifically
+    // so the UI can render it as what actually happened, distinct from
+    // operation.intent.data.details (the pre-execution prediction), rather
+    // than silently falling back to showing the prediction as if it were
+    // the outcome. The settlement result uses the SETTLEMENT hash only; the
+    // approval hash was surfaced separately above.
+    return {
+      ...operation, status: "success",
+      result: { txHash: lastHash, explorerUrl: confirm.explorerUrl ?? configExplorerTx(lastHash), confirmedDetails: confirm.details },
+    };
+  } catch (e) {
+    if (broadcastHash) {
+      // Broadcast happened but confirmation timed out — submitted, not failed.
+      // Name WHICH transaction is pending so an approval is never mislabeled as
+      // the settlement.
+      return { ...operation, status: "submitted", submitted: { txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash), step: broadcastIsApproval ? "approval" : "main", approvalConfirmed, approvalTx: approvalTx ?? undefined } };
+    }
+    return { ...operation, status: "error", error: { message: prefixApprovalContext(friendlyError(e instanceof Error ? e.message : "Action failed.", "Action"), approvalTx), code: "NOT_SENT", approvalTx: approvalTx ?? undefined } };
+  }
 }

@@ -34,4 +34,13 @@ module.exports = {
     apiUrl: "https://sourcify-api-monad.blockvision.org/",
     browserUrl: "https://monadexplorer.com",
   },
+  // Verify via Sourcify ONLY. Newer @nomicfoundation/hardhat-verify also runs
+  // an Etherscan pass by default, which hard-fails on Monad (chain 143 has no
+  // Etherscan entry) with a "'<' … --list-networks" error before Sourcify ever
+  // runs. Disabling the Etherscan verifier makes `npx hardhat verify` go
+  // straight to Monad's Sourcify — the mechanism every contract in this suite
+  // is verified through (see GATE8_RUNBOOK.md).
+  etherscan: {
+    enabled: false,
+  },
 };
