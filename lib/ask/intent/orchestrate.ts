@@ -1129,6 +1129,18 @@ async function dispatchProtocolAction(
   if (!slots.protocolId || !slots.actionId || !slots.actionVersion) {
     return assistantText("I couldn't identify that protocol action.");
   }
+  // Aave's supply/withdraw actions require an explicit destination address
+  // (onBehalfOf / to) that the deterministic detector deliberately never
+  // supplies (see classify.ts's detectAaveAction) — it has no wallet
+  // context and must never invent one. This dispatch function is the first
+  // point that legitimately knows the REAL connected wallet, so it is the
+  // one place that fills it in — never a placeholder, never module-level
+  // state, just this call's own `walletAddress` parameter. Without a
+  // connected wallet there is no real address to use, so this refuses
+  // outright rather than sending an empty/fake destination.
+  if (slots.protocolId === "aave-v3-monad" && !walletAddress) {
+    return assistantText("Connect your wallet to use Aave — I need to know where the funds should go.");
+  }
   // A multi-input action (e.g. split_payment) carries its full input map in
   // slots.actionInputs, populated deterministically by the detector; a
   // single-input action (WMON) uses the scalar `amount` slot. Either way the
@@ -1138,6 +1150,10 @@ async function dispatchProtocolAction(
     ? { ...slots.actionInputs }
     : {};
   if (!slots.actionInputs && slots.amount) inputs.amount = slots.amount;
+  if (slots.protocolId === "aave-v3-monad" && walletAddress) {
+    if (slots.actionId === "supply" && !inputs.onBehalfOf) inputs.onBehalfOf = walletAddress;
+    if (slots.actionId === "withdraw" && !inputs.to) inputs.to = walletAddress;
+  }
 
   let json: ProtocolActionPreviewResponse | null = null;
   try {

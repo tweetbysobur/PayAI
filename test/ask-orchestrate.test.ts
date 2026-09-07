@@ -601,3 +601,100 @@ describe("classifyMessage — the client wrapper around the semantic layer", () 
     } finally { globalThis.fetch = original; }
   });
 });
+
+describe("Phase 8 — protocol_action dispatch defaults Aave's destination to the REAL connected wallet, never a placeholder", () => {
+  const aaveSupplyUnderstanding: Understanding = {
+    kind: "protocol_action", outcome: "complete",
+    slots: {
+      protocolId: "aave-v3-monad", actionId: "supply", actionVersion: "1.0.0",
+      actionInputs: { asset: ADDR, amount: "100" },
+    },
+  };
+  const aaveWithdrawUnderstanding: Understanding = {
+    kind: "protocol_action", outcome: "complete",
+    slots: {
+      protocolId: "aave-v3-monad", actionId: "withdraw", actionVersion: "1.0.0",
+      actionInputs: { asset: ADDR, amount: "50" },
+    },
+  };
+
+  it("supply: onBehalfOf is filled in with the connected wallet before /api/ask/action is ever called", async () => {
+    const { calls, restore } = mockFetch(() => ({
+      ok: true, protocol: { id: "aave-v3-monad", name: "Aave V3 (Monad)" },
+      action: { id: "supply", name: "Supply to Aave", description: "", version: "1.0.0" },
+      chainId: 143, inputs: {}, summary: "Supply 100 USDC to Aave V3 on Monad", details: {}, quotedAt: Date.now(),
+    }));
+    try {
+      await respondToUnderstanding(aaveSupplyUnderstanding, WALLET);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("/api/ask/action");
+      const sentInputs = calls[0].body.inputs as Record<string, string>;
+      expect(sentInputs.onBehalfOf.toLowerCase()).toBe(WALLET.toLowerCase());
+      expect(sentInputs.asset).toBe(ADDR);
+      expect(sentInputs.amount).toBe("100");
+    } finally { restore(); }
+  });
+
+  it("withdraw: `to` is filled in with the connected wallet before /api/ask/action is ever called", async () => {
+    const { calls, restore } = mockFetch(() => ({
+      ok: true, protocol: { id: "aave-v3-monad", name: "Aave V3 (Monad)" },
+      action: { id: "withdraw", name: "Withdraw from Aave", description: "", version: "1.0.0" },
+      chainId: 143, inputs: {}, summary: "Withdraw 50 USDC from Aave V3 on Monad", details: {}, quotedAt: Date.now(),
+    }));
+    try {
+      await respondToUnderstanding(aaveWithdrawUnderstanding, WALLET);
+      const sentInputs = calls[0].body.inputs as Record<string, string>;
+      expect(sentInputs.to.toLowerCase()).toBe(WALLET.toLowerCase());
+    } finally { restore(); }
+  });
+
+  it("an explicit onBehalfOf/to already present in actionInputs is NEVER overwritten by the wallet default", async () => {
+    const EXPLICIT = "0x9999999999999999999999999999999999999999";
+    const withExplicit: Understanding = {
+      kind: "protocol_action", outcome: "complete",
+      slots: {
+        protocolId: "aave-v3-monad", actionId: "supply", actionVersion: "1.0.0",
+        actionInputs: { asset: ADDR, amount: "100", onBehalfOf: EXPLICIT },
+      },
+    };
+    const { calls, restore } = mockFetch(() => ({
+      ok: true, protocol: { id: "aave-v3-monad", name: "Aave V3 (Monad)" },
+      action: { id: "supply", name: "Supply to Aave", description: "", version: "1.0.0" },
+      chainId: 143, inputs: {}, summary: "", details: {}, quotedAt: Date.now(),
+    }));
+    try {
+      await respondToUnderstanding(withExplicit, WALLET);
+      const sentInputs = calls[0].body.inputs as Record<string, string>;
+      expect(sentInputs.onBehalfOf).toBe(EXPLICIT);
+      expect(sentInputs.onBehalfOf.toLowerCase()).not.toBe(WALLET.toLowerCase());
+    } finally { restore(); }
+  });
+
+  it("without a connected wallet, Aave is refused outright — never dispatched with an empty/fake destination", async () => {
+    const { calls, restore } = mockFetch(() => ({}));
+    try {
+      const r = await respondToUnderstanding(aaveSupplyUnderstanding, null);
+      expect(r.message.content).toMatch(/connect your wallet/i);
+      expect(calls.length).toBe(0); // never even reaches /api/ask/action
+    } finally { restore(); }
+  });
+
+  it("a non-Aave protocol action (WMON wrap) is completely unaffected by the Aave default-injection logic", async () => {
+    const wrapUnderstanding: Understanding = {
+      kind: "protocol_action", outcome: "complete",
+      slots: { protocolId: "wmon", actionId: "wrap", actionVersion: "1.0.0", amount: "1" },
+    };
+    const { calls, restore } = mockFetch(() => ({
+      ok: true, protocol: { id: "wmon", name: "Wrapped MON" },
+      action: { id: "wrap", name: "Wrap MON", description: "", version: "1.0.0" },
+      chainId: 143, inputs: {}, summary: "", details: {}, quotedAt: Date.now(),
+    }));
+    try {
+      await respondToUnderstanding(wrapUnderstanding, WALLET);
+      const sentInputs = calls[0].body.inputs as Record<string, string>;
+      expect(sentInputs.onBehalfOf).toBeUndefined();
+      expect(sentInputs.to).toBeUndefined();
+      expect(sentInputs.amount).toBe("1");
+    } finally { restore(); }
+  });
+});

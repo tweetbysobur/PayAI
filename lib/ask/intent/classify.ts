@@ -917,7 +917,66 @@ function detectProtocolAction(text: string): Understanding | null {
 
   const split = detectSplitPayment(text, activeChainId);
   if (split) return split;
+
+  const aave = detectAaveAction(text, activeChainId);
+  if (aave) return aave;
   return null;
+}
+
+/** "Supply 100 USDC to Aave" / "Supply 100 USDC to Aave V3" —
+ *  "Withdraw 50 USDC from Aave" / "Withdraw 50 USDC from Aave V3". Same
+ *  discipline as WRAP_RE/UNWRAP_RE/SPLIT_AMOUNT_RE above: the amount is the
+ *  literal number in the text, and the token is resolved ONLY to the one
+ *  configured stablecoin via getStablecoin() (a real, verified address) —
+ *  never an arbitrary symbol-to-address guess. Aave's own supply/withdraw
+ *  actions only ever take an ERC-20 reserve (never native MON), so unlike
+ *  detectSplitPayment there is no "mon" branch here at all. "v3" is optional
+ *  and case-insensitive so both "Aave" and "Aave V3" match. */
+const AAVE_SUPPLY_RE = /\bsupply\s+([0-9]+(?:\.[0-9]+)?)\s*usdc\s+to\s+aave(?:\s*v3)?\b/i;
+const AAVE_WITHDRAW_RE = /\bwithdraw\s+([0-9]+(?:\.[0-9]+)?)\s*usdc\s+from\s+aave(?:\s*v3)?\b/i;
+
+/**
+ * Deterministic Aave V3 Monad supply/withdraw detection (Phase 8). Never
+ * invents a destination address: the resulting actionInputs carries only
+ * `asset` and `amount` — no `onBehalfOf`/`to`. Those are Aave's own required,
+ * explicit inputs (see lib/sdk/actions/aave-v3-monad/supply and /withdraw's
+ * own docs on why the SDK itself never defaults them), and are filled in by
+ * orchestrate.ts's dispatchProtocolAction with the ACTUAL connected wallet
+ * address — the one piece of real caller context that exists at that layer —
+ * never by this classifier, which has no wallet context at all and must
+ * never fabricate one.
+ */
+function detectAaveAction(text: string, activeChainId: number): Understanding | null {
+  const supplyMatch = text.match(AAVE_SUPPLY_RE);
+  const withdrawMatch = !supplyMatch ? text.match(AAVE_WITHDRAW_RE) : null;
+  const match = supplyMatch ?? withdrawMatch;
+  if (!match) return null;
+  const actionId: "supply" | "withdraw" = supplyMatch ? "supply" : "withdraw";
+
+  // The only token this detector can safely resolve without guessing a
+  // contract address — same as detectSplitPayment's own USDC branch.
+  let usdc;
+  try {
+    usdc = getStablecoin();
+  } catch {
+    return null; // stablecoin not configured on this deployment — fail closed
+  }
+
+  const version = getCurrentActionVersion("aave-v3-monad", actionId);
+  if (!version) return null; // not registered -> not offered
+  const action = getAction("aave-v3-monad", actionId, version);
+  // Only offer an action that is actually registered AND on this chain — the
+  // classifier must never surface an action it couldn't execute.
+  if (!action || action.chainId !== activeChainId) return null;
+
+  return {
+    kind: "protocol_action", outcome: "complete",
+    slots: {
+      ...emptySlots(),
+      protocolId: "aave-v3-monad", actionId, actionVersion: version,
+      actionInputs: { asset: usdc.address, amount: match[1] },
+    },
+  };
 }
 
 /** Deterministic native-MON split detection. Returns a COMPLETE understanding
