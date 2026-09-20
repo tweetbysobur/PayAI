@@ -62,7 +62,7 @@ export default function ApiPage() {
         <p>
           Automations, Ask PayAI, swaps, and anything that can move funds are session-authenticated
           dashboard routes, or gated on an internal signer key that is not issued to third
-          parties. Treat them as the app's own backend.
+          parties. Treat them as the app backend.
         </p>
         <p>
           Contracts you can verify: <Link href="/docs/contracts">Contracts</Link>.

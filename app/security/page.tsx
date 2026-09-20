@@ -109,7 +109,7 @@ export default function SecurityPage() {
           Every response sets <code>frame-ancestors none</code>, HSTS, and a Content-Security-Policy
           that pins <code>connect-src</code> to this origin and the Monad RPCs so injected script
           cannot exfiltrate a key over <code>fetch</code>. Two honest limits: Next.js still
-          requires <code>script-src 'unsafe-inline'</code> (no nonce middleware yet), and
+          requires <code>script-src unsafe-inline</code> (no nonce middleware yet), and
           token logos load from arbitrary HTTPS URLs. The embedded wallet keeps a live key in the
           page — XSS containment matters more here than on a brochure site.
         </p>

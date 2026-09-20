@@ -49,7 +49,7 @@ export default function ContractsPage() {
         </p>
         <p>
           <strong>PaymentExecutor</strong> settles automated payments and writes the record
-          (recipient, amount, request id). It enforces replay protection and the agent's
+          (recipient, amount, request id). It enforces replay protection and the agent
           per-transaction and daily caps. It is not the contract your wallet sends an
           interactive payment to.
         </p>
