@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Rocket, ShieldCheck, ScrollText, ExternalLink, LifeBuoy, Lock,
-  BadgeCheck, Layers, Route, Mail,
+  BadgeCheck, Layers, Route, Mail, BookOpen,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
@@ -51,6 +51,7 @@ const FOOTER_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
+      { label: "Docs", href: "/docs", icon: BookOpen, internal: true },
       { label: "Support", href: "/dashboard/help?tab=support", icon: LifeBuoy, internal: true },
       { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
       { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },

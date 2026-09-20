@@ -28,17 +28,17 @@ import { Logo } from "@/components/Logo";
  * document overflow; the landing page only LOOKED fine there because its
  * <main> is overflow-hidden, which hides the symptom and not the bug.
  *
- * Security is the third link, and it is the one that does not fit on a phone
- * once the CTA reads "Launch PayAI" rather than the shorter "Launch App" —
- * three links plus that button overruns 375px again. So it is `phoneHidden`:
- * shown from `sm` up, and reachable on a phone from the footer, which carries
- * it in the Product column. Nothing else here is hidden, and no link is
- * hidden at a width where it would fit. A FOURTH link does not fit anywhere
- * without a hamburger — revisit this properly if one is ever added.
+ * Security and Docs are the links that do not fit on a phone once the CTA
+ * reads "Launch PayAI" rather than the shorter "Launch App" — four links
+ * plus that button overruns 375px. So they are `phoneHidden`: shown from
+ * `sm` up, and reachable on a phone from the footer (Security in Product,
+ * Docs in Resources). Nothing else here is hidden, and no link is
+ * hidden at a width where it would fit.
  */
 const LINKS = [
   { href: "/product", label: "Product", phoneHidden: false },
   { href: "/how-it-works", label: "How it works", phoneHidden: false },
+  { href: "/docs", label: "Docs", phoneHidden: true },
   { href: "/security", label: "Security", phoneHidden: true },
 ];
 
