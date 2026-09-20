@@ -50,6 +50,7 @@ import {
 import { toViemAccount } from "@category-labs/mera/viem";
 import type { LocalAccount } from "viem";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS } from "@/lib/monad/public";
+import { passkeyRpId } from "@/lib/hosts";
 
 /** Remembering the credential id is what turns a returning user's sign-in
  *  into a single biometric prompt instead of an authenticator picker. It is
@@ -72,7 +73,7 @@ export interface MeraWallet {
  *  unrecoverable. Derived from the live origin rather than configured, so it
  *  can never drift from the domain the passkey was actually created on. */
 function relyingPartyId(): string {
-  return window.location.hostname;
+  return passkeyRpId(window.location.hostname);
 }
 
 /**

@@ -15,7 +15,8 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForUser } from "@/lib/auth/oauth";
-import { encodeSession, SESSION_COOKIE, SESSION_COOKIE_OPTS } from "@/lib/auth/session";
+import { encodeSession, SESSION_COOKIE, sessionCookieOpts } from "@/lib/auth/session";
+import { APP_ORIGIN, cookieDomain, hostnameOf } from "@/lib/hosts";
 import type { AuthMethod } from "@/lib/wallet-service/types";
 
 const STATE_COOKIE = "payai_oauth_state";
@@ -24,12 +25,18 @@ function siteUrl(req: NextRequest): string {
   return process.env.VERIPAYAI_PUBLIC_URL || req.nextUrl.origin;
 }
 
+function afterAuthUrl(req: NextRequest, path: string): string {
+  const h = hostnameOf(req.headers.get("host"));
+  if (h === "usepayai.xyz" || h.endsWith(".usepayai.xyz")) return `${APP_ORIGIN}${path}`;
+  return `${req.nextUrl.origin}${path}`;
+}
+
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { provider } = await ctx.params;
   const origin = siteUrl(req);
 
   if (provider === "apple") {
-    return NextResponse.redirect(`${origin}/auth?error=apple_not_configured`);
+    return NextResponse.redirect(`${afterAuthUrl(req, "/auth")}?error=apple_not_configured`);
   }
   if (provider !== "google" && provider !== "x") {
     return NextResponse.json({ error: `Unknown auth provider "${provider}".` }, { status: 404 });
@@ -39,7 +46,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const state = req.nextUrl.searchParams.get("state");
   const expectedState = req.cookies.get(STATE_COOKIE)?.value;
   if (!code || !state || !expectedState || state !== expectedState) {
-    return NextResponse.redirect(`${origin}/auth?error=invalid_state`);
+    return NextResponse.redirect(`${afterAuthUrl(req, "/auth")}?error=invalid_state`);
   }
 
   try {
@@ -55,12 +62,13 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
     // Back to onboarding rather than the dashboard: the account exists, but
     // the wallet still needs its one passkey step, which only the browser
     // can perform.
-    const res = NextResponse.redirect(`${origin}/auth?step=wallet`);
-    res.cookies.set(SESSION_COOKIE, encodeSession(session), SESSION_COOKIE_OPTS);
-    res.cookies.delete(STATE_COOKIE);
+    const res = NextResponse.redirect(`${afterAuthUrl(req, "/auth")}?step=wallet`);
+    const host = req.headers.get("host");
+    res.cookies.set(SESSION_COOKIE, encodeSession(session), sessionCookieOpts(host));
+    res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0, ...(cookieDomain(host) ? { domain: cookieDomain(host) } : {}) });
     return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sign-in failed.";
-    return NextResponse.redirect(`${origin}/auth?error=${encodeURIComponent(message)}`);
+    return NextResponse.redirect(`${afterAuthUrl(req, "/auth")}?error=${encodeURIComponent(message)}`);
   }
 }

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { APP_ORIGIN, isAppPath, isDocsHost, isDocsSlugPath } from "@/lib/docs/host";
+import { hostAction, hostKind } from "@/lib/hosts";
 
 /**
- * Same deployment serves usepayai.xyz and docs.usepayai.xyz.
- * Adding the subdomain in Vercel is free — no second project, no second domain.
+ * Same deployment, three hostnames:
+ *   usepayai.xyz        marketing
+ *   app.usepayai.xyz    the product
+ *   docs.usepayai.xyz   documentation
  */
 export function middleware(req: NextRequest) {
-  if (!isDocsHost(req.headers.get("host"))) return NextResponse.next();
-
   const { pathname, search } = req.nextUrl;
 
   if (
@@ -19,29 +19,15 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isAppPath(pathname)) {
-    return NextResponse.redirect(new URL(pathname + search, APP_ORIGIN));
+  const action = hostAction(hostKind(req.headers.get("host")), pathname);
+  if (action.type === "redirect") {
+    return NextResponse.redirect(new URL(action.pathname + search, action.origin));
   }
-
-  if (pathname === "/docs" || pathname === "/docs/") {
-    return NextResponse.redirect(new URL("/" + search, req.url));
-  }
-  if (pathname.startsWith("/docs/")) {
-    return NextResponse.redirect(new URL(pathname.slice("/docs".length) + search, req.url));
-  }
-
-  if (pathname === "/") {
+  if (action.type === "rewrite") {
     const url = req.nextUrl.clone();
-    url.pathname = "/docs";
+    url.pathname = action.pathname;
     return NextResponse.rewrite(url);
   }
-
-  if (isDocsSlugPath(pathname)) {
-    const url = req.nextUrl.clone();
-    url.pathname = `/docs${pathname}`;
-    return NextResponse.rewrite(url);
-  }
-
   return NextResponse.next();
 }
 

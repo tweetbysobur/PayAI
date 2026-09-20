@@ -1,26 +1,22 @@
 import type { MetadataRoute } from "next";
+import { DOCS_ORIGIN, MARKETING_ORIGIN } from "@/lib/hosts";
 
-const BASE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
+const BASE_URL = process.env.VERIPAYAI_PUBLIC_URL || MARKETING_ORIGIN;
 
 /** Generates /sitemap.xml — only the public, crawlable pages (see robots.ts). */
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
-  return [
-    { url: `${BASE_URL}/`, lastModified: now, changeFrequency: "daily", priority: 1 },
-    { url: `${BASE_URL}/connect`, lastModified: now, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${BASE_URL}/how-it-works`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${BASE_URL}/product`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${BASE_URL}/docs`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
-    { url: `${BASE_URL}/docs/getting-started`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE_URL}/docs/payments`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE_URL}/docs/automations`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE_URL}/docs/fees`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
-    { url: `${BASE_URL}/docs/ask`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
-    { url: `${BASE_URL}/docs/contracts`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE_URL}/docs/api`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
-    { url: `${BASE_URL}/docs/telegram`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
-    { url: `${BASE_URL}/security`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${BASE_URL}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
-    { url: `${BASE_URL}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.3 },
-  ];
+  const marketing = ["/", "/how-it-works", "/product", "/security", "/privacy", "/terms"].map((path) => ({
+    url: `${BASE_URL}${path === "/" ? "/" : path}`,
+    lastModified: now,
+    changeFrequency: "monthly" as const,
+    priority: path === "/" ? 1 : 0.7,
+  }));
+  const docs = ["/", "/getting-started", "/payments", "/automations", "/fees", "/ask", "/contracts", "/api", "/telegram"].map((path) => ({
+    url: `${DOCS_ORIGIN}${path === "/" ? "/" : path}`,
+    lastModified: now,
+    changeFrequency: "weekly" as const,
+    priority: path === "/" ? 0.8 : 0.6,
+  }));
+  return [...marketing, ...docs];
 }

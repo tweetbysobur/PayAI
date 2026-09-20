@@ -51,8 +51,8 @@ describe("docs copy stays honest", () => {
     expect(src).not.toMatch(/charges \$0/);
   });
 
-  it("footer lists Docs", () => {
+  it("footer lists Docs on the docs host", () => {
     const footer = readFileSync(join(root, "components/landing/SiteFooter.tsx"), "utf8");
-    expect(footer).toMatch(/href: "\/docs"/);
+    expect(footer).toMatch(/DOCS_ORIGIN/);
   });
 });
