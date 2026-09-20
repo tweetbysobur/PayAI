@@ -49,7 +49,7 @@ async function confirmTx(wallet: WalletState, to: string, data: string, value?: 
 }
 
 /**
- * A styled drop target for CSV/Excel uploads. The bare `<input type="file">`
+ * A styled drop target for CSV uploads. The bare `<input type="file">`
  * this replaces rendered as the browser's own unstyled "Choose File / No
  * file chosen" control — invisible next to the rest of this wizard's design,
  * and gave no indication a file could even be dropped there. Click or drag,
@@ -139,7 +139,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const wallet = useWallet();
   const { toast } = useToast();
   const [step, setStep] = useState(1);
-  const [inputTab, setInputTab] = useState<"paste" | "csv" | "excel" | "manual">("paste");
+  const [inputTab, setInputTab] = useState<"paste" | "csv" | "manual">("paste");
   const [pasteText, setPasteText] = useState("");
   const [drafts, setDrafts] = useState<RecipientDraft[]>([]);
   const [manualAddr, setManualAddr] = useState("");
@@ -242,34 +242,6 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
         setDrafts(parsed);
       })
       .catch((e) => toast(e instanceof Error ? e.message : "Could not read that CSV file."));
-  }
-
-  async function handleExcelFile(file: File) {
-    try {
-      const XLSX = await import("xlsx");
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      if (!sheet) { toast("That spreadsheet has no sheets to read."); return; }
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-      const out: RecipientDraft[] = rows.map((row) => {
-        const keys = Object.keys(row).reduce<Record<string, string>>((acc, k) => { acc[k.toLowerCase().trim()] = k; return acc; }, {});
-        const addrKey = keys["address"] ?? keys["wallet"] ?? keys["recipient"] ?? Object.keys(row)[0];
-        const amtKey = keys["amount"];
-        const pctKey = keys["percentage"] ?? keys["percent"];
-        const noteKey = keys["note"] ?? keys["notes"];
-        return {
-          input: String(row[addrKey] ?? "").trim(),
-          amount: amtKey ? Number(row[amtKey]) : undefined,
-          percentage: pctKey ? Number(row[pctKey]) : undefined,
-          note: noteKey ? String(row[noteKey] || "") || undefined : undefined,
-        };
-      }).filter((d) => d.input);
-      if (!out.length) { toast("No recipients found in that spreadsheet. Check the file has an address column."); return; }
-      setDrafts(out);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Could not read that Excel file. Try CSV instead.");
-    }
   }
 
   function addRow(input: string) {
@@ -488,9 +460,9 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                 {step === 1 && (
                   <div>
                     <p className="text-base font-semibold text-foreground">Recipients</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Paste addresses, upload a CSV or Excel file, or add recipients one at a time.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Paste addresses, upload a CSV, or add recipients one at a time. Export Excel as CSV first.</p>
                     <div className="mt-4 flex gap-2">
-                      {([["paste", "Paste", ClipboardPaste], ["csv", "CSV", Upload], ["excel", "Excel", Upload], ["manual", "Manual", Keyboard]] as const).map(([tab, label, Icon]) => (
+                      {([["paste", "Paste", ClipboardPaste], ["csv", "CSV", Upload], ["manual", "Manual", Keyboard]] as const).map(([tab, label, Icon]) => (
                         <button key={tab} onClick={() => setInputTab(tab)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${inputTab === tab ? "border-primary/50 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:border-primary/30 hover:text-foreground"}`}>
                           <Icon size={13} /> {label}
                         </button>
@@ -514,13 +486,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                       {inputTab === "csv" && (
                         <div>
                           <FileUploadZone accept=".csv,text/csv" hint="CSV file, up to a few thousand rows" onFile={handleCsvFile} />
-                          <p className="mt-2 text-xs text-muted-foreground">Columns: address (required), amount, percentage, note — in any order, with or without a header row.</p>
-                        </div>
-                      )}
-                      {inputTab === "excel" && (
-                        <div>
-                          <FileUploadZone accept=".xlsx,.xls" hint="Excel file — .xlsx or .xls" onFile={(f) => void handleExcelFile(f)} />
-                          <p className="mt-2 text-xs text-muted-foreground">First sheet is used. Columns: address, amount, percentage, note.</p>
+                          <p className="mt-2 text-xs text-muted-foreground">Columns: address (required), amount, percentage, note — in any order, with or without a header row. If the list is in Excel, File → Save As → CSV first.</p>
                         </div>
                       )}
                       {inputTab === "manual" && (

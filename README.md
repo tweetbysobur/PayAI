@@ -121,9 +121,10 @@ A message goes through a short pipeline before anything touches the chain:
   Monad Mainnet         real settlement, then a link to the explorer
 ```
 
-Every stage is a plain TypeScript module in this repo. Nothing is farmed out to a
-third-party service, and there's no external "trust layer" in the loop — validation,
-risk, execution, and settlement all live in `lib/`.
+Every stage is a TypeScript module in this repo. Intent parsing can optionally
+call Anthropic; persistence uses Upstash Redis when configured; the embedded
+wallet is derived client-side by Mera. Validation, risk, execution, and
+settlement live in `lib/` — they are not a third-party "trust layer."
 
 ## Screenshots
 
@@ -138,12 +139,18 @@ derived from your device's passkey via WebAuthn's PRF extension — the key exis
 your browser, PayAI never sees it, and you can export it at any time. An external wallet
 signs the same way it always has, in its own extension or app.
 
-The one exception is Payment Automations, which can't wait for you to click "approve" at
-9am every Friday. Wallet Automation runs through an agent contract that can only spend
-within per-transaction and daily caps you set on-chain — it can't exceed them and can't
+The two exceptions: Payment Automations, which can't wait for you to click
+"approve" at 9am every Friday, and the optional Telegram trading bot.
+
+Wallet Automation runs through an agent contract that can only spend within
+per-transaction and daily caps you set on-chain — it can't exceed them and can't
 touch anything you didn't automate. Reserved Funds goes further: the budget is deposited
 into an isolated on-chain vault per automation up front, and the agent can only ever
 release it to the recipient you committed to, or refund it back to you.
+
+The Telegram bot is custodial. It generates a hot wallet per Telegram user and
+stores the key encrypted at rest so trades can sign from chat. `/start` discloses
+this every time. Don't send that address more than you're willing to trust to a bot.
 
 ## Stack
 
@@ -256,11 +263,12 @@ contracts/        Hardhat + Solidity
 ## Status
 
 v0.1.0 — live and settling real payments on Monad Mainnet. It's a working product, not a
-finished one. The honest open edges: the denylist is a substring screen rather than a real
-screening provider, Apple sign-in isn't wired yet (needs a JWT client secret Apple's OAuth
-flow requires but this deployment doesn't mint), and most automation templates beyond the
-personal ones are still being finished — the app marks each one's real status rather than
-listing them as ready. Both are marked in the code where they matter.
+finished one. The honest open edges: the denylist is a substring screen plus OFAC SDN
+addresses rather than a licensed KYC/AML programme, Apple sign-in isn't wired yet, most
+automation templates beyond the personal ones are still being finished, the application
+source is private (contracts are verified on the explorer), and the Telegram bot is a
+custodial exception to the non-custodial web app. Those are marked in the product where
+they matter.
 
 ## License
 

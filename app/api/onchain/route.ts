@@ -23,7 +23,7 @@ export async function GET() {
   try {
     const { executorEnabled, getOnchainStats, getOnchainPayments, getOnchainMerchants, getOnchainRequests } =
       await import("@/lib/monad/contracts");
-    const { explorerTx, explorerAddress, getPaymentExecutor, getMerchantRegistry, getPayAIForwarder, getPayAITradeExecutor, tradeExecutorEnabled } =
+    const { explorerTx, explorerAddress, getPaymentExecutor, getMerchantRegistry, getPayAIForwarder, getPayAITradeExecutor, getAutomationVault, tradeExecutorEnabled } =
       await import("@/lib/monad/config");
 
     if (!executorEnabled()) {
@@ -45,6 +45,9 @@ export async function GET() {
         paymentExecutor: getPaymentExecutor(),
         merchantRegistry: getMerchantRegistry(),
         executorExplorer: explorerAddress(getPaymentExecutor() ?? ""),
+        merchantRegistryExplorer: getMerchantRegistry() ? explorerAddress(getMerchantRegistry() as string) : null,
+        vault: getAutomationVault(),
+        vaultExplorer: getAutomationVault() ? explorerAddress(getAutomationVault() as string) : null,
         // The interactive-payment forwarder (PayAIForwarder). Present only when
         // configured (MONAD_MAINNET_PAYAI_FORWARDER set); null otherwise, so the
         // public footer only links it once it's genuinely live.

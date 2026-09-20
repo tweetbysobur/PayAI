@@ -30,7 +30,7 @@ export type TradeRunResult =
   | { ok: false; message: string };
 
 function publicBaseUrl(): string {
-  return process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
+  return process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
 }
 
 /** Server-to-server call to the app's OWN settlement route — see this

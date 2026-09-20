@@ -54,7 +54,7 @@ export async function listTx(merchantId: string, opts?: { sender?: string | null
 /* ── Payment links ──────────────────────────────────────────────────────── */
 
 function baseUrl(): string {
-  return process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
+  return process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
 }
 
 export async function createLink(

@@ -1,56 +1,114 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import { ScrollText } from "lucide-react";
-import { Logo } from "@/components/Logo";
+import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
 
-const SECTIONS = [
-  {
-    title: "Provided as-is, your responsibility",
-    body: "PayAI is provided as-is, without warranty of any kind. You are solely responsible for the wallet you connect and every transaction it signs. PayAI cannot reverse, cancel, or recover a transaction once it is broadcast to Monad.",
-  },
-  {
-    title: "On-chain execution is final",
-    body: "Smart contract execution (PaymentExecutor, MerchantRegistry) is final and governed by the code deployed on-chain, not by this interface. Always verify the recipient address and amount in your wallet before approving a transaction.",
-  },
-  {
-    title: "No custody, no advice",
-    body: "PayAI does not custody funds, provide investment advice, or guarantee uptime of third-party RPC providers, wallets, or the Monad network itself.",
-  },
-  {
-    title: "Your compliance",
-    body: "By using PayAI you confirm you are responsible for complying with the laws applicable to you when sending or receiving on-chain payments.",
-  },
+export const metadata: Metadata = {
+  title: "Terms · PayAI",
+  description:
+    "Terms of use for PayAI at usepayai.xyz: custody, fees, irreversible settlement, and limitation of liability.",
+};
+
+const TOC = [
+  { id: "who", title: "Who this is" },
+  { id: "as-is", title: "As-is" },
+  { id: "final", title: "On-chain is final" },
+  { id: "custody", title: "Custody" },
+  { id: "fees", title: "Fees" },
+  { id: "advice", title: "No advice" },
+  { id: "compliance", title: "Your compliance" },
+  { id: "liability", title: "Limitation of liability" },
 ];
 
-export default function Terms() {
+export default function TermsPage() {
   return (
-    <main className="min-h-screen bg-background">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-5">
-        <Link href="/" className="flex items-center gap-2"><Logo size={28} /><span className="text-sm font-semibold text-foreground">PayAI</span></Link>
-        <Link href="/" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Back to home</Link>
-      </header>
-
-      <div className="mx-auto max-w-3xl px-6 pb-20 pt-6">
-        <div className="mb-8">
-          <div className="mb-4 inline-flex h-12 w-12 items-center justify-center text-primary"><ScrollText size={30} /></div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Terms</h1>
-          <p className="mt-2 text-xs text-muted-foreground">Last updated July 2026</p>
-        </div>
-
-        <div className="space-y-3">
-          {SECTIONS.map((s) => (
-            <section key={s.title} className="rounded-xl border border-border bg-panel p-5">
-              <h2 className="text-sm font-semibold text-foreground">{s.title}</h2>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{s.body}</p>
-            </section>
-          ))}
-        </div>
-
-        <p className="mt-8 text-xs text-muted-foreground">
-          Questions? <a href="mailto:support@usepayai.xyz" className="text-primary-ink hover:underline">Email us</a>. See also our{" "}
-          <Link href="/privacy" className="text-primary-ink hover:underline">Privacy</Link> and{" "}
-          <Link href="/security" className="text-primary-ink hover:underline">Security</Link> pages.
+    <DocsShell
+      kicker="Terms"
+      title="Terms of use."
+      lede="These terms cover the PayAI product at usepayai.xyz, operated by UsePayAI. By using the app you agree to them. They are written to match how the product actually works."
+      toc={TOC}
+    >
+      <DocsSection id="who" index="01" title="Who this is">
+        <p>
+          UsePayAI operates PayAI at usepayai.xyz. PayAI is not affiliated with PayAI Network,
+          payai.network, or the $PAYAI token.
         </p>
-      </div>
-    </main>
+      </DocsSection>
+
+      <DocsSection id="as-is" index="02" title="Provided as-is, your responsibility">
+        <p>
+          PayAI is provided as-is, without warranty of any kind. You are solely responsible for
+          the wallet you connect and every transaction it signs. Smart-contract execution is
+          final. PayAI cannot reverse, cancel, or recover a transaction once it is broadcast to
+          Monad.
+        </p>
+      </DocsSection>
+
+      <DocsSection id="final" index="03" title="On-chain execution is final">
+        <p>
+          Settlement is governed by the contracts deployed on Monad (PaymentExecutor,
+          PayAIForwarder, AutomationVault, MerchantRegistry, PayAITradeExecutor, and their current
+          versions), not by this interface. Always verify the recipient, asset, amount, and fee in
+          your wallet before approving.
+        </p>
+      </DocsSection>
+
+      <DocsSection id="custody" index="04" title="Custody">
+        <p>
+          Interactive payments and trades in the web app are non-custodial: your wallet signs.
+          Payment Automations use a capped on-chain agent and, for Reserved Funds, an isolated
+          vault — still contract-bounded, not a PayAI hot wallet holding your balance.
+        </p>
+        <DocsCallout tone="warning" title="Telegram trading bot">
+          The Telegram trading bot is custodial: UsePayAI generates and holds an encrypted key for
+          that chat so it can sign. Use of the bot is optional and at your own risk. See{" "}
+          <Link href="/docs/telegram">Telegram bot</Link>.
+        </DocsCallout>
+      </DocsSection>
+
+      <DocsSection id="fees" index="05" title="Fees">
+        <p>
+          PayAI currently charges a <strong>0.25% platform fee</strong> (25 basis points) on
+          send-payment, Wallet Automation, and Reserved Funds executions, taken on-chain from the
+          gross amount, with the remainder delivered to the recipient. Swaps currently have no
+          platform fee. Monad network gas is always paid by the signer.
+        </p>
+        <p>
+          The on-chain fee cannot exceed 1.00%. Live rates are at{" "}
+          <a href="/api/fees">/api/fees</a> and shown in the confirmation screen before you sign.
+          Rates can change; the rate in the confirmation you signed is the rate that applies to
+          that transaction. See <Link href="/docs/fees">Fees</Link>.
+        </p>
+      </DocsSection>
+
+      <DocsSection id="advice" index="06" title="No advice, no guaranteed uptime">
+        <p>
+          PayAI does not provide investment, legal, or tax advice, and does not guarantee uptime
+          of third-party RPC providers, wallets, LLM providers, Telegram, or the Monad network
+          itself.
+        </p>
+      </DocsSection>
+
+      <DocsSection id="compliance" index="07" title="Your compliance">
+        <p>
+          You are responsible for complying with the laws that apply to you when sending,
+          receiving, automating, or trading on-chain. Recipients are screened against the OFAC SDN
+          digital-currency address list. That is not a licensed KYC/AML programme and does not
+          make a payment legal in your jurisdiction.
+        </p>
+      </DocsSection>
+
+      <DocsSection id="liability" index="08" title="Limitation of liability">
+        <p>
+          To the maximum extent permitted by law, UsePayAI is not liable for lost funds, failed
+          or delayed transactions, smart-contract bugs, key compromise (including of a Telegram
+          bot wallet or the automation agent), RPC faults, or any indirect, incidental, or
+          consequential damages. On-chain transfers are irreversible.
+        </p>
+        <p>
+          Questions: <a href="mailto:support@usepayai.xyz">support@usepayai.xyz</a>. See also{" "}
+          <Link href="/privacy">Privacy</Link> and <Link href="/security">Security</Link>.
+        </p>
+      </DocsSection>
+    </DocsShell>
   );
 }
