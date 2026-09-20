@@ -10,6 +10,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AuthSession } from "./types";
+import { cookieDomain } from "@/lib/hosts";
 
 export const SESSION_COOKIE = "payai_session";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -83,3 +84,10 @@ export const SESSION_COOKIE_OPTS = {
   path: "/",
   maxAge: MAX_AGE_SECONDS,
 };
+
+/** Scope the session to *.usepayai.xyz so login on the apex callback
+ *  is visible on app.usepayai.xyz. Preview/localhost stay host-only. */
+export function sessionCookieOpts(host?: string | null) {
+  const domain = cookieDomain(host);
+  return domain ? { ...SESSION_COOKIE_OPTS, domain } : SESSION_COOKIE_OPTS;
+}

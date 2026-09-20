@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { isOAuthConfigured, buildAuthorizeUrl, type OAuthProviderId } from "@/lib/auth/oauth";
 import { isEmailAuthConfigured, sendEmailCode } from "@/lib/auth/email";
 import { isSessionConfigured } from "@/lib/auth/session";
+import { cookieDomain } from "@/lib/hosts";
 import { rateLimited } from "@/lib/platform/ratelimit";
 
 const OAUTH_PROVIDERS: OAuthProviderId[] = ["google", "apple", "x"];
@@ -48,7 +49,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   const authorizeUrl = buildAuthorizeUrl(p, { redirectUri, state });
 
   const res = NextResponse.redirect(authorizeUrl);
-  res.cookies.set(STATE_COOKIE, state, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 600 });
+  const domain = cookieDomain(req.headers.get("host"));
+  res.cookies.set(STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 600,
+    ...(domain ? { domain } : {}),
+  });
   return res;
 }
 

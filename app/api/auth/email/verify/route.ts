@@ -4,7 +4,7 @@
  *  can be) created here. */
 import { NextRequest, NextResponse } from "next/server";
 import { verifyEmailCode } from "@/lib/auth/email";
-import { encodeSession, SESSION_COOKIE, SESSION_COOKIE_OPTS } from "@/lib/auth/session";
+import { encodeSession, SESSION_COOKIE, sessionCookieOpts } from "@/lib/auth/session";
 import { rateLimited } from "@/lib/platform/ratelimit";
 
 export async function POST(req: NextRequest) {
@@ -33,6 +33,6 @@ export async function POST(req: NextRequest) {
     createdAt: Date.now(),
   };
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(SESSION_COOKIE, encodeSession(session), SESSION_COOKIE_OPTS);
+  res.cookies.set(SESSION_COOKIE, encodeSession(session), sessionCookieOpts(req.headers.get("host")));
   return res;
 }

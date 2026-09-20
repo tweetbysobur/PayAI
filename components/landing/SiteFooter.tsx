@@ -11,6 +11,7 @@ import { MonadMark } from "@/components/MonadMark";
 import { XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import pkg from "../../package.json";
+import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
 
 /**
  * The marketing-site footer, shared by /, /product, and /how-it-works.
@@ -41,7 +42,7 @@ const FOOTER_COLUMNS = [
     links: [
       // Onboarding is /auth now; /connect is the secondary external-wallet
       // path, so sending new visitors there skipped the primary experience.
-      { label: "Launch PayAI", href: "/auth", icon: Rocket, internal: true },
+      { label: "Launch PayAI", href: `${APP_ORIGIN}/auth`, icon: Rocket, internal: true },
       { label: "Product", href: "/product", icon: Layers, internal: true },
       { label: "How it works", href: "/how-it-works", icon: Route, internal: true },
       { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
@@ -51,8 +52,8 @@ const FOOTER_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
-      { label: "Docs", href: "/docs", icon: BookOpen, internal: true },
-      { label: "Support", href: "/dashboard/help?tab=support", icon: LifeBuoy, internal: true },
+      { label: "Docs", href: DOCS_ORIGIN, icon: BookOpen, internal: true },
+      { label: "Support", href: `${APP_ORIGIN}/dashboard/help?tab=support`, icon: LifeBuoy, internal: true },
       { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
       { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
     ],
