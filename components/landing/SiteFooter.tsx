@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Rocket, ShieldCheck, ScrollText, ExternalLink, LifeBuoy, Lock,
-  BadgeCheck, Layers, Route, Mail,
+  BadgeCheck, Layers, Route, Mail, BookOpen,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
@@ -51,6 +51,7 @@ const FOOTER_COLUMNS = [
     title: "Resources",
     links: [
       { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
+      { label: "Docs", href: "/docs", icon: BookOpen, internal: true },
       { label: "Support", href: "/dashboard/help?tab=support", icon: LifeBuoy, internal: true },
       { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
       { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
@@ -80,8 +81,8 @@ export function SiteFooter() {
               <span className="text-base font-semibold text-foreground">PayAI</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              PayAI is an AI-native on-chain operator on Monad. Turn natural-language intent
-              into payments, trades, and DeFi actions from one interface.
+              PayAI is an AI-native on-chain operator on Monad, operated by UsePayAI.
+              Turn natural-language intent into payments, trades, and DeFi actions from one interface.
             </p>
             <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
               <MonadMark size={12} /> Built on Monad Mainnet
@@ -129,7 +130,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
-          <p>© {new Date().getFullYear()} PayAI. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} UsePayAI. All rights reserved.</p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <span className="font-mono">v{pkg.version}</span>
             <span className="hidden h-3 w-px bg-border sm:inline" />
@@ -144,7 +145,7 @@ export function SiteFooter() {
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
               >
-                <BadgeCheck size={13} /> Contract Live on Monad
+                <BadgeCheck size={13} /> PayAIForwarder Live on Monad
               </a>
             ) : (
               <span className="flex items-center gap-1.5 text-muted-foreground/60">
@@ -161,12 +162,15 @@ export function SiteFooter() {
                   target="_blank" rel="noreferrer"
                   className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
                 >
-                  <BadgeCheck size={13} /> Trade Executor Live on Monad
+                  <BadgeCheck size={13} /> PayAITradeExecutor Live on Monad
                 </a>
               </>
             ) : null}
           </div>
         </div>
+        <p className="mt-4 max-w-2xl text-[11px] leading-relaxed text-muted-foreground/70">
+          UsePayAI (usepayai.xyz, @usepayAI) is not affiliated with PayAI Network, payai.network, or the $PAYAI token.
+        </p>
       </div>
     </footer>
   );

@@ -14,6 +14,7 @@ import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useUsername } from "@/lib/hooks/useUsername";
 import { useCopy } from "@/lib/hooks/useCopy";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
+import { suiteFromOnchain, type OnchainContractFields } from "@/lib/monad/contractSuite";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import dynamic from "next/dynamic";
@@ -22,7 +23,7 @@ const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal")
 
 interface OnchainContracts {
   configured: boolean;
-  contracts?: { paymentExecutor: string; merchantRegistry: string; executorExplorer: string };
+  contracts?: OnchainContractFields;
 }
 
 interface WalletEvent {
@@ -271,7 +272,7 @@ export default function Wallets() {
 
       {/* Security Center */}
       <Card title="Security Center" className="mb-4">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <p className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><Radio size={12} /> Network status</p>
             {wallet.address ? (
@@ -290,15 +291,30 @@ export default function Wallets() {
             <p className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><ShieldCheck size={12} /> Active session</p>
             <p className="text-sm text-foreground">{sessionStartedAt ? `Since ${new Date(sessionStartedAt).toLocaleTimeString()}` : "No active session"}</p>
           </div>
-          <div>
-            <p className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground"><FileCheck2 size={12} /> Verified contracts</p>
-            {onchainContracts?.configured && onchainContracts.contracts ? (
-              <div className="space-y-1 text-xs">
-                <a href={onchainContracts.contracts.executorExplorer} target="_blank" rel="noreferrer" className="block font-mono text-primary-ink hover:underline">PaymentExecutor: {short(onchainContracts.contracts.paymentExecutor)} ↗</a>
-                <a href={`${MONAD_EXPLORER}/address/${onchainContracts.contracts.merchantRegistry}`} target="_blank" rel="noreferrer" className="block font-mono text-primary-ink hover:underline">MerchantRegistry: {short(onchainContracts.contracts.merchantRegistry)} ↗</a>
-              </div>
-            ) : <p className="text-xs text-muted-foreground">Not configured on this network.</p>}
-          </div>
+        </div>
+        <div className="mt-4 border-t border-border pt-4">
+          <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><FileCheck2 size={12} /> Verified contracts</p>
+          {onchainContracts?.configured && onchainContracts.contracts ? (
+            <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+              {suiteFromOnchain(onchainContracts.contracts, MONAD_EXPLORER).map((row) => (
+                <li key={row.id}>
+                  <a
+                    href={row.explorer}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block text-xs hover:underline"
+                  >
+                    <span className="font-medium text-foreground">{row.name}</span>
+                    <span className="ml-2 font-mono text-primary-ink">{short(row.address)} ↗</span>
+                  </a>
+                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{row.blurb}</p>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-xs text-muted-foreground">Not configured on this network.</p>}
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Interactive payments go through <span className="text-foreground">PayAIForwarder</span>. Interactive trades go through <span className="text-foreground">PayAITradeExecutor</span>. PaymentExecutor is the automation path, not the contract your wallet pays.
+          </p>
         </div>
       </Card>
 

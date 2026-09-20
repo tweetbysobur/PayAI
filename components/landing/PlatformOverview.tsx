@@ -613,7 +613,7 @@ export function TradingSection() {
             {[
               { icon: Coins, t: "MON, USDC, and any verified Monad token" },
               { icon: BarChart3, t: "Live quotes read from the chain, not an estimate" },
-              { icon: ShieldCheck, t: "Non-custodial — PayAI never holds the assets" },
+              { icon: ShieldCheck, t: "Non-custodial — your wallet signs the trade" },
               { icon: PieChart, t: "Your portfolio updates as soon as it settles" },
             ].map((r) => (
               <li key={r.t} className="flex items-start gap-2.5 text-sm text-muted-foreground">

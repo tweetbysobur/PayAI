@@ -198,16 +198,16 @@ const ARTICLES: Article[] = [
     category: "fees",
     question: "What does PayAI charge?",
     answer: [
-      "PayAI charges $0 in platform fees today, across sending, swapping, Wallet Automation, and Reserved Funds. You only pay standard Monad network gas for each on-chain transaction.",
-      "That's a deliberate beta choice, not a permanent guarantee — if that ever changes, it will be a visible, itemized fee shown before you confirm a transaction, never a silent deduction.",
+      "PayAI currently charges a 0.25% platform fee on send-payment, Wallet Automation, and Reserved Funds. Swaps have no platform fee. You also pay standard Monad network gas on every on-chain transaction.",
+      "The fee is taken on-chain from the gross amount and shown in the confirmation screen before you sign. Live rates are published at /api/fees. If they change, the rate in the confirmation you signed is the one that applies.",
     ],
   },
   {
     id: "fees-gas",
     category: "fees",
-    question: "Why do I still pay something if fees are $0?",
+    question: "Why do I still pay gas on top of the platform fee?",
     answer: [
-      "Every on-chain transaction — a payment, an approval, a vault deposit or refund — costs gas paid to the Monad network itself, the same as any blockchain transaction. PayAI doesn't add anything on top of that cost today.",
+      "Every on-chain transaction — a payment, an approval, a vault deposit or refund — costs gas paid to the Monad network itself, the same as any blockchain transaction. The 0.25% platform fee is separate from that network gas.",
     ],
   },
 
@@ -236,7 +236,8 @@ const ARTICLES: Article[] = [
     category: "security",
     question: "Does PayAI ever hold my funds?",
     answer: [
-      "Not by default. Wallet Automation never takes custody at all — funds stay in your wallet until the exact moment of execution. Reserved Funds does hold a deposit, but only in an on-chain vault contract that can only ever pay your intended recipient or refund back to you — never anywhere else, by contract design.",
+      "Not by default in the web app. Wallet Automation never takes custody — funds stay in your wallet until the exact moment of execution. Reserved Funds does hold a deposit, but only in an on-chain vault contract that can only ever pay your intended recipient or refund back to you.",
+      "The Telegram trading bot is different: it generates a hot wallet and stores the key encrypted so it can sign from chat. That path is custodial. Don't deposit more than you're willing to trust to a bot.",
     ],
   },
   {
@@ -253,8 +254,8 @@ const ARTICLES: Article[] = [
     category: "security",
     question: "Has PayAI's smart contract code been audited?",
     answer: [
-      "PayAI's core contracts (PaymentExecutor, AutomationVault, MerchantRegistry) went through the DeltaV x Ultrafuzz security program, which found and PayAI fixed three real findings — including a token-delivery verification gap and an access-control cleanup — before the fixes were redeployed to mainnet.",
-      "The full write-up of each finding, the fix, and the regression tests proving it's closed live in the contracts repository's security documentation.",
+      "PayAI's live contracts — PayAIForwarder (interactive payments), PayAITradeExecutor (interactive trades), PaymentExecutor, AutomationVault, and MerchantRegistry — went through the DeltaV × Ultrafuzz protocol security program in August 2026, which found no critical fund-drain bug. Medium and low findings were patched and redeployed to mainnet. Addresses are on the Security page and in Docs → Contracts.",
+      "Ultrafuzz is an independent protocol review, not a full commercial audit of the application. A formal third-party audit remains on the roadmap. The write-up of each finding lives in the contracts security documentation.",
     ],
   },
   {
@@ -270,7 +271,16 @@ const ARTICLES: Article[] = [
     id: "sec-page",
     category: "security",
     question: "Where can I read more about PayAI's security model?",
-    answer: ["The full Security & Trust page covers the non-custodial design, on-chain invariants, and audit history in more depth."],
+    answer: ["The full Security & Trust page covers the non-custodial design, the automation and Telegram exceptions, on-chain invariants, and the Ultrafuzz review in more depth."],
+  },
+  {
+    id: "sec-telegram",
+    category: "security",
+    question: "Is the Telegram trading bot non-custodial too?",
+    answer: [
+      "No. The Telegram bot generates a hot wallet per Telegram user and stores the private key encrypted at rest so /buy, /sell, and /withdraw can sign from chat. That is custody.",
+      "The /start command says this every time. Don't send that address more than you're comfortable trusting to a bot. You can withdraw everything with /withdraw. The web app's passkey and external wallets are a different, non-custodial model.",
+    ],
   },
 
   // ── FAQ ───────────────────────────────────────────────────────────────

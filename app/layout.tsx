@@ -26,7 +26,7 @@ const montserrat = Montserrat({
   weight: ["600", "700", "800"],
 });
 
-const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
+const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
 const DESCRIPTION =
   "Send, automate, trade, and swap DeFi tokens on Monad — all in natural language with Ask PayAI. You approve everything from your own wallet, and automations require wallet confirmation.";
 

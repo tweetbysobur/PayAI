@@ -1088,7 +1088,7 @@ function matchSimpleChat(text: string): string | null {
  *  about. Kept intentionally short and accurate to what's actually true
  *  elsewhere in the product, not a marketing pitch. */
 const FACTS: { re: RegExp; reply: string }[] = [
-  { re: /\bwhat\s+is\s+payai\b/i, reply: "PayAI is a non-custodial AI payment platform on Monad — you describe a payment in plain English, and your own wallet signs it. PayAI never holds your funds or asks for your seed phrase." },
+  { re: /\bwhat\s+is\s+payai\b/i, reply: "PayAI is an AI payment platform on Monad — you describe a payment in plain English, and your own wallet signs interactive payments. PayAI never asks for your seed phrase. Scheduled automations use a capped on-chain agent; the Telegram bot, if you use it, is a separate custodial hot wallet." },
   { re: /\bhow\s+does\s+payai\s+work\b/i, reply: "You tell PayAI what you want to do — send, swap, or schedule a payment — in your own words. PayAI parses it, shows you a preview, and only moves anything once you explicitly confirm and sign with your own wallet." },
   { re: /\bwhat\s+is\s+mon\b/i, reply: "MON is the native token of Monad, the network PayAI runs on — it's used to pay network fees and can be sent or swapped like any other supported asset." },
   { re: /\bwhat\s+is\s+usdc\b/i, reply: "USDC is a USD-pegged stablecoin — one of the two assets PayAI supports sending and swapping today, alongside MON." },

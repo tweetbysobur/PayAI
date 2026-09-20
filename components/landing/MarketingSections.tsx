@@ -88,7 +88,7 @@ const FEATURE_GROUPS = [
     label: "Security",
     icon: ShieldHalf,
     items: [
-      { title: "Non-custodial", body: "PayAI never holds your funds and never asks for your keys." },
+      { title: "Non-custodial by default", body: "Interactive payments are signed by your wallet. Automations are capped on-chain. PayAI never asks for a seed phrase." },
       { title: "Screened before sending", body: "Recipient, amount, and limits are checked on every single run." },
       { title: "Can't double-pay", body: "Each run carries an idempotency key enforced in the app and on-chain." },
       { title: "On-chain caps", body: "Per-transaction and daily limits are enforced by the contract, not just the app." },
@@ -108,8 +108,8 @@ const FEATURE_GROUPS = [
     icon: Code2,
     items: [
       { title: "HTTP API", body: "Create and manage automations programmatically with an API key." },
-      { title: "Public contracts", body: "PaymentExecutor, MerchantRegistry, and AutomationVault are verifiable on mainnet." },
-      { title: "Open source", body: "The whole application, execution engine included, is on GitHub." },
+      { title: "Verified contracts", body: "PaymentExecutor, MerchantRegistry, and AutomationVault are verifiable on mainnet." },
+      { title: "Idempotent by design", body: "Every execution carries a request id enforced in the app and on-chain." },
     ],
   },
 ];
