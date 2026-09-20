@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
+import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
 
 /**
  * The marketing-site header, shared by /, /product, and /how-it-works.
@@ -38,7 +39,7 @@ import { Logo } from "@/components/Logo";
 const LINKS = [
   { href: "/product", label: "Product", phoneHidden: false },
   { href: "/how-it-works", label: "How it works", phoneHidden: false },
-  { href: "/docs", label: "Docs", phoneHidden: true },
+  { href: DOCS_ORIGIN, label: "Docs", phoneHidden: true },
   { href: "/security", label: "Security", phoneHidden: true },
 ];
 
@@ -85,7 +86,7 @@ export function SiteNav() {
 
       <div className="flex shrink-0 items-center gap-1">
         <Link
-          href="/auth"
+          href={`${APP_ORIGIN}/auth`}
           className="inline-flex items-center rounded-lg bg-primary px-3 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4"
         >
           Launch PayAI

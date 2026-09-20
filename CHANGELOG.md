@@ -14,6 +14,11 @@ All notable changes to PayAI are documented here.
   Ask PayAI, contracts, HTTP API, and Telegram. Security, Privacy, and Terms
   share the same reading layout (sidebar, long-form, live contract table)
   instead of stacked marketing cards.
+- **Three hostnames.** `usepayai.xyz` is marketing, `app.usepayai.xyz` is the
+  product, `docs.usepayai.xyz` is documentation. Same Vercel project, free
+  subdomains. Bookmarks to `/auth` and `/docs` on the apex redirect. Passkeys
+  stay bound to `usepayai.xyz` so existing wallets keep working on the app
+  host.
 - **docs.usepayai.xyz.** Same app, free subdomain. Middleware serves docs at
   the root of that host (`/payments` not `/docs/payments`). usepayai.xyz/docs
   still works until you add the CNAME in Vercel.
