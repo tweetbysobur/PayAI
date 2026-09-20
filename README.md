@@ -6,7 +6,7 @@
 
 **Turn Natural Language intent into on chain execution.**
 
-[Live app](https://usepayai.xyz) · [Report an issue](https://github.com/tweetbysobur/PayAI/issues)
+[Live app](https://usepayai.xyz) · [Docs](https://docs.usepayai.xyz) · [Support](mailto:support@usepayai.xyz)
 
 </div>
 

@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
-import { agentConfig } from "@/lib/agent/brain";
 import { checkPaymentEngine, getMode } from "@/lib/payment/engine";
 
 /**
- * GET /api/health — liveness + dependency status. Public, unauthenticated.
- *
- * Reports the agent, the intent engine, the active model, and the
- * payment engine connection. The Agent Wallet's address and live balance
- * are deliberately NOT included — this is a public endpoint, and that wallet
- * is an internal settlement signer, not user-facing data. Only whether a
- * signer is configured (a boolean) plus the active network are exposed —
- * enough for the UI's "settlement available" checks, nothing sensitive.
+ * GET /api/health — public liveness. Booleans and the network name only.
+ * No model id, no scheduler counters, no agent wallet, no block height.
  */
-// Takes no request input, so Next.js could otherwise statically cache the
-// first response — this must always reflect live chain/RPC status.
 export const dynamic = "force-dynamic";
 
 export async function GET() {
@@ -27,48 +18,21 @@ export async function GET() {
     wallet = { configured: isSignerConfigured(), network: chain.name, chainId: chain.id };
   }
 
-  const { getNnsContractAddress } = await import("@/lib/monad/domain-resolver");
-
-  // Reflect real dependency health so an uptime monitor can alert on it — a
-  // health check that always says "ok" is worse than none. In monad mode, an
-  // unreachable RPC / payment engine is "degraded" (HTTP stays 200 so the UI's
-  // polling doesn't false-alarm on transient RPC blips; monitors alert on the
-  // status field).
   const { getHeartbeat, isHeartbeatStale } = await import("@/lib/platform/cronHealth");
   const heartbeat = await getHeartbeat();
   const cronStale = isHeartbeatStale(heartbeat);
-
   const degraded = (getMode() === "monad" && !paymentEngine.connected) || cronStale;
 
   const res = NextResponse.json({
     service: "payai",
     status: degraded ? "degraded" : "ok",
-    agent: { status: "ready" },
-    intentEngine: { status: "connected", engine: agentConfig.intentEngine },
-    model: agentConfig.model,
     payment: {
       engine: paymentEngine.engine,
       connected: paymentEngine.connected,
-      detail: paymentEngine.detail,
     },
-    automationScheduler: {
-      status: cronStale ? "stale" : "ok",
-      lastRunAt: heartbeat?.finishedAt ?? null,
-      lastRunDueCount: heartbeat?.dueCount ?? null,
-      lastRunProcessed: heartbeat?.processed ?? null,
-    },
+    automationScheduler: { status: cronStale ? "stale" : "ok" },
     wallet,
-    domains: {
-      tld: ".nad",
-      acceptedSuffixes: [".nad", ".nads"],
-      registry: getNnsContractAddress(),
-      network: getChain().name,
-      note: "Real Nad Name Service (nad.domains) integration. Not yet deployed on Monad Testnet as of this writing — resolution will return 'Unable to resolve domain' until NNS reaches testnet or the app targets mainnet.",
-    },
   });
-  // Every visitor's dashboard/landing page polls this — a short edge cache
-  // absorbs that traffic without the status ever reading more than a few
-  // seconds stale.
   res.headers.set("Cache-Control", "public, s-maxage=10, stale-while-revalidate=30");
   return res;
 }
