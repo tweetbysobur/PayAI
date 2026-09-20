@@ -13,11 +13,11 @@ deploy log; see `contracts/LIVE_CONTRACTS.md`.
 
 | Contract | Address |
 | --- | --- |
-| PaymentExecutor (V2, 0.25% fee) | [`0x5cAf11937aCbaaFd774c3906a5086A7507fae84D`](https://monadexplorer.com/address/0x5cAf11937aCbaaFd774c3906a5086A7507fae84D) |
-| MerchantRegistry | [`0xadf04A50a2319D8B57245Db2aEB101DAb517AA72`](https://monadexplorer.com/address/0xadf04A50a2319D8B57245Db2aEB101DAb517AA72) |
+| PayAIForwarder (V2) — interactive payments | [`0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D`](https://monadexplorer.com/address/0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D) |
+| PayAITradeExecutor — interactive trades | [`0xF17a916280321Ddb657c8EDd26B2a729F6E63b69`](https://monadexplorer.com/address/0xF17a916280321Ddb657c8EDd26B2a729F6E63b69) |
+| PaymentExecutor (V2) — automations | [`0x5cAf11937aCbaaFd774c3906a5086A7507fae84D`](https://monadexplorer.com/address/0x5cAf11937aCbaaFd774c3906a5086A7507fae84D) |
 | AutomationVault (V2) | [`0xc4dEd0939E400f568472bee30C4B123a96F85b35`](https://monadexplorer.com/address/0xc4dEd0939E400f568472bee30C4B123a96F85b35) |
-| PayAIForwarder (V2) | [`0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D`](https://monadexplorer.com/address/0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D) |
-| PayAITradeExecutor | [`0xF17a916280321Ddb657c8EDd26B2a729F6E63b69`](https://monadexplorer.com/address/0xF17a916280321Ddb657c8EDd26B2a729F6E63b69) |
+| MerchantRegistry | [`0xadf04A50a2319D8B57245Db2aEB101DAb517AA72`](https://monadexplorer.com/address/0xadf04A50a2319D8B57245Db2aEB101DAb517AA72) |
 | Owner / treasury (Safe) | [`0xA282833B52b1B66D58bD2007081dCC037798C0b0`](https://monadexplorer.com/address/0xA282833B52b1B66D58bD2007081dCC037798C0b0) |
 | USDC | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
 | WMON | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A` |
