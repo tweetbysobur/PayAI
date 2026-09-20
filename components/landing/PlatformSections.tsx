@@ -461,7 +461,7 @@ export function DeveloperApi() {
       <div className="mx-auto max-w-6xl px-6">
         <SectionHead
           title="Built to integrate"
-          body="Every capability in the product is an HTTP endpoint, authenticated with an x-api-key or bearer token. The contracts and the full source are public."
+          body="Every capability in the product is an HTTP endpoint, authenticated with an x-api-key or bearer token. Deployed contracts are verified on the Monad explorer."
         />
 
         <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
@@ -493,7 +493,7 @@ export function DeveloperApi() {
             viewport={{ once: true, margin: "-40px" }} transition={{ delay: 0.08, duration: 0.45, ease: "easeOut" }}
             className="flex flex-col justify-center gap-4"
           >
-            <DevPoint icon={Code2} title="Open source" body="The whole application, including the execution engine, is public on GitHub." />
+            <DevPoint icon={Code2} title="HTTP API" body="Every capability is an authenticated endpoint. Integrate payments and automations without wrapping the UI." />
             <DevPoint icon={Blocks} title="Verified contracts" body="PaymentExecutor, MerchantRegistry, and AutomationVault are deployed and verifiable on Monad mainnet." />
             <DevPoint icon={ShieldCheck} title="Idempotent by design" body="Every execution carries a request id enforced both in the app and on-chain, so a retry can never double-pay." />
           </motion.div>

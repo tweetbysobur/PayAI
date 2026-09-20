@@ -4,17 +4,31 @@ PayAI is live on Monad Mainnet (chain ID `143`) at [usepayai.xyz](https://usepay
 This is a record of what's deployed, not a setup guide — see the README for
 running the project locally.
 
-## Deployed contracts
+**Source of truth for the running app is the env on Vercel**, exposed read-only
+at `GET /api/onchain` and `GET /api/automation-config`. Do not copy an address
+from a `deployed-*.json` file or from a screenshot. Those are a historical
+deploy log; see `contracts/LIVE_CONTRACTS.md`.
 
-| Contract | Address | Deployed |
-| --- | --- | --- |
-| PaymentExecutor | [`0x2919eAbb…085da`](https://monadexplorer.com/address/0x2919eAbbef3A56d9975821031e2C2764BBB085da) | 2026-06-24 |
-| MerchantRegistry | [`0x89A42a8d…dA439`](https://monadexplorer.com/address/0x89A42a8dCcB6219b068E636ad9953d5488cDa439) | 2026-06-24 |
+## Live contracts (confirmed 2026-09-20 via `/api/onchain` + `/api/automation-config`)
 
-Both are verified on the Monad explorer. `PaymentExecutor` enforces replay
-protection (a payment's `requestId` can only ever settle once) and on-chain
-per-transaction and daily spend caps for the agent path — the limits aren't
-just app-layer checks, the contract itself refuses to exceed them.
+| Contract | Address |
+| --- | --- |
+| PaymentExecutor (V2, 0.25% fee) | [`0x5cAf11937aCbaaFd774c3906a5086A7507fae84D`](https://monadexplorer.com/address/0x5cAf11937aCbaaFd774c3906a5086A7507fae84D) |
+| MerchantRegistry | [`0xadf04A50a2319D8B57245Db2aEB101DAb517AA72`](https://monadexplorer.com/address/0xadf04A50a2319D8B57245Db2aEB101DAb517AA72) |
+| AutomationVault (V2) | [`0xc4dEd0939E400f568472bee30C4B123a96F85b35`](https://monadexplorer.com/address/0xc4dEd0939E400f568472bee30C4B123a96F85b35) |
+| PayAIForwarder (V2) | [`0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D`](https://monadexplorer.com/address/0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D) |
+| PayAITradeExecutor | [`0xF17a916280321Ddb657c8EDd26B2a729F6E63b69`](https://monadexplorer.com/address/0xF17a916280321Ddb657c8EDd26B2a729F6E63b69) |
+| Owner / treasury (Safe) | [`0xA282833B52b1B66D58bD2007081dCC037798C0b0`](https://monadexplorer.com/address/0xA282833B52b1B66D58bD2007081dCC037798C0b0) |
+| USDC | `0x754704Bc059F8C67012fEd69BC8A327a5aafb603` |
+| WMON | `0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A` |
+
+`PaymentExecutor` enforces replay protection (a payment's `requestId` can only
+ever settle once) and on-chain per-transaction and daily spend caps for the
+agent path — the limits aren't just app-layer checks, the contract itself
+refuses to exceed them. Interactive payments route through the forwarder
+(`payer → forwarder → recipient`). Interactive Uniswap/Kuru trades route
+through the trade executor. Current platform fee: 25 bps on send / wallet
+automation / reserved funds; 0 bps on swaps (`GET /api/fees`).
 
 ## Operating mode
 
@@ -27,10 +41,13 @@ so a fresh clone doesn't need funds or an agent key to run.
 Scheduled and recurring payments settle through a dedicated agent wallet,
 bounded by the on-chain caps above. Interactive payments never touch it: the
 connected wallet signs its own transaction, and PayAI only ever proposes,
-never holds a key for user funds.
+never holds a key for those funds.
 
 The agent wallet is a hot wallet by necessity (it signs autonomously), kept
 funded minimally and never reused across environments.
+
+The optional Telegram trading bot is a **separate** custodial signer: per-user
+keys, encrypted at rest, not the automation agent.
 
 ## Redeploying the contracts
 

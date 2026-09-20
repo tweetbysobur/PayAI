@@ -96,7 +96,7 @@ export default function HowItWorksPage() {
           <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }} className="mb-12 text-center">
             <h2 className="text-3xl font-semibold tracking-tighter text-foreground sm:text-4xl">Two ways to fund an automation</h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              You choose per automation. Both are non-custodial — PayAI never holds your funds in either mode.
+              You choose per automation. Wallet Automation keeps funds in your wallet; Reserved Funds lock them in AutomationVault. Neither mode puts your balance on a PayAI server.
             </p>
           </motion.div>
 

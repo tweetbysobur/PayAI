@@ -80,8 +80,8 @@ export function SiteFooter() {
               <span className="text-base font-semibold text-foreground">PayAI</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              PayAI is an AI-native on-chain operator on Monad. Turn natural-language intent
-              into payments, trades, and DeFi actions from one interface.
+              PayAI is an AI-native on-chain operator on Monad, operated by UsePayAI.
+              Turn natural-language intent into payments, trades, and DeFi actions from one interface.
             </p>
             <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
               <MonadMark size={12} /> Built on Monad Mainnet
@@ -129,7 +129,7 @@ export function SiteFooter() {
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
-          <p>© {new Date().getFullYear()} PayAI. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} UsePayAI. All rights reserved.</p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <span className="font-mono">v{pkg.version}</span>
             <span className="hidden h-3 w-px bg-border sm:inline" />
@@ -167,6 +167,9 @@ export function SiteFooter() {
             ) : null}
           </div>
         </div>
+        <p className="mt-4 max-w-2xl text-[11px] leading-relaxed text-muted-foreground/70">
+          UsePayAI (usepayai.xyz, @usepayAI) is not affiliated with PayAI Network, payai.network, or the $PAYAI token.
+        </p>
       </div>
     </footer>
   );
