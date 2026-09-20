@@ -10,6 +10,10 @@ All notable changes to PayAI are documented here.
   Automations and the Telegram hot-wallet bot), the 0.25% platform fee, the
   DeltaV × Ultrafuzz protocol review as a review rather than a full audit, and
   that UsePayAI is not PayAI Network. Help Center fees copy no longer says $0.
+- **Public docs.** `/docs` plus getting started, payments, automations, fees,
+  Ask PayAI, contracts, HTTP API, and Telegram. Security, Privacy, and Terms
+  share the same reading layout (sidebar, long-form, live contract table)
+  instead of stacked marketing cards.
 - **Analytics.** Google Analytics does not load on `/dashboard/*`, matching the
   privacy page.
 - **Bulk import.** Removed the SheetJS (`xlsx`) Excel parser. CSV, paste, and
