@@ -21,6 +21,11 @@ describe("hostKind", () => {
     expect(hostKind("payai-git-main.vercel.app")).toBe("unsplit");
     expect(hostKind("docs.evil.com")).toBe("unsplit");
   });
+
+  it("treats the old Vercel alias as legacy, not a public app host", () => {
+    expect(hostKind("veripayai.vercel.app")).toBe("legacy");
+    expect(hostKind("www.usepayai.xyz")).toBe("legacy");
+  });
 });
 
 describe("hostAction", () => {
@@ -82,6 +87,24 @@ describe("hostAction", () => {
   it("does not split preview hosts", () => {
     expect(hostAction("unsplit", "/auth")).toEqual({ type: "next" });
     expect(hostAction("unsplit", "/docs")).toEqual({ type: "next" });
+  });
+
+  it("sends the old Vercel alias to the canonical hosts", () => {
+    expect(hostAction("legacy", "/")).toEqual({
+      type: "redirect",
+      origin: MARKETING_ORIGIN,
+      pathname: "/",
+    });
+    expect(hostAction("legacy", "/dashboard")).toEqual({
+      type: "redirect",
+      origin: APP_ORIGIN,
+      pathname: "/dashboard",
+    });
+    expect(hostAction("legacy", "/docs/contracts")).toEqual({
+      type: "redirect",
+      origin: DOCS_ORIGIN,
+      pathname: "/contracts",
+    });
   });
 });
 

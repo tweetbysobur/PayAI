@@ -36,9 +36,9 @@ export default function ApiPage() {
           headers={["Method", "Path", "What it returns"]}
           rows={[
             ["GET", "/api/fees", "Current platform fee rates per feature"],
-            ["GET", "/api/onchain", "Live contract addresses and recent on-chain records"],
+            ["GET", "/api/onchain", "Live contract addresses"],
             ["GET", "/api/automation-config", "Executor, vault, WMON, USDC addresses"],
-            ["GET", "/api/health", "Liveness and dependency status — no agent balance"],
+            ["GET", "/api/health", "Liveness — connected or not. No model, no balances"],
             ["GET", "/api/tokens", "Verified token list, or resolve an address"],
           ]}
         />

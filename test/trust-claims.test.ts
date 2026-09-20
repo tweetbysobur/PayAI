@@ -103,4 +103,18 @@ describe("canonical public URL is usepayai.xyz", () => {
     expect(src).not.toMatch(/veripayai\.vercel\.app/);
     expect(src).toMatch(/https:\/\/usepayai\.xyz/);
   });
+
+  it("marketing does not publish session or automation API routes", () => {
+    const src = read("../components/landing/PlatformSections.tsx");
+    expect(src).not.toMatch(/\/api\/automations/);
+    expect(src).not.toMatch(/x-api-key/);
+    expect(src).not.toMatch(/bearer token/i);
+  });
+
+  it("public pages do not name the private GitHub account", () => {
+    for (const rel of MARKETING) {
+      expect(read(rel), rel).not.toMatch(/tweetbysobur/i);
+      expect(read(rel), rel).not.toMatch(/github\.com\/tweetbysobur/i);
+    }
+  });
 });
