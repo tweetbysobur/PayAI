@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Telegram bot · PayAI Docs",
@@ -15,7 +16,7 @@ const TOC = [
 
 export default function TelegramPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Developers"
       title="Telegram trading bot."
       lede="An optional bot that can trade on Monad from chat. It is a different trust model from the web app. Read this before you send it funds."
@@ -66,6 +67,6 @@ export default function TelegramPage() {
           <li>Not a place to paste a seed phrase. It already has a key; it does not need yours.</li>
         </ul>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }
