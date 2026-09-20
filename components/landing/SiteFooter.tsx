@@ -145,7 +145,7 @@ export function SiteFooter() {
                 target="_blank" rel="noreferrer"
                 className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
               >
-                <BadgeCheck size={13} /> Contract Live on Monad
+                <BadgeCheck size={13} /> PayAIForwarder Live on Monad
               </a>
             ) : (
               <span className="flex items-center gap-1.5 text-muted-foreground/60">
@@ -162,7 +162,7 @@ export function SiteFooter() {
                   target="_blank" rel="noreferrer"
                   className="flex items-center gap-1.5 text-success transition-colors hover:text-success/80"
                 >
-                  <BadgeCheck size={13} /> Trade Executor Live on Monad
+                  <BadgeCheck size={13} /> PayAITradeExecutor Live on Monad
                 </a>
               </>
             ) : null}

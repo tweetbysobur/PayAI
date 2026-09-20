@@ -254,7 +254,7 @@ const ARTICLES: Article[] = [
     category: "security",
     question: "Has PayAI's smart contract code been audited?",
     answer: [
-      "PayAI's core contracts (PaymentExecutor, AutomationVault, MerchantRegistry) went through the DeltaV × Ultrafuzz protocol security program in August 2026, which found no critical fund-drain bug. Medium and low findings were patched and redeployed to mainnet.",
+      "PayAI's live contracts — PayAIForwarder (interactive payments), PayAITradeExecutor (interactive trades), PaymentExecutor, AutomationVault, and MerchantRegistry — went through the DeltaV × Ultrafuzz protocol security program in August 2026, which found no critical fund-drain bug. Medium and low findings were patched and redeployed to mainnet. Addresses are on the Security page and in Docs → Contracts.",
       "Ultrafuzz is an independent protocol review, not a full commercial audit of the application. A formal third-party audit remains on the roadmap. The write-up of each finding lives in the contracts security documentation.",
     ],
   },

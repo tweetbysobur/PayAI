@@ -14,6 +14,12 @@ All notable changes to PayAI are documented here.
   Ask PayAI, contracts, HTTP API, and Telegram. Security, Privacy, and Terms
   share the same reading layout (sidebar, long-form, live contract table)
   instead of stacked marketing cards.
+- **Live contract roster.** Public pages, the footer, `/api/onchain`, and the
+  wallets Security Center now lead with PayAIForwarder and PayAITradeExecutor
+  (the contracts a wallet actually pays and trades through). PaymentExecutor
+  is labeled as the automation path. Vault is on `/api/onchain`. Retired V1
+  and unwired deploys (TradeExecutorV2, SplitSettlement) are listed on
+  `/docs/contracts` as not in the app.
 - **Analytics.** Google Analytics does not load on `/dashboard/*`, matching the
   privacy page.
 - **Bulk import.** Removed the SheetJS (`xlsx`) Excel parser. CSV, paste, and
