@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Automations · PayAI Docs",
@@ -17,7 +18,7 @@ const TOC = [
 
 export default function AutomationsPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Product"
       title="Automations."
       lede="Recurring payments cannot wait for you to click Approve every Friday. PayAI uses a dedicated agent wallet for those runs, bounded on-chain. You choose how each automation is funded."
@@ -78,6 +79,6 @@ export default function AutomationsPage() {
           different, custodial exception. See <Link href="/docs/telegram">Telegram bot</Link>.
         </DocsCallout>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

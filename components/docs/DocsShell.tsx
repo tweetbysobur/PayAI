@@ -4,10 +4,22 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { DOCS_NAV, DOCS_UPDATED, docsNavIsActive } from "@/lib/docs/nav";
+import { publicDocsPath } from "@/lib/docs/host";
 
 export interface DocsTocItem {
   id: string;
   title: string;
+}
+
+export interface DocsShellProps {
+  kicker: string;
+  title: string;
+  lede: string;
+  updated?: string;
+  toc?: DocsTocItem[];
+  children: React.ReactNode;
+  onDocsHost?: boolean;
+  appOrigin?: string;
 }
 
 export function DocsShell({
@@ -17,39 +29,37 @@ export function DocsShell({
   updated = DOCS_UPDATED,
   toc,
   children,
-}: {
-  kicker: string;
-  title: string;
-  lede: string;
-  updated?: string;
-  toc?: DocsTocItem[];
-  children: React.ReactNode;
-}) {
+  onDocsHost = false,
+  appOrigin = "https://usepayai.xyz",
+}: DocsShellProps) {
   const pathname = usePathname();
+  const home = onDocsHost ? appOrigin : "/";
+  const launch = onDocsHost ? `${appOrigin}/auth` : "/auth";
+  const docsHome = publicDocsPath("/docs", onDocsHost);
 
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <Link href="/" aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Link href={home} aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <Logo size={26} />
               <span className="text-sm font-semibold text-foreground">PayAI</span>
             </Link>
             <span aria-hidden className="hidden h-4 w-px bg-border sm:block" />
-            <Link href="/docs" className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline">
+            <Link href={docsHome} className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline">
               Docs
             </Link>
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href="/"
+              href={home}
               className="hidden rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
             >
               Home
             </Link>
             <Link
-              href="/auth"
+              href={launch}
               className="inline-flex items-center rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Launch PayAI
@@ -67,9 +77,9 @@ export function DocsShell({
                 <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
                 <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
               </summary>
-              <DocsNav pathname={pathname} className="px-4 pb-4" />
+              <DocsNav pathname={pathname} onDocsHost={onDocsHost} className="px-4 pb-4" />
             </details>
-            <DocsNav pathname={pathname} className="hidden px-5 py-8 lg:block" />
+            <DocsNav pathname={pathname} onDocsHost={onDocsHost} className="hidden px-5 py-8 lg:block" />
           </div>
         </aside>
 
@@ -120,7 +130,7 @@ export function DocsShell({
   );
 }
 
-function DocsNav({ pathname, className }: { pathname: string; className?: string }) {
+function DocsNav({ pathname, onDocsHost, className }: { pathname: string; onDocsHost: boolean; className?: string }) {
   return (
     <nav aria-label="Documentation" className={className}>
       {DOCS_NAV.map((group) => (
@@ -134,7 +144,7 @@ function DocsNav({ pathname, className }: { pathname: string; className?: string
               return (
                 <li key={item.href}>
                   <Link
-                    href={item.href}
+                    href={publicDocsPath(item.href, onDocsHost)}
                     aria-current={active ? "page" : undefined}
                     className={`block rounded-md px-2 py-1.5 text-[13px] transition-colors ${
                       active
