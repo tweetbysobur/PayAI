@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Payments · PayAI Docs",
@@ -17,7 +18,7 @@ const TOC = [
 
 export default function PaymentsPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Product"
       title="Payments."
       lede="A PayAI payment is a Monad transaction your wallet signs. The interface checks the recipient, amount, and fee, then your wallet decides."
@@ -74,6 +75,6 @@ export default function PaymentsPage() {
           contract addresses: <Link href="/docs/contracts">Contracts</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

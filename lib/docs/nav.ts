@@ -6,6 +6,8 @@
  * test fails the build when that happens.
  */
 
+import { canonicalDocsPath } from "@/lib/docs/host";
+
 export const DOCS_UPDATED = "20 September 2026";
 
 export interface DocsNavItem {
@@ -52,6 +54,7 @@ export const DOCS_NAV: DocsNavGroup[] = [
 ];
 
 export function docsNavIsActive(href: string, pathname: string, exact?: boolean): boolean {
-  if (exact) return pathname === href;
-  return pathname === href || pathname.startsWith(`${href}/`);
+  const path = canonicalDocsPath(pathname);
+  if (exact) return path === href;
+  return path === href || path.startsWith(`${href}/`);
 }

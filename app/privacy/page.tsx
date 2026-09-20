@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Privacy · PayAI",
@@ -20,7 +21,7 @@ const TOC = [
 
 export default function PrivacyPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Privacy"
       title="What we collect, and what we never see."
       lede="UsePayAI operates PayAI at usepayai.xyz. This policy covers the web app, the optional Telegram trading bot, and related services. It is written to match the product, not a template."
@@ -102,6 +103,6 @@ export default function PrivacyPage() {
           see <Link href="/terms">Terms</Link> and <Link href="/security">Security</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

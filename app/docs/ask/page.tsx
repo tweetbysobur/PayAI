@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Ask PayAI · PayAI Docs",
@@ -15,7 +16,7 @@ const TOC = [
 
 export default function AskPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Product"
       title="Ask PayAI."
       lede="Type what you want in plain English. PayAI parses it into a structured action, shows you a preview, and waits. Nothing moves until you confirm and sign."
@@ -50,6 +51,6 @@ export default function AskPage() {
           More on the signing model: <Link href="/security">Security</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "HTTP API · PayAI Docs",
@@ -16,7 +17,7 @@ const TOC = [
 
 export default function ApiPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Developers"
       title="HTTP API."
       lede="PayAI is a product with HTTP endpoints, not a published SDK. Some routes are public on purpose. Most dashboard writes use your session. This page lists the ones you can actually call without pretending the rest is a stable public API."
@@ -68,6 +69,6 @@ export default function ApiPage() {
           Contracts you can verify: <Link href="/docs/contracts">Contracts</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

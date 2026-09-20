@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 import { LiveContracts } from "@/components/docs/LiveContracts";
 
 export const metadata: Metadata = {
@@ -17,7 +18,7 @@ const TOC = [
 
 export default function ContractsPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Developers"
       title="Contracts."
       lede="Settlement is the contracts on Monad, not this website. The table is read from the running deployment. PayAIForwarder and PayAITradeExecutor are what your wallet actually pays and trades through. PaymentExecutor is the automation path."
@@ -112,6 +113,6 @@ export default function ContractsPage() {
           review of the protocol: <Link href="/security">Security</Link>.
         </DocsCallout>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }
