@@ -62,7 +62,7 @@ export default function AutomationsPage() {
         <p>
           Execute Now runs the next payment immediately. Skip advances past the next occurrence
           without sending. Cancel stops future runs. Those actions still require a signed
-          confirmation somewhere in the automation's history — PayAI does not invent a
+          confirmation somewhere in that automation history — PayAI does not invent a
           payment you never authorized.
         </p>
       </DocsSection>

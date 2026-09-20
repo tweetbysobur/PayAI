@@ -31,7 +31,7 @@ export default function TelegramPage() {
         <p>
           The same disclosure is sent every time you run <code>/start</code>, including when you
           already have a wallet. Withdraw to an address you control with <code>/withdraw</code>.
-          The web app's passkey and external wallets are a different, non-custodial model —
+          The web-app passkey and external wallets are a different, non-custodial model —
           see <Link href="/security">Security</Link>.
         </p>
         <p>
