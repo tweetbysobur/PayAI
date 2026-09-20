@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const BASE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://veripayai.vercel.app";
+const BASE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
 
 /** Generates /sitemap.xml — only the public, crawlable pages (see robots.ts). */
 export default function sitemap(): MetadataRoute.Sitemap {

@@ -4,6 +4,19 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
+- **Trust & disclosure hardening.** Public pages no longer claim the application
+  source is public (the repo is private; contracts stay verified on the explorer).
+  Security, Privacy, and Terms now name the two custody exceptions (Payment
+  Automations and the Telegram hot-wallet bot), the 0.25% platform fee, the
+  DeltaV × Ultrafuzz protocol review as a review rather than a full audit, and
+  that UsePayAI is not PayAI Network. Help Center fees copy no longer says $0.
+- **Analytics.** Google Analytics does not load on `/dashboard/*`, matching the
+  privacy page.
+- **Bulk import.** Removed the SheetJS (`xlsx`) Excel parser. CSV, paste, and
+  manual entry remain.
+- **Docs.** `MAINNET.md` now lists the live V2 executor / forwarder / vault
+  addresses as read from `/api/onchain` and `/api/automation-config`, not a
+  stale deploy log. Metadata fallback URL is `https://usepayai.xyz`.
 - **Mera is live as the first embedded-wallet provider.** A new user signs in
   and gets a real wallet with one biometric prompt — no extension, no seed
   phrase. Mera derives a standard EVM account from the user's passkey via the

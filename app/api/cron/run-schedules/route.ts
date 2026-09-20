@@ -72,6 +72,12 @@ export async function GET(req: NextRequest) {
   const token = new URL(req.url).searchParams.get("token");
   const headerOk = !!auth && !!secret && safeCompare(auth, `Bearer ${secret}`);
   const tokenOk = !!token && !!secret && safeCompare(token, secret);
+  if (tokenOk && !headerOk) {
+    // Query-string secrets land in CDN/proxy access logs. Prefer the
+    // Authorization header. Still accepted so existing external pingers
+    // keep working; this line is the breadcrumb when rotating them.
+    console.warn(JSON.stringify({ level: "warn", kind: "cron_auth", event: "query_token_used", at: Date.now() }));
+  }
   if (!secret || (!headerOk && !tokenOk)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
