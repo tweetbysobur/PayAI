@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { motion } from "motion/react";
 import { ShieldCheck, Blocks, AtSign, Wallet, Database, Code2 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import { MonadMark } from "@/components/MonadMark";
 import { formatUsd } from "@/lib/hooks/useTokenPrices";
 import type { RevenueFeature } from "@/lib/platform/types";
+import { DOCS_ORIGIN } from "@/lib/hosts";
 
 /**
  * Landing sections that describe the platform with REAL data only.
@@ -447,12 +449,10 @@ function Figure({ children }: { children: React.ReactNode }) {
 /* ── API for Developers — real routes only ──────────────────────────────── */
 
 const ENDPOINTS = [
-  { method: "POST", path: "/api/merchants", body: "Self-serve merchant signup — returns the API key used below." },
-  { method: "GET", path: "/api/tokens", body: "The verified Monad token registry, or resolve any contract address." },
-  { method: "POST", path: "/api/automations", body: "Create a wallet-signed automation, single-recipient or bulk." },
-  { method: "GET", path: "/api/automations", body: "List automations, their runs, and per-recipient results." },
-  { method: "GET", path: "/api/onchain", body: "On-chain payment records straight from PaymentExecutor." },
-  { method: "GET", path: "/api/health", body: "Engine, RPC, scheduler, and agent-wallet status." },
+  { method: "GET", path: "/api/fees", body: "Current platform fee rates." },
+  { method: "GET", path: "/api/onchain", body: "Live contract addresses on this deployment." },
+  { method: "GET", path: "/api/tokens", body: "Verified Monad token registry." },
+  { method: "GET", path: "/api/health", body: "Liveness: network connected or not." },
 ];
 
 export function DeveloperApi() {
@@ -460,8 +460,8 @@ export function DeveloperApi() {
     <section className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <SectionHead
-          title="Built to integrate"
-          body="Every capability in the product is an HTTP endpoint, authenticated with an x-api-key or bearer token. Deployed contracts are verified on the Monad explorer."
+          title="Public docs, not a private map"
+          body="A few GET routes are public on purpose. Anything that can move funds stays behind a session in the app. The rest is not a partner API."
         />
 
         <div className="grid gap-6 lg:grid-cols-[1.15fr_1fr]">
@@ -471,7 +471,7 @@ export function DeveloperApi() {
             className="overflow-hidden rounded-xl border border-border bg-panel/60"
           >
             <div className="border-b border-border px-5 py-3">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Endpoints</p>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Public endpoints</p>
             </div>
             <div className="divide-y divide-border/70">
               {ENDPOINTS.map((e) => (
@@ -493,9 +493,12 @@ export function DeveloperApi() {
             viewport={{ once: true, margin: "-40px" }} transition={{ delay: 0.08, duration: 0.45, ease: "easeOut" }}
             className="flex flex-col justify-center gap-4"
           >
-            <DevPoint icon={Code2} title="HTTP API" body="Every capability is an authenticated endpoint. Integrate payments and automations without wrapping the UI." />
-            <DevPoint icon={Blocks} title="Verified contracts" body="PaymentExecutor, MerchantRegistry, and AutomationVault are deployed and verifiable on Monad mainnet." />
-            <DevPoint icon={ShieldCheck} title="Idempotent by design" body="Every execution carries a request id enforced both in the app and on-chain, so a retry can never double-pay." />
+            <DevPoint icon={Code2} title="HTTP, documented" body="The public GET routes and merchant key live in the docs. Session routes that move money are the app backend, not a published SDK." />
+            <DevPoint icon={Blocks} title="Verified contracts" body="PayAIForwarder, PayAITradeExecutor, PaymentExecutor, MerchantRegistry, and AutomationVault are on Monad and linked from the docs." />
+            <DevPoint icon={ShieldCheck} title="Idempotent by design" body="Every execution carries a request id enforced in the app and on-chain, so a retry can never double-pay." />
+            <Link href={`${DOCS_ORIGIN}/api`} className="text-sm font-medium text-primary-ink hover:underline">
+              Read the API docs →
+            </Link>
           </motion.div>
         </div>
       </div>

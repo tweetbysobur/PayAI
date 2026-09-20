@@ -14,6 +14,10 @@ All notable changes to PayAI are documented here.
   Ask PayAI, contracts, HTTP API, and Telegram. Security, Privacy, and Terms
   share the same reading layout (sidebar, long-form, live contract table)
   instead of stacked marketing cards.
+- **Do not leak the private surface.** `veripayai.vercel.app` redirects to the
+  canonical hosts. How-it-works no longer lists session/automation API routes.
+  `/api/health` no longer returns the model name, scheduler counters, or block
+  height. The README no longer points at the private GitHub account.
 - **Three hostnames.** `usepayai.xyz` is marketing, `app.usepayai.xyz` is the
   product, `docs.usepayai.xyz` is documentation. Same Vercel project, free
   subdomains. Bookmarks to `/auth` and `/docs` on the apex redirect. Passkeys

@@ -21,13 +21,15 @@ export function hostnameOf(host: string | null | undefined): string {
   return (host || "").split(":")[0].toLowerCase();
 }
 
-export type HostKind = "marketing" | "app" | "docs" | "unsplit";
+export type HostKind = "marketing" | "app" | "docs" | "legacy" | "unsplit";
 
 export function hostKind(host: string | null | undefined): HostKind {
   const h = hostnameOf(host);
   if (h === DOCS_HOST || h === "docs.localhost") return "docs";
   if (h === APP_HOST || h === "app.localhost") return "app";
-  if (h === MARKETING_HOST || h === `www.${MARKETING_HOST}`) return "marketing";
+  if (h === MARKETING_HOST) return "marketing";
+  // Old production alias and www: never serve the app under those names.
+  if (h === "veripayai.vercel.app" || h === `www.${MARKETING_HOST}`) return "legacy";
   return "unsplit";
 }
 
@@ -99,6 +101,11 @@ export type HostAction =
 export function hostAction(kind: HostKind, pathname: string): HostAction {
   if (kind === "unsplit") return { type: "next" };
 
+  if (kind === "legacy") {
+    const dest = canonicalForPath(pathname);
+    return { type: "redirect", origin: dest.origin, pathname: dest.pathname };
+  }
+
   if (kind === "docs") {
     if (isAppPath(pathname)) return { type: "redirect", origin: APP_ORIGIN, pathname };
     if (isMarketingPath(pathname)) return { type: "redirect", origin: MARKETING_ORIGIN, pathname };
@@ -127,4 +134,13 @@ export function hostAction(kind: HostKind, pathname: string): HostAction {
     return { type: "redirect", origin: DOCS_ORIGIN, pathname: publicDocsPath(pathname, true) };
   }
   return { type: "next" };
+}
+
+function canonicalForPath(pathname: string): { origin: string; pathname: string } {
+  if (isAppPath(pathname)) return { origin: APP_ORIGIN, pathname };
+  if (pathname === "/docs" || pathname.startsWith("/docs/")) {
+    return { origin: DOCS_ORIGIN, pathname: publicDocsPath(pathname, true) };
+  }
+  if (isDocsSlugPath(pathname)) return { origin: DOCS_ORIGIN, pathname };
+  return { origin: MARKETING_ORIGIN, pathname };
 }
