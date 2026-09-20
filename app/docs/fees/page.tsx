@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell, DocsTable } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Fees · PayAI Docs",
@@ -15,7 +16,7 @@ const TOC = [
 
 export default function FeesPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Product"
       title="Fees."
       lede="The platform fee is taken on-chain from the gross amount. The recipient receives the remainder. Monad gas is separate and always paid by the signer."
@@ -57,6 +58,6 @@ export default function FeesPage() {
           <Link href="/terms">Terms</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

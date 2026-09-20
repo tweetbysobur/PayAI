@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Terms · PayAI",
@@ -21,7 +22,7 @@ const TOC = [
 
 export default function TermsPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Terms"
       title="Terms of use."
       lede="These terms cover the PayAI product at usepayai.xyz, operated by UsePayAI. By using the app you agree to them. They are written to match how the product actually works."
@@ -109,6 +110,6 @@ export default function TermsPage() {
           <Link href="/privacy">Privacy</Link> and <Link href="/security">Security</Link>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

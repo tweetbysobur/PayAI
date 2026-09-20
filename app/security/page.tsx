@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 import { LiveContracts } from "@/components/docs/LiveContracts";
 
 export const metadata: Metadata = {
@@ -22,7 +23,7 @@ const TOC = [
 
 export default function SecurityPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Security"
       title="How PayAI keeps funds and keys honest."
       lede="PayAI, operated by UsePayAI at usepayai.xyz, is non-custodial for interactive payments and trades: you hold the keys, you approve the transaction, and settlement is a real Monad transaction anyone can look up. This page is the model — including the two places it is not that simple."
@@ -137,6 +138,6 @@ export default function SecurityPage() {
           <a href="mailto:support@usepayai.xyz">support@usepayai.xyz</a>.
         </p>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

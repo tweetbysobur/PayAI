@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Docs · PayAI",
@@ -21,7 +22,7 @@ const LINKS = [
 
 export default function DocsIndexPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Documentation"
       title="PayAI, in writing."
       lede="PayAI turns natural-language intent into on-chain execution on Monad. These pages describe what the product actually does today — including the limits."
@@ -52,6 +53,6 @@ export default function DocsIndexPage() {
           ))}
         </div>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }

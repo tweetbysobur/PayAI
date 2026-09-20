@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsShell } from "@/components/docs/DocsShell";
+import { DocsCallout, DocsSection } from "@/components/docs/DocsShell";
+import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Getting started · PayAI Docs",
@@ -16,7 +17,7 @@ const TOC = [
 
 export default function GettingStartedPage() {
   return (
-    <DocsShell
+    <DocsChrome
       kicker="Product"
       title="Getting started."
       lede="PayAI runs on Monad mainnet. You need a wallet that can sign on Monad, a little MON for gas, and a recipient — an 0x address or a .nad name."
@@ -64,6 +65,6 @@ export default function GettingStartedPage() {
           <li><Link href="/security">Security</Link> — keys, automations, Telegram.</li>
         </ul>
       </DocsSection>
-    </DocsShell>
+    </DocsChrome>
   );
 }
