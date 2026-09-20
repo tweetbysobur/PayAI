@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { DocsShell, type DocsShellProps } from "@/components/docs/DocsShell";
-import { APP_ORIGIN, isDocsHost } from "@/lib/docs/host";
+import { APP_ORIGIN, isDocsHost } from "@/lib/hosts";
 
 /** Server wrapper so docs links know whether this request is docs.usepayai.xyz. */
 export async function DocsChrome(props: Omit<DocsShellProps, "onDocsHost" | "appOrigin">) {
