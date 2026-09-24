@@ -4,7 +4,9 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
-- **Private PayAI records require the wallet, not just its address.**
+- **Google and email sign-in sit on glass.** The marks live in frosted
+  plates, on both the sign-in screen and the landing preview, instead of
+  plain bordered boxes. The passkey button stays the primary action.
   Automations, payment-link memos, support tickets, history, analytics, and
   linked-wallet lists were readable by anyone who knew a public address.
   Reading them now takes a short-lived httpOnly grant signed by that wallet
