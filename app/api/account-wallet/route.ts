@@ -8,7 +8,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { decodeSession, SESSION_COOKIE } from "@/lib/auth/session";
-import { putAccountWallet } from "@/lib/platform/accountWallet";
+import { getAccountWallet, putAccountWallet } from "@/lib/platform/accountWallet";
 import { rateLimited } from "@/lib/platform/ratelimit";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -28,6 +28,18 @@ export async function PUT(req: NextRequest) {
   const credentialId = typeof body?.credentialId === "string" ? body.credentialId.trim() : "";
   if (!ADDR_RE.test(address) || !ID_RE.test(credentialId)) {
     return NextResponse.json({ error: "A wallet address and passkey id are required." }, { status: 400 });
+  }
+
+  const existing = await getAccountWallet(session.userId);
+  if (existing && existing.address !== address.toLowerCase()) {
+    return NextResponse.json(
+      {
+        error: "This sign-in already opens a different wallet. Linking Google did not move it.",
+        code: "account-has-wallet",
+        wallet: existing,
+      },
+      { status: 409 },
+    );
   }
 
   const wallet = await putAccountWallet(session.userId, { address, credentialId });

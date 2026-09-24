@@ -10,6 +10,7 @@ import { isOAuthConfigured, buildAuthorizeUrl, type OAuthProviderId } from "@/li
 import { isEmailAuthConfigured, sendEmailCode } from "@/lib/auth/email";
 import { isSessionConfigured } from "@/lib/auth/session";
 import { cookieDomain } from "@/lib/hosts";
+import { GOOGLE_LINK_COOKIE, decodeLinkProof } from "@/lib/auth/linkGoogle";
 import { rateLimited } from "@/lib/platform/ratelimit";
 
 const OAUTH_PROVIDERS: OAuthProviderId[] = ["google", "apple", "x"];
@@ -46,7 +47,14 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
 
   const state = randomBytes(16).toString("hex");
   const redirectUri = `${siteUrl(req)}/api/auth/callback/${p}`;
-  const authorizeUrl = buildAuthorizeUrl(p, { redirectUri, state });
+  const linking = p === "google" && !!decodeLinkProof(req.cookies.get(GOOGLE_LINK_COOKIE)?.value);
+  const authorizeUrl = buildAuthorizeUrl(p, {
+    redirectUri,
+    state,
+    // Linking should let them choose the Gmail, not silently reuse whichever
+    // Google account the browser last signed in with.
+    prompt: linking ? "select_account" : undefined,
+  });
 
   const res = NextResponse.redirect(authorizeUrl);
   const domain = cookieDomain(req.headers.get("host"));

@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { Wallet, ShieldCheck, LifeBuoy, ArrowRight } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
@@ -7,6 +8,7 @@ import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServic
 import { MonadMark } from "@/components/MonadMark";
 import { ExportWalletCard } from "@/components/dashboard/ExportWalletCard";
 import { UsernameCard } from "@/components/dashboard/UsernameCard";
+import { GoogleLinkCard } from "@/components/dashboard/GoogleLinkCard";
 
 /** Settings is wallet-only, matching the rest of the product — there is no
  *  separate account/API-key system to sign into. Everything here reflects
@@ -17,7 +19,7 @@ export default function Settings() {
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Your account is your wallet — nothing else to sign in to.</p>
+      <p className="mb-6 text-sm text-muted-foreground">Your account is your wallet. A passkey is enough — Google is optional.</p>
 
       <Card title="Account" className="mb-4">
         {wallet.address ? (
@@ -37,6 +39,10 @@ export default function Settings() {
           <p className="text-sm text-muted-foreground">Connect a wallet to see your account here.</p>
         )}
       </Card>
+
+      <Suspense fallback={null}>
+        <GoogleLinkCard />
+      </Suspense>
 
       <UsernameCard />
 

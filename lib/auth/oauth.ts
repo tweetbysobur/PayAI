@@ -79,7 +79,7 @@ export function isOAuthConfigured(provider: OAuthProviderId): boolean {
   return !!process.env[cfg.clientIdEnv]?.trim() && !!process.env[cfg.clientSecretEnv]?.trim();
 }
 
-export function buildAuthorizeUrl(provider: OAuthProviderId, opts: { redirectUri: string; state: string }): string {
+export function buildAuthorizeUrl(provider: OAuthProviderId, opts: { redirectUri: string; state: string; prompt?: string }): string {
   const cfg = CONFIG[provider];
   const clientId = process.env[cfg.clientIdEnv];
   if (!clientId) throw new Error(`${provider} sign-in is not configured (missing ${cfg.clientIdEnv}).`);
@@ -91,6 +91,7 @@ export function buildAuthorizeUrl(provider: OAuthProviderId, opts: { redirectUri
     state: opts.state,
   });
   if (provider === "apple") params.set("response_mode", "form_post");
+  if (opts.prompt) params.set("prompt", opts.prompt);
   return `${cfg.authUrl}?${params.toString()}`;
 }
 

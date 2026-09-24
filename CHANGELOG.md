@@ -4,7 +4,12 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
-- **Google and email sign-in sit on glass.** The marks live in frosted
+- **An existing passkey wallet can link Google without becoming a new account.**
+  Settings offers it as optional. The passkey still opens the wallet on its
+  own. Once Gmail is linked, signing in with that Google account opens the
+  same wallet and will not register a second one. A Google account that
+  already opens a different wallet is refused, and so is a second Gmail on
+  a wallet that already has one. The marks live in frosted
   plates, on both the sign-in screen and the landing preview, instead of
   plain bordered boxes. The passkey button stays the primary action.
   Automations, payment-link memos, support tickets, history, analytics, and
