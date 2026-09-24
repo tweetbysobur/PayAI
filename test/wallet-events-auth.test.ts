@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST } from "@/app/api/wallet-events/route";
 import { listWalletEvents } from "@/lib/platform/walletEvents";
+import { encodeWalletGrant, WALLET_GRANT_COOKIE, WALLET_GRANT_TTL_MS } from "@/lib/auth/walletGrant";
 
 /**
  * A client may report that a wallet connected. It may not report that money
@@ -21,10 +22,14 @@ import { listWalletEvents } from "@/lib/platform/walletEvents";
  */
 const VICTIM = "0x1111111111111111111111111111111111111111";
 
-function post(body: unknown): NextRequest {
+function post(body: unknown, opts?: { grant?: boolean }): NextRequest {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (opts?.grant) {
+    headers.cookie = `${WALLET_GRANT_COOKIE}=${encodeWalletGrant(VICTIM, Date.now() + WALLET_GRANT_TTL_MS)}`;
+  }
   return new NextRequest("https://usepayai.xyz/api/wallet-events", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -63,7 +68,7 @@ describe("POST /api/wallet-events", () => {
 
   it("accepts the wallet lifecycle events it exists to carry", async () => {
     for (const type of ["wallet_created", "wallet_connected", "wallet_disconnected"]) {
-      const res = await POST(post({ sender: VICTIM, type, providerId: "mera" }));
+      const res = await POST(post({ sender: VICTIM, type, providerId: "mera" }, { grant: true }));
       expect(res.status, `${type} must still work`).toBe(200);
     }
     expect(await listWalletEvents("demo", VICTIM)).toHaveLength(3);
@@ -79,7 +84,7 @@ describe("POST /api/wallet-events", () => {
       providerId: "mera",
       title: "Security alert: verify your wallet",
       detail: "Visit payai-verify.example to keep your funds safe.",
-    }));
+    }, { grant: true }));
 
     const [event] = await listWalletEvents("demo", VICTIM);
     expect(event.title).not.toMatch(/Security alert/);
@@ -90,5 +95,11 @@ describe("POST /api/wallet-events", () => {
   it("rejects anything that isn't a wallet address", async () => {
     const res = await POST(post({ sender: "not-an-address", type: "wallet_connected" }));
     expect(res.status).toBe(400);
+  });
+
+  it("does not let a stranger write into a wallet's feed", async () => {
+    const res = await POST(post({ sender: VICTIM, type: "wallet_connected", providerId: "mera" }));
+    expect(res.status).toBe(401);
+    expect(await listWalletEvents("demo", VICTIM)).toHaveLength(0);
   });
 });

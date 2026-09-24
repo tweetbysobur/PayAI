@@ -40,6 +40,9 @@ export async function GET(req: NextRequest) {
   if (!ADDR_RE.test(account)) {
     return NextResponse.json({ error: "A valid account address is required." }, { status: 400 });
   }
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, account);
+  if (denied) return denied;
   // A connected wallet reported on the read is how "last connected" stays
   // truthful without a heartbeat — the link is a record, not a live session.
   const connected = req.nextUrl.searchParams.get("connected");

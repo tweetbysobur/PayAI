@@ -23,6 +23,9 @@ export async function GET(req: NextRequest) {
   const merchantId = await resolveTenantId(req);
   const w = new URL(req.url).searchParams.get("wallet")?.trim();
   const sender = merchantId === DEMO_TENANT ? (w && isAddress(w) ? w : "__none__") : null;
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, sender);
+  if (denied) return denied;
 
   const tickets = await listTickets(merchantId, { sender });
   return NextResponse.json({ tickets });

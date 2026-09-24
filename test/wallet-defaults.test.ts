@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET, PUT, PATCH } from "@/app/api/linked-wallets/route";
 import { linkMessage, walletSettingsMessage } from "@/lib/platform/linkMessages";
+import { encodeWalletGrant, WALLET_GRANT_COOKIE, WALLET_GRANT_TTL_MS } from "@/lib/auth/walletGrant";
 
 /**
  * Wallet settings are account settings, so they need the account's signature.
@@ -30,7 +31,9 @@ function req(method: string, body: unknown): NextRequest {
   });
 }
 function get(addr: string): NextRequest {
-  return new NextRequest(`https://usepayai.xyz/api/linked-wallets?account=${addr}`);
+  return new NextRequest(`https://usepayai.xyz/api/linked-wallets?account=${addr}`, {
+    headers: { cookie: `${WALLET_GRANT_COOKIE}=${encodeWalletGrant(addr, Date.now() + WALLET_GRANT_TTL_MS)}` },
+  });
 }
 
 /** Signs a PATCH body the way the browser does — over the exact change. */
@@ -152,6 +155,7 @@ describe("last connected", () => {
 
     await GET(new NextRequest(
       `https://usepayai.xyz/api/linked-wallets?account=${account.address}&connected=${externalWallet.address}`,
+      { headers: { cookie: `${WALLET_GRANT_COOKIE}=${encodeWalletGrant(account.address, Date.now() + WALLET_GRANT_TTL_MS)}` } },
     ));
 
     const after = await (await GET(get(account.address))).json();

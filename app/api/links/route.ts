@@ -20,6 +20,9 @@ export async function GET(req: NextRequest) {
   const merchantId = await resolveTenantId(req);
   const wallet = new URL(req.url).searchParams.get("wallet");
   const sender = await senderScopeFor(merchantId, wallet);
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, sender);
+  if (denied) return denied;
   const { listLinks } = await import("@/lib/platform/store");
   return NextResponse.json({ links: await listLinks(merchantId, { sender }) });
 }

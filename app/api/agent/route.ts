@@ -73,6 +73,11 @@ export async function POST(req: NextRequest) {
       success: false,
     }, { status: 200 });
   }
+  if (query === "show_history" || query === "check_compliance") {
+    const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+    const denied = await denyPrivateRead(req, senderScope);
+    if (denied) return denied;
+  }
   if (query === "show_history") {
     const { listTx } = await import("@/lib/platform/store");
     // Scope to the connected wallet so a user only ever sees their own history.

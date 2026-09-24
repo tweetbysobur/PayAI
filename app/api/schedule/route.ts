@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
   const { listSchedules } = await import("@/lib/platform/schedules");
   const merchantId = await resolveTenantId(req);
   const sender = await senderScopeFor(req, merchantId);
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, sender);
+  if (denied) return denied;
   const schedules = await listSchedules(merchantId, { sender });
   return NextResponse.json({ schedules });
 }

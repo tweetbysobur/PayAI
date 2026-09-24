@@ -34,7 +34,7 @@ export function ComplianceTabContent() {
   useEffect(() => {
     // Aggregate risk is scoped to the connected wallet's own payments.
     const headers = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
-    fetch("/api/analytics", { headers }).then((r) => r.json()).then(setA).catch(() => {});
+    fetch("/api/analytics", { headers }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) setA(j); }).catch(() => {});
   }, [wallet.address]);
 
   async function checkAddress() {

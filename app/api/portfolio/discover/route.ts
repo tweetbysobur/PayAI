@@ -215,10 +215,18 @@ export async function GET(req: NextRequest) {
   try {
     const { resolveTenantId } = await import("@/lib/platform/tenant");
     const { listTx } = await import("@/lib/platform/store");
-    const rows = await listTx(await resolveTenantId(req), { sender: address });
-    for (const row of rows) {
-      const a = row.outputTokenAddress;
-      if (typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a)) seeded.push(a.toLowerCase());
+    const { requestHasWalletGrant } = await import("@/lib/auth/walletGrant");
+    const { DEMO_TENANT } = await import("@/lib/platform/merchants");
+    const merchantId = await resolveTenantId(req);
+    // Settled trades are private app records. On-chain balances below are
+    // public and stay. Without a grant, skip the private seed rather than
+    // refusing the whole portfolio.
+    if (merchantId !== DEMO_TENANT || requestHasWalletGrant(req, address)) {
+      const rows = await listTx(merchantId, { sender: address });
+      for (const row of rows) {
+        const a = row.outputTokenAddress;
+        if (typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a)) seeded.push(a.toLowerCase());
+      }
     }
   } catch {
     // History unavailable — the scan below is still a complete source on its

@@ -14,6 +14,7 @@
  */
 import * as mera from "./providers/mera";
 import { classifyPasskeyFailure, runPasskeyOpen } from "./passkey-plan";
+import { ensureWalletGrant } from "@/lib/auth/ensureWalletGrant";
 import type { EmbeddedWalletHandle, EmbeddedWalletProvider, UnsignedTx, WalletProviderId } from "./types";
 
 /** Wraps Mera's module-level functions in the provider contract, so the rest
@@ -50,6 +51,9 @@ const meraProvider: EmbeddedWalletProvider = {
         failureKind: classifyPasskeyFailure,
       },
     );
+    // The key from this ceremony signs the read grant. Doing it here, once,
+    // avoids a second passkey prompt. The grant cannot move funds.
+    await ensureWalletGrant(outcome.value.address, (message) => outcome.value.account.signMessage({ message }));
     return { handle: toHandle(outcome.value), created: outcome.created };
   },
 };

@@ -4,7 +4,12 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
-- **Passkeys are looked up before a new one is created.** Moving the app to
+- **Private PayAI records require the wallet, not just its address.**
+  Automations, payment-link memos, support tickets, history, analytics, and
+  linked-wallet lists were readable by anyone who knew a public address.
+  Reading them now takes a short-lived httpOnly grant signed by that wallet
+  at unlock. A merchant API key still reads its own tenant. On-chain balances
+  stay public, because the chain already is. Signing out clears the grant.
   `app.usepayai.xyz` left the saved passkey id behind on `usepayai.xyz`
   (browsers do not share localStorage across hosts), so sign-in registered a
   second passkey and a second, empty wallet. The original passkey and its
