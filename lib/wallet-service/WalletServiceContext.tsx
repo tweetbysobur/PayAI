@@ -23,6 +23,7 @@ import { MONAD_CHAIN_ID } from "@/lib/monad/public";
 import { getEmbeddedProvider } from "./registry";
 import { isWalletOpenError } from "./passkey-plan";
 import { clearWalletGrant, ensureWalletGrant } from "@/lib/auth/ensureWalletGrant";
+import { linkGoogleMessage, openedWalletMatchesAccount, unlinkGoogleMessage } from "@/lib/auth/linkGoogleShared";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
@@ -83,6 +84,11 @@ export interface WalletServiceState extends ExternalWalletState {
    * even if this browser last saved a newer, empty one.
    */
   setUpEmbeddedWallet: (opts?: { create?: boolean; switchPasskey?: boolean }) => Promise<{ address: string; created: boolean }>;
+  /** Attaches the Google account the user picks next to this passkey wallet.
+   *  The wallet address does not change. Passkey sign-in keeps working. */
+  linkGoogleAccount: () => Promise<void>;
+  /** Removes Google as a way to open this wallet. The passkey stays. */
+  unlinkGoogleAccount: () => Promise<void>;
   /** Signs out of the embedded wallet and zeroes its in-memory key. */
   signOutEmbedded: () => Promise<void>;
   /** This device has a wallet, but its key isn't in memory right now (after a
@@ -180,6 +186,10 @@ function useWalletServiceState(): WalletServiceState {
   const [account, setAccount] = useState<AccountSession | null>(null);
   const [accountWallet, setAccountWallet] = useState<{ address: string; credentialId: string } | null>(null);
   const [wallet, setWallet] = useState<EmbeddedWalletHandle | null>(null);
+  const walletRef = useRef<EmbeddedWalletHandle | null>(null);
+  useEffect(() => {
+    walletRef.current = wallet;
+  }, [wallet]);
   const [authMethods, setAuthMethods] = useState<AuthMethodAvailability>(emptyAuthMethods);
   const [embeddedSupported, setEmbeddedSupported] = useState(false);
   const [hasEmbeddedCredential, setHasEmbeddedCredential] = useState(false);
@@ -400,11 +410,24 @@ function useWalletServiceState(): WalletServiceState {
           serverHasWallet,
           serverAddress,
         });
+        // Signing in with Google must open the wallet that sign-in was linked
+        // to. A different passkey is a different wallet, and adopting it here
+        // would silently move the account.
+        if (mode !== "switch" && !openedWalletMatchesAccount(serverAddress, handle.address)) {
+          handle.end();
+          const mismatch = new Error(
+            "This sign-in already opens a different PayAI wallet. Use that passkey — linking Google did not change it.",
+          ) as Error & { code?: string };
+          mismatch.code = "existing-account";
+          setEmbeddedError(mismatch.message);
+          throw mismatch;
+        }
         setWallet(handle);
+        walletRef.current = handle;
         setHasEmbeddedCredential(true);
         setLastKnownAddress(handle.address);
 
-        if (signedIn) {
+        if (signedIn && openedWalletMatchesAccount(serverAddress, handle.address)) {
           fetch("/api/account-wallet", {
             method: "PUT",
             headers: { "content-type": "application/json" },
@@ -442,6 +465,70 @@ function useWalletServiceState(): WalletServiceState {
     },
     [provider, account, accountWallet],
   );
+
+  const linkGoogleAccount = useCallback(async () => {
+    let handle = walletRef.current;
+    if (!handle) {
+      const { handle: opened } = await provider.open({
+        mode: "unlock",
+        label: account?.label ?? "PayAI Wallet",
+        signedIn: !!account,
+        serverHasWallet: !!accountWallet?.address,
+        serverAddress: accountWallet?.address ?? null,
+      });
+      if (!openedWalletMatchesAccount(accountWallet?.address, opened.address)) {
+        opened.end();
+        throw new Error("Unlock the passkey for this wallet. A different passkey is a different account, and Google was not linked.");
+      }
+      setWallet(opened);
+      setHasEmbeddedCredential(true);
+      setLastKnownAddress(opened.address);
+      walletRef.current = opened;
+      handle = opened;
+    }
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    const signature = await handle.signMessage(linkGoogleMessage(handle.address, handle.credentialId, expiresAt));
+    const res = await fetch("/api/auth/link/google", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        address: handle.address,
+        credentialId: handle.credentialId,
+        expiresAt,
+        signature,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Could not start Google linking.");
+    window.location.href = "/api/auth/google";
+  }, [provider, account, accountWallet]);
+
+  const unlinkGoogleAccount = useCallback(async () => {
+    let handle = walletRef.current;
+    if (!handle) {
+      const { handle: opened } = await provider.open({
+        mode: "unlock",
+        label: account?.label ?? "PayAI Wallet",
+        signedIn: !!account,
+        serverHasWallet: !!accountWallet?.address,
+        serverAddress: accountWallet?.address ?? null,
+      });
+      setWallet(opened);
+      walletRef.current = opened;
+      handle = opened;
+    }
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+    const signature = await handle.signMessage(unlinkGoogleMessage(handle.address, expiresAt));
+    const res = await fetch("/api/auth/link/google", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address: handle.address, expiresAt, signature }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || "Could not unlink Google.");
+    setAccount(null);
+    setAccountWallet(null);
+  }, [provider, account, accountWallet]);
 
   const exportEmbeddedKey = useCallback(async () => {
     return provider.exportPrivateKey();
@@ -641,6 +728,8 @@ function useWalletServiceState(): WalletServiceState {
     embeddedSupported,
     hasEmbeddedCredential,
     setUpEmbeddedWallet,
+    linkGoogleAccount,
+    unlinkGoogleAccount,
     signOutEmbedded,
     exportEmbeddedKey,
     isLocked,

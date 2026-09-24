@@ -65,3 +65,10 @@ export async function putAccountWallet(userId: string, input: { address: string;
   else mem.set(userId, row);
   return row;
 }
+
+export async function deleteAccountWallet(userId: string): Promise<void> {
+  if (!isLinkableUserId(userId)) return;
+  const redis = await getRedis();
+  if (redis) await redis.del(storageKey(userId));
+  else mem.delete(userId);
+}

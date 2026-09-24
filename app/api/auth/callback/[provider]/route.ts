@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exchangeCodeForUser } from "@/lib/auth/oauth";
 import { encodeSession, SESSION_COOKIE, sessionCookieOpts } from "@/lib/auth/session";
+import { applyGoogleLink, decodeLinkProof, GOOGLE_LINK_COOKIE, linkProofCookieOpts } from "@/lib/auth/linkGoogle";
 import { APP_ORIGIN, cookieDomain, hostnameOf } from "@/lib/hosts";
 import type { AuthMethod } from "@/lib/wallet-service/types";
 
@@ -52,18 +53,42 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   try {
     const redirectUri = `${origin}/api/auth/callback/${provider}`;
     const user = await exchangeCodeForUser(provider, { code, redirectUri });
-
+    const host = req.headers.get("host");
     const session = {
       userId: `${provider}:${user.sub}`,
       authMethod: provider as AuthMethod,
       label: user.label,
       createdAt: Date.now(),
     };
+
+    // A passkey user asked to attach this Google account to the wallet they
+    // already have. Do that and stop. Sending them through wallet setup
+    // would offer to create a second one.
+    const proof = provider === "google" ? decodeLinkProof(req.cookies.get(GOOGLE_LINK_COOKIE)?.value) : null;
+    if (proof) {
+      const applied = await applyGoogleLink({
+        googleUserId: session.userId,
+        label: user.label,
+        address: proof.address,
+        credentialId: proof.credentialId,
+      });
+      const target = applied.ok
+        ? "/dashboard/settings?linked=google"
+        : `/dashboard/settings?link_error=${applied.reason}`;
+      const res = NextResponse.redirect(`${afterAuthUrl(req, target)}`);
+      res.cookies.set(GOOGLE_LINK_COOKIE, "", { ...linkProofCookieOpts(host), maxAge: 0 });
+      res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0, ...(cookieDomain(host) ? { domain: cookieDomain(host) } : {}) });
+      if (applied.ok) {
+        res.cookies.set(SESSION_COOKIE, encodeSession(session), sessionCookieOpts(host));
+      }
+      return res;
+    }
+
     // Back to onboarding rather than the dashboard: the account exists, but
     // the wallet still needs its one passkey step, which only the browser
-    // can perform.
+    // can perform. If this Google account was already linked, that step
+    // unlocks the existing passkey and will not register a new one.
     const res = NextResponse.redirect(`${afterAuthUrl(req, "/auth")}?step=wallet`);
-    const host = req.headers.get("host");
     res.cookies.set(SESSION_COOKIE, encodeSession(session), sessionCookieOpts(host));
     res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0, ...(cookieDomain(host) ? { domain: cookieDomain(host) } : {}) });
     return res;
