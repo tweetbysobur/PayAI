@@ -6,11 +6,12 @@ import { motion } from "motion/react";
 import {
   Sparkles, ArrowLeftRight, Wallet, BarChart3, Layers, Target, BadgeCheck,
   ArrowRight, Fingerprint, Coins, CheckCircle2, Send, ShieldCheck,
-  Mail, Bell, Clock, Activity, PieChart, ListChecks,
+  Bell, Clock, Activity, PieChart, ListChecks,
   Building2, Landmark, Repeat2, Store, Gift, Megaphone, Rocket, Home,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
+import { SignInMark, glassSignInRow } from "@/components/auth/SignInMark";
 
 /**
  * The repositioning sections: PayAI is one natural-language intent layer,
@@ -511,9 +512,9 @@ export function EmbeddedWalletSection() {
         <motion.div
           initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}
-          className="order-2 overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl lg:order-1"
+          className="relative order-2 overflow-hidden rounded-[22px] border border-white/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl lg:order-1"
         >
-          <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+          <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
           <div className="space-y-2.5 p-6">
             <div className="flex items-center gap-2.5 rounded-xl border border-primary/30 bg-gradient-to-b from-primary/[0.08] to-transparent px-4 py-3.5">
               <Fingerprint size={16} className="shrink-0 text-primary-ink" />
@@ -531,12 +532,9 @@ export function EmbeddedWalletSection() {
                 method never flickers in late as though it were an
                 afterthought. */}
             {social.filter((s) => methods?.[s.key] === true).map((s) => (
-              <div
-                key={s.key}
-                className="flex items-center gap-2.5 rounded-xl border border-border bg-input/30 px-4 py-3"
-              >
-                {s.key === "email" ? <Mail size={15} className="shrink-0 text-muted-foreground" /> : <Wallet size={15} className="shrink-0 text-muted-foreground" />}
-                <span className="truncate text-sm text-foreground">{s.label}</span>
+              <div key={s.key} className={glassSignInRow}>
+                <SignInMark method={s.key} />
+                <span className="truncate">{s.label}</span>
               </div>
             ))}
 
