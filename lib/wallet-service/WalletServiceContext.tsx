@@ -21,6 +21,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useWallet as useExternalWallet, type WalletState as ExternalWalletState } from "@/lib/wallet/useWallet";
 import { MONAD_CHAIN_ID } from "@/lib/monad/public";
 import { getEmbeddedProvider } from "./registry";
+import { isWalletOpenError } from "./passkey-plan";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
@@ -71,14 +72,16 @@ export interface WalletServiceState extends ExternalWalletState {
    *  action is "unlock" rather than "create". */
   hasEmbeddedCredential: boolean;
   /**
-   * Derives the embedded wallet: creates a passkey for a first-time user, or
-   * re-derives the existing one for a returning user. Deterministic — a
-   * returning user always lands on the same address, never a duplicate.
-   * `created` tells the caller which happened, so first-run onboarding (and
-   * its username prompt) only shows for an actually-new wallet, never a
-   * returning user just unlocking theirs.
+   * Opens the embedded wallet.
+   *
+   * Default (`auto`) looks for an existing PayAI passkey and does not create
+   * one unless this device has none AND the signed-in account has no wallet
+   * yet. `create: false` only unlocks. `create: true` registers a passkey,
+   * and is refused when the sign-in already has a wallet. `switchPasskey`
+   * lists every passkey for the domain so the original one can be chosen
+   * even if this browser last saved a newer, empty one.
    */
-  setUpEmbeddedWallet: (opts?: { create?: boolean }) => Promise<{ address: string; created: boolean }>;
+  setUpEmbeddedWallet: (opts?: { create?: boolean; switchPasskey?: boolean }) => Promise<{ address: string; created: boolean }>;
   /** Signs out of the embedded wallet and zeroes its in-memory key. */
   signOutEmbedded: () => Promise<void>;
   /** This device has a wallet, but its key isn't in memory right now (after a
@@ -174,6 +177,7 @@ function useWalletServiceState(): WalletServiceState {
   const provider = getEmbeddedProvider();
 
   const [account, setAccount] = useState<AccountSession | null>(null);
+  const [accountWallet, setAccountWallet] = useState<{ address: string; credentialId: string } | null>(null);
   const [wallet, setWallet] = useState<EmbeddedWalletHandle | null>(null);
   const [authMethods, setAuthMethods] = useState<AuthMethodAvailability>(emptyAuthMethods);
   const [embeddedSupported, setEmbeddedSupported] = useState(false);
@@ -210,6 +214,10 @@ function useWalletServiceState(): WalletServiceState {
       .then((j) => {
         setAuthMethods(j.authMethods ?? emptyAuthMethods);
         if (j.session) setAccount(j.session);
+        else setAccount(null);
+        setAccountWallet(j.accountWallet?.address && j.accountWallet?.credentialId
+          ? { address: j.accountWallet.address, credentialId: j.accountWallet.credentialId }
+          : null);
       })
       .catch(() => {});
   }, []);
@@ -344,22 +352,66 @@ function useWalletServiceState(): WalletServiceState {
   }, []);
 
   /**
-   * The one passkey ceremony. `create` forces a brand-new passkey; otherwise
-   * a device that already has one recovers from it. Recovery is deterministic
-   * inside the provider, so this can never mint a second wallet for someone
-   * who already has one.
+   * Opens the passkey wallet. Creating is not the default: a missing
+   * localStorage entry (what the move to app.usepayai.xyz looks like) used
+   * to mint a second passkey and a second, empty address.
    */
   const setUpEmbeddedWallet = useCallback(
-    async (opts?: { create?: boolean }): Promise<{ address: string; created: boolean }> => {
+    async (opts?: { create?: boolean; switchPasskey?: boolean }): Promise<{ address: string; created: boolean }> => {
       setEmbeddedBusy(true);
       setEmbeddedError(null);
+      const mode = opts?.switchPasskey ? "switch" : opts?.create === true ? "create" : opts?.create === false ? "unlock" : "auto";
       try {
-        const shouldCreate = opts?.create ?? !provider.hasLocalCredential();
-        const handle = shouldCreate
-          ? await provider.create(account?.label ?? "PayAI Wallet")
-          : await provider.recover();
+        let signedIn = !!account;
+        let serverHasWallet = !!accountWallet?.address;
+        let serverAddress = accountWallet?.address ?? null;
+        let label = account?.label ?? "PayAI Wallet";
+        try {
+          const res = await fetch("/api/wallet-service/status");
+          if (!res.ok) throw new Error("status");
+          const status = await res.json();
+          if (status?.session?.userId) {
+            signedIn = true;
+            label = status.session.label || label;
+            setAccount({
+              userId: status.session.userId,
+              authMethod: status.session.authMethod,
+              label: status.session.label,
+            });
+          }
+          if (status?.accountWallet?.address && status?.accountWallet?.credentialId) {
+            serverHasWallet = true;
+            serverAddress = status.accountWallet.address;
+            setAccountWallet({ address: status.accountWallet.address, credentialId: status.accountWallet.credentialId });
+          } else {
+            serverHasWallet = false;
+            serverAddress = null;
+            setAccountWallet(null);
+          }
+        } catch {
+          /* status is a hint. The passkey ceremony still decides the wallet. */
+        }
+
+        const { handle, created } = await provider.open({
+          mode,
+          label,
+          signedIn,
+          serverHasWallet,
+          serverAddress,
+        });
         setWallet(handle);
         setHasEmbeddedCredential(true);
+        setLastKnownAddress(handle.address);
+
+        if (signedIn) {
+          fetch("/api/account-wallet", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ address: handle.address, credentialId: handle.credentialId }),
+          }).then((r) => r.ok ? r.json() : null).then((j) => {
+            if (j?.wallet?.address) setAccountWallet(j.wallet);
+          }).catch(() => {});
+        }
 
         fetch("/api/wallet-events", {
           method: "POST",
@@ -369,19 +421,25 @@ function useWalletServiceState(): WalletServiceState {
           body: JSON.stringify({
             sender: handle.address,
             providerId: provider.id,
-            type: shouldCreate ? "wallet_created" : "wallet_connected",
+            type: created ? "wallet_created" : "wallet_connected",
           }),
         }).catch(() => {});
 
-        return { address: handle.address, created: shouldCreate };
+        return { address: handle.address, created };
       } catch (e) {
+        if (isWalletOpenError(e)) {
+          setEmbeddedError(e.message);
+          const wrapped = new Error(e.message) as Error & { code?: string };
+          wrapped.code = e.code;
+          throw wrapped;
+        }
         setEmbeddedError(provider.friendlyError(e));
         throw e;
       } finally {
         setEmbeddedBusy(false);
       }
     },
-    [provider, account?.label],
+    [provider, account, accountWallet],
   );
 
   const exportEmbeddedKey = useCallback(async () => {
@@ -393,6 +451,7 @@ function useWalletServiceState(): WalletServiceState {
     wallet?.end(); // zeroes the in-memory key
     setWallet(null);
     setAccount(null);
+    setAccountWallet(null);
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
     if (address) {
       fetch("/api/wallet-events", {

@@ -206,7 +206,10 @@ export default function Overview() {
                   {wallet.address
                     ? (identity.domain ? <span className="font-mono">{short(wallet.address)}</span> : "Connected wallet")
                     : wallet.isLocked
-                      ? <button onClick={() => { void wallet.setUpEmbeddedWallet({ create: false }).catch(() => {}); }} className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Unlock with your passkey →</button>
+                      ? <span className="inline-flex flex-wrap gap-x-3">
+                          <button onClick={() => { void wallet.setUpEmbeddedWallet({ create: false }).catch(() => {}); }} className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Unlock with your passkey →</button>
+                          <button onClick={() => { void wallet.setUpEmbeddedWallet({ switchPasskey: true }).catch(() => {}); }} className="text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Different passkey</button>
+                        </span>
                       : <Link href="/auth" className="text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">Connect to get started →</Link>}
                 </p>
               </div>

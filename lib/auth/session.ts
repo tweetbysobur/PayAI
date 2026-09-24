@@ -1,9 +1,11 @@
 /**
- * Session cookie — signed, stateless. Holds just enough to know "who is
- * signed in" (userId, authMethod, embedded address); no server-side session
- * table to keep in sync. Recovery of the wallet itself never depends on this
- * cookie surviving — Mera's createOrRecoverWallet(userId) is idempotent, so a
- * fresh device + a successful login always reaches the same address.
+ * Session cookie — signed, stateless. Holds who is signed in (userId,
+ * authMethod, label). It does not hold a key, and it does not decide the
+ * wallet address. The address comes only from the passkey (WebAuthn PRF).
+ * The same Google or email login does not by itself reproduce a wallet —
+ * the passkey does. See lib/platform/accountWallet.ts for the link that
+ * stops a second passkey from being minted for an account that already
+ * has one.
  *
  * Server-only.
  */
