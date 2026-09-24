@@ -4,6 +4,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { GET, PUT, DELETE } from "@/app/api/linked-wallets/route";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import { MAX_LINKED_WALLETS } from "@/lib/platform/linkedWallets";
+import { encodeWalletGrant, WALLET_GRANT_COOKIE, WALLET_GRANT_TTL_MS } from "@/lib/auth/walletGrant";
 
 /**
  * Attaching a wallet to an account takes proof from BOTH ends.
@@ -39,7 +40,9 @@ function del(body: unknown): NextRequest {
   });
 }
 function get(addr: string): NextRequest {
-  return new NextRequest(`https://usepayai.xyz/api/linked-wallets?account=${addr}`);
+  return new NextRequest(`https://usepayai.xyz/api/linked-wallets?account=${addr}`, {
+    headers: { cookie: `${WALLET_GRANT_COOKIE}=${encodeWalletGrant(addr, Date.now() + WALLET_GRANT_TTL_MS)}` },
+  });
 }
 
 async function bothSigned(externalAddr = externalWallet.address, signer = externalWallet) {

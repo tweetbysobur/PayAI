@@ -69,7 +69,7 @@ export default function Overview() {
     // Returned so the global sync can wait for all of it — a spinner that
     // stops before the data lands is worse than no spinner.
     return Promise.all([
-      fetch("/api/analytics", { headers: walletHeaders }).then((r) => r.json()).then(setA).catch(() => {}),
+      fetch("/api/analytics", { headers: walletHeaders }).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j) setA(j); }).catch(() => {}),
       fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {}),
       fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {}),
       fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })

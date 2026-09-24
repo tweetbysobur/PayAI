@@ -43,6 +43,9 @@ export async function GET(req: NextRequest) {
 
   const { resolveTenantId } = await import("@/lib/platform/tenant");
   const merchantId = await resolveTenantId(req);
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, wallet);
+  if (denied) return denied;
 
   // No balance read here on purpose. It is the only chain call in this
   // briefing, it is the slowest thing by an order of magnitude, and

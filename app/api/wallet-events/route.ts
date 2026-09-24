@@ -10,6 +10,9 @@ import { reconcileWalletTransfers } from "@/lib/wallet-service/reconcile";
 export async function GET(req: NextRequest) {
   const wallet = req.nextUrl.searchParams.get("wallet");
   if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return NextResponse.json({ events: [] });
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, wallet);
+  if (denied) return denied;
   const merchantId = await resolveTenantId(req);
 
   // Catch up on-chain deposits/withdrawals before reading the feed, so a
@@ -80,6 +83,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, sender);
+  if (denied) return denied;
 
   const merchantId = await resolveTenantId(req);
   const providerId = body?.providerId === "mera" ? "mera" : "injected";

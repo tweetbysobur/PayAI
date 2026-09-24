@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
   const { DEMO_TENANT } = await import("@/lib/platform/merchants");
   const w = req.headers.get("x-wallet-address")?.trim();
   const wallet = w && isAddress(w) ? w : null;
+  const { denyPrivateRead } = await import("@/lib/auth/walletGrant");
+  const denied = await denyPrivateRead(req, wallet);
+  if (denied) return denied;
   const sender = merchantId === DEMO_TENANT ? (wallet ?? "__none__") : null;
   const { getAnalytics } = await import("@/lib/platform/analytics");
   return NextResponse.json(await getAnalytics(merchantId, { sender }));

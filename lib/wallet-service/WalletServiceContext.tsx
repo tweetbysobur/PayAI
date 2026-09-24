@@ -22,6 +22,7 @@ import { useWallet as useExternalWallet, type WalletState as ExternalWalletState
 import { MONAD_CHAIN_ID } from "@/lib/monad/public";
 import { getEmbeddedProvider } from "./registry";
 import { isWalletOpenError } from "./passkey-plan";
+import { clearWalletGrant, ensureWalletGrant } from "@/lib/auth/ensureWalletGrant";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
@@ -453,6 +454,7 @@ function useWalletServiceState(): WalletServiceState {
     setAccount(null);
     setAccountWallet(null);
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
+    clearWalletGrant();
     if (address) {
       fetch("/api/wallet-events", {
         method: "POST",
@@ -472,6 +474,7 @@ function useWalletServiceState(): WalletServiceState {
     }
     if (external.address) {
       await external.disconnect();
+      clearWalletGrant();
       return;
     }
     await signOutEmbedded();
@@ -600,6 +603,14 @@ function useWalletServiceState(): WalletServiceState {
   useEffect(() => {
     void refreshLinked(accountAddress);
   }, [accountAddress, refreshLinked]);
+
+  // An external wallet's private PayAI data is not readable from the address
+  // alone. One confirmation in that wallet, then the httpOnly grant covers
+  // this browser for 12 hours. Embedded unlock signs the same grant itself.
+  useEffect(() => {
+    if (usingEmbedded || !external.address) return;
+    void ensureWalletGrant(external.address, (message) => external.signMessage(message));
+  }, [usingEmbedded, external.address, external.signMessage]);
 
   const address = usingEmbedded ? wallet?.address ?? null : external.address ?? wallet?.address ?? null;
   const providerId: WalletProviderId | null = usingEmbedded ? provider.id : external.address ? "injected" : wallet ? provider.id : null;

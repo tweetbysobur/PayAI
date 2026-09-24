@@ -118,7 +118,7 @@ export function useAssistantContext(): { ctx: AssistantContext | null; loading: 
     let cancelled = false;
     setLoading(true);
     fetch(`/api/assistant/context?wallet=${address}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((j) => { if (!cancelled) setCtx(j); })
       .catch(() => { if (!cancelled) setCtx(null); })
       .finally(() => { if (!cancelled) setLoading(false); });

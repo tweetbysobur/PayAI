@@ -65,6 +65,18 @@ silently disables screening, and never blocks every payment. This is address
 screening against the real OFAC list, not a full licensed KYC/AML programme;
 that remains on the roadmap.
 
+## Private app data
+
+A wallet address is public. It is not a credential. Records PayAI keeps for
+that address — automations, payment-link memos, support tickets, transaction
+history, analytics, linked wallets — are returned only to a browser that
+recently proved it holds the key (an httpOnly grant, 12 hours, cleared on
+sign-out) or to a merchant presenting its API key. On-chain data stays
+public because the chain already publishes it.
+
+The interactive private key is not among those records. It is derived in the
+browser from the passkey and is never sent to the server.
+
 ## Secrets
 
 No secrets are committed to this repository, at any point in its history. The

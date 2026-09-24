@@ -35,8 +35,8 @@ export function AnalyticsTabContent() {
     const headers = wallet.address ? { "x-wallet-address": wallet.address } : undefined;
     setLoading(true);
     fetch("/api/analytics", { headers })
-      .then((r) => r.json())
-      .then(setA)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (j) setA(j); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [wallet.address]);
