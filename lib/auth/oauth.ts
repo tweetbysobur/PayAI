@@ -21,7 +21,7 @@ export type OAuthProviderId = "google" | "apple" | "x";
 
 export interface OAuthUserInfo {
   /** Provider-scoped account id — combined with the provider id to form the
-   *  deterministic userId Mera keys wallet recovery on. */
+   *  PayAI account id. The wallet address is not derived from this. */
   sub: string;
   label: string;
 }

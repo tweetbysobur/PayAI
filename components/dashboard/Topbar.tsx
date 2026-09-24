@@ -228,6 +228,19 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                         external wallet active, this button belongs to that
                         wallet — the locked account is reached through the
                         switcher above. */}
+                    <button
+                      onClick={() => {
+                        setShowWalletMenu(false);
+                        setBusy(true);
+                        wallet.setUpEmbeddedWallet({ switchPasskey: true })
+                          .then(() => toast("Opened that passkey"))
+                          .catch(() => toast(wallet.error ?? "Couldn't open that passkey.", "error"))
+                          .finally(() => setBusy(false));
+                      }}
+                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
+                    >
+                      <Lock size={13} className="text-muted-foreground" /> Use a different passkey
+                    </button>
                     {wallet.isLocked && wallet.activeKind !== "external" ? (
                       <button
                         onClick={() => {

@@ -4,9 +4,8 @@ export type { AuthMethod };
 
 export interface AuthSession {
   /** Deterministic id derived from the provider + the provider's account id,
-   *  e.g. "google:114823..." — this is what Mera's createOrRecoverWallet()
-   *  keys on, so the same person always recovers the same embedded wallet
-   *  regardless of device. */
+   *  e.g. "google:114823...". This identifies the PayAI account. It does NOT
+   *  derive the wallet — that comes from the passkey. */
   userId: string;
   authMethod: AuthMethod;
   /** Best-effort display label (email or handle) — never used for anything

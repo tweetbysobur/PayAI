@@ -4,7 +4,17 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
-- **Trust & disclosure hardening.** Public pages no longer claim the application
+- **Passkeys are looked up before a new one is created.** Moving the app to
+  `app.usepayai.xyz` left the saved passkey id behind on `usepayai.xyz`
+  (browsers do not share localStorage across hosts), so sign-in registered a
+  second passkey and a second, empty wallet. The original passkey and its
+  funds were never deleted. Sign-in now asks the authenticator for an existing
+  PayAI passkey first, and the credential hint is also stored in a cookie on
+  `.usepayai.xyz`. A Google, X, or email sign-in that already has a wallet
+  cannot mint another one. A new passkey is created only when this device has
+  none and that sign-in has no wallet yet. "Use a different passkey" lists
+  every passkey for the domain, which is how the original wallet is opened
+  if a newer empty one was saved on this browser.
   source is public (the repo is private; contracts stay verified on the explorer).
   Security, Privacy, and Terms now name the two custody exceptions (Payment
   Automations and the Telegram hot-wallet bot), the 0.25% platform fee, the

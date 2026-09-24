@@ -80,9 +80,21 @@ export interface EmbeddedWalletProvider extends WalletProvider {
   isSupported(): boolean;
   /** Create a wallet for a first-time user. */
   create(label: string): Promise<EmbeddedWalletHandle>;
-  /** Re-derive an existing user's wallet. Must be deterministic — the same
-   *  user must always recover the SAME address, never a second wallet. */
+  /** Re-derive an existing passkey's wallet. The same passkey always yields
+   *  the same address. This must not create a credential. */
   recover(): Promise<EmbeddedWalletHandle>;
+  /**
+   * Sign-in / unlock / create, with the rule that an existing passkey is
+   * used before a new one is registered. `created` is true only when this
+   * call registered a new passkey.
+   */
+  open(input: {
+    mode: "auto" | "unlock" | "switch" | "create";
+    label: string;
+    signedIn: boolean;
+    serverHasWallet: boolean;
+    serverAddress?: string | null;
+  }): Promise<{ handle: EmbeddedWalletHandle; created: boolean }>;
   /** Whether this device has a remembered credential, i.e. whether the
    *  natural next action is "recover" rather than "create". */
   hasLocalCredential(): boolean;
@@ -115,6 +127,8 @@ export interface EmbeddedWalletProvider extends WalletProvider {
  */
 export interface EmbeddedWalletHandle {
   address: `0x${string}`;
+  /** Public WebAuthn credential id of the passkey that derived `address`. */
+  credentialId: string;
   signMessage(message: string): Promise<string>;
   sendTransaction(tx: UnsignedTx): Promise<string>;
   /** Zeroes the session's key material. */

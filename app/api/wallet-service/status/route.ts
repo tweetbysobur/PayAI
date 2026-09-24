@@ -11,9 +11,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { decodeSession, isSessionConfigured, SESSION_COOKIE } from "@/lib/auth/session";
 import { isOAuthConfigured } from "@/lib/auth/oauth";
 import { isEmailAuthConfigured } from "@/lib/auth/email";
+import { getAccountWallet } from "@/lib/platform/accountWallet";
 
 export async function GET(req: NextRequest) {
   const session = decodeSession(req.cookies.get(SESSION_COOKIE)?.value);
+  const accountWallet = session ? await getAccountWallet(session.userId).catch(() => null) : null;
   // Every social/email method also needs a signing secret for the account
   // cookie. Without it they'd fail at the last step, after the user had
   // already left for Google — so they're reported unavailable up front.
@@ -28,5 +30,6 @@ export async function GET(req: NextRequest) {
       email: sessions && isEmailAuthConfigured(),
     },
     session,
+    accountWallet,
   });
 }

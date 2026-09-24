@@ -13,6 +13,7 @@
  * note on EmbeddedWalletProvider in ./types.
  */
 import * as mera from "./providers/mera";
+import { classifyPasskeyFailure, runPasskeyOpen } from "./passkey-plan";
 import type { EmbeddedWalletHandle, EmbeddedWalletProvider, UnsignedTx, WalletProviderId } from "./types";
 
 /** Wraps Mera's module-level functions in the provider contract, so the rest
@@ -29,7 +30,28 @@ const meraProvider: EmbeddedWalletProvider = {
   forget: () => mera.forgetCredential(),
   exportPrivateKey: () => mera.exportPrivateKey(),
   create: (label) => mera.createWallet(label).then(toHandle),
-  recover: () => mera.recoverWallet().then(toHandle),
+  // Discoverable on purpose. Pinning the saved credential id hid the original
+  // passkey after a second, empty one had been stored on this browser.
+  recover: () => mera.recoverWallet({ discoverable: true }).then(toHandle),
+  open: async (input) => {
+    const immediate = await mera.immediateMediationAvailable();
+    const outcome = await runPasskeyOpen(
+      {
+        mode: input.mode,
+        remembered: mera.storedCredential() !== null,
+        signedIn: input.signedIn,
+        serverHasWallet: input.serverHasWallet,
+        immediate,
+        serverAddress: input.serverAddress,
+      },
+      {
+        discover: (mediation) => mera.recoverWallet({ discoverable: true, mediation }),
+        create: () => mera.createWallet(input.label),
+        failureKind: classifyPasskeyFailure,
+      },
+    );
+    return { handle: toHandle(outcome.value), created: outcome.created };
+  },
 };
 
 function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
@@ -62,6 +84,7 @@ function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
 
   return {
     address: wallet.address,
+    credentialId: wallet.credentialId,
     async signMessage(message: string) {
       return approved((w) => w.account.signMessage({ message }));
     },

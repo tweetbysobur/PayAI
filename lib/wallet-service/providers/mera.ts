@@ -51,15 +51,14 @@ import { toViemAccount } from "@category-labs/mera/viem";
 import type { LocalAccount } from "viem";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_RPC_URLS } from "@/lib/monad/public";
 import { passkeyRpId } from "@/lib/hosts";
+import { clearPasskeyMemory, loadPasskeyMemory, savePasskeyMemory } from "@/lib/wallet-service/passkey-memory";
 
-/** Remembering the credential id is what turns a returning user's sign-in
- *  into a single biometric prompt instead of an authenticator picker. It is
- *  a public identifier, not a secret — losing it only costs a picker. */
-const CREDENTIAL_KEY = "payai_mera_credential";
-/** The wallet's address, remembered so balances, history and deposit alerts
- *  keep working while the wallet is LOCKED. An address is public — this is
- *  not key material, and nothing here can sign. */
-const ADDRESS_KEY = "payai_mera_address";
+/** Remembering the credential id turns a dashboard unlock into one biometric
+ *  prompt. It is a public WebAuthn id, not a secret. Sign-in does not trust
+ *  it: a saved id from after the host split can be the empty wallet and would
+ *  hide the original passkey. Stored in localStorage and in a cookie on
+ *  `.usepayai.xyz`, because localStorage does not follow the user from the
+ *  marketing host to the app host. See passkey-memory.ts. */
 
 export interface MeraWallet {
   address: `0x${string}`;
@@ -91,42 +90,30 @@ export function isMeraSupported(): boolean {
 }
 
 export function storedCredential(): PasskeyCredentialMetadata | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(CREDENTIAL_KEY);
-    return raw ? (JSON.parse(raw) as PasskeyCredentialMetadata) : null;
-  } catch {
-    return null;
-  }
+  const mem = loadPasskeyMemory();
+  if (!mem) return null;
+  return {
+    credentialId: mem.credentialId,
+    ...(mem.transports ? { transports: mem.transports as PasskeyCredentialMetadata["transports"] } : {}),
+  };
 }
 
-function rememberCredential(credential: PasskeyCredentialMetadata): void {
-  try {
-    localStorage.setItem(CREDENTIAL_KEY, JSON.stringify(credential));
-  } catch {
-    // Private-browsing quota failure. Non-fatal: the wallet still works this
-    // session, and the next sign-in just shows a credential picker.
-  }
+function rememberCredential(credential: PasskeyCredentialMetadata, address?: string): void {
+  savePasskeyMemory({
+    credentialId: credential.credentialId,
+    ...(credential.transports ? { transports: [...credential.transports] } : {}),
+    ...(address ? { address } : {}),
+  });
 }
 
 export function forgetCredential(): void {
-  try {
-    localStorage.removeItem(CREDENTIAL_KEY);
-    localStorage.removeItem(ADDRESS_KEY);
-  } catch {
-    /* nothing to clean up */
-  }
+  clearPasskeyMemory();
 }
 
 /** The address of the wallet this device last unlocked, if any. */
 export function storedAddress(): `0x${string}` | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const a = localStorage.getItem(ADDRESS_KEY);
-    return a && /^0x[0-9a-fA-F]{40}$/.test(a) ? (a as `0x${string}`) : null;
-  } catch {
-    return null;
-  }
+  const address = loadPasskeyMemory()?.address;
+  return address && /^0x[0-9a-fA-F]{40}$/.test(address) ? (address as `0x${string}`) : null;
 }
 
 /** PRF output is 32 bytes of authenticator-bound entropy — used directly as
@@ -146,12 +133,10 @@ function walletFrom(prfOutput: Uint8Array, credentialId: string): MeraWallet {
 /** Records what this device just unlocked. Both values are public — a
  *  credential id and an address — and neither can sign anything. */
 function remember(wallet: MeraWallet, transports?: PasskeyCredentialMetadata["transports"]): void {
-  rememberCredential({ credentialId: wallet.credentialId, ...(transports ? { transports } : {}) });
-  try {
-    localStorage.setItem(ADDRESS_KEY, wallet.address);
-  } catch {
-    /* private mode — balances just won't survive a lock */
-  }
+  rememberCredential(
+    { credentialId: wallet.credentialId, ...(transports ? { transports } : {}) },
+    wallet.address,
+  );
 }
 
 /**
@@ -170,21 +155,62 @@ export async function createWallet(label: string): Promise<MeraWallet> {
 }
 
 /**
- * Re-derives an existing wallet from a passkey the user already has. Returns
- * the SAME address every time — that is a property of the PRF, not of any
- * bookkeeping PayAI does, so a returning user can never end up with a second
- * wallet.
+ * Re-derives an existing wallet from a passkey the user already has. The same
+ * passkey always reproduces the same address. A different passkey does not —
+ * `discoverable` omits the saved credential id so the browser can offer every
+ * PayAI passkey for this domain, including one this origin has never stored.
  */
-export async function recoverWallet(): Promise<MeraWallet> {
-  const result = await getPasskeyPrfOutput({
+export async function recoverWallet(opts?: {
+  discoverable?: boolean;
+  mediation?: "immediate" | "required";
+}): Promise<MeraWallet> {
+  const pinned = opts?.discoverable ? null : storedCredential();
+  const result = await withMediation(opts?.mediation, () => getPasskeyPrfOutput({
     rpId: relyingPartyId(),
-    // Omitted on a fresh device so the browser offers whatever passkeys the
-    // user has synced for this domain.
-    ...(storedCredential() ? { credential: storedCredential()! } : {}),
-  });
+    ...(pinned ? { credential: pinned } : {}),
+  }));
   const wallet = walletFrom(result.prfOutput, result.credentialId);
-  remember(wallet);
+  remember(wallet, pinned?.transports);
   return wallet;
+}
+
+/** Chrome/Safari report this when a silent "is there a passkey?" check is real. */
+export async function immediateMediationAvailable(): Promise<boolean> {
+  if (typeof window === "undefined" || typeof window.PublicKeyCredential === "undefined") return false;
+  const ctor = window.PublicKeyCredential as typeof PublicKeyCredential & {
+    getClientCapabilities?: () => Promise<Record<string, boolean>>;
+  };
+  if (typeof ctor.getClientCapabilities !== "function") return false;
+  try {
+    const caps = await ctor.getClientCapabilities();
+    return caps.immediateGet === true;
+  } catch {
+    return false;
+  }
+}
+
+/** One WebAuthn get() — Mera's — with `mediation` applied. Restored before
+ *  the call returns so a later ceremony is never left wrapped. */
+async function withMediation<T>(mediation: "immediate" | "required" | undefined, run: () => Promise<T>): Promise<T> {
+  if (!mediation || mediation === "required") return run();
+  const creds = navigator.credentials;
+  if (!creds?.get) return run();
+  const orig = creds.get.bind(creds);
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    creds.get = orig;
+  };
+  creds.get = ((options?: CredentialRequestOptions) => {
+    restore();
+    return orig({ ...(options ?? {}), mediation: "immediate" } as unknown as CredentialRequestOptions);
+  }) as typeof creds.get;
+  try {
+    return await run();
+  } finally {
+    restore();
+  }
 }
 
 /**
