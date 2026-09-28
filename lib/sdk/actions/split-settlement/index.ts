@@ -140,7 +140,7 @@ function toUnits(amount: string, decimals: number): bigint {
  * CROSS-field pairing Layer A can't express). Value checks on each individual
  * field already ran in Layer A.
  */
-function collectPairs(inputs: ActionInputs): Pair[] {
+function collectPairs(inputs: ActionInputs, self?: Address): Pair[] {
   const pairs: Pair[] = [];
   for (let i = 1; i <= SDK_MAX_RECIPIENTS; i++) {
     const r = inputs[`recipient${i}`]?.trim();
@@ -149,7 +149,14 @@ function collectPairs(inputs: ActionInputs): Pair[] {
     if (r && !a) throw new SplitInputError(`recipient${i} is missing a matching amount${i}.`);
     if (a && !r) throw new SplitInputError(`amount${i} is missing a matching recipient${i}.`);
     if (!isAddress(r as string)) throw new SplitInputError(`recipient${i} is not a valid address.`);
-    pairs.push({ recipient: getAddress(r as string), amount: a as string });
+    const recipient = getAddress(r as string);
+    // The contract reverts on these (zero recipient / self recipient). Reject
+    // them BEFORE any signature: for an ERC-20 split the approval would
+    // otherwise already be signed and confirmed when the split reverts,
+    // leaving a stray allowance and a wasted approval fee.
+    if (recipient.toLowerCase() === NATIVE) throw new SplitInputError(`recipient${i} cannot be the zero address.`);
+    if (self && recipient.toLowerCase() === self.toLowerCase()) throw new SplitInputError(`recipient${i} cannot be the Split Settlement contract itself.`);
+    pairs.push({ recipient, amount: a as string });
   }
   if (pairs.length === 0) throw new SplitInputError("At least one recipient and amount are required.");
   return pairs;
@@ -174,7 +181,7 @@ function splitAction(target: Address, chainId: number): Action {
       token: { type: "token", required: false, description: "Token to split (leave empty for native MON)" },
     },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const pairs = collectPairs(inputs);
+      const pairs = collectPairs(inputs, target);
       const ctx = await resolveTokenCtx(inputs.token);
       const units = pairs.map((p) => toUnits(p.amount, ctx.decimals));
       const total = units.reduce((a, b) => a + b, 0n);
@@ -195,7 +202,7 @@ function splitAction(target: Address, chainId: number): Action {
       };
     },
     async build(inputs: ActionInputs): Promise<UnsignedActionStep[]> {
-      const pairs = collectPairs(inputs);
+      const pairs = collectPairs(inputs, target);
       const ctx = await resolveTokenCtx(inputs.token);
       const recipients = pairs.map((p) => p.recipient);
       const amounts = pairs.map((p) => toUnits(p.amount, ctx.decimals));

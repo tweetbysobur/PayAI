@@ -143,3 +143,14 @@ describe("ERC-20 input failures", () => {
     await expect(action().build({ token: USDC, recipient1: A, amount1: "0.0000001" }, q)).rejects.toThrow();
   });
 });
+
+describe("recipients the contract would revert are rejected before any signature", () => {
+  it("zero-address recipient is rejected at quote and build", async () => {
+    const zero = "0x0000000000000000000000000000000000000000";
+    await expect(action().quote({ token: USDC, recipient1: zero, amount1: "1" })).rejects.toThrow(/zero address/);
+    await expect(action().build({ token: USDC, recipient1: zero, amount1: "1" }, q)).rejects.toThrow(/zero address/);
+  });
+  it("the SplitSettlement contract as recipient is rejected (no approve step produced)", async () => {
+    await expect(action().build({ token: USDC, recipient1: CANONICAL, amount1: "1" }, q)).rejects.toThrow(/contract itself/);
+  });
+});
