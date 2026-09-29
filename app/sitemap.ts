@@ -12,7 +12,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: "monthly" as const,
     priority: path === "/" ? 1 : 0.7,
   }));
-  const docs = ["/", "/getting-started", "/payments", "/automations", "/fees", "/ask", "/contracts", "/api", "/telegram"].map((path) => ({
+  const docs = ["/", "/getting-started", "/payments", "/automations", "/fees", "/ask", "/contracts", "/sdk"].map((path) => ({
     url: `${DOCS_ORIGIN}${path === "/" ? "/" : path}`,
     lastModified: now,
     changeFrequency: "weekly" as const,

@@ -15,7 +15,6 @@ const MARKETING = [
   "../app/terms/page.tsx",
   "../app/how-it-works/page.tsx",
   "../app/docs/page.tsx",
-  "../app/docs/api/page.tsx",
   "../app/docs/contracts/page.tsx",
   "../components/landing/PlatformSections.tsx",
   "../components/landing/MarketingSections.tsx",

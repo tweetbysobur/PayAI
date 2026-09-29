@@ -39,8 +39,18 @@ describe("docs copy stays honest", () => {
     }
   });
 
-  it("telegram docs call the bot custodial", () => {
-    const src = readFileSync(pageFor("/docs/telegram"), "utf8");
+  it("HTTP API and Telegram bot docs are backend-only, not public pages", () => {
+    const hrefs = DOCS_NAV.flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs).not.toContain("/docs/api");
+    expect(hrefs).not.toContain("/docs/telegram");
+    expect(existsSync(join(root, "app/docs/api/page.tsx"))).toBe(false);
+    expect(existsSync(join(root, "app/docs/telegram/page.tsx"))).toBe(false);
+    expect(existsSync(join(root, "docs/backend/http-api.md"))).toBe(true);
+    expect(existsSync(join(root, "docs/backend/telegram-bot.md"))).toBe(true);
+  });
+
+  it("the Telegram custody disclosure stays public on the Security page", () => {
+    const src = readFileSync(join(root, "app/security/page.tsx"), "utf8");
     expect(src).toMatch(/custodial/i);
     expect(src).toMatch(/\/withdraw/);
   });
@@ -49,6 +59,19 @@ describe("docs copy stays honest", () => {
     const src = readFileSync(pageFor("/docs/fees"), "utf8");
     expect(src).toMatch(/0\.25%/);
     expect(src).not.toMatch(/charges \$0/);
+  });
+
+  it("SDK docs say it isn't a published package and name the documented actions", () => {
+    const src = readFileSync(pageFor("/docs/sdk"), "utf8");
+    expect(src).toMatch(/Not a published package/);
+    expect(src).not.toMatch(/npm install|yarn add|pnpm add/i);
+    for (const action of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON"]) {
+      expect(src, action).toContain(action);
+    }
+    // Aave is deliberately not documented on the public SDK page.
+    expect(src).not.toMatch(/aave/i);
+    // The orphan first SplitSettlement deploy must never be published.
+    expect(src).not.toMatch(/0xfCD284AD855a0D1E0e1f1154C038D70cC33357dd/i);
   });
 
   it("footer lists Docs on the docs host", () => {
