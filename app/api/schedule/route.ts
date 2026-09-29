@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { agentConfig } from "@/lib/agent/brain";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
+import { authError } from "@/lib/platform/auth";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import type { ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
 
@@ -19,6 +20,15 @@ import type { ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types
  * missing wallet on that tenant resolves to a sentinel that matches nothing,
  * rather than silently falling through to "show/edit/cancel everyone's
  * automations."
+ *
+ * Writes (POST / PATCH / DELETE) require the operator API key whenever a live
+ * agent signer is configured — the same gate /api/agent uses. This route never
+ * asked for a wallet signature, and it writes the same records the cron
+ * executes: a POST here stores an automation with no fundingMode, which
+ * settles from the server agent wallet's OWN balance, and PATCH / DELETE only
+ * needed an id plus the owner's public address. Real users create and manage
+ * automations through /api/automations, which proves wallet ownership on
+ * every action. See test/schedule-legacy-auth.test.ts.
  */
 async function senderScopeFor(req: NextRequest, merchantId: string, walletFromBody?: string): Promise<string | null> {
   const { DEMO_TENANT } = await import("@/lib/platform/merchants");
@@ -45,6 +55,8 @@ export async function POST(req: NextRequest) {
   const { rateLimited } = await import("@/lib/platform/ratelimit");
   const limited = await rateLimited(req, "agent");
   if (limited) return limited;
+  const denied = authError(req);
+  if (denied) return denied;
 
   let body: {
     walletAddress?: string; amount?: number; token?: string; recipient?: string;
@@ -139,6 +151,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const denied = authError(req);
+  if (denied) return denied;
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
@@ -191,6 +205,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const denied = authError(req);
+  if (denied) return denied;
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   const { resolveTenantId } = await import("@/lib/platform/tenant");
