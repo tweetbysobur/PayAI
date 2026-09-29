@@ -50,8 +50,7 @@ const DOCS_SLUGS = new Set([
   "fees",
   "ask",
   "contracts",
-  "api",
-  "telegram",
+  "sdk",
 ]);
 
 export { DOCS_SLUGS };

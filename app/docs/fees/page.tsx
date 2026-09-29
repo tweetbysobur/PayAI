@@ -30,6 +30,7 @@ export default function FeesPage() {
             ["Wallet Automation", "0.25%"],
             ["Reserved Funds", "0.25%"],
             ["Swaps", "None"],
+            ["SDK actions (wrap, split)", "None"],
           ]}
         />
         <p>
