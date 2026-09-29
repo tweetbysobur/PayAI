@@ -52,8 +52,12 @@ export async function POST(req: NextRequest) {
   const { getMerchantById, DEMO_TENANT } = await import("@/lib/platform/merchants");
   const { isAddress } = await import("@/lib/payees/directory");
   const merchant = merchantId === DEMO_TENANT ? null : await getMerchantById(merchantId);
-  const recipient = merchant?.wallet || process.env.VERIPAYAI_DEMO_PAYOUT_WALLET || undefined;
   const sender = body.walletAddress && isAddress(body.walletAddress) ? body.walletAddress : null;
+  // A link pays whoever created it. On the shared tenant there's no merchant
+  // payout wallet, so that's the creator's connected wallet — never the PayAI
+  // demo payout wallet, which is only the fallback for a link made with no
+  // wallet at all. See test/links-recipient.test.ts.
+  const recipient = merchant?.wallet || sender || process.env.VERIPAYAI_DEMO_PAYOUT_WALLET || undefined;
   const { createLink } = await import("@/lib/platform/store");
   const link = await createLink(merchantId, {
     amount,

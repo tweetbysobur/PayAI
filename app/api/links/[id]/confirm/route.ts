@@ -90,6 +90,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ ok: false, error: "Transaction does not match this invoice (wrong token, recipient, or amount)." }, { status: 409 });
   }
 
+  // The transfer must have been made for this invoice, not before it existed.
+  // The recipient's past incoming transfers are public, so without this any
+  // unused old one could mark the invoice paid. Five minutes of slack covers
+  // clock skew between this server and block time.
+  let minedAtMs: number;
+  try {
+    const block = await client.getBlock({ blockNumber: receipt.blockNumber });
+    minedAtMs = Number(block.timestamp) * 1000;
+  } catch {
+    await releaseRequest(settleKey);
+    return NextResponse.json({ ok: false, error: "Could not reach the Monad network to verify this transaction. Please retry." }, { status: 503 });
+  }
+  if (minedAtMs < link.createdAt - 5 * 60_000) {
+    await releaseRequest(settleKey);
+    return NextResponse.json({ ok: false, error: "That transaction was made before this invoice was created." }, { status: 409 });
+  }
+
   const updated = await markLinkPaid(id, txHash);
 
   // Surface this in the merchant's revenue/analytics/top-customers exactly like
