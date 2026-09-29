@@ -58,6 +58,7 @@ describe("hostAction", () => {
   it("serves docs at the root of the docs host", () => {
     expect(hostAction("docs", "/")).toEqual({ type: "rewrite", pathname: "/docs" });
     expect(hostAction("docs", "/contracts")).toEqual({ type: "rewrite", pathname: "/docs/contracts" });
+    expect(hostAction("docs", "/sdk")).toEqual({ type: "rewrite", pathname: "/docs/sdk" });
     expect(hostAction("docs", "/auth")).toEqual({
       type: "redirect",
       origin: APP_ORIGIN,

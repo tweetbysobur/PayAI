@@ -62,7 +62,7 @@ export default function TermsPage() {
         <DocsCallout tone="warning" title="Telegram trading bot">
           The Telegram trading bot is custodial: UsePayAI generates and holds an encrypted key for
           that chat so it can sign. Use of the bot is optional and at your own risk. See{" "}
-          <Link href="/docs/telegram">Telegram bot</Link>.
+          <Link href="/security">Security</Link>.
         </DocsCallout>
       </DocsSection>
 

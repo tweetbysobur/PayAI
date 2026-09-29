@@ -181,7 +181,7 @@ export function DocsSection({
         {index ? <span className="font-mono text-[11px] font-medium text-primary-ink">{index}</span> : null}
         {title}
       </h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-7 text-muted-foreground [&_a]:text-primary-ink [&_a]:underline-offset-2 hover:[&_a]:underline [&_code]:rounded [&_code]:bg-white/[0.04] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-foreground [&_strong]:font-medium [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5">
+      <div className="mt-3 space-y-3 text-[15px] leading-7 text-muted-foreground [&_a]:text-primary-ink [&_a]:underline-offset-2 hover:[&_a]:underline [&_code]:rounded [&_code]:bg-white/[0.04] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-foreground [&_strong]:font-medium [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-5">
         {children}
       </div>
     </section>
