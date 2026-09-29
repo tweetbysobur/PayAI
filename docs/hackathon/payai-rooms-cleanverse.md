@@ -18,18 +18,22 @@ of writing nothing technical is.
 | **[Repo]** | Verified by reading this repository at the baseline commit. File paths are cited. |
 | **[CV-Verified]** | Verified from current, authoritative Cleanverse technical documentation. |
 | **[CV-Public]** | Stated in Cleanverse's public, marketing-level material (see [Sources](#15-sources)). Describes intent/behaviour, not an interface. **Not sufficient to build against.** |
+| **[3rd-party]** | Observed in third-party code or hackathon projects that integrated Cleanverse (see §7.1). Useful as a lead for what to ask Cleanverse. **Not authoritative; never build on it without confirmation.** |
 | **[Needs CV]** | Requires confirmation from Cleanverse (docs, API reference, or a person) before we build on it. |
 | **[Proposed]** | A PayAI architectural choice or assumption made in this document. Can be changed by us. |
 
-**Research limits, stated plainly.** During this spec pass, `cleanverse.com`
-was blocked by the sandbox's network egress proxy, so no Cleanverse page
-could be opened directly. The only Cleanverse information available was
-search-result summaries of public pages. Cleanverse's hackathon page refers
-to a "full API v3 reference with endpoints, authentication, and
-request/response examples" **[CV-Public]**, but none of its content has been
-read. **No Cleanverse endpoint, ABI, SDK, contract address, auth scheme, or
-A-USDC deployment in this document is verified.** Anyone with access to the
-Cleanverse developer docs should start with §14 (open questions).
+**Research limits, stated plainly.** During this spec pass (two attempts),
+`cleanverse.com`, `docs.cleanverse.com`, `uatapi.cleanverse.com`, GitHub and
+the Monad testnet RPC were all blocked by the sandbox's network egress proxy.
+No Cleanverse page, API, or on-chain contract could be read directly.
+Available information was (a) search-result summaries of Cleanverse's public
+pages and (b) third-party code: a published npm client for the Cleanverse
+sandbox and search summaries of hackathon repos (§7.1). Cleanverse's
+hackathon page refers to a "full API v3 reference with endpoints,
+authentication, and request/response examples" **[CV-Public]**, which has not
+been read. **No Cleanverse endpoint, ABI, SDK, contract address, auth scheme,
+or A-USDC deployment in this document is verified.** Anyone with access to
+the Cleanverse developer docs should start with §14 (open questions).
 
 ---
 
@@ -324,12 +328,92 @@ Invariants **[Proposed]**:
 | V9 | Terms on what PayAI may store about a verification result (retention, caching) | §11 privacy |
 | V10 | Onboarding URL/flow to send unverified users to | UX for the blocked state |
 
+### 7.1 Leads from third-party integrations — **[3rd-party]**, unverified
+
+These come from code other teams wrote against Cleanverse. They are recorded
+so we know **what to ask**, not so we can build on them. Every item below
+still needs Cleanverse confirmation.
+
+**Source A — `@usecordon/cleanverse` v0.1.0** (npm, MIT, published
+2026-06-17; repo `github.com/winsznx/cordon`). A small REST client that
+describes itself as a client for the "Cleanverse verified-finance sandbox"
+over the "open Cleanverse Skills API". Read in full from the npm tarball.
+What its code does:
+
+- **Base URL:** `https://uatapi.cleanverse.com/api/skills` (a UAT/sandbox
+  host). Overridable via `CLEANVERSE_API_BASE`. Could not be reached from here.
+- **Auth:** none. Plain JSON `fetch`, no API key or signature header.
+- **Response envelope:** `{ code, message, data }`, where `"0000"` = ok,
+  `"0001"` = param error, `"0002"` = failure. Its code treats `0002` on
+  `query_apass` as "this address has no A-Pass".
+- **Endpoints used:**
+
+  | Endpoint | Method | Body | Relevance to Rooms |
+  |---|---|---|---|
+  | `query_chain_config` | GET | — | Returns per-chain config **including token addresses** (see below). Suggests addresses should be resolved at runtime, not hardcoded. |
+  | `query_apass` | POST | `{ chain, address }` | **The eligibility check (V2).** |
+  | `query_user` | POST | `{ chain, symbol, address }` | Blacklist/status signal. |
+  | `query_deposit_institutions` | POST | `{ chain, symbol }` | Institution whitelist per token. |
+  | `query_deposit_address` | POST | `{ chain, address }` | Deposit address for an account. |
+  | `register_data` | POST | `{ chain, symbol, address }` | Registers an account. |
+  | `get_magiclink` | — | — | Returns an enrolment `register_url`. Candidate for V10 (sending unverified users to onboarding). |
+
+- **A-Pass record (`query_apass` data):** `tier` (numeric string, e.g. `"28"`),
+  `subTier`, `group`, `subGroup`, `status` (`1` = active, `2` = frozen),
+  `expirationTime` (unix seconds), `currentKycHash`, `cvRecordId`. So
+  "eligible" is probably **not** a single boolean: status, expiry, and
+  possibly tier/group all matter.
+- **Chain config fields** per chain: `chain_id`, `rpc_url`,
+  `operator_address`, `fee_pay_address`, `fee_receive_address`,
+  `apass_address`, `wallet_core`, `supports_gas_sponsor`, and per token:
+  `token_address`, `a_symbol`, `decimals`, `token_category`
+  (`"token"` | `"atoken"`), **`access_core`**, `deposit_gateway`.
+
+**Source B — `@usecordon/screening` v0.1.0** (same author). Screens an
+inbound sender by calling `query_apass` + `query_user` and applying a policy:
+no A-Pass, frozen, blacklisted, tier too low, group not allowed, near expiry.
+Its on-chain `CordonPolicy` contract is Cordon's own, **not** a Cleanverse
+contract, and is irrelevant to PayAI. Its README targets Monad **testnet**.
+
+**Source C — search summaries of other hackathon repos**
+(`github.com/Cubiczan/councilpay`, `github.com/skymiss18/cleanverseRWA`; the
+repos themselves could not be opened). These describe a **different API
+surface** from Source A:
+- endpoints `POST /generate_apass`, `POST /query_apass`, `POST /verify_apass`,
+  `POST /atoken/launch`, `POST /query_deposit_atoken_list`;
+- a sandbox **API key**, sent as an `api-id` header, with payloads **encrypted
+  with AES-256-CBC** and wrapped as `{"data": "…"}`.
+
+**What this tells us (still leads, not facts):**
+1. There seem to be **two API surfaces**: an unauthenticated "Skills" API
+   (Source A) and a keyed, encrypted API (Source C, probably the "API v3"
+   the hackathon page mentions). Which one PayAI is allowed to use in
+   production, and what the auth really is, is **V1/V7**.
+2. `query_apass` appears in both, so it is the most likely A-Pass
+   eligibility call (V2). `verify_apass` (Source C) may be a stronger check.
+   Its semantics are unknown.
+3. The per-token `access_core` field, plus `operator_address`,
+   `wallet_core` and `supports_gas_sponsor`, **hint that A-Token transfers
+   may go through a Cleanverse "AccessCore" contract or operator** rather
+   than a plain ERC-20 `transfer`. If so, it directly affects §8
+   (Q-T3, Q-T7): Architecture A might have to call AccessCore instead of the
+   token. **This is the single most important thing to confirm.**
+4. Everything observed targets **sandbox/UAT and Monad testnet**. There is
+   no evidence of a mainnet A-USDC (Q-T10).
+5. Proposed eligibility rule for PayAI, **once confirmed**: A-Pass present,
+   `status == active`, `expirationTime` comfortably in the future, not
+   blacklisted. Any tier/group requirement is a Cleanverse/issuer policy
+   question (V8), not something PayAI should invent.
+
 **Testnet aUSDC note.** **[Repo]** `lib/monad/config.ts` `getStablecoin()`
 defaults Monad **testnet** to `0xaC0893567D43C3E7e6e35a72803df05416C1f20D`
 with the comment "Testnet defaults to a sandbox aUSDC (6 decimals)". This
 address is **not verified** as a current Cleanverse deployment and must not
 be assumed to be A-USDC for Rooms until confirmed (V5). On **mainnet**
 `getStablecoin()` returns `MONAD_MAINNET_USDC` (regular USDC), not A-USDC.
+**[Proposed]** If `query_chain_config` (§7.1) is confirmed as authoritative,
+Rooms should read the A-USDC address from it (or check the configured address
+against it) rather than trusting any hardcoded value, including this one.
 
 ---
 
@@ -393,7 +477,7 @@ below.
 | Q-T4 | Is `approve` to a non-A-Pass spender allowed? | B's first step may revert |
 | Q-T5 | Are contract-mediated transfers supported/permitted by policy even if technically possible (travel-rule data per transfer)? | B/C compliance |
 | Q-T6 | Is a direct participant→recipient transfer between two A-Pass holders sufficient and supported with no extra data (memo/travel-rule payload, signature, allowlist)? | Confirms A |
-| Q-T7 | Does a transfer require extra calldata or a different function than ERC-20 `transfer` (e.g. a compliance-aware transfer function)? | Changes the calldata builder even for A |
+| Q-T7 | Does a transfer require extra calldata or a different function than ERC-20 `transfer` (e.g. a compliance-aware transfer function)? In particular: what is the per-token **`access_core`** contract seen in third-party code (§7.1), and must transfers go through it, through `operator_address`, or with gas sponsorship? | Changes the calldata builder even for A; may add an approval to AccessCore |
 | Q-T8 | If PayAI ever charges a fee in A-USDC, must the fee treasury (a Safe) hold an A-Pass? | Forwarder V2 fee path; **MVP proposes no fee on Rooms** |
 | Q-T9 | Behaviour when a party's A-Pass is revoked mid-flow — revert, freeze, clawback? | Room state handling |
 | Q-T10 | Is A-USDC live on **Monad mainnet**, or testnet only? | Hackathon may have to run on testnet |
@@ -553,6 +637,13 @@ be specified in a separate section once those are answered.
 **Cleanverse — blocking**
 - V1–V10 (§7) and Q-T1–Q-T10 (§8). Highest priority: **Q-T3, Q-T6, Q-T7,
   Q-T10, V2, V5, V7, V8.**
+- Which API surface is PayAI meant to use: the unauthenticated Skills API
+  (`uatapi…/api/skills`) or the keyed, encrypted API v3 (`api-id` header,
+  AES-256-CBC)? Is there a production host, or only UAT? (§7.1)
+- What exactly is `access_core`, and is `query_chain_config` the
+  authoritative source for A-USDC and A-Pass addresses? (§7.1)
+- What does `verify_apass` check beyond `query_apass`? Which A-Pass fields
+  (status, expiry, tier, group) must a payer satisfy to send A-USDC? (§7.1)
 
 **Product — PayAI to decide**
 - Q-P1: Does the creator automatically count as a participant?
@@ -579,6 +670,12 @@ search; direct page access was blocked from this environment, so content is
 from search summaries):
 - [Cleanverse Build: Verified Finance Hackathon](https://cleanverse.com/hackathon) — mentions CVI/CVA API access and an "API v3 reference"; not read.
 - [Cleanverse Brings Bank-Grade Trust to On-Chain Transfers](https://cleanverse.com/press-releases/1) — A-Pass / A-Token descriptions.
+
+**Third-party [3rd-party] — leads only, not authoritative** (§7.1):
+- [`@usecordon/cleanverse` on npm](https://www.npmjs.com/package/@usecordon/cleanverse) v0.1.0: tarball read in full.
+- [`@usecordon/screening` on npm](https://www.npmjs.com/package/@usecordon/screening) v0.1.0: tarball read in full.
+- [Cubiczan/councilpay](https://github.com/Cubiczan/councilpay) and [skymiss18/cleanverseRWA](https://github.com/skymiss18/cleanverseRWA): search summaries only, repos not opened.
+- [Cleanverse unveils compliance-native layer for on-chain finance (CFOtech)](https://cfotech.asia/story/cleanverse-unveils-compliance-native-layer-for-on-chain-finance): press coverage.
 
 **Monad** (context only): [Tokens and Bridges — Monad Documentation](https://docs.monad.xyz/developer-essentials/network-information/tokens-and-bridges).
 
