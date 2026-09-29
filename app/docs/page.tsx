@@ -14,9 +14,8 @@ const LINKS = [
   { href: "/docs/automations", title: "Automations", body: "Wallet Automation vs Reserved Funds, bulk, skip, execute now." },
   { href: "/docs/fees", title: "Fees", body: "0.25% on send and automations. Swaps are currently free." },
   { href: "/docs/ask", title: "Ask PayAI", body: "Describe a payment in English, review it, then sign." },
+  { href: "/docs/sdk", title: "PayAI SDK", body: "Wrap and split actions in Ask PayAI, and how each is checked." },
   { href: "/docs/contracts", title: "Contracts", body: "Live addresses and what each contract is allowed to do." },
-  { href: "/docs/api", title: "HTTP API", body: "Public endpoints, merchant keys, and what is not a public SDK." },
-  { href: "/docs/telegram", title: "Telegram bot", body: "A custodial hot wallet for trading from chat. Optional." },
   { href: "/security", title: "Security", body: "Keys, custody exceptions, Ultrafuzz, how to report a bug." },
 ];
 

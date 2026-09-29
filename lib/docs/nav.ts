@@ -8,7 +8,7 @@
 
 import { canonicalDocsPath } from "@/lib/docs/host";
 
-export const DOCS_UPDATED = "20 September 2026";
+export const DOCS_UPDATED = "29 September 2026";
 
 export interface DocsNavItem {
   href: string;
@@ -38,9 +38,8 @@ export const DOCS_NAV: DocsNavGroup[] = [
   {
     title: "Developers",
     items: [
+      { href: "/docs/sdk", label: "PayAI SDK" },
       { href: "/docs/contracts", label: "Contracts" },
-      { href: "/docs/api", label: "HTTP API" },
-      { href: "/docs/telegram", label: "Telegram bot" },
     ],
   },
   {

@@ -76,7 +76,7 @@ export default function AutomationsPage() {
         </p>
         <DocsCallout tone="note" title="Not the Telegram bot">
           Automations are the scheduled-payments exception. The Telegram trading bot is a
-          different, custodial exception. See <Link href="/docs/telegram">Telegram bot</Link>.
+          different, custodial exception. See <Link href="/security">Security</Link>.
         </DocsCallout>
       </DocsSection>
     </DocsChrome>

@@ -59,8 +59,7 @@ export default function SecurityPage() {
           <strong>Telegram trading bot.</strong> If you use the bot, PayAI generates a hot wallet
           for that chat and stores the key encrypted at rest so trades can sign from Telegram.
           That path is custodial. Do not send it more than you are willing to trust to a bot.
-          Withdraw anytime with <code>/withdraw</code>. See{" "}
-          <Link href="/docs/telegram">Telegram bot</Link>.
+          Withdraw anytime with <code>/withdraw</code>.
         </p>
         <DocsCallout tone="warning" title="Different product, different trust">
           The browser app and the Telegram bot are not the same custody model. Interactive PayAI
