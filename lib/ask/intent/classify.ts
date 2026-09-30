@@ -36,6 +36,7 @@ import { ensureBuiltinsRegistered } from "@/lib/sdk/bootstrap";
 import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
 import { getChain, getStablecoin } from "@/lib/monad/config";
 import { parseUnits, formatUnits } from "viem";
+import { recipientAppearsIn } from "@/lib/payees/directory";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -367,7 +368,39 @@ async function understandWithLLM(
 
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!tool) return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you say a bit more?" };
-  return coerce(tool.input as Record<string, unknown>, contextTokenFrom(pending));
+  return enforceRecipientProvenance(coerce(tool.input as Record<string, unknown>, contextTokenFrom(pending)), text, history, pending);
+}
+
+/**
+ * The LLM may point at a recipient the user named; it may never supply one.
+ * A recipient slot it returns is kept only if that exact address / name /
+ * .nad domain appears in something the USER said: this message, an earlier
+ * user turn, or the pending intent the user is correcting. Otherwise the slot
+ * is cleared and the user is asked who should receive the funds — never
+ * substituted. Assistant turns are not a source: the model's own words can't
+ * vouch for a recipient.
+ */
+export function enforceRecipientProvenance(
+  u: Understanding,
+  text: string,
+  history: readonly ConversationTurn[],
+  pending: Understanding | null,
+): Understanding {
+  if (u.outcome !== "complete" && u.outcome !== "incomplete") return u;
+  const recipient = u.slots.recipient;
+  if (!recipient) return u;
+  const sources = [
+    text,
+    ...history.filter((t) => t.role === "user").map((t) => t.content),
+    ...(pending && (pending.outcome === "complete" || pending.outcome === "incomplete") && pending.slots.recipient ? [pending.slots.recipient] : []),
+  ];
+  if (recipientAppearsIn(recipient, sources)) return u;
+  const amount = u.slots.amount ? ` the ${u.slots.amount}${u.slots.asset ? ` ${u.slots.asset}` : ""}` : " it";
+  return {
+    kind: u.kind, outcome: "incomplete",
+    slots: { ...u.slots, recipient: null },
+    question: `Who should receive${amount}? Give a wallet address or a .nad name.`,
+  };
 }
 
 /**

@@ -20,6 +20,7 @@ import {
 } from "../payment/types";
 import type { GuardrailResult, IntentSource, ParsedIntent } from "./types";
 import { extractDomain } from "../monad/domain-resolver";
+import { recipientAppearsIn } from "../payees/directory";
 
 // Per-transaction limits, denominated by asset. Stablecoins (USDC/USDT/USD) are
 // dollar-pegged, so their cap is a straight USD amount ($10,000). MON is a
@@ -350,6 +351,12 @@ export async function parseIntent(
   try {
     const { refineWithLLM } = await import("./llm");
     const refined = await refineWithLLM(rawText, base);
+    // The LLM may normalize a recipient but never supply one: anything that
+    // isn't literally in the user's text falls back to the deterministic
+    // parse (which only ever extracts from the text).
+    if (refined.recipient && !recipientAppearsIn(refined.recipient, [rawText])) {
+      return { intent: { ...refined, recipient: base.recipient }, source: "llm" };
+    }
     return { intent: refined, source: "llm" };
   } catch {
     return { intent: base, source: "fallback" };

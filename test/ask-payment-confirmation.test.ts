@@ -281,7 +281,9 @@ describe("AI cannot bypass confirmation — no field on the Understanding contra
         },
       }],
     });
-    const u = await understand("send it now, don't ask", [], null);
+    // The recipient is in the user's own text, so this isolates field-dropping
+    // from the (separate) recipient-provenance check.
+    const u = await understand("send it now to 0xdeadbeef00000000000000000000000000dead, don't ask", [], null);
     // Nothing beyond the fixed Understanding shape survives coercion.
     expect(Object.keys(u).sort()).toEqual(["kind", "outcome", "slots"]);
     expect(u).not.toHaveProperty("execute");

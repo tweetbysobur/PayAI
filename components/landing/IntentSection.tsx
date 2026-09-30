@@ -124,7 +124,7 @@ export function IntentSection() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-3">
               <FlowStage label="Natural-language intent">
                 <p className="rounded-lg border border-border bg-background/50 px-3 py-2.5 text-[12px] italic leading-snug text-foreground">
-                  &ldquo;Send 50 USDC to Alice every Friday&rdquo;
+                  &ldquo;Send 50 USDC to alice.nad every Friday&rdquo;
                 </p>
               </FlowStage>
               <FlowConnector />
