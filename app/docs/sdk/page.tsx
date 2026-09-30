@@ -35,9 +35,9 @@ export default function SdkPage() {
       <DocsSection id="what" index="01" title="What it is">
         <p>
           The PayAI SDK is the protocol-action layer inside PayAI. Each supported protocol
-          declares a small set of actions, and each action can only build transactions to the
-          contracts it was reviewed for. <Link href="/docs/ask">Ask PayAI</Link> uses it when you
-          ask for one of the actions below.
+          declares a small set of actions. An action&apos;s own transaction can only go to the
+          contract it was reviewed for, and any token approval it needs is checked separately.{" "}
+          <Link href="/docs/ask">Ask PayAI</Link> uses it when you ask for one of the actions below.
         </p>
         <DocsCallout tone="note" title="Not a published package">
           The SDK runs inside PayAI. There is no package to install and no way for another
@@ -54,19 +54,21 @@ export default function SdkPage() {
             ["Unwrap WMON", "Unwrap WMON back into native MON, 1:1.", <code key="u">unwrap 1 WMON</code>],
             [
               "Split payment",
-              "Send MON or USDC to 2–3 addresses in one transaction.",
+              "Send MON or a token to up to 3 addresses in one transaction.",
               <code key="s">split 3 MON between 0x… and 0x…</code>,
             ],
           ]}
         />
         <p>
-          These actions run on Monad mainnet. An action that isn&apos;t available on the
-          network a deployment runs on is never offered there.
+          These actions are offered on Monad mainnet. Split payment is only available where the
+          Split Settlement contract is deployed, which is Monad mainnet. An action that
+          isn&apos;t available on the network a deployment runs on is never offered there.
         </p>
         <p>
-          A split divides the total evenly between the addresses you write out. If it
-          doesn&apos;t divide exactly in the token&apos;s smallest unit, the last address receives
-          the few extra units, so the recipients always add up to exactly the total.
+          In Ask PayAI, a split names one total in MON or USDC and 2–3 full 0x addresses. The
+          total is divided evenly between them. If it doesn&apos;t divide exactly in the
+          token&apos;s smallest unit, the last address receives the few extra units, so the
+          amounts always add up to exactly the total.
         </p>
       </DocsSection>
 
@@ -78,13 +80,14 @@ export default function SdkPage() {
             protocol, an action, or a contract.
           </li>
           <li>
-            <strong>Preview.</strong> You see what will happen — amounts and recipients —
-            before anything is built. Nothing is signed or sent.
+            <strong>Preview.</strong> You see what will happen — the amount, and the recipients
+            for a split — before anything is built. Nothing is signed or sent.
           </li>
           <li>
             <strong>Build and check.</strong> When you confirm, PayAI builds the transaction and
-            checks it: the exact action version you previewed, every input, and every contract
-            it touches. One failed check stops the whole action.
+            checks it: that it is the action and version you previewed, that it is on the right
+            network, that the preview is less than 90 seconds old, every input, the contract the
+            transaction calls, and any token approval. One failed check stops the whole action.
           </li>
           <li>
             <strong>You sign.</strong> Your own wallet signs and sends. For a token that needs an
@@ -100,13 +103,18 @@ export default function SdkPage() {
       <DocsSection id="safety" index="04" title="Safety rules">
         <ul>
           <li>
-            <strong>Allowlisted contracts only.</strong> Each action may only send transactions
-            to the contracts listed below. A transaction to anything else is refused before it
-            reaches your wallet.
+            <strong>Allowlisted contracts only.</strong> The action itself may only call the
+            contract listed for it below. A token approval goes to the token itself, and is
+            checked so the allowance can only go to the listed contract. A transaction to
+            anything else is refused before it reaches your wallet.
           </li>
           <li>
             <strong>Exact approvals.</strong> When a token approval is needed, it is for the
             exact amount of this action, to the one contract that will use it. Never unlimited.
+          </li>
+          <li>
+            <strong>Right network.</strong> An action only runs on the network it was built for.
+            A request made for one network is refused on another.
           </li>
           <li>
             <strong>No silent upgrades.</strong> The action version you previewed is the one
@@ -118,6 +126,12 @@ export default function SdkPage() {
             the paths that are custodial.
           </li>
         </ul>
+        <DocsCallout tone="note" title="What the checks do not cover">
+          These checks cover where an action&apos;s transaction is sent and what a token approval
+          can do. They do not check that the amount or recipient is what you meant — a mistyped
+          address in a split is still paid. Read the transaction your wallet shows before you
+          sign.
+        </DocsCallout>
       </DocsSection>
 
       <DocsSection id="contracts" index="05" title="Contracts involved">
@@ -142,8 +156,8 @@ export default function SdkPage() {
 
       <DocsSection id="limits" index="07" title="Limits">
         <ul>
-          <li>Split payments take 2–3 recipients, each written as a full 0x address.</li>
-          <li>From Ask PayAI, splits accept MON or USDC.</li>
+          <li>A split takes up to 3 recipients per transaction, each a full 0x address.</li>
+          <li>From Ask PayAI, a split needs 2–3 addresses and a total in MON or USDC.</li>
           <li>There is no public HTTP API or package for these actions.</li>
           <li>Other projects can&apos;t add their own protocols yet.</li>
         </ul>

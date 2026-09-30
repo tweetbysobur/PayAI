@@ -68,10 +68,32 @@ describe("docs copy stays honest", () => {
     for (const action of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON"]) {
       expect(src, action).toContain(action);
     }
-    // Aave is deliberately not documented on the public SDK page.
+    // Aave is deliberately not documented on the public SDK page, or as a
+    // supported integration anywhere in the public docs.
     expect(src).not.toMatch(/aave/i);
+    expect(src).not.toMatch(/aave-v3-monad/i);
+    // The approval step of an ERC-20 split targets the token, not a listed
+    // contract; the page must not claim otherwise.
+    expect(src).toMatch(/A token approval goes to the token itself/);
+    expect(src).not.toMatch(/Each action may only send transactions/);
+    // Guarantees stay bounded: the page says what the checks do NOT cover.
+    expect(src).toMatch(/What the checks do not cover/);
+    expect(src).toMatch(/Right network/);
     // The orphan first SplitSettlement deploy must never be published.
     expect(src).not.toMatch(/0xfCD284AD855a0D1E0e1f1154C038D70cC33357dd/i);
+  });
+
+  it("no public docs page, nav, or sitemap documents Aave as an integration", () => {
+    const surfaces = [
+      ...files,
+      join(root, "app/docs/page.tsx"),
+      join(root, "lib/docs/nav.ts"),
+      join(root, "app/sitemap.ts"),
+      join(root, "lib/hosts.ts"),
+    ];
+    for (const file of surfaces) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/aave/i);
+    }
   });
 
   it("footer lists Docs on the docs host", () => {

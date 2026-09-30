@@ -8,7 +8,7 @@
 
 import { canonicalDocsPath } from "@/lib/docs/host";
 
-export const DOCS_UPDATED = "29 September 2026";
+export const DOCS_UPDATED = "30 September 2026";
 
 export interface DocsNavItem {
   href: string;

@@ -5,7 +5,7 @@ import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "Docs · PayAI",
-  description: "How PayAI works on Monad: payments, automations, fees, contracts, and the Telegram bot.",
+  description: "How PayAI works on Monad: payments, automations, fees, contracts, and the SDK actions.",
 };
 
 const LINKS = [

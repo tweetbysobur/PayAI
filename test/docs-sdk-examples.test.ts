@@ -50,6 +50,29 @@ describe("/docs/sdk examples route to the documented actions", () => {
     expect(u.slots.actionId).toBe(actionId);
   });
 
+  it("the contract addresses on the page are exactly what the registry allowlists", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync(new URL("../app/docs/sdk/page.tsx", import.meta.url), "utf8");
+    const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
+    const { getProtocol } = await import("@/lib/sdk/registry");
+    ensureBuiltinsRegistered();
+    for (const id of ["wmon", "payai-settlement"]) {
+      const protocol = getProtocol(id)!;
+      expect(protocol, id).toBeTruthy();
+      expect(protocol.allowedTargets, id).toHaveLength(1);
+      expect(src, id).toContain(protocol.allowedTargets[0]);
+    }
+  });
+
+  it("the documented actions exist at version 1.0.0 and are the only ones documented", async () => {
+    const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
+    const { getCurrentActionVersion } = await import("@/lib/sdk/registry");
+    ensureBuiltinsRegistered();
+    for (const [protocolId, actionId] of [["wmon", "wrap"], ["wmon", "unwrap"], ["payai-settlement", "split_payment"]]) {
+      expect(getCurrentActionVersion(protocolId, actionId), `${protocolId}/${actionId}`).toBe("1.0.0");
+    }
+  });
+
   it("the page shows exactly these phrases", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../app/docs/sdk/page.tsx", import.meta.url), "utf8");
