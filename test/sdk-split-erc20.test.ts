@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeFunctionData, encodeFunctionData, parseUnits, maxUint256, getAddress } from "viem";
 import type { UnsignedActionStep } from "@/lib/sdk/types";
 
@@ -23,6 +23,13 @@ const pair = (recipient: string, amount: string) => ({ recipient, amount: usdc(a
 
 const APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 const SPLIT_ABI = [{ type: "function", name: "splitPayment", stateMutability: "payable", inputs: [{ name: "token", type: "address" }, { name: "recipients", type: "address[]" }, { name: "amounts", type: "uint256[]" }, { name: "ref", type: "bytes32" }], outputs: [{ type: "uint256" }] }] as const;
+
+const TREASURY = "0xA282833B52b1B66D58bD2007081dCC037798C0b0";
+// Live fee terms, fixed for this file (the reader is tested in sdk-split-fee).
+vi.mock("@/lib/sdk/actions/split-settlement/fee", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sdk/actions/split-settlement/fee")>()),
+  readSplitFeeTerms: async () => ({ feeBps: 25, treasury: TREASURY, source: "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D" }),
+}));
 
 let registry: typeof import("@/lib/sdk/registry");
 let validate: typeof import("@/lib/sdk/validate");
@@ -51,11 +58,15 @@ function action() {
   if (!a) throw new Error("not registered");
   return a;
 }
-const q = { summary: "", details: {}, quotedAt: Date.now() };
+/** Build needs the quote's fee terms, so every build goes through a real quote. */
+async function buildOf(inputs: Parameters<ReturnType<typeof action>["build"]>[0]) {
+  const a = action();
+  return a.build(inputs, await a.quote(inputs));
+}
 
 describe("ERC-20 build", () => {
   it("produces [approve, splitPayment]: approve→token, split→canonical, value 0", async () => {
-    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
+    const steps = await buildOf({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
     expect(steps).toHaveLength(2);
     expect(steps[0].kind).toBe("approve");
     expect(steps[1].kind).toBe("action");
@@ -66,8 +77,9 @@ describe("ERC-20 build", () => {
   });
 
   it("approves the EXACT total (== sum of amounts), to the canonical spender, with matching metadata", async () => {
-    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
-    const total = parseUnits("100", 6);
+    const steps = await buildOf({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
+    // 100 USDC to recipients + floor(100 USDC * 25 / 10000) = 0.25 USDC fee.
+    const total = parseUnits("100.25", 6);
     const dec = decodeFunctionData({ abi: APPROVE_ABI, data: steps[0].tx.data as `0x${string}` });
     const [spender, amount] = dec.args as [string, bigint];
     expect(spender.toLowerCase()).toBe(CANONICAL.toLowerCase());
@@ -76,32 +88,34 @@ describe("ERC-20 build", () => {
   });
 
   it("splitPayment carries the token arg + correct recipients/amounts in base units", async () => {
-    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
+    const steps = await buildOf({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
     const dec = decodeFunctionData({ abi: SPLIT_ABI, data: steps[1].tx.data as `0x${string}` });
     const [token, recipients, amounts] = dec.args as [string, string[], bigint[], string];
     expect(token.toLowerCase()).toBe(USDC.toLowerCase());
-    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase()]);
-    expect(amounts).toEqual([parseUnits("60", 6), parseUnits("40", 6)]);
+    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase(), TREASURY.toLowerCase()]);
+    expect(amounts).toEqual([parseUnits("60", 6), parseUnits("40", 6), parseUnits("0.25", 6)]);
   });
 
   it("the whole ERC-20 step set passes Layer B (approve spender allowlisted; split target canonical)", async () => {
     const a = action();
     const proto = registry.getProtocol("payai-settlement")!;
-    const steps = await a.build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
+    const steps = await buildOf({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
     expect(validate.validateSteps(steps, a, proto).ok).toBe(true);
   });
 
-  it("three recipients also build cleanly, approving exactly their sum", async () => {
-    const three = await action().build({ token: USDC, recipients: [pair(A, "10"), pair(B, "20"), pair(ROUTER, "30")] }, q);
+  it("three recipients also build cleanly, approving exactly their sum plus the fee", async () => {
+    const three = await buildOf({ token: USDC, recipients: [pair(A, "10"), pair(B, "20"), pair(ROUTER, "30")] });
     const dec = decodeFunctionData({ abi: APPROVE_ABI, data: three[0].tx.data as `0x${string}` });
-    expect((dec.args as [string, bigint])[1]).toBe(parseUnits("60", 6));
+    expect((dec.args as [string, bigint])[1]).toBe(parseUnits("60.15", 6));
   });
 });
 
 describe("ERC-20 quote", () => {
   it("summarizes in USDC with per-recipient amounts and the token identity", async () => {
     const res = await action().quote({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
-    expect(res.summary).toBe("Split 100 USDC between 2 recipients");
+    expect(res.summary).toBe("Split 100 USDC between 2 recipients (+ 0.25 USDC platform fee)");
+    expect(res.details["platform fee"]).toBe("0.25 USDC");
+    expect(res.details["total you pay"]).toBe("100.25 USDC");
     expect(res.details.total).toBe("100 USDC");
     expect(res.details.token).toContain("USDC");
     expect(res.details["amount 1"]).toBe("60 USDC");
@@ -134,13 +148,13 @@ describe("action-build security (Layer B rejects a buggy/malicious variant)", ()
 
 describe("ERC-20 input failures", () => {
   it("a single recipient is rejected (a split needs at least two)", async () => {
-    await expect(action().build({ token: USDC, recipients: [pair(A, "60")] }, q)).rejects.toThrow(/between 2 and 10/);
+    await expect(buildOf({ token: USDC, recipients: [pair(A, "60")] })).rejects.toThrow(/between 2 and 9/);
   });
   it("a zero amount is rejected", async () => {
     await expect(action().quote({ token: USDC, recipients: [{ recipient: A, amount: "0" }, pair(B, "1")] })).rejects.toThrow();
   });
   it("a decimal amount is rejected — amounts are exact base units, never parsed as decimals here", async () => {
-    await expect(action().build({ token: USDC, recipients: [{ recipient: A, amount: "0.5" }, pair(B, "1")] }, q)).rejects.toThrow(/whole number of base units/);
+    await expect(buildOf({ token: USDC, recipients: [{ recipient: A, amount: "0.5" }, pair(B, "1")] })).rejects.toThrow(/whole number of base units/);
   });
 });
 
@@ -148,12 +162,12 @@ describe("recipients the contract would revert are rejected before any signature
   it("zero-address recipient is rejected at quote and build", async () => {
     const zero = "0x0000000000000000000000000000000000000000";
     await expect(action().quote({ token: USDC, recipients: [pair(zero, "1"), pair(B, "1")] })).rejects.toThrow(/zero address/);
-    await expect(action().build({ token: USDC, recipients: [pair(zero, "1"), pair(B, "1")] }, q)).rejects.toThrow(/zero address/);
+    await expect(buildOf({ token: USDC, recipients: [pair(zero, "1"), pair(B, "1")] })).rejects.toThrow(/zero address/);
   });
   it("the SplitSettlement contract as recipient is rejected (no approve step produced)", async () => {
-    await expect(action().build({ token: USDC, recipients: [pair(CANONICAL, "1"), pair(B, "1")] }, q)).rejects.toThrow(/contract itself/);
+    await expect(buildOf({ token: USDC, recipients: [pair(CANONICAL, "1"), pair(B, "1")] })).rejects.toThrow(/contract itself/);
   });
   it("a duplicate recipient is rejected before any approve step exists", async () => {
-    await expect(action().build({ token: USDC, recipients: [pair(A, "1"), pair(A, "2")] }, q)).rejects.toThrow(/more than once/);
+    await expect(buildOf({ token: USDC, recipients: [pair(A, "1"), pair(A, "2")] })).rejects.toThrow(/more than once/);
   });
 });

@@ -23,7 +23,9 @@ import { NextRequest, NextResponse } from "next/server";
  *   5. one build per quote — the quoteId is claimed (lib/platform/
  *      idempotency.ts). A second build of the same quote is refused, so one
  *      preview can't hand out two sets of signable steps.
- *   6. quote() then build(), then validateSteps (Layer B) — every returned
+ *   6. quote() — whose terms (e.g. split's live fee rate/treasury) must hash
+ *      to exactly the previewed terms, else FEE_TERMS_CHANGED — then build(),
+ *      then validateSteps (Layer B) — every returned
  *      step's target must be in BOTH allowlists. One bad target rejects the
  *      ENTIRE action; there is no partial build.
  *
@@ -69,7 +71,7 @@ export async function POST(req: NextRequest) {
     const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
     const { resolveExecutable, validateInputs, validateSteps } = await import("@/lib/sdk/validate");
     const { getChain } = await import("@/lib/monad/config");
-    const { verifyQuoteToken } = await import("@/lib/sdk/quoteToken");
+    const { verifyQuoteToken, termsHash } = await import("@/lib/sdk/quoteToken");
     const { enforcePaymentPolicy } = await import("@/lib/sdk/policy");
     const { buildKey } = await import("@/lib/sdk/settlement");
     ensureBuiltinsRegistered();
@@ -125,7 +127,19 @@ export async function POST(req: NextRequest) {
     claimedKey = key;
 
     // 6. Quote then build — only now, after every gate passed — then Layer B.
+    // The fresh quote's economic terms (e.g. split's live fee rate and
+    // treasury) must be exactly the ones the user previewed; if they moved,
+    // refuse rather than build on terms the user never saw. The claim stays
+    // completed-as-refused, so this preview can't be retried into a build.
     const quote = await action.quote(validInputs.value);
+    if (termsHash(quote.terms) !== token.termsHash) {
+      await completeRequest(key, null);
+      claimedKey = null;
+      return NextResponse.json({
+        ok: false, code: "FEE_TERMS_CHANGED",
+        message: "PayAI's fee terms changed since this preview. Request a fresh preview to see the current terms.",
+      });
+    }
     const steps = await action.build(validInputs.value, quote);
     const validated = validateSteps(steps, action, protocol);
     if (!validated.ok) {
@@ -141,6 +155,7 @@ export async function POST(req: NextRequest) {
       finalTx: { to: final.tx.to, data: final.tx.data, value: final.tx.value },
       riskScore: policy?.riskScore ?? null,
       compliance: policy?.compliance ?? null,
+      ...(quote.terms ? { terms: quote.terms } : {}),
       builtAt: Date.now(),
     };
     await completeRequest(key, record);

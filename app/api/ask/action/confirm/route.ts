@@ -119,7 +119,10 @@ export async function POST(req: NextRequest) {
       txHash,
       logs: receipt.logs.map((l) => ({ address: l.address, topics: l.topics, data: l.data })),
     };
-    const details = await action.parseResult(actionReceipt);
+    // The terms the transaction was BUILT on (e.g. split's fee treasury and
+    // amount) — how the result tells the fee leg apart from recipients.
+    const resultCtx = { terms: record.terms };
+    const details = await action.parseResult(actionReceipt, resultCtx);
 
     if (receipt.status !== "success") {
       // A mined revert is final for this hash: complete (not release) so a
@@ -129,14 +132,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(revertBody);
     }
 
-    // 4. History from the canonical on-chain event only.
-    const settled = action.settledOutflows ? await action.settledOutflows(actionReceipt) : [];
+    // 4. History from the canonical on-chain event only: one row per USER
+    // recipient. The platform fee is never a recipient row — it is recorded
+    // on the settlement every row shares.
+    const settledAll = action.settledOutflows
+      ? await action.settledOutflows(actionReceipt, resultCtx)
+      : { recipients: [], fee: null };
+    const settled = settledAll.recipients;
     if (settled.length > 0) {
       const { formatUnits } = await import("viem");
       const { resolveTenantId } = await import("@/lib/platform/tenant");
       const { recordTx } = await import("@/lib/platform/store");
       const merchantId = await resolveTenantId(req);
       const ref = details.settlementId ? ` (settlement #${details.settlementId})` : "";
+      const recipientTotal = settled.reduce((s, o) => s + o.amountUnits, 0n);
+      const platformFee = settledAll.fee?.amountUnits ?? 0n;
+      const settlement = {
+        id: details.settlementId ?? null,
+        recipientCount: settled.length,
+        token: settled[0].symbol,
+        decimals: settled[0].decimals,
+        recipientTotal: recipientTotal.toString(),
+        platformFee: platformFee.toString(),
+        treasury: settledAll.fee?.treasury ?? null,
+        grossPaid: (recipientTotal + platformFee).toString(),
+      };
       for (let i = 0; i < settled.length; i++) {
         const o = settled[i];
         const shown = o.decimals > 0 ? formatUnits(o.amountUnits, o.decimals) : o.amountUnits.toString();
@@ -155,6 +175,7 @@ export async function POST(req: NextRequest) {
           txHash,
           explorerUrl,
           summary: `${action.name} ${i + 1}/${settled.length}: ${shown} ${o.symbol} to ${o.recipient}${ref}`,
+          settlement,
         });
       }
     }

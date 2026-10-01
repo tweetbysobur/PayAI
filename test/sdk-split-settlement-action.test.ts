@@ -25,6 +25,15 @@ const C = "0x9c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d";
 const ONE = parseEther("1").toString();
 const TWO = parseEther("2").toString();
 
+// The live fee terms (normally read from the wired forwarder's feeBps() /
+// treasury()) — fixed here so this file tests the action, not the RPC. The
+// fee reader itself is covered in sdk-split-fee.test.ts.
+const TREASURY = "0xA282833B52b1B66D58bD2007081dCC037798C0b0";
+vi.mock("@/lib/sdk/actions/split-settlement/fee", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sdk/actions/split-settlement/fee")>()),
+  readSplitFeeTerms: async () => ({ feeBps: 25, treasury: TREASURY, source: "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D" }),
+}));
+
 vi.mock("@/lib/monad/config", () => ({
   getChain: () => ({ id: MONAD }),
 }));
@@ -59,7 +68,11 @@ function getSplit() {
   return action;
 }
 const list = (...pairs: [string, string][]) => ({ recipients: pairs.map(([recipient, amount]) => ({ recipient, amount })) });
-const NO_QUOTE = { summary: "", details: {}, quotedAt: Date.now() };
+/** Build needs the quote's fee terms, so build from a real quote. */
+async function buildOf(inputs: Parameters<ReturnType<typeof getSplit>["build"]>[0]) {
+  const action = getSplit();
+  return action.build(inputs, await action.quote(inputs));
+}
 
 /** n distinct real-looking addresses. */
 function addrs(n: number): string[] {
@@ -82,9 +95,10 @@ describe("registration", () => {
     const all = [...(proto?.allowedTargets ?? []), ...getSplit().allowedTargets].map((a) => a.toLowerCase());
     expect(all).not.toContain(ORPHAN.toLowerCase());
   });
-  it("the participant limits match the deployed contract (2..10)", () => {
+  it("participant limits: 2..9 user recipients; the contract's 10th slot is reserved for the fee leg", () => {
     expect(split.SPLIT_MIN_RECIPIENTS).toBe(2);
-    expect(split.SPLIT_MAX_RECIPIENTS).toBe(10);
+    expect(split.SPLIT_MAX_RECIPIENTS).toBe(9);
+    expect(split.SPLIT_CONTRACT_MAX_LEGS).toBe(10);
   });
 });
 
@@ -92,14 +106,14 @@ describe("registration", () => {
 describe("inputs (Layer A)", () => {
   const layerA = (inputs: unknown) => validate.validateInputs(getSplit().inputSchema, inputs as never);
 
-  it("accepts 2, 3 and 10 recipients", () => {
+  it("accepts 2, 3 and 9 recipients", () => {
     expect(layerA(list([A, ONE], [B, TWO])).ok).toBe(true);
     expect(layerA(list([A, ONE], [B, TWO], [C, ONE])).ok).toBe(true);
-    expect(layerA({ recipients: addrs(10).map((r) => ({ recipient: r, amount: "1" })) }).ok).toBe(true);
+    expect(layerA({ recipients: addrs(9).map((r) => ({ recipient: r, amount: "1" })) }).ok).toBe(true);
   });
-  it("rejects 1 recipient and 11 recipients", () => {
+  it("rejects 1 recipient and 10 recipients", () => {
     expect(layerA(list([A, ONE])).ok).toBe(false);
-    expect(layerA({ recipients: addrs(11).map((r) => ({ recipient: r, amount: "1" })) }).ok).toBe(false);
+    expect(layerA({ recipients: addrs(10).map((r) => ({ recipient: r, amount: "1" })) }).ok).toBe(false);
   });
   it("rejects a malformed recipient", () => {
     expect(layerA(list(["not-an-address", ONE], [B, TWO])).ok).toBe(false);
@@ -130,8 +144,10 @@ describe("inputs (Layer A)", () => {
 describe("quote", () => {
   it("summarizes the split and lists every recipient/amount, no tx side effect", async () => {
     const q = await getSplit().quote(list([A, ONE], [B, TWO]));
-    expect(q.summary).toBe("Split 3 MON between 2 recipients");
+    expect(q.summary).toBe("Split 3 MON between 2 recipients (+ 0.0075 MON platform fee)");
     expect(q.details.total).toBe("3 MON");
+    expect(q.details["platform fee"]).toBe("0.0075 MON");
+    expect(q.details["total you pay"]).toBe("3.0075 MON");
     expect(q.details.recipients).toBe("2");
     expect(q.details["amount 1"]).toBe("1 MON");
     expect(q.details["recipient 2"].toLowerCase()).toBe(B.toLowerCase());
@@ -146,29 +162,30 @@ describe("quote", () => {
 
 /* ── Build ────────────────────────────────────────────────────────────── */
 describe("build", () => {
-  it("native: one step to the canonical target, value == exact total, exact integer amounts, no approve", async () => {
-    const steps = await getSplit().build(list([A, ONE], [B, TWO]), NO_QUOTE);
+  it("native: one step to the canonical target, value == recipients + fee, recipients exact, fee leg last, no approve", async () => {
+    const steps = await buildOf(list([A, ONE], [B, TWO]));
     expect(steps).toHaveLength(1);
     const s = steps[0];
     expect(s.kind).toBe("action");
     expect(s.tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    expect(s.tx.value).toBe(parseEther("3").toString());
+    expect(s.tx.value).toBe(parseEther("3.0075").toString());
     const decoded = decodeFunctionData({ abi: SPLIT_ABI, data: s.tx.data as `0x${string}` });
     const [token, recipients, amounts, ref] = decoded.args as [string, string[], bigint[], string];
     expect(token).toBe(NATIVE);
-    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase()]);
-    expect(amounts).toEqual([parseEther("1"), parseEther("2")]);
+    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase(), TREASURY.toLowerCase()]);
+    expect(amounts).toEqual([parseEther("1"), parseEther("2"), parseEther("0.0075")]);
     expect(ref).toMatch(/^0x[0-9a-f]{64}$/i);
   });
   it("odd base-unit amounts pass through exactly — no rounding anywhere", async () => {
-    const steps = await getSplit().build(list([A, "333333333333333333"], [B, "333333333333333334"]), NO_QUOTE);
+    const steps = await buildOf(list([A, "333333333333333333"], [B, "333333333333333334"]));
     const [, , amounts] = decodeFunctionData({ abi: SPLIT_ABI, data: steps[0].tx.data as `0x${string}` }).args as [string, string[], bigint[], string];
-    expect(amounts).toEqual([333333333333333333n, 333333333333333334n]);
-    expect(steps[0].tx.value).toBe("666666666666666667");
+    // Recipients exact; fee = floor(666666666666666667 * 25 / 10000) = 1666666666666666.
+    expect(amounts).toEqual([333333333333333333n, 333333333333333334n, 1666666666666666n]);
+    expect(steps[0].tx.value).toBe((666666666666666667n + 1666666666666666n).toString());
   });
   it("rejects the zero address and the settlement contract itself as recipients, before any step exists", async () => {
-    await expect(getSplit().build(list([NATIVE, ONE], [B, TWO]), NO_QUOTE)).rejects.toThrow(/zero address/);
-    await expect(getSplit().build(list([CANONICAL, ONE], [B, TWO]), NO_QUOTE)).rejects.toThrow(/Split Settlement contract/);
+    await expect(buildOf(list([NATIVE, ONE], [B, TWO]))).rejects.toThrow(/zero address/);
+    await expect(buildOf(list([CANONICAL, ONE], [B, TWO]))).rejects.toThrow(/Split Settlement contract/);
   });
   it("outflows() reports exactly the recipients and base-unit amounts that build() pays", async () => {
     const out = await getSplit().outflows!(list([A, ONE], [B, TWO]));
@@ -182,7 +199,7 @@ describe("Layer B", () => {
   it("accepts the canonical target and rejects any other target in full", async () => {
     const action = getSplit();
     const proto = registry.getProtocol("payai-settlement")!;
-    const good = await action.build(list([A, ONE], [B, TWO]), NO_QUOTE);
+    const good = await buildOf(list([A, ONE], [B, TWO]));
     expect(validate.validateSteps(good, action, proto).ok).toBe(true);
 
     const hostile = [{ kind: "action" as const, label: "drain", tx: { to: ORPHAN as `0x${string}`, data: "0xabcdef" as const, value: "0" } }];
@@ -215,28 +232,30 @@ describe("confirmed results come only from the canonical event", () => {
     const out = await getSplit().parseResult({ status: "success", txHash: TX, logs: [log] });
     expect(out.settlementId).toBe("7");
     expect(out.recipientCount).toBe("2");
-    expect(out.total).toBe("3 MON");
+    expect(out["recipients total"]).toBe("3 MON");
+    expect(out["platform fee"]).toBe("0 MON"); // no build terms supplied → no fee leg identified
     expect(out["amount 2"]).toBe("2 MON");
     const settled = await getSplit().settledOutflows!({ status: "success", txHash: TX, logs: [log] });
-    expect(settled.map((o) => [o.recipient.toLowerCase(), o.amountUnits])).toEqual([[B.toLowerCase(), parseEther("1")], [C.toLowerCase(), parseEther("2")]]);
+    expect(settled.recipients.map((o) => [o.recipient.toLowerCase(), o.amountUnits])).toEqual([[B.toLowerCase(), parseEther("1")], [C.toLowerCase(), parseEther("2")]]);
+    expect(settled.fee).toBeNull();
   });
 
   it("IGNORES a SplitPaymentExecuted from a NON-canonical address (e.g. the orphan)", async () => {
     const log = eventLog(ORPHAN, { settlementId: 99n, payer: A, token: NATIVE, totalAmount: parseEther("100"), recipients: [B], amounts: [parseEther("100")] });
     const out = await getSplit().parseResult({ status: "success", txHash: TX, logs: [log] });
     expect(out).toEqual({ status: "success" });
-    expect(await getSplit().settledOutflows!({ status: "success", txHash: TX, logs: [log] })).toEqual([]);
+    expect(await getSplit().settledOutflows!({ status: "success", txHash: TX, logs: [log] })).toEqual({ recipients: [], fee: null });
   });
 
   it("a success with no settlement event reports only status — never fabricates a result", async () => {
     expect(await getSplit().parseResult({ status: "success", txHash: TX, logs: [] })).toEqual({ status: "success" });
-    expect(await getSplit().settledOutflows!({ status: "success", txHash: TX, logs: [] })).toEqual([]);
+    expect(await getSplit().settledOutflows!({ status: "success", txHash: TX, logs: [] })).toEqual({ recipients: [], fee: null });
   });
 
   it("a reverted receipt reports reverted and settles nothing, even with a canonical event present", async () => {
     const log = eventLog(CANONICAL, { settlementId: 1n, payer: A, token: NATIVE, totalAmount: parseEther("3"), recipients: [B, C], amounts: [parseEther("1"), parseEther("2")] });
     expect(await getSplit().parseResult({ status: "reverted", txHash: TX, logs: [log] })).toEqual({ status: "reverted" });
-    expect(await getSplit().settledOutflows!({ status: "reverted", txHash: TX, logs: [log] })).toEqual([]);
+    expect(await getSplit().settledOutflows!({ status: "reverted", txHash: TX, logs: [log] })).toEqual({ recipients: [], fee: null });
   });
 });
 
@@ -249,9 +268,9 @@ describe("security invariants", () => {
     expect(recipients.type).toBe("list");
     if (recipients.type === "list") expect(Object.keys(recipients.items).sort()).toEqual(["amount", "recipient"]);
   });
-  it("every build target is the canonical address, for 2, 3 and 10 recipients", async () => {
-    for (const n of [2, 3, 10]) {
-      const steps = await getSplit().build({ recipients: addrs(n).map((r) => ({ recipient: r, amount: "500" })) }, NO_QUOTE);
+  it("every build target is the canonical address, for 2, 3 and 9 recipients", async () => {
+    for (const n of [2, 3, 9]) {
+      const steps = await buildOf({ recipients: addrs(n).map((r) => ({ recipient: r, amount: "500000" })) });
       for (const s of steps) expect(s.tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
     }
   });

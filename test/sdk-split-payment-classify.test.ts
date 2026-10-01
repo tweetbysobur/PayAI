@@ -34,6 +34,13 @@ vi.mock("@/lib/monad/domain-resolver", async (importActual) => {
   };
 });
 
+// Live fee terms (normally the wired forwarder's feeBps()/treasury()), fixed
+// for this file; the reader itself is covered in sdk-split-fee.test.ts.
+const FEE_TREASURY = "0xA282833B52b1B66D58bD2007081dCC037798C0b0";
+vi.mock("@/lib/sdk/actions/split-settlement/fee", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sdk/actions/split-settlement/fee")>()),
+  readSplitFeeTerms: async () => ({ feeBps: 25, treasury: FEE_TREASURY, source: "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D" }),
+}));
 const USDC = "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60";
 const A = "0x9f8e7d6c5b4a39281706f5e4d3c2b1a098765432";
 const B = "0x3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f";
@@ -100,12 +107,12 @@ describe("equal splits", () => {
     expect(pairs).toEqual([[A, "333333333333333333"], [B, "333333333333333333"], [C, "333333333333333334"]]);
     expect(pairs.reduce((s, [, a]) => s + BigInt(a), 0n)).toBe(10n ** 18n);
   });
-  it("10 recipients (the contract maximum) is accepted; 11 is refused", async () => {
-    const ten = Array.from({ length: 10 }, (_, i) => `0x${(i + 16).toString(16)}${"c0ffee00".repeat(5)}`.slice(0, 42));
-    const { pairs } = await split(`split 10 USDC between ${ten.join(", ")}`);
-    expect(pairs).toHaveLength(10);
-    const eleven = [...ten, "0xfeedfacefeedfacefeedfacefeedfacefeedface"];
-    expect(await clarification(`split 11 USDC between ${eleven.join(", ")}`)).toMatch(/at most 10/);
+  it("9 recipients (the user maximum — the 10th contract slot is the fee leg) is accepted; 10 is refused", async () => {
+    const nine = Array.from({ length: 9 }, (_, i) => `0x${(i + 16).toString(16)}${"c0ffee00".repeat(5)}`.slice(0, 42));
+    const { pairs } = await split(`split 9 USDC between ${nine.join(", ")}`);
+    expect(pairs).toHaveLength(9);
+    const ten = [...nine, "0xfeedfacefeedfacefeedfacefeedfacefeedface"];
+    expect(await clarification(`split 10 USDC between ${ten.join(", ")}`)).toMatch(/at most 9/);
   });
   it("'distribute 0.06 MON to A, B and C' — 'to' introduces the list", async () => {
     const { pairs } = await split(`distribute 0.06 MON to ${A}, ${B} and ${C}`);

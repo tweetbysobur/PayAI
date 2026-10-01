@@ -31,8 +31,9 @@
  * fee-on-transfer rejection / atomicity on-chain; nothing here changes that.
  *
  * ── v2.0.0 input model ───────────────────────────────────────────────────────
- * `recipients` is a list of { recipient, amount } with 2..10 entries (10 is
- * the deployed contract's MAX_RECIPIENTS). Every recipient is a concrete 0x
+ * `recipients` is a list of { recipient, amount } with 2..9 entries. The
+ * deployed contract's MAX_RECIPIENTS is 10; the 10th slot is reserved for the
+ * PayAI platform fee leg (see "Platform fee" below). Every recipient is a concrete 0x
  * address — names and .nad domains are resolved BEFORE this action, by the
  * intent layer (lib/payees/resolve.ts); this action never resolves anything.
  * Every amount is an exact integer in the token's base units ("units" field
@@ -40,6 +41,18 @@
  * "The rest" is never an input: the caller computes it and passes a concrete
  * amount. Recipients must be unique (the contract would accept duplicates;
  * PayAI refuses them as almost certainly a mistake).
+ *
+ * ── Platform fee ─────────────────────────────────────────────────────────────
+ * PayAI's standard platform fee, charged ON TOP of the recipients' exact
+ * amounts: fee = floor(recipientTotal * feeBps / 10000), with feeBps and the
+ * treasury read live from the chain (./fee.ts). The fee is ONE extra leg —
+ * { treasury, fee } — appended to the same splitPayment call, so the whole
+ * payment (recipients + fee) settles atomically in one transaction; no
+ * contract change. A fee that floors to 0 adds no leg (the contract rejects
+ * zero amounts). quote() returns the fee terms; build() reproduces them
+ * exactly or refuses, and the routes refuse a build whose terms moved since
+ * the preview. The treasury can never be named as a user recipient, so the
+ * confirmed result can always tell the fee leg apart.
  *
  * Server-side (reads app config, and for a non-stablecoin token reads its
  * decimals on-chain). Registered by an explicit call to
@@ -52,7 +65,10 @@ import { isAddress } from "@/lib/payees/directory";
 import { getChain, getStablecoin } from "@/lib/monad/config";
 import { resolveToken } from "@/lib/monad/tokenRegistry";
 import { ActionInputError, inputList, inputString } from "@/lib/sdk/types";
-import type { Action, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
+import type {
+  Action, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ActionResultContext, ProtocolAdapter, SettledOutflows, UnsignedActionStep,
+} from "@/lib/sdk/types";
+import { readSplitFeeTerms, splitPlatformFee, type SplitFeeTerms } from "./fee";
 
 const PROTOCOL_ID = "payai-settlement";
 const ACTION_ID = "split_payment";
@@ -62,8 +78,13 @@ const VERSION = "2.0.0";
  *  its own path; a "split" to one wallet is almost certainly a mistake. */
 export const SPLIT_MIN_RECIPIENTS = 2;
 /** The deployed SplitSettlement's own MAX_RECIPIENTS (an immutable constant
- *  in contracts/contracts/SplitSettlement.sol). Never above it. */
-export const SPLIT_MAX_RECIPIENTS = 10;
+ *  in contracts/contracts/SplitSettlement.sol) — every leg, fee included. */
+export const SPLIT_CONTRACT_MAX_LEGS = 10;
+/** Most USER recipients a split takes: the contract's limit minus the one
+ *  slot reserved for the platform fee leg. Applied always — even on a split
+ *  whose fee happens to floor to zero — so the limit a user sees never
+ *  depends on the amount. */
+export const SPLIT_MAX_RECIPIENTS = SPLIT_CONTRACT_MAX_LEGS - 1;
 const UINT256_MAX = (1n << 256n) - 1n;
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as const;
@@ -145,7 +166,7 @@ async function resolveTokenCtx(tokenInput?: string): Promise<TokenCtx> {
  * Defensive re-checks of shape (address, positive integer) are deliberate:
  * this function must be safe even if called on unvalidated inputs.
  */
-function collectPairs(inputs: ActionInputs, self?: Address): Pair[] {
+function collectPairs(inputs: ActionInputs, self?: Address, treasury?: Address): Pair[] {
   const items = inputList(inputs, "recipients");
   if (items.length < SPLIT_MIN_RECIPIENTS || items.length > SPLIT_MAX_RECIPIENTS) {
     throw new SplitInputError(`A split needs between ${SPLIT_MIN_RECIPIENTS} and ${SPLIT_MAX_RECIPIENTS} recipients.`);
@@ -163,6 +184,7 @@ function collectPairs(inputs: ActionInputs, self?: Address): Pair[] {
     const key = recipient.toLowerCase();
     if (key === NATIVE) throw new SplitInputError(`Recipient ${n} cannot be the zero address.`);
     if (self && key === self.toLowerCase()) throw new SplitInputError(`Recipient ${n} cannot be the Split Settlement contract itself.`);
+    if (treasury && key === treasury.toLowerCase()) throw new SplitInputError(`Recipient ${n} is PayAI's fee treasury, which can't be a split recipient.`);
     if (seen.has(key)) throw new SplitInputError(`Recipient ${n} appears more than once — each recipient can only be listed once.`);
     seen.add(key);
     const units = BigInt(a);
@@ -191,32 +213,51 @@ function splitAction(target: Address, chainId: number): Action {
       token: { type: "token", required: false, description: "Token to split (leave empty for native MON)" },
     },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const pairs = collectPairs(inputs, target);
+      const fee = await readSplitFeeTerms();
+      const pairs = collectPairs(inputs, target, fee.treasury);
       const ctx = await resolveTokenCtx(inputString(inputs, "token"));
-      const units = pairs.map((p) => p.units);
-      const total = units.reduce((a, b) => a + b, 0n);
-      const fmt = (u: bigint) => formatUnits(u, ctx.decimals);
+      const priced = priceSplit(pairs, fee);
+      const fmt = (u: bigint) => `${formatUnits(u, ctx.decimals)} ${ctx.symbol}`;
       const details: Record<string, string> = {
         token: ctx.isNative ? "MON (native)" : `${ctx.symbol} (${ctx.address})`,
         recipients: String(pairs.length),
-        total: `${fmt(total)} ${ctx.symbol}`,
+        total: fmt(priced.recipientTotal),
       };
       pairs.forEach((p, i) => {
         details[`recipient ${i + 1}`] = p.recipient;
-        details[`amount ${i + 1}`] = `${fmt(units[i])} ${ctx.symbol}`;
+        details[`amount ${i + 1}`] = fmt(p.units);
       });
+      details["platform fee"] = fmt(priced.fee);
+      details["total you pay"] = fmt(priced.gross);
       return {
-        summary: `Split ${fmt(total)} ${ctx.symbol} between ${pairs.length} recipient${pairs.length === 1 ? "" : "s"}`,
+        summary: `Split ${fmt(priced.recipientTotal)} between ${pairs.length} recipient${pairs.length === 1 ? "" : "s"} (+ ${fmt(priced.fee)} platform fee)`,
         details,
         quotedAt: Date.now(),
+        terms: feeTerms(priced, fee, ctx),
       };
     },
-    async build(inputs: ActionInputs): Promise<UnsignedActionStep[]> {
-      const pairs = collectPairs(inputs, target);
+    async build(inputs: ActionInputs, quote: ActionQuoteResult): Promise<UnsignedActionStep[]> {
+      // The fee is taken ONLY from the quote's terms (which the build route
+      // has already proven equal to the previewed ones) — build never prices
+      // the fee itself. Anything inconsistent refuses.
+      const fee = termsFromQuote(quote);
+      const pairs = collectPairs(inputs, target, fee.treasury);
       const ctx = await resolveTokenCtx(inputString(inputs, "token"));
-      const recipients = pairs.map((p) => p.recipient);
-      const amounts = pairs.map((p) => p.units);
-      const total = amounts.reduce((a, b) => a + b, 0n);
+      const priced = priceSplit(pairs, fee);
+      const expected = feeTerms(priced, fee, ctx);
+      for (const k of Object.keys(expected) as (keyof typeof expected)[]) {
+        if (quote.terms?.[k] !== expected[k]) throw new SplitInputError("This split's fee terms don't match its inputs — request a fresh preview.");
+      }
+
+      // Every leg of the one transaction: the user's recipients, exactly as
+      // asked, then the platform fee leg (only when the fee is non-zero).
+      const legs = pairs.map((p) => ({ recipient: p.recipient, units: p.units }));
+      if (priced.fee > 0n) legs.push({ recipient: fee.treasury, units: priced.fee });
+      if (legs.length > SPLIT_CONTRACT_MAX_LEGS) throw new SplitInputError("This split has too many legs for the settlement contract.");
+      const recipients = legs.map((l) => l.recipient);
+      const amounts = legs.map((l) => l.units);
+      const gross = amounts.reduce((a, b) => a + b, 0n);
+      if (gross !== priced.gross) throw new Error("split_payment: legs must sum to recipients + fee.");
       const tokenArg = ctx.isNative ? NATIVE : ctx.address;
       // Random per-build correlation ref. It never gates execution on-chain
       // (the contract doesn't check it; replay protection is the tx nonce),
@@ -228,14 +269,11 @@ function splitAction(target: Address, chainId: number): Action {
       const steps: UnsignedActionStep[] = [];
 
       if (!ctx.isNative) {
-        // MANDATORY (Phase 5B §8): the allowance is EXACTLY the settlement
-        // total — never more, never unlimited. Asserted here so a future edit
-        // can't silently let approval and settlement diverge; Layer B
-        // independently re-checks the decoded calldata against this same value.
-        const approveAmount = total;
-        if (approveAmount !== amounts.reduce((a, b) => a + b, 0n)) {
-          throw new Error("split_payment: approval amount must equal the sum of recipient amounts.");
-        }
+        // MANDATORY (Phase 5B §8): the allowance is EXACTLY what the
+        // settlement will pull — every recipient leg plus the fee leg — never
+        // more, never unlimited. Layer B independently re-checks the decoded
+        // calldata against this same value.
+        const approveAmount = gross;
         steps.push({
           kind: "approve",
           label: `Approve ${fmt(approveAmount)} ${ctx.symbol} for PayAI Split Settlement`,
@@ -250,34 +288,73 @@ function splitAction(target: Address, chainId: number): Action {
 
       steps.push({
         kind: "action",
-        label: `Split ${fmt(total)} ${ctx.symbol} to ${pairs.length} recipient${pairs.length === 1 ? "" : "s"}`,
+        label: `Split ${fmt(priced.recipientTotal)} ${ctx.symbol} to ${pairs.length} recipient${pairs.length === 1 ? "" : "s"}${priced.fee > 0n ? ` + ${fmt(priced.fee)} ${ctx.symbol} platform fee` : ""}`,
         tx: {
           to: target,
           data: encodeFunctionData({ abi: SPLIT_ABI, functionName: "splitPayment", args: [tokenArg, recipients, amounts, ref] }),
-          value: ctx.isNative ? total.toString() : "0",
+          value: ctx.isNative ? gross.toString() : "0",
         },
       });
       return steps;
     },
     async outflows(inputs: ActionInputs): Promise<readonly ActionOutflow[]> {
-      const pairs = collectPairs(inputs, target);
+      // The user's recipients only. The fee leg goes to PayAI's own
+      // Safe-controlled treasury; it isn't a payment to screen.
+      const fee = await readSplitFeeTerms();
+      const pairs = collectPairs(inputs, target, fee.treasury);
       const ctx = await resolveTokenCtx(inputString(inputs, "token"));
       return pairs.map((p) => ({ recipient: p.recipient, amountUnits: p.units, token: ctx.address, symbol: ctx.symbol, decimals: ctx.decimals }));
     },
-    parseResult: (receipt) => parseSplitReceipt(receipt, target),
-    async settledOutflows(receipt: ActionReceipt): Promise<readonly ActionOutflow[]> {
+    parseResult: (receipt, rctx) => parseSplitReceipt(receipt, target, rctx),
+    async settledOutflows(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<SettledOutflows> {
       const settled = decodeSettlement(receipt, target);
-      if (!settled) return [];
+      if (!settled) return { recipients: [], fee: null };
       const ctx = await tokenCtxOrNull(settled.token);
-      return settled.recipients.map((r, i) => ({
-        recipient: getAddress(r),
-        amountUnits: settled.amounts[i] ?? 0n,
-        token: getAddress(settled.token),
-        symbol: ctx?.symbol ?? "tokens",
-        decimals: ctx?.decimals ?? 0,
-      }));
+      const legs = separateFeeLeg(settled, rctx);
+      const token = getAddress(settled.token);
+      const symbol = ctx?.symbol ?? "tokens";
+      const decimals = ctx?.decimals ?? 0;
+      return {
+        recipients: legs.recipients.map((l) => ({ recipient: getAddress(l.recipient), amountUnits: l.units, token, symbol, decimals })),
+        fee: legs.fee ? { amountUnits: legs.fee.units, token, treasury: getAddress(legs.fee.recipient), symbol, decimals } : null,
+      };
     },
   };
+}
+
+interface PricedSplit { recipientTotal: bigint; fee: bigint; gross: bigint }
+
+function priceSplit(pairs: Pair[], fee: SplitFeeTerms): PricedSplit {
+  const recipientTotal = pairs.reduce((a, p) => a + p.units, 0n);
+  const platformFee = splitPlatformFee(recipientTotal, fee.feeBps);
+  const gross = recipientTotal + platformFee;
+  if (gross > UINT256_MAX) throw new SplitInputError("The split total is too large.");
+  return { recipientTotal, fee: platformFee, gross };
+}
+
+/** The terms bound into the quote token. Strings only; addresses lowercased
+ *  so the canonical form is stable. */
+function feeTerms(priced: PricedSplit, fee: SplitFeeTerms, ctx: TokenCtx) {
+  return {
+    feeBps: String(fee.feeBps),
+    treasury: fee.treasury.toLowerCase(),
+    feeSource: fee.source.toLowerCase(),
+    token: (ctx.isNative ? NATIVE : ctx.address).toLowerCase(),
+    recipientTotal: priced.recipientTotal.toString(),
+    fee: priced.fee.toString(),
+    gross: priced.gross.toString(),
+  };
+}
+
+/** Read the fee rate/treasury out of a quote's terms, refusing anything
+ *  missing or malformed — build must never run without priced terms. */
+function termsFromQuote(quote: ActionQuoteResult): SplitFeeTerms {
+  const t = quote.terms;
+  const feeBps = Number(t?.feeBps);
+  const missing = () => new SplitInputError("This split has no valid fee terms — request a fresh preview.");
+  if (!t || !Number.isInteger(feeBps) || feeBps < 0 || feeBps > 100) throw missing();
+  if (!t.treasury || !isAddress(t.treasury) || !t.feeSource || !isAddress(t.feeSource)) throw missing();
+  return { feeBps, treasury: getAddress(t.treasury), source: getAddress(t.feeSource) };
 }
 
 interface SettledSplit {
@@ -316,28 +393,56 @@ async function tokenCtxOrNull(token: Address): Promise<TokenCtx | null> {
 }
 
 /**
+ * Split the confirmed legs into the user's recipients and the platform fee
+ * leg. The fee leg is identified ONLY by the build's own terms (the treasury
+ * it was built to pay, and the exact fee) — and since the treasury can never
+ * be a user recipient, a leg to it with exactly that amount is unambiguously
+ * the fee. Without terms (a split built before fees existed), every leg is a
+ * recipient.
+ */
+function separateFeeLeg(settled: SettledSplit, rctx?: ActionResultContext): {
+  recipients: { recipient: string; units: bigint }[];
+  fee: { recipient: string; units: bigint } | null;
+} {
+  const legs = settled.recipients.map((r, i) => ({ recipient: r, units: settled.amounts[i] ?? 0n }));
+  const treasury = rctx?.terms?.treasury?.toLowerCase();
+  const feeUnits = rctx?.terms?.fee;
+  if (!treasury || !feeUnits || feeUnits === "0") return { recipients: legs, fee: null };
+  const idx = legs.findIndex((l) => l.recipient.toLowerCase() === treasury && l.units.toString() === feeUnits);
+  if (idx < 0) return { recipients: legs, fee: null };
+  return { recipients: legs.filter((_, i) => i !== idx), fee: legs[idx] };
+}
+
+/**
  * Display fields for the confirmed split. Amounts are formatted with the
  * token's real decimals when they can be read; otherwise shown in base units,
  * labelled as such — never guessed. A receipt with no canonical event reports
- * only its status, never a fabricated result.
+ * only its status, never a fabricated result. The platform fee is reported
+ * separately from the recipients, never as one of them.
  */
-async function parseSplitReceipt(receipt: ActionReceipt, canonical: Address): Promise<Readonly<Record<string, string>>> {
+async function parseSplitReceipt(receipt: ActionReceipt, canonical: Address, rctx?: ActionResultContext): Promise<Readonly<Record<string, string>>> {
   const settled = decodeSettlement(receipt, canonical);
   if (!settled) return { status: receipt.status };
   const ctx = await tokenCtxOrNull(settled.token);
   const fmt = (u: bigint | undefined) =>
     u == null ? "" : ctx ? `${formatUnits(u, ctx.decimals)} ${ctx.symbol}` : `${u.toString()} base units`;
+  const { recipients, fee } = separateFeeLeg(settled, rctx);
+  const recipientTotal = recipients.reduce((s, l) => s + l.units, 0n);
   const out: Record<string, string> = {
     status: receipt.status,
     settlementId: settled.settlementId.toString(),
     payer: settled.payer,
     token: ctx ? (ctx.isNative ? "MON (native)" : `${ctx.symbol} (${settled.token})`) : settled.token,
-    recipientCount: String(settled.recipients.length),
-    total: fmt(settled.totalAmount),
+    recipientCount: String(recipients.length),
+    "recipients total": fmt(recipientTotal),
+    "platform fee": fmt(fee?.units ?? 0n),
+    "total paid": fmt(settled.totalAmount),
+    transaction: receipt.txHash,
   };
-  settled.recipients.forEach((r, i) => {
-    out[`recipient ${i + 1}`] = r;
-    out[`amount ${i + 1}`] = fmt(settled.amounts[i]);
+  if (fee) out.treasury = fee.recipient;
+  recipients.forEach((l, i) => {
+    out[`recipient ${i + 1}`] = l.recipient;
+    out[`amount ${i + 1}`] = fmt(l.units);
   });
   return out;
 }

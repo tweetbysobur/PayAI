@@ -24,6 +24,13 @@ const B = "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b";
 const NATIVE = "0x0000000000000000000000000000000000000000";
 
 vi.mock("@/lib/platform/ratelimit", () => ({ rateLimited: async () => null }));
+// Live fee terms (normally the wired forwarder's feeBps()/treasury()), fixed
+// for this file; the reader itself is covered in sdk-split-fee.test.ts.
+const FEE_TREASURY = "0xA282833B52b1B66D58bD2007081dCC037798C0b0";
+vi.mock("@/lib/sdk/actions/split-settlement/fee", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sdk/actions/split-settlement/fee")>()),
+  readSplitFeeTerms: async () => ({ feeBps: 25, treasury: FEE_TREASURY, source: "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D" }),
+}));
 vi.mock("@/lib/payment/sanctions", () => ({
   ensureSanctionsLoaded: async () => {}, isSanctionedAddress: () => false, sanctionsListLoaded: () => true,
 }));
@@ -127,7 +134,8 @@ describe("native MON — full pipeline", () => {
     expect(bj.steps).toHaveLength(1);
     expect(final.tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
     expect(token).toBe(NATIVE);
-    expect(final.tx.value).toBe(parseUnits("0.002", 18).toString());
+    // recipients 0.002 MON + floor(0.002 MON * 25 / 10000) = 0.000005 MON fee
+    expect(final.tx.value).toBe(parseUnits("0.002005", 18).toString());
 
     const hash = newHash();
     mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, amounts)] });
@@ -145,10 +153,10 @@ describe("native MON — full pipeline", () => {
   });
 
   it("history uses the CONFIRMED event amounts, not the preview or inputs", async () => {
-    const { bj, final, recipients } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const { bj, final, recipients, amounts } = await prepare(`split 0.002 MON between ${A} and ${B}`);
     const hash = newHash();
     // The event is the source of truth for what settled.
-    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, [parseUnits("0.0015", 18), parseUnits("0.0005", 18)])] });
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, [parseUnits("0.0015", 18), parseUnits("0.0005", 18), amounts[2]])] });
     await confirm(bj.quoteId, hash);
     const rows = await historyFor(hash);
     expect(rows.map((r) => r.amount).sort()).toEqual([0.0005, 0.0015]);
@@ -201,15 +209,17 @@ describe("ERC-20 USDC — full pipeline", () => {
     expect(bj.steps[0].kind).toBe("approve");
     const [spender, approveAmt] = decodeFunctionData({ abi: APPROVE_ABI, data: bj.steps[0].tx.data }).args as [string, bigint];
     expect(spender.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    expect(approveAmt).toBe(parseUnits("0.05", 6));
+    expect(approveAmt).toBe(parseUnits("0.050125", 6)); // 0.05 to recipients + 0.000125 fee
     expect(token.toLowerCase()).toBe(USDC.toLowerCase());
-    expect(amounts).toEqual([parseUnits("0.03", 6), parseUnits("0.02", 6)]);
+    expect(amounts).toEqual([parseUnits("0.03", 6), parseUnits("0.02", 6), parseUnits("0.000125", 6)]);
 
     const hash = newHash();
     mine(final, { status: "success", from: WALLET, logs: [canonicalLog(USDC, recipients, amounts)] });
     const { json } = await confirm(bj.quoteId, hash);
     expect(json.ok).toBe(true);
-    expect(json.details.total).toBe("0.05 USDC"); // formatted with the token's real decimals
+    expect(json.details["recipients total"]).toBe("0.05 USDC"); // formatted with the token's real decimals
+    expect(json.details["platform fee"]).toBe("0.000125 USDC");
+    expect(json.details["total paid"]).toBe("0.050125 USDC");
     const rows = await historyFor(hash);
     expect(rows.map((r) => [r.recipient?.toLowerCase(), r.amount, r.token]).sort()).toEqual([
       [A.toLowerCase(), 0.03, "USDC"], [B.toLowerCase(), 0.02, "USDC"],

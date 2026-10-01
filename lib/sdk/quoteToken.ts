@@ -10,6 +10,9 @@
  *   inputsHash  — sha256 of the exact validated inputs the user previewed
  *   quotedAt    — when the server produced the quote
  *   quoteId     — a random id for this quote (the idempotency key at build)
+ *   termsHash   — sha256 of the quote's economic terms (e.g. split's fee
+ *                 rate, treasury and fee amount); build re-quotes and must
+ *                 reproduce exactly these, or it refuses (FEE_TERMS_CHANGED)
  *
  * So the client can't (a) build different inputs from the ones it previewed,
  * (b) refresh or invent a quote timestamp — build takes quotedAt ONLY from the
@@ -60,6 +63,13 @@ export function inputsHash(inputs: ActionInputs): string {
   return createHash("sha256").update(canonicalInputs(inputs)).digest("hex");
 }
 
+/** Canonical hash of a quote's terms. No terms hashes the same as empty
+ *  terms, so actions without economic terms are unaffected. */
+export function termsHash(terms: Readonly<Record<string, string>> | undefined): string {
+  const sorted = Object.keys(terms ?? {}).sort().map((k) => [k, (terms ?? {})[k]]);
+  return createHash("sha256").update(JSON.stringify(sorted)).digest("hex");
+}
+
 export interface QuoteIdentity {
   protocolId: string;
   actionId: string;
@@ -70,20 +80,24 @@ export interface QuoteIdentity {
 interface QuotePayload {
   p: string; a: string; v: string; c: number;
   h: string; t: number; q: string;
+  /** termsHash of the quote's terms. */
+  k: string;
 }
 
-export function issueQuoteToken(id: QuoteIdentity, inputs: ActionInputs, quotedAt: number): { quoteToken: string; quoteId: string } {
+export function issueQuoteToken(
+  id: QuoteIdentity, inputs: ActionInputs, quotedAt: number, terms?: Readonly<Record<string, string>>,
+): { quoteToken: string; quoteId: string } {
   const quoteId = randomBytes(16).toString("hex");
   const payload: QuotePayload = {
     p: id.protocolId, a: id.actionId, v: id.version, c: id.chainId,
-    h: inputsHash(inputs), t: quotedAt, q: quoteId,
+    h: inputsHash(inputs), t: quotedAt, q: quoteId, k: termsHash(terms),
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return { quoteToken: `${encoded}.${sign(encoded)}`, quoteId };
 }
 
 export type QuoteVerifyResult =
-  | { ok: true; quotedAt: number; quoteId: string }
+  | { ok: true; quotedAt: number; quoteId: string; termsHash: string }
   | { ok: false; message: string };
 
 const QUOTE_ID_RE = /^[0-9a-f]{32}$/;
@@ -116,7 +130,8 @@ export function verifyQuoteToken(token: unknown, id: QuoteIdentity, inputs: Acti
     !payload || typeof payload !== "object" ||
     typeof payload.t !== "number" || !Number.isSafeInteger(payload.t) ||
     typeof payload.q !== "string" || !QUOTE_ID_RE.test(payload.q) ||
-    typeof payload.h !== "string" || !HASH_RE.test(payload.h)
+    typeof payload.h !== "string" || !HASH_RE.test(payload.h) ||
+    typeof payload.k !== "string" || !HASH_RE.test(payload.k)
   ) return refuse();
 
   if (payload.p !== id.protocolId || payload.a !== id.actionId || payload.v !== id.version || payload.c !== id.chainId) {
@@ -125,5 +140,5 @@ export function verifyQuoteToken(token: unknown, id: QuoteIdentity, inputs: Acti
   if (payload.h !== inputsHash(inputs)) {
     return refuse("These details differ from the preview you saw — please request a fresh preview.");
   }
-  return { ok: true, quotedAt: payload.t, quoteId: payload.q };
+  return { ok: true, quotedAt: payload.t, quoteId: payload.q, termsHash: payload.k };
 }

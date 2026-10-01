@@ -27,6 +27,13 @@ const B = "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b";
 const SANCTIONED = "0x8589427373d6d84e98730d7795d8f6f8731fda16";
 
 vi.mock("@/lib/platform/ratelimit", () => ({ rateLimited: async () => null }));
+// Live fee terms (normally the wired forwarder's feeBps()/treasury()), fixed
+// for this file; the reader itself is covered in sdk-split-fee.test.ts.
+const FEE_TREASURY = "0xA282833B52b1B66D58bD2007081dCC037798C0b0";
+vi.mock("@/lib/sdk/actions/split-settlement/fee", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sdk/actions/split-settlement/fee")>()),
+  readSplitFeeTerms: async () => ({ feeBps: 25, treasury: FEE_TREASURY, source: "0x8b2c7E8FA09fCd664dbA9764FD63Bf3A4c56464D" }),
+}));
 vi.mock("@/lib/payment/sanctions", () => ({
   ensureSanctionsLoaded: async () => {},
   isSanctionedAddress: (a: string) => a.toLowerCase() === SANCTIONED,
@@ -77,8 +84,10 @@ describe("preview (/api/ask/action)", () => {
   it("quotes the split and issues a quote token + quoteId — never steps", async () => {
     const pj = await preview();
     expect(pj.ok).toBe(true);
-    expect(pj.summary).toBe("Split 3 MON between 2 recipients");
+    expect(pj.summary).toBe("Split 3 MON between 2 recipients (+ 0.0075 MON platform fee)");
     expect(pj.details.total).toBe("3 MON");
+    expect(pj.details["platform fee"]).toBe("0.0075 MON");
+    expect(pj.details["total you pay"]).toBe("3.0075 MON");
     expect(pj.quoteToken).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
     expect(pj.quoteId).toMatch(/^[0-9a-f]{32}$/);
     expect(pj.steps).toBeUndefined();
@@ -92,17 +101,17 @@ describe("preview (/api/ask/action)", () => {
 });
 
 describe("build (/api/ask/action/build) — the quote token is the boundary", () => {
-  it("a valid token builds ONE native step to the canonical target with value == exact total", async () => {
+  it("a valid token builds ONE native step to the canonical target with value == recipients + fee", async () => {
     const pj = await preview();
     const { json } = await build({ inputs: NATIVE_INPUTS, quoteToken: pj.quoteToken });
     expect(json.ok).toBe(true);
     expect(json.quoteId).toBe(pj.quoteId);
     expect(json.steps).toHaveLength(1);
     expect(json.steps[0].tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    expect(json.steps[0].tx.value).toBe(parseEther("3").toString());
+    expect(json.steps[0].tx.value).toBe(parseEther("3.0075").toString()); // recipients + 0.25% fee
     const [token, recipients] = decodeFunctionData({ abi: SPLIT_ABI, data: json.steps[0].tx.data as `0x${string}` }).args as [string, string[], bigint[], string];
     expect(token).toBe("0x0000000000000000000000000000000000000000");
-    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase()]);
+    expect(recipients.map((r) => r.toLowerCase())).toEqual([A.toLowerCase(), B.toLowerCase(), FEE_TREASURY.toLowerCase()]);
   });
 
   it("a missing token is refused (QUOTE_REQUIRED) — the server never manufactures freshness", async () => {

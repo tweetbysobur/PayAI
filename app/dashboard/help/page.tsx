@@ -198,7 +198,7 @@ const ARTICLES: Article[] = [
     category: "fees",
     question: "What does PayAI charge?",
     answer: [
-      "PayAI currently charges a 0.25% platform fee on send-payment, Wallet Automation, and Reserved Funds. Swaps have no platform fee. You also pay standard Monad network gas on every on-chain transaction.",
+      "PayAI currently charges a 0.25% platform fee on send-payment, Wallet Automation, Reserved Funds, and split payments. On a split, the fee is added on top so every recipient gets exactly their amount. Swaps have no platform fee. You also pay standard Monad network gas on every on-chain transaction.",
       "The fee is taken on-chain from the gross amount and shown in the confirmation screen before you sign. Live rates are published at /api/fees. If they change, the rate in the confirmation you signed is the one that applies.",
     ],
   },

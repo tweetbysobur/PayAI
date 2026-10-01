@@ -181,6 +181,28 @@ export interface ActionQuoteResult {
   /** Date.now() when this quote was produced. Staleness is checked before
    *  execution, mirroring lib/monad/tradeQuote.ts's own quotedAt handling. */
   quotedAt: number;
+  /**
+   * OPTIONAL. The economic terms this quote was priced on that the build must
+   * reproduce EXACTLY — e.g. split's platform fee rate, treasury and fee
+   * amount, read live from the chain. Bound into the signed quote token
+   * (lib/sdk/quoteToken.ts): if the build-time quote's terms differ from the
+   * previewed ones, the build is refused (FEE_TERMS_CHANGED), never silently
+   * executed on new terms. Strings only, canonicalized by key.
+   */
+  terms?: Readonly<Record<string, string>>;
+}
+
+/** What the confirm route knows beyond the receipt itself: the terms the
+ *  confirmed transaction was BUILT on (from the server's build record). */
+export interface ActionResultContext {
+  terms?: Readonly<Record<string, string>>;
+}
+
+/** A settlement's confirmed outcome, split into what reached the user's
+ *  recipients and the PayAI platform fee leg (if any). */
+export interface SettledOutflows {
+  recipients: readonly ActionOutflow[];
+  fee: { amountUnits: bigint; token: Address; treasury: Address; symbol: string; decimals: number } | null;
 }
 
 /**
@@ -234,7 +256,7 @@ export interface Action extends ActionMetadata {
    * (the same discipline app/api/swap/confirm/route.ts already applies: the
    * chain is the source of truth, never the caller's claim).
    */
-  parseResult(receipt: ActionReceipt): Promise<Readonly<Record<string, string>>>;
+  parseResult(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<Readonly<Record<string, string>>>;
   /**
    * OPTIONAL. Third-party outflows these validated inputs would cause. When
    * present, the preview and build routes run PayAI's payment policy
@@ -243,13 +265,14 @@ export interface Action extends ActionMetadata {
    */
   outflows?(inputs: ActionInputs): Promise<readonly ActionOutflow[]>;
   /**
-   * OPTIONAL. The third-party outflows a CONFIRMED receipt actually settled,
-   * decoded from canonical on-chain events only — never from inputs or a
-   * quote. The confirm route records one history row per returned outflow.
-   * Returns [] when the receipt carries no canonical settlement event. Never
-   * throws.
+   * OPTIONAL. What a CONFIRMED receipt actually settled, decoded from
+   * canonical on-chain events only — never from inputs or a quote — with the
+   * user's recipients separated from the PayAI fee leg (identified using the
+   * build's own terms). The confirm route records one history row per
+   * RECIPIENT; the fee is recorded on the settlement, never as a recipient.
+   * Empty recipients when the receipt carries no canonical event. Never throws.
    */
-  settledOutflows?(receipt: ActionReceipt): Promise<readonly ActionOutflow[]>;
+  settledOutflows?(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<SettledOutflows>;
 }
 
 /** The minimum a result parser is given. Deliberately narrow — an action

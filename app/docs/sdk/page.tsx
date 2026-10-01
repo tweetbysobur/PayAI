@@ -54,7 +54,7 @@ export default function SdkPage() {
             ["Unwrap WMON", "Unwrap WMON back into native MON, 1:1.", <code key="u">unwrap 1 WMON</code>],
             [
               "Split payment",
-              "Send MON or a token to 2–10 recipients in one transaction.",
+              "Send MON or a token to 2–9 recipients in one transaction.",
               <code key="s">split 3 MON between 0x… and 0x…</code>,
             ],
           ]}
@@ -65,7 +65,7 @@ export default function SdkPage() {
           isn&apos;t available on the network a deployment runs on is never offered there.
         </p>
         <p>
-          In Ask PayAI, a split is one token — MON or USDC — and 2–10 recipients. A recipient
+          In Ask PayAI, a split is one token — MON or USDC — and 2–9 recipients. A recipient
           can be a full 0x address, a .nad name, or a payee name your PayAI deployment has
           configured; anything else is refused and you&apos;re asked who you meant. There are
           three ways to write one:
@@ -102,13 +102,13 @@ export default function SdkPage() {
           <li>
             <strong>Preview.</strong> You see what will happen — the amount, and the recipients
             for a split, including the address each .nad name resolved to — before anything is
-            built. A split is also screened like a normal payment (sanctions and risk). Nothing is
-            signed or sent.
+            built. A split also shows its 0.25% platform fee and the total you pay, and is
+            screened like a normal payment (sanctions and risk). Nothing is signed or sent.
           </li>
           <li>
             <strong>Build and check.</strong> When you confirm, PayAI builds the transaction and
-            checks it: that it is exactly the action, version and inputs you previewed, that it is
-            on the right network, that the preview is less than 90 seconds old, the contract the
+            checks it: that it is exactly the action, version, inputs and fee terms you previewed,
+            that it is on the right network, that the preview is less than 90 seconds old, the contract the
             transaction calls, and any token approval. One failed check stops the whole action.
             Each preview can be built once.
           </li>
@@ -173,14 +173,17 @@ export default function SdkPage() {
 
       <DocsSection id="fees" index="06" title="Fees">
         <p>
-          PayAI adds no platform fee to SDK actions. You pay Monad gas for each transaction you
-          sign, including any approval. See <Link href="/docs/fees">Fees</Link>.
+          A split payment carries PayAI&apos;s standard 0.25% platform fee, added on top of the
+          recipients&apos; total so each recipient receives exactly their amount. It is paid to
+          PayAI&apos;s treasury as one extra leg of the same transaction, and shown before you
+          sign. Wrap and unwrap carry no platform fee. You pay Monad gas for each transaction
+          you sign, including any approval. See <Link href="/docs/fees">Fees</Link>.
         </p>
       </DocsSection>
 
       <DocsSection id="limits" index="07" title="Limits">
         <ul>
-          <li>A split takes 2–10 recipients per transaction, each one only once.</li>
+          <li>A split takes 2–9 recipients per transaction, each one only once. The contract&apos;s tenth slot carries the platform fee.</li>
           <li>From Ask PayAI, a split is in MON or USDC, and runs once — scheduled splits aren&apos;t supported.</li>
           <li>There is no public HTTP API or package for these actions.</li>
           <li>Other projects can&apos;t add their own protocols yet.</li>

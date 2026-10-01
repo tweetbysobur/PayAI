@@ -23,6 +23,9 @@ export interface BuildRecord {
   finalTx: { to: string; data: string; value: string };
   riskScore: number | null;
   compliance: string | null;
+  /** The quote terms the steps were built on (e.g. split's fee rate,
+   *  treasury and fee) — confirm uses them to tell the fee leg apart. */
+  terms?: Readonly<Record<string, string>>;
   builtAt: number;
 }
 

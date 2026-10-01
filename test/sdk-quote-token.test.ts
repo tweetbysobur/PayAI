@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalInputs, inputsHash, issueQuoteToken, verifyQuoteToken } from "@/lib/sdk/quoteToken";
+import { canonicalInputs, inputsHash, issueQuoteToken, termsHash, verifyQuoteToken } from "@/lib/sdk/quoteToken";
 
 /**
  * lib/sdk/quoteToken.ts — the signed preview → build binding. The route-level
@@ -26,10 +26,20 @@ describe("canonical inputs", () => {
 });
 
 describe("issue / verify", () => {
-  it("round-trips, returning quotedAt and quoteId from the TOKEN", () => {
+  it("round-trips, returning quotedAt, quoteId and the terms hash from the TOKEN", () => {
     const { quoteToken, quoteId } = issueQuoteToken(ID, INPUTS, 1_700_000_000_000);
     const r = verifyQuoteToken(quoteToken, ID, INPUTS);
-    expect(r).toEqual({ ok: true, quotedAt: 1_700_000_000_000, quoteId });
+    expect(r).toEqual({ ok: true, quotedAt: 1_700_000_000_000, quoteId, termsHash: termsHash(undefined) });
+  });
+  it("binds the quote's terms: the hash in the token is the hash of exactly those terms", () => {
+    const terms = { feeBps: "25", treasury: "0xa282833b52b1b66d58bd2007081dcc037798c0b0", fee: "250000" };
+    const { quoteToken } = issueQuoteToken(ID, INPUTS, 1, terms);
+    const r = verifyQuoteToken(quoteToken, ID, INPUTS);
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.termsHash).toBe(termsHash({ fee: "250000", feeBps: "25", treasury: terms.treasury })); // key order irrelevant
+    expect(r.termsHash).not.toBe(termsHash({ ...terms, feeBps: "30" }));
+    expect(r.termsHash).not.toBe(termsHash({ ...terms, treasury: "0x1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c" }));
+    expect(termsHash(undefined)).toBe(termsHash({}));
   });
   it("every quote gets a distinct quoteId", () => {
     const ids = new Set(Array.from({ length: 20 }, () => issueQuoteToken(ID, INPUTS, 1).quoteId));

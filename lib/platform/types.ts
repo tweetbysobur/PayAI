@@ -75,6 +75,23 @@ export interface TxLogEntry {
   /** Swap/trade only — which DEX actually served the trade ("Uniswap v3",
    *  "Kuru"). Absent for a payment. */
   provider?: string | null;
+  /**
+   * Split payments only — the whole on-chain settlement this recipient row
+   * belongs to, identical on every row of the same settlement. The PayAI
+   * platform fee is a property of the settlement, never a recipient row, so
+   * summing recipient `amount`s never counts it. Amounts are exact base-unit
+   * strings in `decimals`. Absent for everything else.
+   */
+  settlement?: {
+    id: string | null;
+    recipientCount: number;
+    token: string;
+    decimals: number;
+    recipientTotal: string;
+    platformFee: string;
+    treasury: string | null;
+    grossPaid: string;
+  };
 }
 
 /**
