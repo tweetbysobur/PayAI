@@ -54,7 +54,7 @@ export default function SdkPage() {
             ["Unwrap WMON", "Unwrap WMON back into native MON, 1:1.", <code key="u">unwrap 1 WMON</code>],
             [
               "Split payment",
-              "Send MON or a token to up to 3 addresses in one transaction.",
+              "Send MON or a token to 2–10 recipients in one transaction.",
               <code key="s">split 3 MON between 0x… and 0x…</code>,
             ],
           ]}
@@ -65,10 +65,30 @@ export default function SdkPage() {
           isn&apos;t available on the network a deployment runs on is never offered there.
         </p>
         <p>
-          In Ask PayAI, a split names one total in MON or USDC and 2–3 full 0x addresses. The
-          total is divided evenly between them. If it doesn&apos;t divide exactly in the
-          token&apos;s smallest unit, the last address receives the few extra units, so the
-          amounts always add up to exactly the total.
+          In Ask PayAI, a split is one token — MON or USDC — and 2–10 recipients. A recipient
+          can be a full 0x address, a .nad name, or a payee name your PayAI deployment has
+          configured; anything else is refused and you&apos;re asked who you meant. There are
+          three ways to write one:
+        </p>
+        <ul>
+          <li>
+            <strong>Even:</strong> <code>split 3 MON between 0x… and 0x…</code>. If the total
+            doesn&apos;t divide exactly in the token&apos;s smallest unit, the last recipient
+            receives the few extra units, so the amounts add up to exactly the total.
+          </li>
+          <li>
+            <strong>Your own amounts:</strong> <code>split 100 USDC: 60 to 0x… and 40 to bob.nad</code>.
+            If you state a total, the amounts must add up to it.
+          </li>
+          <li>
+            <strong>The rest:</strong> <code>split 100 USDC: 20 to 0x… and the rest to bob.nad</code>.
+            The total has to be in the same message.
+          </li>
+        </ul>
+        <p>
+          A split message that can&apos;t be read exactly — a recipient that can&apos;t be
+          resolved, amounts that don&apos;t add up, the same wallet twice — gets a question
+          back. It is never guessed, and never turned into a different payment.
         </p>
       </DocsSection>
 
@@ -77,17 +97,20 @@ export default function SdkPage() {
           <li>
             <strong>Recognised by fixed rules, not guessed.</strong> Protocol actions are matched
             by exact patterns in your message. The AI model is never allowed to choose a
-            protocol, an action, or a contract.
+            protocol, an action, a contract, or a split&apos;s recipients.
           </li>
           <li>
             <strong>Preview.</strong> You see what will happen — the amount, and the recipients
-            for a split — before anything is built. Nothing is signed or sent.
+            for a split, including the address each .nad name resolved to — before anything is
+            built. A split is also screened like a normal payment (sanctions and risk). Nothing is
+            signed or sent.
           </li>
           <li>
             <strong>Build and check.</strong> When you confirm, PayAI builds the transaction and
-            checks it: that it is the action and version you previewed, that it is on the right
-            network, that the preview is less than 90 seconds old, every input, the contract the
+            checks it: that it is exactly the action, version and inputs you previewed, that it is
+            on the right network, that the preview is less than 90 seconds old, the contract the
             transaction calls, and any token approval. One failed check stops the whole action.
+            Each preview can be built once.
           </li>
           <li>
             <strong>You sign.</strong> Your own wallet signs and sends. For a token that needs an
@@ -95,7 +118,8 @@ export default function SdkPage() {
           </li>
           <li>
             <strong>Confirmed on-chain.</strong> The result you see is read from the confirmed
-            transaction on Monad, not from the preview.
+            transaction on Monad, not from the preview. A split is added to your history, one
+            entry per recipient, from what the contract actually paid.
           </li>
         </ol>
       </DocsSection>
@@ -156,8 +180,8 @@ export default function SdkPage() {
 
       <DocsSection id="limits" index="07" title="Limits">
         <ul>
-          <li>A split takes up to 3 recipients per transaction, each a full 0x address.</li>
-          <li>From Ask PayAI, a split needs 2–3 addresses and a total in MON or USDC.</li>
+          <li>A split takes 2–10 recipients per transaction, each one only once.</li>
+          <li>From Ask PayAI, a split is in MON or USDC, and runs once — scheduled splits aren&apos;t supported.</li>
           <li>There is no public HTTP API or package for these actions.</li>
           <li>Other projects can&apos;t add their own protocols yet.</li>
         </ul>

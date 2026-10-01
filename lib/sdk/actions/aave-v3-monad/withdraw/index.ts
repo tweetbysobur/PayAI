@@ -58,6 +58,7 @@
 import "server-only";
 import { encodeFunctionData, decodeEventLog, formatUnits, type Address } from "viem";
 import { getChain } from "@/lib/monad/config";
+import { inputString } from "@/lib/sdk/types";
 import type { Action, ActionInputs, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
 import { POOL, MONAD_MAINNET_CHAIN_ID, resolveAaveAsset, toAaveUnits, resolveRequiredAddress } from "../shared";
 
@@ -117,9 +118,9 @@ export function withdrawAction(chainId: number): Action {
     // liquidityRate a lender earns — and is meaningless for a withdrawal),
     // and nothing here can affect what build() constructs.
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const ctx = await resolveAaveAsset(inputs.asset);
-      const to = resolveRequiredAddress(inputs.to, "to");
-      const units = toAaveUnits(inputs.amount, ctx.decimals);
+      const ctx = await resolveAaveAsset(inputString(inputs, "asset"));
+      const to = resolveRequiredAddress(inputString(inputs, "to"), "to");
+      const units = toAaveUnits(inputString(inputs, "amount"), ctx.decimals);
       const details: Record<string, string> = {
         asset: `${ctx.symbol} (${ctx.address})`,
         amount: `${formatUnits(units, ctx.decimals)} ${ctx.symbol}`,
@@ -136,9 +137,9 @@ export function withdrawAction(chainId: number): Action {
       // numbers, exactly like supply's own build(). Also re-verifies the
       // reserve listing so a reserve delisted between quote and build is
       // refused rather than silently withdrawn from.
-      const ctx = await resolveAaveAsset(inputs.asset);
-      const to = resolveRequiredAddress(inputs.to, "to");
-      const units = toAaveUnits(inputs.amount, ctx.decimals);
+      const ctx = await resolveAaveAsset(inputString(inputs, "asset"));
+      const to = resolveRequiredAddress(inputString(inputs, "to"), "to");
+      const units = toAaveUnits(inputString(inputs, "amount"), ctx.decimals);
 
       // Exactly one step. No approval: withdraw burns the caller's own
       // aTokens via the Pool's internal accounting, it never pulls an

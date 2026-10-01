@@ -30,26 +30,41 @@
  * trusting the token. The deployed contract already enforces exact-delivery /
  * fee-on-transfer rejection / atomicity on-chain; nothing here changes that.
  *
+ * ── v2.0.0 input model ───────────────────────────────────────────────────────
+ * `recipients` is a list of { recipient, amount } with 2..10 entries (10 is
+ * the deployed contract's MAX_RECIPIENTS). Every recipient is a concrete 0x
+ * address — names and .nad domains are resolved BEFORE this action, by the
+ * intent layer (lib/payees/resolve.ts); this action never resolves anything.
+ * Every amount is an exact integer in the token's base units ("units" field
+ * type) — no decimal parsing and no floating point anywhere in this file.
+ * "The rest" is never an input: the caller computes it and passes a concrete
+ * amount. Recipients must be unique (the contract would accept duplicates;
+ * PayAI refuses them as almost certainly a mistake).
+ *
  * Server-side (reads app config, and for a non-stablecoin token reads its
  * decimals on-chain). Registered by an explicit call to
  * createSplitSettlementProtocol() + registerProtocol() in bootstrap.ts.
  */
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { encodeFunctionData, decodeEventLog, formatUnits, parseUnits, getAddress, type Address } from "viem";
+import { encodeFunctionData, decodeEventLog, formatUnits, getAddress, type Address } from "viem";
 import { isAddress } from "@/lib/payees/directory";
 import { getChain, getStablecoin } from "@/lib/monad/config";
 import { resolveToken } from "@/lib/monad/tokenRegistry";
-import type { Action, ActionInputs, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
+import { ActionInputError, inputList, inputString } from "@/lib/sdk/types";
+import type { Action, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
 
 const PROTOCOL_ID = "payai-settlement";
 const ACTION_ID = "split_payment";
-const VERSION = "1.0.0";
+const VERSION = "2.0.0";
 
-/** How many named scalar recipient/amount pairs the v1 SDK schema exposes.
- *  The contract's own cap is 10; the SDK surfaces the first 3 as bounded
- *  scalar fields (the current ActionInputField set has no array type). */
-const SDK_MAX_RECIPIENTS = 3;
+/** Fewest recipients a split takes. One recipient is a plain send, which has
+ *  its own path; a "split" to one wallet is almost certainly a mistake. */
+export const SPLIT_MIN_RECIPIENTS = 2;
+/** The deployed SplitSettlement's own MAX_RECIPIENTS (an immutable constant
+ *  in contracts/contracts/SplitSettlement.sol). Never above it. */
+export const SPLIT_MAX_RECIPIENTS = 10;
+const UINT256_MAX = (1n << 256n) - 1n;
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as const;
 
@@ -89,11 +104,11 @@ const ERC20_APPROVE_ABI = [
   { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] },
 ] as const;
 
-/** Thrown for a user-input problem (missing/mismatched pair, bad amount, or an
+/** Thrown for a user-input problem (bad/duplicate recipient, bad amount, or an
  *  unusable token). quote()/build() throw it; the routes surface it. */
-export class SplitInputError extends Error {}
+export class SplitInputError extends ActionInputError {}
 
-interface Pair { recipient: Address; amount: string }
+interface Pair { recipient: Address; units: bigint }
 interface TokenCtx { isNative: boolean; address: Address; decimals: number; symbol: string }
 
 /**
@@ -120,70 +135,65 @@ async function resolveTokenCtx(tokenInput?: string): Promise<TokenCtx> {
   return { isNative: false, address: getAddress(t), decimals: info.decimals, symbol: info.symbol };
 }
 
-/** Amount → base units at the token's decimals, rejecting a value that rounds
- *  to zero (below the token's smallest unit) — the per-token equivalent of
- *  Layer A's amount floor, done here where the real decimals are known. */
-function toUnits(amount: string, decimals: number): bigint {
-  let units: bigint;
-  try {
-    units = parseUnits(amount, decimals);
-  } catch {
-    throw new SplitInputError(`"${amount}" is not a valid amount.`);
-  }
-  if (units <= 0n) throw new SplitInputError(`"${amount}" is below the smallest unit of this token.`);
-  return units;
-}
-
 /**
- * Collect the recipient/amount pairs from the bounded scalar fields, enforcing
- * that each optional recipient has a matching amount and vice-versa (the
- * CROSS-field pairing Layer A can't express). Value checks on each individual
- * field already ran in Layer A.
+ * Read the validated recipient list into (address, base units) pairs and
+ * enforce the cross-item rules Layer A can't express: count bounds, unique
+ * recipients, no zero address, never the settlement contract itself, and a
+ * total that fits in uint256. Every rejection happens BEFORE any signature —
+ * for an ERC-20 split the approval would otherwise already be confirmed when
+ * the settlement reverts, leaving a stray allowance and a wasted fee.
+ * Defensive re-checks of shape (address, positive integer) are deliberate:
+ * this function must be safe even if called on unvalidated inputs.
  */
 function collectPairs(inputs: ActionInputs, self?: Address): Pair[] {
-  const pairs: Pair[] = [];
-  for (let i = 1; i <= SDK_MAX_RECIPIENTS; i++) {
-    const r = inputs[`recipient${i}`]?.trim();
-    const a = inputs[`amount${i}`]?.trim();
-    if (!r && !a) continue;
-    if (r && !a) throw new SplitInputError(`recipient${i} is missing a matching amount${i}.`);
-    if (a && !r) throw new SplitInputError(`amount${i} is missing a matching recipient${i}.`);
-    if (!isAddress(r as string)) throw new SplitInputError(`recipient${i} is not a valid address.`);
-    const recipient = getAddress(r as string);
-    // The contract reverts on these (zero recipient / self recipient). Reject
-    // them BEFORE any signature: for an ERC-20 split the approval would
-    // otherwise already be signed and confirmed when the split reverts,
-    // leaving a stray allowance and a wasted approval fee.
-    if (recipient.toLowerCase() === NATIVE) throw new SplitInputError(`recipient${i} cannot be the zero address.`);
-    if (self && recipient.toLowerCase() === self.toLowerCase()) throw new SplitInputError(`recipient${i} cannot be the Split Settlement contract itself.`);
-    pairs.push({ recipient, amount: a as string });
+  const items = inputList(inputs, "recipients");
+  if (items.length < SPLIT_MIN_RECIPIENTS || items.length > SPLIT_MAX_RECIPIENTS) {
+    throw new SplitInputError(`A split needs between ${SPLIT_MIN_RECIPIENTS} and ${SPLIT_MAX_RECIPIENTS} recipients.`);
   }
-  if (pairs.length === 0) throw new SplitInputError("At least one recipient and amount are required.");
+  const seen = new Set<string>();
+  const pairs: Pair[] = [];
+  let total = 0n;
+  items.forEach((item, i) => {
+    const r = item.recipient?.trim() ?? "";
+    const a = item.amount?.trim() ?? "";
+    const n = i + 1;
+    if (!isAddress(r)) throw new SplitInputError(`Recipient ${n} is not a valid address.`);
+    if (!/^[1-9][0-9]{0,77}$/.test(a)) throw new SplitInputError(`Amount ${n} must be a positive whole number of base units.`);
+    const recipient = getAddress(r);
+    const key = recipient.toLowerCase();
+    if (key === NATIVE) throw new SplitInputError(`Recipient ${n} cannot be the zero address.`);
+    if (self && key === self.toLowerCase()) throw new SplitInputError(`Recipient ${n} cannot be the Split Settlement contract itself.`);
+    if (seen.has(key)) throw new SplitInputError(`Recipient ${n} appears more than once — each recipient can only be listed once.`);
+    seen.add(key);
+    const units = BigInt(a);
+    total += units;
+    if (total > UINT256_MAX) throw new SplitInputError("The split total is too large.");
+    pairs.push({ recipient, units });
+  });
   return pairs;
 }
 
 function splitAction(target: Address, chainId: number): Action {
-  const amountField = { type: "amount", required: false, description: "Amount" } as const;
-  const addrField = (n: number, req: boolean) => ({ type: "address", required: req, description: `Recipient ${n} address` } as const);
-
   return {
     protocolId: PROTOCOL_ID, actionId: ACTION_ID, version: VERSION,
-    name: "Split Payment", description: "Split MON or an ERC-20 across up to 3 recipients in one transaction.",
+    name: "Split Payment", description: `Split MON or an ERC-20 across ${SPLIT_MIN_RECIPIENTS}–${SPLIT_MAX_RECIPIENTS} recipients in one transaction.`,
     chainId, allowedTargets: [target],
     inputSchema: {
-      recipient1: addrField(1, true),
-      amount1: { ...amountField, required: true, description: "Amount to recipient 1" },
-      recipient2: addrField(2, false),
-      amount2: { ...amountField, description: "Amount to recipient 2" },
-      recipient3: addrField(3, false),
-      amount3: { ...amountField, description: "Amount to recipient 3" },
+      recipients: {
+        type: "list", required: true, minItems: SPLIT_MIN_RECIPIENTS, maxItems: SPLIT_MAX_RECIPIENTS,
+        description: "Who receives what: each entry is a 0x address and an exact amount in base units.",
+        items: {
+          recipient: { type: "address", required: true, description: "Recipient address" },
+          amount: { type: "units", required: true, description: "Amount in the token's base units" },
+        },
+      },
       // Optional: absent/zero-sentinel = native MON; an ERC-20 address = that token.
       token: { type: "token", required: false, description: "Token to split (leave empty for native MON)" },
     },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
       const pairs = collectPairs(inputs, target);
-      const ctx = await resolveTokenCtx(inputs.token);
-      const units = pairs.map((p) => toUnits(p.amount, ctx.decimals));
+      const ctx = await resolveTokenCtx(inputString(inputs, "token"));
+      const units = pairs.map((p) => p.units);
       const total = units.reduce((a, b) => a + b, 0n);
       const fmt = (u: bigint) => formatUnits(u, ctx.decimals);
       const details: Record<string, string> = {
@@ -203,13 +213,15 @@ function splitAction(target: Address, chainId: number): Action {
     },
     async build(inputs: ActionInputs): Promise<UnsignedActionStep[]> {
       const pairs = collectPairs(inputs, target);
-      const ctx = await resolveTokenCtx(inputs.token);
+      const ctx = await resolveTokenCtx(inputString(inputs, "token"));
       const recipients = pairs.map((p) => p.recipient);
-      const amounts = pairs.map((p) => toUnits(p.amount, ctx.decimals));
+      const amounts = pairs.map((p) => p.units);
       const total = amounts.reduce((a, b) => a + b, 0n);
       const tokenArg = ctx.isNative ? NATIVE : ctx.address;
-      // Opaque correlation ref — NO security meaning, never gates execution
-      // (the contract has no requestId; replay is the tx nonce).
+      // Random per-build correlation ref. It never gates execution on-chain
+      // (the contract doesn't check it; replay protection is the tx nonce),
+      // but because it is inside the calldata, /api/ask/action/confirm's
+      // exact calldata match ties a confirmed transaction to THIS build.
       const ref = `0x${randomBytes(32).toString("hex")}` as `0x${string}`;
       const fmt = (u: bigint) => formatUnits(u, ctx.decimals);
 
@@ -247,50 +259,87 @@ function splitAction(target: Address, chainId: number): Action {
       });
       return steps;
     },
+    async outflows(inputs: ActionInputs): Promise<readonly ActionOutflow[]> {
+      const pairs = collectPairs(inputs, target);
+      const ctx = await resolveTokenCtx(inputString(inputs, "token"));
+      return pairs.map((p) => ({ recipient: p.recipient, amountUnits: p.units, token: ctx.address, symbol: ctx.symbol, decimals: ctx.decimals }));
+    },
     parseResult: (receipt) => parseSplitReceipt(receipt, target),
+    async settledOutflows(receipt: ActionReceipt): Promise<readonly ActionOutflow[]> {
+      const settled = decodeSettlement(receipt, target);
+      if (!settled) return [];
+      const ctx = await tokenCtxOrNull(settled.token);
+      return settled.recipients.map((r, i) => ({
+        recipient: getAddress(r),
+        amountUnits: settled.amounts[i] ?? 0n,
+        token: getAddress(settled.token),
+        symbol: ctx?.symbol ?? "tokens",
+        decimals: ctx?.decimals ?? 0,
+      }));
+    },
   };
 }
 
+interface SettledSplit {
+  settlementId: bigint; payer: Address; token: Address;
+  totalAmount: bigint; recipients: readonly Address[]; amounts: readonly bigint[];
+}
+
 /**
- * Decode the CONFIRMED split from the receipt's own logs. Only a
+ * The CONFIRMED split, from the receipt's own logs. Only a
  * SplitPaymentExecuted event emitted BY the canonical SplitSettlement address
  * counts (§14) — an event from any other address is ignored, so a look-alike
- * log can never masquerade as a confirmed settlement. Never throws: a receipt
- * with no matching event reports only its status, never a fabricated result.
- * ERC-20 amounts are reported in base units (the receipt alone doesn't carry
- * token decimals, and this stays a pure, non-throwing reader).
+ * log can never masquerade as a confirmed settlement. Null when the receipt
+ * reverted or carries no canonical event. Never throws.
  */
-async function parseSplitReceipt(receipt: ActionReceipt, canonical: Address): Promise<Readonly<Record<string, string>>> {
-  const base: Record<string, string> = { status: receipt.status };
-  if (receipt.status !== "success") return base;
+function decodeSettlement(receipt: ActionReceipt, canonical: Address): SettledSplit | null {
+  if (receipt.status !== "success") return null;
   const canon = canonical.toLowerCase();
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== canon) continue; // must be OUR contract
     try {
       const decoded = decodeEventLog({ abi: SPLIT_ABI, topics: log.topics as [`0x${string}`, ...`0x${string}`[]], data: log.data });
       if (decoded.eventName !== "SplitPaymentExecuted") continue;
-      const args = decoded.args as unknown as {
-        settlementId: bigint; payer: Address; token: Address; totalAmount: bigint;
-        recipients: readonly Address[]; amounts: readonly bigint[];
-      };
-      const isNative = args.token.toLowerCase() === NATIVE;
-      const out: Record<string, string> = {
-        status: receipt.status,
-        settlementId: args.settlementId.toString(),
-        payer: args.payer,
-        token: isNative ? "MON (native)" : args.token,
-        recipientCount: String(args.recipients.length),
-        total: isNative ? `${formatUnits(args.totalAmount, 18)} MON` : args.totalAmount.toString(),
-      };
-      args.recipients.forEach((r, i) => {
-        out[`recipient ${i + 1}`] = r;
-        const amt = args.amounts[i];
-        out[`amount ${i + 1}`] = isNative && amt != null ? `${formatUnits(amt, 18)} MON` : String(amt ?? "");
-      });
-      return out;
+      return decoded.args as unknown as SettledSplit;
     } catch { /* not our event shape — keep scanning */ }
   }
-  return base; // success, but no canonical settlement event: report nothing invented
+  return null;
+}
+
+/** Token decimals/symbol for display, without ever throwing. */
+async function tokenCtxOrNull(token: Address): Promise<TokenCtx | null> {
+  try {
+    return await resolveTokenCtx(token);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Display fields for the confirmed split. Amounts are formatted with the
+ * token's real decimals when they can be read; otherwise shown in base units,
+ * labelled as such — never guessed. A receipt with no canonical event reports
+ * only its status, never a fabricated result.
+ */
+async function parseSplitReceipt(receipt: ActionReceipt, canonical: Address): Promise<Readonly<Record<string, string>>> {
+  const settled = decodeSettlement(receipt, canonical);
+  if (!settled) return { status: receipt.status };
+  const ctx = await tokenCtxOrNull(settled.token);
+  const fmt = (u: bigint | undefined) =>
+    u == null ? "" : ctx ? `${formatUnits(u, ctx.decimals)} ${ctx.symbol}` : `${u.toString()} base units`;
+  const out: Record<string, string> = {
+    status: receipt.status,
+    settlementId: settled.settlementId.toString(),
+    payer: settled.payer,
+    token: ctx ? (ctx.isNative ? "MON (native)" : `${ctx.symbol} (${settled.token})`) : settled.token,
+    recipientCount: String(settled.recipients.length),
+    total: fmt(settled.totalAmount),
+  };
+  settled.recipients.forEach((r, i) => {
+    out[`recipient ${i + 1}`] = r;
+    out[`amount ${i + 1}`] = fmt(settled.amounts[i]);
+  });
+  return out;
 }
 
 /**

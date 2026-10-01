@@ -574,7 +574,9 @@ describe("respondToUnderstanding — distribution is understood but not fabricat
     try {
       const r = await respondToUnderstanding({ kind: "distribution", outcome: "complete", slots: { amount: "10", asset: "USDC", recipientCount: 50 } }, WALLET);
       expect(r.message.content).toContain("50 recipients");
-      expect(r.message.content).toMatch(/aren't executable from this chat yet/i);
+      // It explains the deterministic split phrasing instead — the model
+      // never supplies split recipients, so this can't become a card.
+      expect(r.message.content).toMatch(/split 100 USDC between/i);
       expect(r.message.operation).toBeUndefined();
       expect(calls.length).toBe(0);
     } finally { restore(); }

@@ -346,10 +346,10 @@ export function VerificationSection() {
 /** Sentences Ask PayAI executes today — this block sits directly above a
  *  "Try it in Ask PayAI" button, so anything listed here has to survive the
  *  click. "Distribute 1,000 USDC across these addresses" and "…to my team"
- *  were both here and both classify as `distribution`, which the orchestrator
- *  answers with "bulk distributions aren't executable from this chat yet" —
- *  an offer the product cannot take. Put them back only when
- *  dispatchDistribution actually executes. */
+ *  were both here, but neither names its recipients, so neither can execute —
+ *  the deterministic split path (lib/ask/intent/split.ts) answers them with a
+ *  question. A split example belongs here only if it lists real, resolvable
+ *  recipients. */
 const INTENT_EXAMPLES = [
   "Send 100 USDC to alice.nad every Friday.",
   "Swap 0.1 MON for USDC.",

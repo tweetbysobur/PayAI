@@ -344,7 +344,7 @@ describe("N. existing WMON, SplitSettlement, and other SDK behavior remains unch
 
     expect(registry.getAction("wmon", "wrap", "1.0.0")).not.toBeNull();
     expect(registry.getAction("wmon", "unwrap", "1.0.0")).not.toBeNull();
-    expect(registry.getAction("payai-settlement", "split_payment", "1.0.0")).not.toBeNull();
+    expect(registry.getAction("payai-settlement", "split_payment", "2.0.0")).not.toBeNull();
     expect(registry.getAction("aave-v3-monad", "supply", "1.0.0")).not.toBeNull();
     expect(registry.getAction("aave-v3-monad", "withdraw", "1.0.0")).not.toBeNull();
   });

@@ -14,6 +14,7 @@
  * missing, that's an `AskAssistantMessage` asking for it, not a card with a
  * blank filled in.
  */
+import type { ActionInputs } from "@/lib/sdk/types";
 
 export type Network = "monad";
 
@@ -356,8 +357,13 @@ export interface ProtocolActionData {
   action: { id: string; name: string; description: string; version: string };
   chainId: number;
   network: "Monad";
-  /** The validated inputs, already display-ready (e.g. { amount: "1.5" }). */
-  inputs: Record<string, string>;
+  /** The validated inputs exactly as the server quoted them (e.g.
+   *  { amount: "1.5" }, or split's { recipients: [...] } in base units). */
+  inputs: ActionInputs;
+  /** Display-only names for recipient addresses the user wrote as a .nad
+   *  domain or configured payee, keyed by lowercased address. Never an
+   *  action input — the action only ever receives the addresses. */
+  recipientLabels?: Record<string, string>;
   /** From the action's quote(): a one-line summary and formatted detail rows. */
   summary: string;
   details: Record<string, string>;
@@ -380,7 +386,10 @@ export interface ProtocolActionIntent extends IntentBase {
    * (no wallet), so the card never enters the confirm funnel.
    */
   execution?: {
-    request: { protocolId: string; actionId: string; version: string; inputs: Record<string, string>; chainId: number };
+    request: { protocolId: string; actionId: string; version: string; inputs: ActionInputs; chainId: number };
+    /** The preview's signed quote token (lib/sdk/quoteToken.ts) — build
+     *  refuses without it, and takes quotedAt only from it. */
+    quoteToken: string;
   };
 }
 

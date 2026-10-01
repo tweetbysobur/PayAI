@@ -14,13 +14,22 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * Unauthenticated on purpose, same posture as /api/ask/trade: a preview
  * moves no funds and needs no signer.
+ *
+ * Two additions sit between the quote and the response:
+ *   - Payment policy: an action that declares third-party outflows (split)
+ *     goes through PayAI's compliance/risk engine (lib/sdk/policy.ts). A
+ *     blocked result is returned as not-ok, so it never becomes a confirmable
+ *     card; warnings ride along to the card. Build re-runs it authoritatively.
+ *   - Quote token: a signed binding of exactly what was quoted (action
+ *     identity, chain, inputs hash, quotedAt, quoteId — lib/sdk/quoteToken.ts).
+ *     Build refuses without it, and takes quotedAt only from it.
  */
 export async function POST(req: NextRequest) {
   const { rateLimited } = await import("@/lib/platform/ratelimit");
   const limited = await rateLimited(req, "agent");
   if (limited) return limited;
 
-  let body: { protocolId?: string; actionId?: string; version?: string; inputs?: Record<string, string> };
+  let body: { protocolId?: string; actionId?: string; version?: string; inputs?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -31,16 +40,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "protocolId, actionId and version are required." }, { status: 400 });
   }
 
+  const { ActionInputError } = await import("@/lib/sdk/types");
   try {
     const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
     const { validateForQuote } = await import("@/lib/sdk/validate");
     const { getChain } = await import("@/lib/monad/config");
+    const { enforcePaymentPolicy } = await import("@/lib/sdk/policy");
+    const { issueQuoteToken } = await import("@/lib/sdk/quoteToken");
     ensureBuiltinsRegistered();
 
     const chainId = getChain().id;
     const request = {
       protocolId: body.protocolId, actionId: body.actionId, version: body.version,
-      inputs: (body.inputs ?? {}) as Readonly<Record<string, string>>,
+      inputs: (body.inputs ?? {}) as import("@/lib/sdk/types").ActionInputs,
       // walletAddress isn't needed to PREVIEW (quote() takes only inputs), but
       // ExecutionRequest requires the field — a preview is chain-pinned and
       // freshly timestamped here, and re-validated with a real wallet at build.
@@ -54,6 +66,16 @@ export async function POST(req: NextRequest) {
     const { action, protocol, inputs } = gated.value;
     const quote = await action.quote(inputs);
 
+    const policy = action.outflows ? await enforcePaymentPolicy(await action.outflows(inputs)) : null;
+    if (policy && !policy.allowed) {
+      return NextResponse.json({ ok: false, message: policy.reason ?? "This payment can't be made.", code: "POLICY_BLOCKED" });
+    }
+
+    const { quoteToken, quoteId } = issueQuoteToken(
+      { protocolId: action.protocolId, actionId: action.actionId, version: action.version, chainId: action.chainId },
+      inputs, quote.quotedAt,
+    );
+
     return NextResponse.json({
       ok: true,
       protocol: { id: protocol.protocolId, name: protocol.name, logoUrl: protocol.logoUrl ?? null },
@@ -63,8 +85,13 @@ export async function POST(req: NextRequest) {
       summary: quote.summary,
       details: quote.details,
       quotedAt: quote.quotedAt,
+      quoteToken, quoteId,
+      ...(policy ? { risk: { score: policy.riskScore, level: policy.riskLevel, compliance: policy.compliance }, warnings: policy.warnings } : {}),
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof ActionInputError) {
+      return NextResponse.json({ ok: false, message: e.message, code: "INVALID_INPUT" }, { status: 400 });
+    }
     return NextResponse.json({ ok: false, message: "Couldn't prepare that action right now. Try again in a moment." }, { status: 502 });
   }
 }

@@ -24,6 +24,7 @@ import type { AskMessage, AutomationHandoff, Operation, OperationError, Protocol
 import { respondToSendPayment, type SendPaymentWallet } from "@/lib/ask/sendPayment/orchestrator";
 import type { ConversationTurn } from "./classify";
 import type { Understanding } from "./types";
+import type { ActionInputs, ActionInputValue } from "@/lib/sdk/types";
 
 // Re-exported so client code (e.g. app/dashboard/ask/page.tsx) never imports
 // from classify.ts directly — that module is "server-only" and this is the
@@ -931,9 +932,14 @@ async function dispatchAutomations(walletAddress: string | null): Promise<AskMes
 }
 
 function dispatchDistribution(slots: { amount?: string | null; asset?: string | null; recipientCount?: number | null }): AskMessage {
-  const desc = `${slots.amount ?? "an amount"}${slots.asset ? ` ${slots.asset}` : ""} to ${slots.recipientCount ?? "multiple"} recipients`;
+  // Reached only when the LLM classified a multi-recipient payment that had
+  // no "split"/"distribute" verb (those are handled deterministically before
+  // any model call — lib/ask/intent/split.ts). The model never supplies split
+  // recipients, so this never executes anything: it says exactly how to
+  // phrase a split the deterministic path can resolve.
+  const desc = `${slots.amount ?? "an amount"}${slots.asset ? ` ${slots.asset}` : ""} to ${slots.recipientCount ?? "several"} recipients`;
   return assistantText(
-    `I understand — ${desc}. Bulk distributions aren't executable from this chat yet; you can set one up from the dashboard, or I can send individual payments here one at a time.`,
+    `I understand — ${desc}. I can do that as one split payment if you list who gets what, for example "split 100 USDC between 0x… and bob.nad" or "split 100 USDC: 60 to 0x… and 40 to bob.nad". Recipients can be 0x addresses, .nad names or configured payees.`,
   );
 }
 
@@ -1116,14 +1122,17 @@ interface ProtocolActionPreviewResponse {
   protocol?: { id: string; name: string; logoUrl?: string | null };
   action?: { id: string; name: string; description: string; version: string };
   chainId?: number;
-  inputs?: Record<string, string>;
+  inputs?: ActionInputs;
   summary?: string;
   details?: Record<string, string>;
   quotedAt?: number;
+  quoteToken?: string;
+  quoteId?: string;
+  warnings?: string[];
 }
 
 async function dispatchProtocolAction(
-  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null; actionInputs?: Record<string, string> | null },
+  slots: { protocolId?: string | null; actionId?: string | null; actionVersion?: string | null; amount?: string | null; actionInputs?: ActionInputs | null; recipientLabels?: Record<string, string> | null },
   walletAddress: string | null,
 ): Promise<AskMessage> {
   if (!slots.protocolId || !slots.actionId || !slots.actionVersion) {
@@ -1146,7 +1155,7 @@ async function dispatchProtocolAction(
   // single-input action (WMON) uses the scalar `amount` slot. Either way the
   // server re-validates every field against the action's schema (Layer A), so
   // nothing here is trusted — this only forwards what the detector resolved.
-  const inputs: Record<string, string> = slots.actionInputs
+  const inputs: Record<string, ActionInputValue> = slots.actionInputs
     ? { ...slots.actionInputs }
     : {};
   if (!slots.actionInputs && slots.amount) inputs.amount = slots.amount;
@@ -1165,7 +1174,7 @@ async function dispatchProtocolAction(
   } catch {
     return assistantText("Couldn't reach Monad to prepare that action. Try again in a moment.");
   }
-  if (!json || !json.ok || !json.protocol || !json.action || json.chainId == null) {
+  if (!json || !json.ok || !json.protocol || !json.action || json.chainId == null || !json.quoteToken) {
     return assistantText(json?.message ?? "Couldn't prepare that action right now.");
   }
 
@@ -1178,12 +1187,14 @@ async function dispatchProtocolAction(
     summary: json.summary ?? "",
     details: json.details ?? {},
     quotedAt: json.quotedAt ?? Date.now(),
+    ...(slots.recipientLabels ? { recipientLabels: { ...slots.recipientLabels } } : {}),
+    ...(json.warnings && json.warnings.length > 0 ? { warnings: json.warnings } : {}),
   };
   // Only a wallet-connected preview carries the request needed to execute —
   // same rule as tradePreviewCard. Without a wallet it's an informational
   // preview that never enters the confirm funnel.
   const execution = walletAddress
-    ? { request: { protocolId: json.protocol.id, actionId: json.action.id, version: json.action.version, inputs: data.inputs, chainId: json.chainId } }
+    ? { request: { protocolId: json.protocol.id, actionId: json.action.id, version: json.action.version, inputs: data.inputs, chainId: json.chainId }, quoteToken: json.quoteToken }
     : undefined;
   const intent: ProtocolActionIntent = { kind: "protocol_action", network: "monad", data, ...(execution ? { execution } : {}) };
   const operation: Operation = {
@@ -1201,6 +1212,7 @@ interface ProtocolActionBuildResponse {
   steps?: { kind: "approve" | "action"; label: string; tx: { to: string; data: string; value: string } }[];
   summary?: string;
   details?: Record<string, string>;
+  quoteId?: string;
 }
 
 /**
@@ -1217,7 +1229,7 @@ export async function executeProtocolActionIntent(
   walletAddress: string,
 ): Promise<Operation> {
   if (operation.intent.kind !== "protocol_action" || !operation.intent.execution) return operation;
-  const { request } = operation.intent.execution;
+  const { request, quoteToken } = operation.intent.execution;
 
   if (wallet.isWrongNetwork) {
     return { ...operation, status: "error", error: { message: "You're connected to the wrong network — switch your wallet to Monad and try again.", code: "WRONG_NETWORK" } };
@@ -1227,17 +1239,20 @@ export async function executeProtocolActionIntent(
   try {
     const r = await fetch("/api/ask/action/build", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...request, walletAddress, quotedAt: operation.intent.data.quotedAt }),
+      // quotedAt is deliberately NOT sent: build takes it only from the
+      // signed quoteToken, so a client can never refresh a stale quote.
+      body: JSON.stringify({ protocolId: request.protocolId, actionId: request.actionId, version: request.version, inputs: request.inputs, walletAddress, quoteToken }),
     });
     build = await r.json();
   } catch {
     return { ...operation, status: "error", error: { message: "Couldn't reach Monad to prepare that action. Try again in a moment.", code: "BUILD_FAILED" } };
   }
-  if (!build || !build.ok || !build.steps || build.steps.length === 0) {
+  if (!build || !build.ok || !build.steps || build.steps.length === 0 || !build.quoteId) {
     return { ...operation, status: "error", error: { message: build?.message ?? "Couldn't prepare that action.", code: build?.code ?? "BUILD_FAILED" } };
   }
 
   const steps = build.steps;
+  const quoteId = build.quoteId;
   let broadcastHash: string | null = null;
   // An ERC-20 split is two wallet actions: approve, then splitPayment. Track
   // the approval's OWN hash so it is NEVER shown as the settlement hash, and so
@@ -1275,7 +1290,7 @@ export async function executeProtocolActionIntent(
     try {
       const r = await fetch("/api/ask/action/confirm", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ protocolId: request.protocolId, actionId: request.actionId, version: request.version, txHash: lastHash, walletAddress }),
+        body: JSON.stringify({ protocolId: request.protocolId, actionId: request.actionId, version: request.version, txHash: lastHash, walletAddress, quoteId }),
       });
       confirm = await r.json();
     } catch {

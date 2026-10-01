@@ -1,49 +1,62 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { decodeFunctionData, encodeAbiParameters, toEventSelector, parseUnits, formatUnits } from "viem";
+import { decodeFunctionData, encodeAbiParameters, toEventSelector, parseUnits } from "viem";
 
 /**
- * Phase 5C — the closest achievable substitute for live browser QA: the FULL
- * production pipeline composed end-to-end through the REAL modules, for both
- * native MON and ERC-20 (USDC):
+ * The FULL split pipeline through the REAL modules, native MON and ERC-20:
  *
- *   natural language  → real classifier (routeRequest)
- *                     → real preview route  /api/ask/action        (quote)
- *                     → real build route    /api/ask/action/build  (Layer A + Layer B)
- *                     → real parseResult over a synthesized canonical receipt (confirmedDetails)
+ *   natural language → classifier (lib/ask/intent/split.ts)
+ *                    → preview  /api/ask/action          (quote + policy + quote token)
+ *                    → build    /api/ask/action/build    (token + Layer A + policy + Layer B)
+ *                    → confirm  /api/ask/action/confirm  (build match + receipt + history)
  *
- * Only the wallet signature and the RPC receipt fetch are stubbed — both are
- * physically impossible in this sandbox and both are thin adapters already
- * unit-covered. Everything security-relevant (routing, quote, build, target
- * pinning, exact approval, event parsing, confirmed-vs-preview separation) runs
- * as it would in production.
+ * Only the wallet signature and the RPC client are stubbed — the RPC returns
+ * the transaction exactly as the wallet would have sent the built step, and a
+ * receipt carrying the canonical SplitPaymentExecuted event. History is read
+ * back from the real (in-memory) transaction store.
  */
 
 const CANONICAL = "0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F";
 const USDC = "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60";
-const A = "0x1111111111111111111111111111111111111111";
-const B = "0x2222222222222222222222222222222222222222";
+const WALLET = "0x6b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c";
+const A = "0x5e0d39b4c1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6";
+const B = "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b";
 const NATIVE = "0x0000000000000000000000000000000000000000";
 
 vi.mock("@/lib/platform/ratelimit", () => ({ rateLimited: async () => null }));
+vi.mock("@/lib/payment/sanctions", () => ({
+  ensureSanctionsLoaded: async () => {}, isSanctionedAddress: () => false, sanctionsListLoaded: () => true,
+}));
 
-const APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
+/** What the stubbed RPC returns, set per test. */
+const chain: {
+  tx?: { from: string; to: string | null; input: string; value: bigint };
+  receipt?: { status: "success" | "reverted"; from: string; logs: { address: string; topics: string[]; data: string }[] };
+} = {};
+vi.mock("@/lib/monad/wallet", () => ({
+  getPublicClient: () => ({
+    waitForTransactionReceipt: async () => chain.receipt,
+    getTransaction: async () => chain.tx,
+  }),
+}));
+
 const SPLIT_ABI = [{ type: "function", name: "splitPayment", stateMutability: "payable", inputs: [{ name: "token", type: "address" }, { name: "recipients", type: "address[]" }, { name: "amounts", type: "uint256[]" }, { name: "ref", type: "bytes32" }], outputs: [{ type: "uint256" }] }] as const;
+const APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 
-let priorNet: string | undefined;
-let priorUsdc: string | undefined;
-
+let saved: Record<string, string | undefined>;
 beforeEach(async () => {
-  priorNet = process.env.MONAD_NETWORK; priorUsdc = process.env.MONAD_MAINNET_USDC;
+  saved = { MONAD_NETWORK: process.env.MONAD_NETWORK, MONAD_MAINNET_USDC: process.env.MONAD_MAINNET_USDC };
   process.env.MONAD_NETWORK = "mainnet"; process.env.MONAD_MAINNET_USDC = USDC;
+  delete chain.tx; delete chain.receipt;
+  const g = globalThis as unknown as { __veripayIdem?: Map<string, unknown> };
+  g.__veripayIdem?.clear();
   const { __resetRegistryForTests } = await import("@/lib/sdk/registry");
   const { __resetBootstrapForTests } = await import("@/lib/sdk/bootstrap");
   __resetRegistryForTests();
   __resetBootstrapForTests();
 });
 afterEach(async () => {
-  if (priorNet === undefined) delete process.env.MONAD_NETWORK; else process.env.MONAD_NETWORK = priorNet;
-  if (priorUsdc === undefined) delete process.env.MONAD_MAINNET_USDC; else process.env.MONAD_MAINNET_USDC = priorUsdc;
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   const { __resetRegistryForTests } = await import("@/lib/sdk/registry");
   const { __resetBootstrapForTests } = await import("@/lib/sdk/bootstrap");
   __resetRegistryForTests();
@@ -51,115 +64,155 @@ afterEach(async () => {
 });
 
 const post = (url: string, body: unknown) => new NextRequest(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+const ID = { protocolId: "payai-settlement", actionId: "split_payment", version: "2.0.0" };
+let txCounter = 0;
+const newHash = () => `0x${(++txCounter).toString(16).padStart(64, "a")}` as `0x${string}`;
 
-/** Synthesize the exact SplitPaymentExecuted log a real settlement emits, from
- *  the canonical address — what parseResult reads out of the receipt. */
-function canonicalReceipt(txHash: string, settlementId: bigint, payer: string, token: string, total: bigint, recipients: string[], amounts: bigint[]) {
-  const topic0 = toEventSelector("SplitPaymentExecuted(uint256,address,address,bytes32,uint256,address[],uint256[])");
+function canonicalLog(token: string, recipients: readonly string[], amounts: readonly bigint[], settlementId = 7n) {
   const topics = [
-    topic0,
+    toEventSelector("SplitPaymentExecuted(uint256,address,address,bytes32,uint256,address[],uint256[])"),
     encodeAbiParameters([{ type: "uint256" }], [settlementId]),
-    encodeAbiParameters([{ type: "address" }], [payer as `0x${string}`]),
-    encodeAbiParameters([{ type: "address" }], [token as `0x${string}`]),
-  ] as `0x${string}`[];
+    encodeAbiParameters([{ type: "address" }], [WALLET as `0x${string}`]),
+    encodeAbiParameters([{ type: "address" }], [token.toLowerCase() as `0x${string}`]),
+  ];
+  const total = amounts.reduce((s, a) => s + a, 0n);
   const data = encodeAbiParameters(
     [{ type: "bytes32" }, { type: "uint256" }, { type: "address[]" }, { type: "uint256[]" }],
-    [`0x${"0".repeat(64)}` as `0x${string}`, total, recipients as `0x${string}`[], amounts],
+    [`0x${"0".repeat(64)}`, total, recipients as `0x${string}`[], amounts as bigint[]],
   );
-  return { status: "success" as const, txHash: txHash as `0x${string}`, logs: [{ address: CANONICAL as `0x${string}`, topics, data }] };
+  return { address: CANONICAL, topics, data };
+}
+
+/** NL → classify → preview → build; returns what the wallet would sign. */
+async function prepare(text: string) {
+  const { routeRequest } = await import("@/lib/ask/intent/classify");
+  const routed = await routeRequest(text, null);
+  expect(routed.anthropic).toBe(false);
+  const u = routed.understanding!;
+  if (u.outcome !== "complete" || u.kind !== "protocol_action") throw new Error(`expected a split: ${JSON.stringify(u)}`);
+  const inputs = u.slots.actionInputs!;
+  const { POST: preview } = await import("@/app/api/ask/action/route");
+  const pj = await (await preview(post("https://usepayai.xyz/api/ask/action", { ...ID, inputs }))).json();
+  expect(pj.ok).toBe(true);
+  const { POST: build } = await import("@/app/api/ask/action/build/route");
+  const bj = await (await build(post("https://usepayai.xyz/api/ask/action/build", { ...ID, inputs, walletAddress: WALLET, quoteToken: pj.quoteToken }))).json();
+  expect(bj.ok).toBe(true);
+  const final = bj.steps[bj.steps.length - 1];
+  const [token, recipients, amounts] = decodeFunctionData({ abi: SPLIT_ABI, data: final.tx.data }).args as [string, string[], bigint[], string];
+  return { pj, bj, final, token, recipients, amounts };
+}
+
+/** The wallet "sends" exactly the built final step; the chain mines it. */
+function mine(final: { tx: { to: string; data: string; value: string } }, receipt: NonNullable<typeof chain.receipt>) {
+  chain.tx = { from: WALLET, to: final.tx.to, input: final.tx.data, value: BigInt(final.tx.value) };
+  chain.receipt = receipt;
+}
+
+async function confirm(quoteId: string, txHash: string, wallet = WALLET) {
+  const { POST } = await import("@/app/api/ask/action/confirm/route");
+  const res = await POST(post("https://usepayai.xyz/api/ask/action/confirm", { ...ID, txHash, walletAddress: wallet, quoteId }));
+  return { status: res.status, json: await res.json() };
+}
+
+async function historyFor(txHash: string) {
+  const { listTx } = await import("@/lib/platform/store");
+  const { resolveTenantId } = await import("@/lib/platform/tenant");
+  const merchantId = await resolveTenantId(post("https://usepayai.xyz/x", {}));
+  return (await listTx(merchantId, { sender: WALLET })).filter((t) => t.txHash === txHash);
 }
 
 describe("native MON — full pipeline", () => {
-  it("NL → classify → preview → build → parseResult, all real modules", async () => {
-    // 1. classifier
-    const { routeRequest } = await import("@/lib/ask/intent/classify");
-    const routed = await routeRequest(`split 0.002 MON between ${A} and ${B}`, null);
-    expect(routed.anthropic).toBe(false);
-    const u = routed.understanding!;
-    if (u.outcome !== "complete") throw new Error("expected complete");
-    expect(u.kind).toBe("protocol_action");
-    const inputs = u.slots.actionInputs!; // exactly what dispatchProtocolAction forwards
-
-    // 2. preview route (quote)
-    const { POST: preview } = await import("@/app/api/ask/action/route");
-    const pj = await (await preview(post("https://usepayai.xyz/api/ask/action", { protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0", inputs }))).json();
-    expect(pj.ok).toBe(true);
-    expect(pj.summary).toBe("Split 0.002 MON between 2 recipients");
-    expect(pj.details.token).toBe("MON (native)");
-
-    // 3. build route (Layer A + Layer B)
-    const { POST: build } = await import("@/app/api/ask/action/build/route");
-    const bj = await (await build(post("https://usepayai.xyz/api/ask/action/build", { protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0", inputs, walletAddress: A, quotedAt: pj.quotedAt }))).json();
-    expect(bj.ok).toBe(true);
+  it("NL → preview → build → confirm records ONE row per confirmed recipient, from the event", async () => {
+    const { bj, final, token, recipients, amounts } = await prepare(`split 0.002 MON between ${A} and ${B}`);
     expect(bj.steps).toHaveLength(1);
-    expect(bj.steps[0].tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    const dec = decodeFunctionData({ abi: SPLIT_ABI, data: bj.steps[0].tx.data as `0x${string}` });
-    const [token, recipients, amounts] = dec.args as [string, string[], bigint[], string];
+    expect(final.tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
     expect(token).toBe(NATIVE);
-    // value equals the exact total the calldata will move
-    const total = amounts.reduce((x, y) => x + y, 0n);
-    expect(bj.steps[0].tx.value).toBe(total.toString());
-    expect(total).toBe(parseUnits("0.002", 18));
+    expect(final.tx.value).toBe(parseUnits("0.002", 18).toString());
 
-    // 4. parseResult over the receipt a real settlement would produce
-    const { getAction } = await import("@/lib/sdk/registry");
-    const action = getAction("payai-settlement", "split_payment", "1.0.0")!;
-    const confirmed = await action.parseResult(canonicalReceipt("0xsettle", 0n, A, token, total, recipients, amounts));
-    expect(confirmed.settlementId).toBe("0");
-    expect(confirmed.total).toBe("0.002 MON");
-    // confirmed is DISTINCT from the preview prediction (never masquerades)
-    expect(confirmed.status).toBe("success");
-    expect(confirmed.recipientCount).toBe("2");
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, amounts)] });
+    const { json } = await confirm(bj.quoteId, hash);
+    expect(json.ok).toBe(true);
+    expect(json.recorded).toBe(2);
+    expect(json.details.settlementId).toBe("7");
+
+    const rows = await historyFor(hash);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => [r.recipient?.toLowerCase(), r.amount, r.token]).sort()).toEqual([
+      [A.toLowerCase(), 0.001, "MON"], [B.toLowerCase(), 0.001, "MON"],
+    ].sort());
+    expect(rows.every((r) => r.action === "split_payment" && r.feature === "payment" && r.decision === "executed")).toBe(true);
+  });
+
+  it("history uses the CONFIRMED event amounts, not the preview or inputs", async () => {
+    const { bj, final, recipients } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const hash = newHash();
+    // The event is the source of truth for what settled.
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, [parseUnits("0.0015", 18), parseUnits("0.0005", 18)])] });
+    await confirm(bj.quoteId, hash);
+    const rows = await historyFor(hash);
+    expect(rows.map((r) => r.amount).sort()).toEqual([0.0005, 0.0015]);
+  });
+
+  it("confirming the same transaction twice replays the outcome and records history ONCE", async () => {
+    const { bj, final, recipients, amounts } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, amounts)] });
+    expect((await confirm(bj.quoteId, hash)).json.ok).toBe(true);
+    const again = await confirm(bj.quoteId, hash);
+    expect(again.json.replayed).toBe(true);
+    expect(await historyFor(hash)).toHaveLength(2);
+  });
+
+  it("a transaction that isn't byte-for-byte the built one is refused, and records nothing", async () => {
+    const { bj, final, recipients, amounts } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, amounts)] });
+    chain.tx = { ...chain.tx!, value: chain.tx!.value + 1n };
+    const { status } = await confirm(bj.quoteId, hash);
+    expect(status).toBe(409);
+    expect(await historyFor(hash)).toHaveLength(0);
+  });
+
+  it("an unknown quoteId, or another wallet's confirm, is refused", async () => {
+    const { bj, final, recipients, amounts } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(NATIVE, recipients, amounts)] });
+    expect((await confirm("f".repeat(32), hash)).status).toBe(409);
+    expect((await confirm(bj.quoteId, hash, A)).status).toBe(409);
+    expect(await historyFor(hash)).toHaveLength(0);
+  });
+
+  it("a reverted settlement is reported as reverted and writes no history", async () => {
+    const { bj, final } = await prepare(`split 0.002 MON between ${A} and ${B}`);
+    const hash = newHash();
+    mine(final, { status: "reverted", from: WALLET, logs: [] });
+    const { json } = await confirm(bj.quoteId, hash);
+    expect(json.ok).toBe(false);
+    expect(json.reverted).toBe(true);
+    expect(await historyFor(hash)).toHaveLength(0);
   });
 });
 
 describe("ERC-20 USDC — full pipeline", () => {
-  it("NL → classify → preview → build (approve+split) → parseResult, all real modules", async () => {
-    // 1. classifier resolves USDC deterministically
-    const { routeRequest } = await import("@/lib/ask/intent/classify");
-    const routed = await routeRequest(`split 0.02 USDC between ${A} and ${B}`, null);
-    const u = routed.understanding!;
-    if (u.outcome !== "complete") throw new Error("expected complete");
-    expect(u.kind).toBe("protocol_action");
-    const inputs = u.slots.actionInputs!;
-    expect(inputs.token.toLowerCase()).toBe(USDC.toLowerCase());
-
-    // 2. preview
-    const { POST: preview } = await import("@/app/api/ask/action/route");
-    const pj = await (await preview(post("https://usepayai.xyz/api/ask/action", { protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0", inputs }))).json();
-    expect(pj.ok).toBe(true);
-    expect(pj.summary).toBe("Split 0.02 USDC between 2 recipients");
-    expect(pj.details.token).toContain("USDC");
-
-    // 3. build — approve FIRST (to token, spender=canonical, exact total), then split (to canonical, value 0)
-    const { POST: build } = await import("@/app/api/ask/action/build/route");
-    const bj = await (await build(post("https://usepayai.xyz/api/ask/action/build", { protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0", inputs, walletAddress: A, quotedAt: pj.quotedAt }))).json();
-    expect(bj.ok).toBe(true); // build route runs Layer B on the approve step (5A) and the split step
+  it("custom amounts survive NL → approve(exact total) + split → confirm → history", async () => {
+    const { bj, final, token, recipients, amounts } = await prepare(`split 0.05 USDC: 0.03 to ${A} and 0.02 to ${B}`);
     expect(bj.steps).toHaveLength(2);
     expect(bj.steps[0].kind).toBe("approve");
-    expect(bj.steps[0].tx.to.toLowerCase()).toBe(USDC.toLowerCase());
-    const appr = decodeFunctionData({ abi: APPROVE_ABI, data: bj.steps[0].tx.data as `0x${string}` });
-    const [spender, approveAmt] = appr.args as [string, bigint];
+    const [spender, approveAmt] = decodeFunctionData({ abi: APPROVE_ABI, data: bj.steps[0].tx.data }).args as [string, bigint];
     expect(spender.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    expect(approveAmt).toBe(parseUnits("0.02", 6)); // exact total, base units
-
-    expect(bj.steps[1].kind).toBe("action");
-    expect(bj.steps[1].tx.to.toLowerCase()).toBe(CANONICAL.toLowerCase());
-    expect(bj.steps[1].tx.value).toBe("0");
-    const dec = decodeFunctionData({ abi: SPLIT_ABI, data: bj.steps[1].tx.data as `0x${string}` });
-    const [token, recipients, amounts] = dec.args as [string, string[], bigint[], string];
+    expect(approveAmt).toBe(parseUnits("0.05", 6));
     expect(token.toLowerCase()).toBe(USDC.toLowerCase());
-    const total = amounts.reduce((x, y) => x + y, 0n);
-    expect(approveAmt).toBe(total); // approval == settlement spend
+    expect(amounts).toEqual([parseUnits("0.03", 6), parseUnits("0.02", 6)]);
 
-    // 4. parseResult over the canonical event
-    const { getAction } = await import("@/lib/sdk/registry");
-    const action = getAction("payai-settlement", "split_payment", "1.0.0")!;
-    const confirmed = await action.parseResult(canonicalReceipt("0xsettle2", 7n, A, token, total, recipients, amounts));
-    expect(confirmed.settlementId).toBe("7");
-    expect(confirmed.token.toLowerCase()).toBe(USDC.toLowerCase());
-    // ERC-20 amounts are base units in confirmedDetails (documented cosmetic limitation)
-    expect(confirmed.total).toBe(total.toString());
-    expect(formatUnits(BigInt(confirmed.total), 6)).toBe("0.02");
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(USDC, recipients, amounts)] });
+    const { json } = await confirm(bj.quoteId, hash);
+    expect(json.ok).toBe(true);
+    expect(json.details.total).toBe("0.05 USDC"); // formatted with the token's real decimals
+    const rows = await historyFor(hash);
+    expect(rows.map((r) => [r.recipient?.toLowerCase(), r.amount, r.token]).sort()).toEqual([
+      [A.toLowerCase(), 0.03, "USDC"], [B.toLowerCase(), 0.02, "USDC"],
+    ].sort());
   });
 });

@@ -76,6 +76,16 @@ function previewReq(body: unknown) {
 
 const WALLET = "0x9999999999999999999999999999999999999999";
 
+/** Build now REQUIRES the preview's signed quote token. Preview the same
+ *  identity + inputs to get one; when the preview itself can't succeed (an
+ *  unregistered/unpinned action, invalid input) a placeholder is used, so the
+ *  build route's own earlier gates — not the token — decide the outcome. */
+async function withToken(body: { protocolId: string; actionId: string; version: string; inputs: Record<string, string>; walletAddress: string }) {
+  const { POST } = await import("@/app/api/ask/action/route");
+  const preview = await (await POST(previewReq({ protocolId: body.protocolId, actionId: body.actionId, version: body.version, inputs: body.inputs }))).json();
+  return { ...body, quoteToken: preview.quoteToken ?? "placeholder.token" };
+}
+
 describe("preview route (/api/ask/action) — 11. build() is never called during preview", () => {
   it("previews via quote() only; build() is never invoked", async () => {
     const { registerProtocol } = await import("@/lib/sdk/registry");
@@ -105,7 +115,7 @@ describe("build route (/api/ask/action/build) — 12/13/14 the confirm-time gate
     const { registerProtocol } = await import("@/lib/sdk/registry");
     registerProtocol(testProtocol([testAction()]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(buildCalls).toBe(1);
@@ -116,7 +126,7 @@ describe("build route (/api/ask/action/build) — 12/13/14 the confirm-time gate
     const { registerProtocol } = await import("@/lib/sdk/registry");
     registerProtocol(testProtocol([testAction({}, async () => [step(OUTSIDE, "drain")])]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.code).toBe("TARGET_NOT_ALLOWLISTED");
@@ -126,7 +136,7 @@ describe("build route (/api/ask/action/build) — 12/13/14 the confirm-time gate
     const { registerProtocol } = await import("@/lib/sdk/registry");
     registerProtocol(testProtocol([testAction({}, async () => [step(ALLOWED, "ok"), step(OUTSIDE, "sneaky")])]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.code).toBe("TARGET_NOT_ALLOWLISTED");
@@ -136,7 +146,7 @@ describe("build route (/api/ask/action/build) — 12/13/14 the confirm-time gate
     const { registerProtocol } = await import("@/lib/sdk/registry");
     registerProtocol(testProtocol([testAction()]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "-5" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "-5" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.code).toBe("SCHEMA_VALIDATION_FAILED");
@@ -145,7 +155,7 @@ describe("build route (/api/ask/action/build) — 12/13/14 the confirm-time gate
 
   it("an unknown protocol/action is rejected cleanly", async () => {
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "ghost", actionId: "x", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "ghost", actionId: "x", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.code).toBe("PROTOCOL_NOT_CONFIGURED");
@@ -161,7 +171,7 @@ describe("15. version pinning — confirmation never silently switches to a newe
     const v2 = testAction({ version: "2.0.0" }, async () => [step(OUTSIDE, "V2")]);
     registerProtocol(testProtocol([v1, v2]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json.steps[0].label).toBe("V1"); // pinned v1, never v2
@@ -173,7 +183,7 @@ describe("15. version pinning — confirmation never silently switches to a newe
     // execute against v2.0.0.
     registerProtocol(testProtocol([testAction({ version: "2.0.0" })]));
     const { POST } = await import("@/app/api/ask/action/build/route");
-    const res = await POST(buildReq({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET, quotedAt: Date.now() }));
+    const res = await POST(buildReq(await withToken({ protocolId: "testproto", actionId: "act", version: "1.0.0", inputs: { amount: "1" }, walletAddress: WALLET })));
     const json = await res.json();
     expect(json.ok).toBe(false);
     expect(json.code).toBe("VERSION_MISMATCH");

@@ -19,6 +19,7 @@ import { getAddress, parseUnits, type Address } from "viem";
 import { isAddress } from "@/lib/payees/directory";
 import { getPublicClient } from "@/lib/monad/wallet";
 import { resolveToken } from "@/lib/monad/tokenRegistry";
+import { ActionInputError } from "@/lib/sdk/types";
 
 /** The only chain either Aave action is ever registered on. Aave V3 is not
  *  deployed anywhere else PayAI runs. */
@@ -72,7 +73,7 @@ export const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
  *  callers surface it — same convention as split-settlement's
  *  SplitInputError. Each action's own file may throw this directly; it is
  *  not action-specific, so it lives here rather than being duplicated. */
-export class AaveActionInputError extends Error {}
+export class AaveActionInputError extends ActionInputError {}
 
 /** In-memory cache of the live reserves list, shared by both actions, so a
  *  burst of quote()/build() calls across either action doesn't re-fetch the

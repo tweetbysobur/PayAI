@@ -66,12 +66,20 @@ export interface ActionMetadata extends ActionIdentity {
   allowedTargets: readonly Address[];
 }
 
-/** How one input parameter is described. The `type` drives which validator
- *  runs in lib/sdk/validate.ts — there is no escape hatch type, and no
- *  `any`, deliberately: an unvalidatable parameter would be a hole straight
+/** How one SCALAR input parameter is described. The `type` drives which
+ *  validator runs in lib/sdk/validate.ts — there is no escape hatch type, and
+ *  no `any`, deliberately: an unvalidatable parameter would be a hole straight
  *  through Layer A. */
-export interface ActionInputField {
-  type: "amount" | "token" | "address" | "string" | "number" | "boolean";
+export interface ScalarInputField {
+  /**
+   * "units" is an exact integer amount in the token's smallest unit, as a
+   * decimal-digit string ("1500000" = 1.5 USDC). It is the only amount type
+   * that never passes through floating point anywhere: Layer A checks it with
+   * a regex and BigInt, and the action consumes it with BigInt. Prefer it for
+   * anything that moves funds; "amount" (human decimal) remains for the
+   * single-input actions that already use it.
+   */
+  type: "amount" | "units" | "token" | "address" | "string" | "number" | "boolean";
   required: boolean;
   description: string;
   /**
@@ -87,15 +95,77 @@ export interface ActionInputField {
   maxLength?: number;
 }
 
+/**
+ * A bounded list of flat records — e.g. split_payment's recipients. Each item
+ * must have EXACTLY the declared keys (no extras), each validated by the
+ * scalar rules above. Lists don't nest: an item field is always a scalar, so
+ * Layer A stays a fixed-depth check with no recursion for an input to exploit.
+ */
+export interface ListInputField {
+  type: "list";
+  required: boolean;
+  description: string;
+  minItems: number;
+  maxItems: number;
+  items: Readonly<Record<string, ScalarInputField>>;
+}
+
+export type ActionInputField = ScalarInputField | ListInputField;
+
 export interface ActionInputSchema {
   [paramName: string]: ActionInputField;
 }
 
-/** Inputs always arrive as strings — they originate from natural-language
- *  slot-filling, so a "number" parameter is the string "5", not 5. The
- *  validators in lib/sdk/validate.ts are what turn that into a checked
- *  value; nothing downstream should re-parse a raw input itself. */
-export type ActionInputs = Readonly<Record<string, string>>;
+/** One item of a list input — a flat record of strings. */
+export type ActionInputItem = Readonly<Record<string, string>>;
+
+/** A scalar input is a string; a list input is an array of flat string
+ *  records. Nothing else is representable. */
+export type ActionInputValue = string | readonly ActionInputItem[];
+
+/** Inputs always arrive as strings (or lists of string records) — they
+ *  originate from natural-language slot-filling, so a "number" parameter is
+ *  the string "5", not 5. The validators in lib/sdk/validate.ts are what turn
+ *  that into a checked value; nothing downstream should re-parse a raw input
+ *  itself. */
+export type ActionInputs = Readonly<Record<string, ActionInputValue>>;
+
+/**
+ * Base class for errors an action throws because the USER's input can't be
+ * used (a bad recipient, an unusable token, an amount below the token's
+ * precision…). The routes show its message to the user; any other error is
+ * treated as internal and replaced with a generic one.
+ */
+export class ActionInputError extends Error {}
+
+/** A validated scalar input as a string. Absent → "". A list where a scalar
+ *  was expected can't occur after Layer A (it rejects the type mismatch), but
+ *  is treated as absent here rather than stringified. */
+export function inputString(inputs: ActionInputs, key: string): string {
+  const v = inputs[key];
+  return typeof v === "string" ? v : "";
+}
+
+/** A validated list input. Absent (or a scalar, which Layer A rejects) → []. */
+export function inputList(inputs: ActionInputs, key: string): readonly ActionInputItem[] {
+  const v = inputs[key];
+  return Array.isArray(v) ? (v as readonly ActionInputItem[]) : [];
+}
+
+/**
+ * Funds leaving the user's wallet to a THIRD party — what lib/sdk/policy.ts
+ * runs PayAI's payment compliance/risk engine against. Amounts are exact base
+ * units. An action that only moves funds within the user's own position
+ * (wrap/unwrap, supply/withdraw to self) declares none.
+ */
+export interface ActionOutflow {
+  recipient: Address;
+  amountUnits: bigint;
+  /** Zero address for native MON. */
+  token: Address;
+  symbol: string;
+  decimals: number;
+}
 
 /** The read-only result of asking an action "what would this do?".
  *  Producing one must never sign, broadcast, approve, or move anything —
@@ -165,6 +235,21 @@ export interface Action extends ActionMetadata {
    * chain is the source of truth, never the caller's claim).
    */
   parseResult(receipt: ActionReceipt): Promise<Readonly<Record<string, string>>>;
+  /**
+   * OPTIONAL. Third-party outflows these validated inputs would cause. When
+   * present, the preview and build routes run PayAI's payment policy
+   * (sanctions, recipient, risk, caps — lib/sdk/policy.ts) against them, the
+   * same engine the single-recipient send path uses. Read-only; never signs.
+   */
+  outflows?(inputs: ActionInputs): Promise<readonly ActionOutflow[]>;
+  /**
+   * OPTIONAL. The third-party outflows a CONFIRMED receipt actually settled,
+   * decoded from canonical on-chain events only — never from inputs or a
+   * quote. The confirm route records one history row per returned outflow.
+   * Returns [] when the receipt carries no canonical settlement event. Never
+   * throws.
+   */
+  settledOutflows?(receipt: ActionReceipt): Promise<readonly ActionOutflow[]>;
 }
 
 /** The minimum a result parser is given. Deliberately narrow — an action

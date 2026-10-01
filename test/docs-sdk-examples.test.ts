@@ -9,8 +9,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
  * mainnet, where every documented action registers.
  */
 const USDC = "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60";
-const R1 = "0x1111111111111111111111111111111111111111";
-const R2 = "0x2222222222222222222222222222222222222222";
+const R1 = "0x5e0d39b4c1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6";
+const R2 = "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b";
 
 const saved: Record<string, string | undefined> = {};
 async function reset() {
@@ -38,6 +38,8 @@ describe("/docs/sdk examples route to the documented actions", () => {
     ["wrap 1 MON", "wmon", "wrap"],
     ["unwrap 1 WMON", "wmon", "unwrap"],
     [`split 3 MON between ${R1} and ${R2}`, "payai-settlement", "split_payment"],
+    [`split 100 USDC: 60 to ${R1} and 40 to ${R2}`, "payai-settlement", "split_payment"],
+    [`split 100 USDC: 20 to ${R1} and the rest to ${R2}`, "payai-settlement", "split_payment"],
   ])("%s → %s/%s", async (text, protocolId, actionId) => {
     const { routeRequest } = await import("@/lib/ask/intent/classify");
     const r = await routeRequest(text, null);
@@ -64,19 +66,19 @@ describe("/docs/sdk examples route to the documented actions", () => {
     }
   });
 
-  it("the documented actions exist at version 1.0.0 and are the only ones documented", async () => {
+  it("the documented actions exist at their current versions and are the only ones documented", async () => {
     const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
     const { getCurrentActionVersion } = await import("@/lib/sdk/registry");
     ensureBuiltinsRegistered();
-    for (const [protocolId, actionId] of [["wmon", "wrap"], ["wmon", "unwrap"], ["payai-settlement", "split_payment"]]) {
-      expect(getCurrentActionVersion(protocolId, actionId), `${protocolId}/${actionId}`).toBe("1.0.0");
+    for (const [protocolId, actionId, version] of [["wmon", "wrap", "1.0.0"], ["wmon", "unwrap", "1.0.0"], ["payai-settlement", "split_payment", "2.0.0"]]) {
+      expect(getCurrentActionVersion(protocolId, actionId), `${protocolId}/${actionId}`).toBe(version);
     }
   });
 
   it("the page shows exactly these phrases", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../app/docs/sdk/page.tsx", import.meta.url), "utf8");
-    for (const phrase of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON between 0x… and 0x…"]) {
+    for (const phrase of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON between 0x… and 0x…", "split 100 USDC: 60 to 0x… and 40 to bob.nad", "split 100 USDC: 20 to 0x… and the rest to bob.nad"]) {
       expect(src, phrase).toContain(phrase);
     }
   });

@@ -53,7 +53,8 @@ export function retryTextFor(op: NonNullable<AskMessage["operation"]>): string |
     // Rebuild the natural phrase the detector recognizes, so "Try again"
     // re-enters the normal classify → preview funnel rather than replaying a
     // stored request. Phase 2 knows only WMON wrap/unwrap.
-    const amount = op.intent.data.inputs.amount ?? "";
+    const rawAmount = op.intent.data.inputs.amount;
+    const amount = typeof rawAmount === "string" ? rawAmount : "";
     if (op.intent.data.protocol.id === "wmon" && amount) {
       if (op.intent.data.action.id === "wrap") return `Wrap ${amount} MON`;
       if (op.intent.data.action.id === "unwrap") return `Unwrap ${amount} WMON`;

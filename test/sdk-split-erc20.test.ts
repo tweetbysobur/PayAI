@@ -14,9 +14,12 @@ import type { UnsignedActionStep } from "@/lib/sdk/types";
 
 const CANONICAL = "0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F";
 const USDC = "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60";
-const A = "0x1111111111111111111111111111111111111111";
-const B = "0x2222222222222222222222222222222222222222";
-const ROUTER = "0x9999999999999999999999999999999999999999";
+const A = "0x5e0d39b4c1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6";
+const B = "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b";
+const ROUTER = "0x3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e";
+/** USDC base units (6 decimals) — split v2 takes exact integers only. */
+const usdc = (n: string) => parseUnits(n, 6).toString();
+const pair = (recipient: string, amount: string) => ({ recipient, amount: usdc(amount) });
 
 const APPROVE_ABI = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
 const SPLIT_ABI = [{ type: "function", name: "splitPayment", stateMutability: "payable", inputs: [{ name: "token", type: "address" }, { name: "recipients", type: "address[]" }, { name: "amounts", type: "uint256[]" }, { name: "ref", type: "bytes32" }], outputs: [{ type: "uint256" }] }] as const;
@@ -44,7 +47,7 @@ afterEach(() => {
 });
 
 function action() {
-  const a = registry.getAction("payai-settlement", "split_payment", "1.0.0");
+  const a = registry.getAction("payai-settlement", "split_payment", "2.0.0");
   if (!a) throw new Error("not registered");
   return a;
 }
@@ -52,7 +55,7 @@ const q = { summary: "", details: {}, quotedAt: Date.now() };
 
 describe("ERC-20 build", () => {
   it("produces [approve, splitPayment]: approve→token, split→canonical, value 0", async () => {
-    const steps = await action().build({ token: USDC, recipient1: A, amount1: "60", recipient2: B, amount2: "40" }, q);
+    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
     expect(steps).toHaveLength(2);
     expect(steps[0].kind).toBe("approve");
     expect(steps[1].kind).toBe("action");
@@ -63,7 +66,7 @@ describe("ERC-20 build", () => {
   });
 
   it("approves the EXACT total (== sum of amounts), to the canonical spender, with matching metadata", async () => {
-    const steps = await action().build({ token: USDC, recipient1: A, amount1: "60", recipient2: B, amount2: "40" }, q);
+    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
     const total = parseUnits("100", 6);
     const dec = decodeFunctionData({ abi: APPROVE_ABI, data: steps[0].tx.data as `0x${string}` });
     const [spender, amount] = dec.args as [string, bigint];
@@ -73,7 +76,7 @@ describe("ERC-20 build", () => {
   });
 
   it("splitPayment carries the token arg + correct recipients/amounts in base units", async () => {
-    const steps = await action().build({ token: USDC, recipient1: A, amount1: "60", recipient2: B, amount2: "40" }, q);
+    const steps = await action().build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
     const dec = decodeFunctionData({ abi: SPLIT_ABI, data: steps[1].tx.data as `0x${string}` });
     const [token, recipients, amounts] = dec.args as [string, string[], bigint[], string];
     expect(token.toLowerCase()).toBe(USDC.toLowerCase());
@@ -84,14 +87,12 @@ describe("ERC-20 build", () => {
   it("the whole ERC-20 step set passes Layer B (approve spender allowlisted; split target canonical)", async () => {
     const a = action();
     const proto = registry.getProtocol("payai-settlement")!;
-    const steps = await a.build({ token: USDC, recipient1: A, amount1: "60", recipient2: B, amount2: "40" }, q);
+    const steps = await a.build({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] }, q);
     expect(validate.validateSteps(steps, a, proto).ok).toBe(true);
   });
 
-  it("one / three recipients also build cleanly", async () => {
-    const one = await action().build({ token: USDC, recipient1: A, amount1: "10" }, q);
-    expect(one).toHaveLength(2);
-    const three = await action().build({ token: USDC, recipient1: A, amount1: "10", recipient2: B, amount2: "20", recipient3: ROUTER, amount3: "30" }, q);
+  it("three recipients also build cleanly, approving exactly their sum", async () => {
+    const three = await action().build({ token: USDC, recipients: [pair(A, "10"), pair(B, "20"), pair(ROUTER, "30")] }, q);
     const dec = decodeFunctionData({ abi: APPROVE_ABI, data: three[0].tx.data as `0x${string}` });
     expect((dec.args as [string, bigint])[1]).toBe(parseUnits("60", 6));
   });
@@ -99,7 +100,7 @@ describe("ERC-20 build", () => {
 
 describe("ERC-20 quote", () => {
   it("summarizes in USDC with per-recipient amounts and the token identity", async () => {
-    const res = await action().quote({ token: USDC, recipient1: A, amount1: "60", recipient2: B, amount2: "40" });
+    const res = await action().quote({ token: USDC, recipients: [pair(A, "60"), pair(B, "40")] });
     expect(res.summary).toBe("Split 100 USDC between 2 recipients");
     expect(res.details.total).toBe("100 USDC");
     expect(res.details.token).toContain("USDC");
@@ -132,25 +133,27 @@ describe("action-build security (Layer B rejects a buggy/malicious variant)", ()
 });
 
 describe("ERC-20 input failures", () => {
-  it("a mismatched recipient/amount pair is rejected", async () => {
-    await expect(action().build({ token: USDC, recipient1: A, amount1: "60", recipient2: B }, q)).rejects.toThrow();
+  it("a single recipient is rejected (a split needs at least two)", async () => {
+    await expect(action().build({ token: USDC, recipients: [pair(A, "60")] }, q)).rejects.toThrow(/between 2 and 10/);
   });
   it("a zero amount is rejected", async () => {
-    await expect(action().quote({ token: USDC, recipient1: A, amount1: "0" })).rejects.toThrow();
+    await expect(action().quote({ token: USDC, recipients: [{ recipient: A, amount: "0" }, pair(B, "1")] })).rejects.toThrow();
   });
-  it("an amount below the token's smallest unit is rejected", async () => {
-    // 0.0000001 USDC rounds to 0 base units at 6 decimals.
-    await expect(action().build({ token: USDC, recipient1: A, amount1: "0.0000001" }, q)).rejects.toThrow();
+  it("a decimal amount is rejected — amounts are exact base units, never parsed as decimals here", async () => {
+    await expect(action().build({ token: USDC, recipients: [{ recipient: A, amount: "0.5" }, pair(B, "1")] }, q)).rejects.toThrow(/whole number of base units/);
   });
 });
 
 describe("recipients the contract would revert are rejected before any signature", () => {
   it("zero-address recipient is rejected at quote and build", async () => {
     const zero = "0x0000000000000000000000000000000000000000";
-    await expect(action().quote({ token: USDC, recipient1: zero, amount1: "1" })).rejects.toThrow(/zero address/);
-    await expect(action().build({ token: USDC, recipient1: zero, amount1: "1" }, q)).rejects.toThrow(/zero address/);
+    await expect(action().quote({ token: USDC, recipients: [pair(zero, "1"), pair(B, "1")] })).rejects.toThrow(/zero address/);
+    await expect(action().build({ token: USDC, recipients: [pair(zero, "1"), pair(B, "1")] }, q)).rejects.toThrow(/zero address/);
   });
   it("the SplitSettlement contract as recipient is rejected (no approve step produced)", async () => {
-    await expect(action().build({ token: USDC, recipient1: CANONICAL, amount1: "1" }, q)).rejects.toThrow(/contract itself/);
+    await expect(action().build({ token: USDC, recipients: [pair(CANONICAL, "1"), pair(B, "1")] }, q)).rejects.toThrow(/contract itself/);
+  });
+  it("a duplicate recipient is rejected before any approve step exists", async () => {
+    await expect(action().build({ token: USDC, recipients: [pair(A, "1"), pair(A, "2")] }, q)).rejects.toThrow(/more than once/);
   });
 });

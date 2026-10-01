@@ -378,18 +378,26 @@ function ProtocolActionBody({ intent }: { intent: Extract<Operation["intent"], {
       {d.summary && <p className="mb-2.5 text-sm text-foreground">{d.summary}</p>}
       <div className="divide-y divide-border/60">
         {Object.entries(d.inputs)
-          // Skip a multi-recipient action's raw recipientN/amountN pairs and
-          // the raw `token` (a zero sentinel for native, or a bare ERC-20
-          // address) — those are shown, already formatted with the token
-          // symbol, in `details` below. A single-input action (WMON's
-          // `amount`) has none of these keys and still renders here.
-          .filter(([k]) => !/^(recipient|amount)\d+$/.test(k) && k !== "token")
+          // Only scalar inputs render here. A list input (split's
+          // `recipients`, in raw base units) and the raw `token` (a zero
+          // sentinel for native, or a bare ERC-20 address) are shown, already
+          // formatted with the token symbol, in `details` below. A
+          // single-input action (WMON's `amount`) still renders here.
+          .filter((e): e is [string, string] => typeof e[1] === "string" && e[0] !== "token")
           .map(([k, v]) => (
             <Row key={`in-${k}`} label={k.charAt(0).toUpperCase() + k.slice(1)}>{v}</Row>
           ))}
-        {Object.entries(d.details).map(([k, v]) => (
-          <Row key={`det-${k}`} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
-        ))}
+        {Object.entries(d.details).map(([k, v]) => {
+          // A recipient the user wrote as a .nad name or configured payee
+          // shows that name beside the address it resolved to — the address
+          // is what gets signed, so it is always shown in full.
+          const label = /^recipient \d+$/.test(k) ? d.recipientLabels?.[v.toLowerCase()] : undefined;
+          return (
+            <Row key={`det-${k}`} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>
+              {label ? <span><span className="font-medium">{label}</span> <span className="break-all text-muted-foreground">{v}</span></span> : v}
+            </Row>
+          );
+        })}
         <Row label="Network">{d.network}</Row>
         <Row label="Version">{d.action.version}</Row>
       </div>

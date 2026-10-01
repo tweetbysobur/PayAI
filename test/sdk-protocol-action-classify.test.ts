@@ -96,7 +96,7 @@ describe("Phase 8 — Aave V3 Monad supply/withdraw discovery", () => {
     expect(u.slots.actionVersion).toBe("1.0.0"); // pinned from the registry
     const inputs = u.slots.actionInputs!;
     expect(inputs.amount).toBe("100");
-    expect(inputs.asset.toLowerCase()).toBe(getStablecoin().address.toLowerCase());
+    expect(String(inputs.asset).toLowerCase()).toBe(getStablecoin().address.toLowerCase());
     // The detector never invents a destination — that is filled in later,
     // client-side, with the real connected wallet (see orchestrate.ts).
     expect(inputs.onBehalfOf).toBeUndefined();
@@ -124,7 +124,7 @@ describe("Phase 8 — Aave V3 Monad supply/withdraw discovery", () => {
     expect(u.slots.actionVersion).toBe("1.0.0");
     const inputs = u.slots.actionInputs!;
     expect(inputs.amount).toBe("50");
-    expect(inputs.asset.toLowerCase()).toBe(getStablecoin().address.toLowerCase());
+    expect(String(inputs.asset).toLowerCase()).toBe(getStablecoin().address.toLowerCase());
     expect(inputs.to).toBeUndefined();
   });
 

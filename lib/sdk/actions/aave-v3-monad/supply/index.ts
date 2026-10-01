@@ -72,6 +72,7 @@ import "server-only";
 import { encodeFunctionData, decodeEventLog, formatUnits, type Address } from "viem";
 import { getChain } from "@/lib/monad/config";
 import { getPublicClient } from "@/lib/monad/wallet";
+import { inputString } from "@/lib/sdk/types";
 import type { Action, ActionInputs, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
 import {
   POOL, DATA_PROVIDER, DATA_PROVIDER_ABI, MONAD_MAINNET_CHAIN_ID,
@@ -156,9 +157,9 @@ export function supplyAction(chainId: number): Action {
       onBehalfOf: { type: "address", required: true, description: "The address that will receive the aTokens / be credited with this supply" },
     },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const ctx = await resolveAaveAsset(inputs.asset);
-      const onBehalfOf = resolveRequiredAddress(inputs.onBehalfOf, "onBehalfOf");
-      const units = toAaveUnits(inputs.amount, ctx.decimals);
+      const ctx = await resolveAaveAsset(inputString(inputs, "asset"));
+      const onBehalfOf = resolveRequiredAddress(inputString(inputs, "onBehalfOf"), "onBehalfOf");
+      const units = toAaveUnits(inputString(inputs, "amount"), ctx.decimals);
       const apy = await readSupplyApyPercent(ctx.address);
       const details: Record<string, string> = {
         asset: `${ctx.symbol} (${ctx.address})`,
@@ -177,9 +178,9 @@ export function supplyAction(chainId: number): Action {
       // numbers, exactly like split-settlement's build(). Also re-verifies
       // the reserve listing so a reserve delisted between quote and build
       // is refused rather than silently supplied to.
-      const ctx = await resolveAaveAsset(inputs.asset);
-      const onBehalfOf = resolveRequiredAddress(inputs.onBehalfOf, "onBehalfOf");
-      const units = toAaveUnits(inputs.amount, ctx.decimals);
+      const ctx = await resolveAaveAsset(inputString(inputs, "asset"));
+      const onBehalfOf = resolveRequiredAddress(inputString(inputs, "onBehalfOf"), "onBehalfOf");
+      const units = toAaveUnits(inputString(inputs, "amount"), ctx.decimals);
 
       const steps: UnsignedActionStep[] = [
         {

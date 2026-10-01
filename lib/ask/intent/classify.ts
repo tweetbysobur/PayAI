@@ -35,8 +35,8 @@ import { ASK_INTENT_KINDS, type AskIntentKind, type AskSlots, type Understanding
 import { ensureBuiltinsRegistered } from "@/lib/sdk/bootstrap";
 import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
 import { getChain, getStablecoin } from "@/lib/monad/config";
-import { parseUnits, formatUnits } from "viem";
 import { recipientAppearsIn } from "@/lib/payees/directory";
+import { detectSplit } from "./split";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -307,7 +307,12 @@ function coerce(raw: Record<string, unknown>, contextTokenAddress: string | null
   }
   if (kind === "trade") slots = applyTradeContext(slots, contextTokenAddress);
 
-  if ((ASK_INTENT_KINDS as readonly string[]).includes(kind) && (outcome === "incomplete" || outcome === "complete")) {
+  // protocol_action is produced ONLY by the deterministic, registry-gated
+  // detectors — the model's schema excludes it (CLASSIFY_KINDS), and a tool
+  // call that names it anyway is refused here rather than trusted. This is
+  // what keeps the LLM from ever introducing an SDK action (or a split
+  // recipient).
+  if (kind !== "protocol_action" && (ASK_INTENT_KINDS as readonly string[]).includes(kind) && (outcome === "incomplete" || outcome === "complete")) {
     const missing = REQUIRED_SLOTS[kind as AskIntentKind].filter((k) => !slots[k]);
     if (outcome === "complete" && missing.length === 0) {
       return { kind: kind as AskIntentKind, outcome: "complete", slots };
@@ -720,6 +725,11 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
  * context token (see contextTokenFrom) — nothing else here reads it.
  */
 async function classifyFresh(text: string, pending: Understanding | null = null): Promise<Understanding> {
+  // Same precedence as routeRequest: a split verb is handled only by the
+  // deterministic split path, before any other detector can claim it.
+  const split = await detectSplit(text);
+  if (split) return split;
+
   const trade = detectTradeFresh(text, contextTokenFrom(pending));
   if (trade) return trade;
 
@@ -912,17 +922,6 @@ const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|
 const WRAP_RE = /\bwrap\s+([0-9]+(?:\.[0-9]+)?)\s*mon\b/i;
 const UNWRAP_RE = /\bunwrap\s+([0-9]+(?:\.[0-9]+)?)\s*w?mon\b/i;
 
-/** A split: the literal verb "split"/"distribute", an explicit total in a
- *  SAFELY-RESOLVABLE token (native MON, or the one configured stablecoin USDC),
- *  and 2–3 EXPLICIT 0x addresses. Deliberately narrow (like WRAP_RE): every
- *  recipient is a literal address from the text, the token maps to a known
- *  address deterministically (never an LLM-invented or inferred contract), and
- *  every amount is derived from the stated total by exact division — nothing is
- *  invented. The "split"/"distribute" verb doesn't collide with the curated
- *  send/pay detectors that run before this. */
-const SPLIT_VERB_RE = /\b(?:split|distribute)\b/i;
-const SPLIT_AMOUNT_RE = /([0-9]+(?:\.[0-9]+)?)\s*(mon|usdc)\b/i;
-const EVM_ADDRESS_GLOBAL_RE = /0x[0-9a-fA-F]{40}/g;
 
 function detectProtocolAction(text: string): Understanding | null {
   ensureBuiltinsRegistered();
@@ -948,9 +947,6 @@ function detectProtocolAction(text: string): Understanding | null {
   const wrap = text.match(WRAP_RE);
   if (wrap) return resolve("wrap", wrap[1]);
 
-  const split = detectSplitPayment(text, activeChainId);
-  if (split) return split;
-
   const aave = detectAaveAction(text, activeChainId);
   if (aave) return aave;
   return null;
@@ -958,12 +954,12 @@ function detectProtocolAction(text: string): Understanding | null {
 
 /** "Supply 100 USDC to Aave" / "Supply 100 USDC to Aave V3" —
  *  "Withdraw 50 USDC from Aave" / "Withdraw 50 USDC from Aave V3". Same
- *  discipline as WRAP_RE/UNWRAP_RE/SPLIT_AMOUNT_RE above: the amount is the
+ *  discipline as WRAP_RE/UNWRAP_RE above: the amount is the
  *  literal number in the text, and the token is resolved ONLY to the one
  *  configured stablecoin via getStablecoin() (a real, verified address) —
  *  never an arbitrary symbol-to-address guess. Aave's own supply/withdraw
  *  actions only ever take an ERC-20 reserve (never native MON), so unlike
- *  detectSplitPayment there is no "mon" branch here at all. "v3" is optional
+ *  the split path there is no "mon" branch here at all. "v3" is optional
  *  and case-insensitive so both "Aave" and "Aave V3" match. */
 const AAVE_SUPPLY_RE = /\bsupply\s+([0-9]+(?:\.[0-9]+)?)\s*usdc\s+to\s+aave(?:\s*v3)?\b/i;
 const AAVE_WITHDRAW_RE = /\bwithdraw\s+([0-9]+(?:\.[0-9]+)?)\s*usdc\s+from\s+aave(?:\s*v3)?\b/i;
@@ -987,7 +983,7 @@ function detectAaveAction(text: string, activeChainId: number): Understanding | 
   const actionId: "supply" | "withdraw" = supplyMatch ? "supply" : "withdraw";
 
   // The only token this detector can safely resolve without guessing a
-  // contract address — same as detectSplitPayment's own USDC branch.
+  // contract address — same as the split path's USDC branch (lib/ask/intent/split.ts).
   let usdc;
   try {
     usdc = getStablecoin();
@@ -1008,86 +1004,6 @@ function detectAaveAction(text: string, activeChainId: number): Understanding | 
       ...emptySlots(),
       protocolId: "aave-v3-monad", actionId, actionVersion: version,
       actionInputs: { asset: usdc.address, amount: match[1] },
-    },
-  };
-}
-
-/** Deterministic native-MON split detection. Returns a COMPLETE understanding
- *  only when the split action is registered on this chain and the text carries
- *  a MON total plus 2–3 explicit, distinct 0x recipient addresses. Otherwise
- *  null — a "split" phrase missing that information falls through to the normal
- *  clarify path rather than routing to execution (never invents recipients or
- *  amounts). */
-function detectSplitPayment(text: string, activeChainId: number): Understanding | null {
-  if (!SPLIT_VERB_RE.test(text)) return null;
-  const amountMatch = text.match(SPLIT_AMOUNT_RE);
-  if (!amountMatch) return null;
-
-  // Resolve the token deterministically — MON (native) or the ONE configured
-  // stablecoin (USDC). Any other symbol is not resolved here (never guessed),
-  // so it falls through to clarification rather than executing.
-  const unit = amountMatch[2].toLowerCase();
-  let token: string;
-  let decimals: number;
-  if (unit === "mon") {
-    token = "0x0000000000000000000000000000000000000000";
-    decimals = 18;
-  } else {
-    // usdc
-    try {
-      const usdc = getStablecoin();
-      token = usdc.address;
-      decimals = usdc.decimals;
-    } catch {
-      return null; // stablecoin not configured on this deployment — fail closed
-    }
-  }
-
-  const seen = new Set<string>();
-  const recipients: string[] = [];
-  for (const m of text.matchAll(EVM_ADDRESS_GLOBAL_RE)) {
-    const addr = m[0];
-    const key = addr.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    recipients.push(addr);
-  }
-  // Need a real split: at least two recipients, and no more than the SDK
-  // schema exposes (3). Anything else is not safely constructable here.
-  if (recipients.length < 2 || recipients.length > 3) return null;
-
-  const version = getCurrentActionVersion("payai-settlement", "split_payment");
-  if (!version) return null;
-  const action = getAction("payai-settlement", "split_payment", version);
-  if (!action || action.chainId !== activeChainId) return null;
-
-  // Exact equal split of the stated total, in base units, remainder to the
-  // last recipient so the sum is EXACTLY the total — no dust invented or lost.
-  let totalUnits: bigint;
-  try {
-    totalUnits = parseUnits(amountMatch[1], decimals);
-  } catch {
-    return null;
-  }
-  if (totalUnits <= 0n) return null;
-  const n = BigInt(recipients.length);
-  const per = totalUnits / n;
-  if (per <= 0n) return null;
-  const remainder = totalUnits - per * n;
-
-  const actionInputs: Record<string, string> = { token };
-  recipients.forEach((addr, i) => {
-    const units = i === recipients.length - 1 ? per + remainder : per;
-    actionInputs[`recipient${i + 1}`] = addr;
-    actionInputs[`amount${i + 1}`] = formatUnits(units, decimals);
-  });
-
-  return {
-    kind: "protocol_action", outcome: "complete",
-    slots: {
-      ...emptySlots(),
-      protocolId: "payai-settlement", actionId: "split_payment", actionVersion: version,
-      actionInputs,
     },
   };
 }
@@ -1168,6 +1084,14 @@ export async function routeRequest(text: string, pending: Understanding | null, 
     const u: Understanding = { kind: "chat", outcome: "chat", reply: factReply };
     return { route: "deterministic_query", anthropic: false, understanding: u, fallback: u };
   }
+
+  // A message with a split verb is ALWAYS a fresh split, answered entirely by
+  // the deterministic split path (lib/ask/intent/split.ts): a preview-ready
+  // split or a specific clarification — never a pending-intent merge, never
+  // the single-recipient send detector (which would read "send 50 USDC split
+  // between A, B and C" as a send of everything to A), and never Anthropic.
+  const split = await detectSplit(text);
+  if (split) return { route: "actionable_operation", anthropic: false, understanding: split, fallback: split };
 
   // A pending send_payment/swap/schedule already waiting on a specific slot
   // (most importantly `recipient`) gets first crack at the message — "To

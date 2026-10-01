@@ -9,6 +9,7 @@
  * adding one entry to `ASK_INTENT_KINDS` and one branch in orchestrate.ts —
  * nothing in the UI has to change.
  */
+import type { ActionInputs } from "@/lib/sdk/types";
 
 export const ASK_INTENT_KINDS = [
   "send_payment",
@@ -108,12 +109,17 @@ export interface AskSlots {
   actionVersion?: string | null;
   /** "protocol_action" only: the full input map for an action whose inputs
    *  don't fit the single scalar `amount` slot (e.g. split_payment's
-   *  recipient1/amount1/recipient2/… fields). Populated ONLY by the
-   *  deterministic detector from explicit, literal values in the user's text —
-   *  never free-form, never LLM-generated. WMON leaves this null and uses
-   *  `amount` above. Forwarded verbatim to /api/ask/action, where Layer A
-   *  re-validates every field against the action's schema. */
-  actionInputs?: Record<string, string> | null;
+   *  `recipients` list, already resolved to addresses and base units).
+   *  Populated ONLY by the deterministic detectors from explicit, literal
+   *  values in the user's text — never free-form, never LLM-generated (the
+   *  LLM's slot schema doesn't include it, and coerce() refuses the
+   *  protocol_action kind). WMON leaves this null and uses `amount` above.
+   *  Forwarded to /api/ask/action, where Layer A re-validates every field
+   *  against the action's schema. */
+  actionInputs?: ActionInputs | null;
+  /** Display-only: the name the user wrote (.nad domain or configured payee)
+   *  for each resolved recipient address, keyed by lowercased address. */
+  recipientLabels?: Record<string, string> | null;
 }
 
 /**

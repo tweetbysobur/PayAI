@@ -27,7 +27,7 @@ function protocolActionOperation(): Operation {
   };
   const intent: ProtocolActionIntent = {
     kind: "protocol_action", network: "monad", data,
-    execution: { request: { protocolId: "wmon", actionId: "wrap", version: "1.0.0", inputs: { amount: "1" }, chainId: 143 } },
+    execution: { request: { protocolId: "wmon", actionId: "wrap", version: "1.0.0", inputs: { amount: "1" }, chainId: 143 }, quoteToken: "signed.token" },
   };
   return { id: "op1", intent, status: "ready" };
 }
@@ -46,7 +46,7 @@ function mockFetchSequence(buildJson: unknown, confirmJson: unknown) {
 describe("executeProtocolActionIntent — confirmed result is distinct from the preview's prediction", () => {
   it("result.confirmedDetails carries parseResult()'s REAL on-chain output, not the quote's prediction", async () => {
     mockFetchSequence(
-      { ok: true, steps: [{ kind: "action", label: "Wrap 1 MON", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0xd0e30db0", value: "0xde0b6b3a7640000" } }] },
+      { ok: true, quoteId: "0123456789abcdef0123456789abcdef", steps: [{ kind: "action", label: "Wrap 1 MON", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0xd0e30db0", value: "0xde0b6b3a7640000" } }] },
       // parseResult's REAL confirmed output -- deliberately a DIFFERENT number
       // than the preview's "1 WMON" prediction, so a test that accidentally
       // rendered the preview instead would visibly disagree with this.
@@ -68,12 +68,47 @@ describe("executeProtocolActionIntent — confirmed result is distinct from the 
 
   it("a parseResult with nothing to report leaves confirmedDetails absent, never backfilled from the quote", async () => {
     mockFetchSequence(
-      { ok: true, steps: [{ kind: "action", label: "Wrap 1 MON", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0xd0e30db0", value: "0xde0b6b3a7640000" } }] },
+      { ok: true, quoteId: "0123456789abcdef0123456789abcdef", steps: [{ kind: "action", label: "Wrap 1 MON", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0xd0e30db0", value: "0xde0b6b3a7640000" } }] },
       { ok: true, success: true, explorerUrl: "https://monadexplorer.com/tx/0xreal2", details: {} },
     );
     const { executeProtocolActionIntent } = await import("@/lib/ask/intent/orchestrate");
     const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xreal2"), waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }) };
     const result = await executeProtocolActionIntent(protocolActionOperation(), wallet, "0x9999999999999999999999999999999999999999");
     expect(result.result?.confirmedDetails).toEqual({});
+  });
+});
+
+describe("executeProtocolActionIntent — the preview → build → confirm security boundary", () => {
+  it("build is sent the signed quoteToken and NO client quotedAt; confirm is sent the build's quoteId", async () => {
+    const bodies: Record<string, Record<string, unknown>> = {};
+    global.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      const path = String(url);
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      if (path.includes("/api/ask/action/build")) {
+        bodies.build = body;
+        return new Response(JSON.stringify({ ok: true, quoteId: "0123456789abcdef0123456789abcdef", steps: [{ kind: "action", label: "Wrap 1 MON", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0xd0e30db0", value: "0x1" } }] }));
+      }
+      if (path.includes("/api/ask/action/confirm")) {
+        bodies.confirm = body;
+        return new Response(JSON.stringify({ ok: true, success: true, details: {} }));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }) as unknown as typeof fetch;
+    const { executeProtocolActionIntent } = await import("@/lib/ask/intent/orchestrate");
+    const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xabc"), waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }) };
+    const result = await executeProtocolActionIntent(protocolActionOperation(), wallet, "0x9999999999999999999999999999999999999999");
+    expect(result.status).toBe("success");
+    expect(bodies.build.quoteToken).toBe("signed.token");
+    expect(bodies.build).not.toHaveProperty("quotedAt");
+    expect(bodies.confirm.quoteId).toBe("0123456789abcdef0123456789abcdef");
+  });
+
+  it("a build response without a quoteId is treated as a failed build — nothing is signed", async () => {
+    mockFetchSequence({ ok: true, steps: [{ kind: "action", label: "x", tx: { to: "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", data: "0x", value: "0x1" } }] }, { ok: true, success: true });
+    const { executeProtocolActionIntent } = await import("@/lib/ask/intent/orchestrate");
+    const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xabc"), waitForReceipt: vi.fn() };
+    const result = await executeProtocolActionIntent(protocolActionOperation(), wallet, "0x9999999999999999999999999999999999999999");
+    expect(result.status).toBe("error");
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
   });
 });

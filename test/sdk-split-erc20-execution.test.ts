@@ -13,16 +13,22 @@ import type { Operation, ProtocolActionIntent } from "@/lib/ask/types";
 function erc20Operation(): Operation {
   const data: ProtocolActionIntent["data"] = {
     protocol: { id: "payai-settlement", name: "PayAI Split Settlement" },
-    action: { id: "split_payment", name: "Split Payment", description: "d", version: "1.0.0" },
+    action: { id: "split_payment", name: "Split Payment", description: "d", version: "2.0.0" },
     chainId: 143, network: "Monad",
-    inputs: { token: "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60", recipient1: "0x1111111111111111111111111111111111111111", amount1: "100" },
-    summary: "Split 100 USDC between 1 recipient",
+    inputs: {
+      token: "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60",
+      recipients: [
+        { recipient: "0x5e0d39b4c1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6", amount: "60000000" },
+        { recipient: "0x7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b", amount: "40000000" },
+      ],
+    },
+    summary: "Split 100 USDC between 2 recipients",
     details: { total: "100 USDC" },
     quotedAt: Date.now(),
   };
   const intent: ProtocolActionIntent = {
     kind: "protocol_action", network: "monad", data,
-    execution: { request: { protocolId: "payai-settlement", actionId: "split_payment", version: "1.0.0", inputs: data.inputs, chainId: 143 } },
+    execution: { request: { protocolId: "payai-settlement", actionId: "split_payment", version: "2.0.0", inputs: data.inputs, chainId: 143 }, quoteToken: "signed.token" },
   };
   return { id: "op1", intent, status: "ready" };
 }
@@ -32,6 +38,7 @@ const SETTLE = "0xsettle00000000000000000000000000000000000000000000000000000000
 
 const buildJson = {
   ok: true,
+  quoteId: "0123456789abcdef0123456789abcdef",
   steps: [
     { kind: "approve", label: "Approve", tx: { to: "0x754704Bc059F5a0Ce29e278A6D0eBa96b6aafb60", data: "0x095ea7b3", value: "0" } },
     { kind: "action", label: "Split", tx: { to: "0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F", data: "0xabcd", value: "0" } },

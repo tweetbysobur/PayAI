@@ -25,6 +25,7 @@ import "server-only";
 import { encodeFunctionData, parseUnits, decodeEventLog, formatUnits, type Address } from "viem";
 import { WMON_ABI } from "@/lib/monad/abi";
 import { getWrappedNative, getChain } from "@/lib/monad/config";
+import { inputString } from "@/lib/sdk/types";
 import type { Action, ActionInputs, ActionQuoteResult, ActionReceipt, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
 
 const PROTOCOL_ID = "wmon";
@@ -45,7 +46,7 @@ function wrapAction(wmon: Address, chainId: number): Action {
     chainId, allowedTargets: [wmon],
     inputSchema: { amount: { type: "amount", required: true, description: "Amount of MON to wrap", decimals: 18 } },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const amount = inputs.amount;
+      const amount = inputString(inputs, "amount");
       return {
         summary: `Wrap ${amount} MON into ${amount} WMON`,
         details: { rate: "1 MON = 1 WMON", youReceive: `${amount} WMON` },
@@ -53,9 +54,9 @@ function wrapAction(wmon: Address, chainId: number): Action {
       };
     },
     async build(inputs: ActionInputs): Promise<UnsignedActionStep[]> {
-      const value = parseUnits(inputs.amount, 18);
+      const value = parseUnits(inputString(inputs, "amount"), 18);
       return [{
-        kind: "action", label: `Wrap ${inputs.amount} MON`,
+        kind: "action", label: `Wrap ${inputString(inputs, "amount")} MON`,
         tx: { to: wmon, data: encodeFunctionData({ abi: WMON_ABI, functionName: "deposit" }), value: value.toString() },
       }];
     },
@@ -70,7 +71,7 @@ function unwrapAction(wmon: Address, chainId: number): Action {
     chainId, allowedTargets: [wmon],
     inputSchema: { amount: { type: "amount", required: true, description: "Amount of WMON to unwrap", decimals: 18 } },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
-      const amount = inputs.amount;
+      const amount = inputString(inputs, "amount");
       return {
         summary: `Unwrap ${amount} WMON into ${amount} MON`,
         details: { rate: "1 WMON = 1 MON", youReceive: `${amount} MON` },
@@ -78,9 +79,9 @@ function unwrapAction(wmon: Address, chainId: number): Action {
       };
     },
     async build(inputs: ActionInputs): Promise<UnsignedActionStep[]> {
-      const amount = parseUnits(inputs.amount, 18);
+      const amount = parseUnits(inputString(inputs, "amount"), 18);
       return [{
-        kind: "action", label: `Unwrap ${inputs.amount} WMON`,
+        kind: "action", label: `Unwrap ${inputString(inputs, "amount")} WMON`,
         tx: { to: wmon, data: encodeFunctionData({ abi: WMON_ABI, functionName: "withdraw", args: [amount] }), value: "0" },
       }];
     },

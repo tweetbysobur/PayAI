@@ -32,7 +32,8 @@ import { decodeFunctionData } from "viem";
 import { toBaseUnits } from "@/lib/monad/verify";
 import { isAddress } from "@/lib/payees/directory";
 import type {
-  Action, ActionInputField, ActionInputSchema, ActionInputs, ExecutionRequest, ProtocolAdapter, UnsignedActionStep,
+  Action, ActionInputItem, ActionInputSchema, ActionInputs, ActionInputValue, ExecutionRequest, ListInputField,
+  ProtocolAdapter, ScalarInputField, UnsignedActionStep,
 } from "./types";
 import { getAction, getProtocol, listActionVersions } from "./registry";
 
@@ -42,6 +43,7 @@ export type SdkErrorCode =
   | "VERSION_MISMATCH"
   | "CHAIN_MISMATCH"
   | "QUOTE_STALE"
+  | "QUOTE_REQUIRED"
   | "SCHEMA_VALIDATION_FAILED"
   | "UNKNOWN_PARAMETER"
   | "TARGET_NOT_ALLOWLISTED"
@@ -109,10 +111,20 @@ export function resolveExecutable(
 // LAYER A — input validation
 // ---------------------------------------------------------------------------
 
-function validateOneField(name: string, field: ActionInputField, raw: string): ValidationErr | null {
+/** A positive integer in base units: digits only, no sign, no leading zero,
+ *  no decimal point, no exponent, no whitespace — and at most uint256. */
+const UNITS_RE = /^[1-9][0-9]{0,77}$/;
+const UINT256_MAX = (1n << 256n) - 1n;
+
+function validateOneField(name: string, field: ScalarInputField, raw: unknown): ValidationErr | null {
+  // Scalar fields take strings only — a list (or anything else) where a
+  // string belongs is a type mismatch, never coerced.
+  if (raw !== undefined && typeof raw !== "string") {
+    return err("SCHEMA_VALIDATION_FAILED", `"${name}" must be a single value.`);
+  }
   // A required field's value must be genuinely present. An empty/whitespace
   // string is "absent", not a valid value, for every type.
-  const value = raw?.trim?.() ?? "";
+  const value = raw?.trim() ?? "";
   if (value === "") {
     return field.required ? err("SCHEMA_VALIDATION_FAILED", `"${name}" is required.`) : null;
   }
@@ -138,6 +150,14 @@ function validateOneField(name: string, field: ActionInputField, raw: string): V
           return err("SCHEMA_VALIDATION_FAILED", `"${name}" is not a valid amount at ${field.decimals} decimals.`);
         }
         if (units <= 0n) return err("SCHEMA_VALIDATION_FAILED", `"${name}" is below the smallest representable amount at ${field.decimals} decimals.`);
+      }
+      return null;
+    }
+    case "units": {
+      // Exact integer base units. Never touches Number(): the regex fixes the
+      // shape and BigInt bounds it, so there is no float anywhere on this path.
+      if (!UNITS_RE.test(value) || BigInt(value) > UINT256_MAX) {
+        return err("SCHEMA_VALIDATION_FAILED", `"${name}" must be a positive whole number of base units.`);
       }
       return null;
     }
@@ -186,20 +206,69 @@ function validateOneField(name: string, field: ActionInputField, raw: string): V
  * unchecked originals.
  */
 export function validateInputs(schema: ActionInputSchema, inputs: ActionInputs): ValidationResult<ActionInputs> {
+  if (inputs === null || typeof inputs !== "object" || Array.isArray(inputs)) {
+    return err("SCHEMA_VALIDATION_FAILED", "Inputs must be an object.");
+  }
   for (const provided of Object.keys(inputs)) {
-    if (!(provided in schema)) {
+    if (!Object.prototype.hasOwnProperty.call(schema, provided)) {
       return err("UNKNOWN_PARAMETER", `Unexpected parameter "${provided}" — this action does not accept it.`);
     }
   }
-  const cleaned: Record<string, string> = {};
+  const cleaned: Record<string, ActionInputValue> = {};
   for (const [name, field] of Object.entries(schema)) {
-    const raw = inputs[name] ?? "";
+    const raw = (inputs as Record<string, unknown>)[name];
+    if (field.type === "list") {
+      const list = validateList(name, field, raw);
+      if (!list.ok) return list;
+      if (list.value.length > 0) cleaned[name] = list.value;
+      continue;
+    }
     const problem = validateOneField(name, field, raw);
     if (problem) return problem;
-    const trimmed = raw.trim();
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
     if (trimmed !== "") cleaned[name] = trimmed;
   }
   return ok(cleaned);
+}
+
+/**
+ * A list input: an array of plain objects, length within [minItems,
+ * maxItems], each item with EXACTLY the declared keys (an unknown key in any
+ * item fails the whole input, same rule as a top-level unknown parameter),
+ * each value checked by the scalar rules. Returns trimmed copies — never the
+ * caller's objects.
+ */
+function validateList(name: string, field: ListInputField, raw: unknown): ValidationResult<readonly ActionInputItem[]> {
+  if (raw === undefined || raw === "") {
+    return field.required ? err("SCHEMA_VALIDATION_FAILED", `"${name}" is required.`) : ok([]);
+  }
+  if (!Array.isArray(raw)) return err("SCHEMA_VALIDATION_FAILED", `"${name}" must be a list.`);
+  if (raw.length < field.minItems || raw.length > field.maxItems) {
+    return err("SCHEMA_VALIDATION_FAILED", `"${name}" must have between ${field.minItems} and ${field.maxItems} entries.`);
+  }
+  const out: ActionInputItem[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item: unknown = raw[i];
+    const where = `${name}[${i}]`;
+    if (item === null || typeof item !== "object" || Array.isArray(item) || Object.getPrototypeOf(item) !== Object.prototype) {
+      return err("SCHEMA_VALIDATION_FAILED", `"${where}" must be an object.`);
+    }
+    for (const key of Object.keys(item)) {
+      if (!Object.prototype.hasOwnProperty.call(field.items, key)) {
+        return err("UNKNOWN_PARAMETER", `Unexpected field "${where}.${key}".`);
+      }
+    }
+    const cleanedItem: Record<string, string> = {};
+    for (const [key, itemField] of Object.entries(field.items)) {
+      const v = (item as Record<string, unknown>)[key];
+      const problem = validateOneField(`${where}.${key}`, itemField, v);
+      if (problem) return problem;
+      const trimmed = typeof v === "string" ? v.trim() : "";
+      if (trimmed !== "") cleanedItem[key] = trimmed;
+    }
+    out.push(cleanedItem);
+  }
+  return ok(out);
 }
 
 // ---------------------------------------------------------------------------

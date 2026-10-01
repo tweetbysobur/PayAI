@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyMessage } from "viem";
 import { agentConfig } from "@/lib/agent/brain";
-import { isAddress, resolvePayee } from "@/lib/payees/directory";
-import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
+import { isAddress } from "@/lib/payees/directory";
+import { resolveRecipient } from "@/lib/payees/resolve";
 import type { AutomationIntervalUnit, ScheduleCadence, ScheduleEndCondition } from "@/lib/platform/types";
 import { VALID_TEMPLATE_CATEGORIES } from "@/lib/automation/templates";
 import { computeDistribution, findDuplicateInputs, type DistributionMethod } from "@/lib/automation/bulk";
@@ -77,24 +77,6 @@ async function verifyMutation(input: {
   return { ok: true };
 }
 
-async function resolveRecipient(input: string): Promise<{ recipient: string; domain: string | null }> {
-  let recipient = input.trim();
-  let domain: string | null = null;
-  if (!recipient) throw new Error("Enter a recipient.");
-  if (isAddress(recipient)) return { recipient, domain };
-  if (isDomainName(recipient)) {
-    const { resolveDomain } = await import("@/lib/monad/domain-resolver");
-    const dom = extractDomain(recipient) ?? recipient;
-    const resolution = await resolveDomain(dom);
-    if (!resolution.resolvedAddress) throw new Error(`Couldn't resolve ${dom}. Check the name and try again.`);
-    domain = resolution.domain;
-    recipient = resolution.resolvedAddress;
-    return { recipient, domain };
-  }
-  const payee = resolvePayee(recipient);
-  if (!payee) throw new Error(`"${recipient}" isn't a valid address, .nad domain, or known payee.`);
-  return { recipient: payee.address, domain };
-}
 
 function normalizeEndCondition(input: { type?: string; totalRuns?: number; untilMs?: number } | undefined, startAt: number): ScheduleEndCondition {
   if (input?.type === "after_count") {
