@@ -212,6 +212,13 @@ function splitAction(target: Address, chainId: number): Action {
       // Optional: absent/zero-sentinel = native MON; an ERC-20 address = that token.
       token: { type: "token", required: false, description: "Token to split (leave empty for native MON)" },
     },
+    // What a confirmed split produces (decoded from SplitPaymentExecuted).
+    // Declarations only — nothing here changes how a split executes.
+    outputs: {
+      recipientAmounts: { type: "units[]", description: "The exact amount each recipient received", denominatedIn: { input: "token" } },
+      fee: { type: "units", description: "The PayAI platform fee paid to the treasury", denominatedIn: { input: "token" } },
+      gross: { type: "units", description: "Recipients total plus the platform fee", denominatedIn: { input: "token" } },
+    },
     async quote(inputs: ActionInputs): Promise<ActionQuoteResult> {
       const fee = await readSplitFeeTerms();
       const pairs = collectPairs(inputs, target, fee.treasury);

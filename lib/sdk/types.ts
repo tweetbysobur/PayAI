@@ -238,8 +238,32 @@ export interface UnsignedActionStep {
   approval?: { token: Address; spender: Address; amount: string };
 }
 
+/**
+ * A value an action produces once it has CONFIRMED on-chain, declared up
+ * front so a planner can decide — without executing anything — whether this
+ * action can supply what a later action's input needs.
+ *
+ *   "units"  — an exact integer amount in base units (bindable into a
+ *              `units` input). `denominatedIn` names the input field that
+ *              holds the token this amount is in, so token compatibility can
+ *              be checked statically; absent means native MON.
+ *   "token"  — a token contract address (bindable into a `token` input).
+ *   "units[]"— a per-item list of amounts (descriptive; not bindable).
+ *
+ * Declarations are data only. The confirmed VALUES come from the action's
+ * on-chain result decoding, never from a quote or a prediction.
+ */
+export interface ActionOutputDeclaration {
+  type: "units" | "token" | "units[]";
+  description: string;
+  denominatedIn?: { input: string };
+}
+
 export interface Action extends ActionMetadata {
   inputSchema: ActionInputSchema;
+  /** OPTIONAL. The outputs this action produces on confirmation, by name.
+   *  An action without declarations produces nothing bindable. */
+  outputs?: Readonly<Record<string, ActionOutputDeclaration>>;
   /** Read-only preview. See ActionQuoteResult. */
   quote(inputs: ActionInputs): Promise<ActionQuoteResult>;
   /**
