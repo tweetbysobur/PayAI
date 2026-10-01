@@ -69,6 +69,35 @@ export function toRef(value: string | null | undefined): `0x${string}` {
   return keccak256(toBytes(s));
 }
 
+/** The forwarder's fee event (PayAIForwarderV2), emitted with the same `id`
+ *  as PaymentForwarded. V1 never emits it. */
+export const FORWARDER_FEE_COLLECTED_ABI = [
+  {
+    type: "event",
+    name: "FeeCollected",
+    inputs: [
+      { name: "id", type: "uint256", indexed: true },
+      { name: "token", type: "address", indexed: false },
+      { name: "feeAmount", type: "uint256", indexed: false },
+      { name: "treasury", type: "address", indexed: false },
+    ],
+  },
+] as const;
+
+/**
+ * Exact-unit calldata for the two forwarder calls — the single encoding both
+ * the existing send path (via the builders below) and the SDK transfer action
+ * (lib/sdk/actions/transfer) use. Amounts are base units (bigint), so there is
+ * no decimal conversion here at all.
+ */
+export function encodeForwardPaymentNative(recipient: Address, amountWei: bigint, ref: `0x${string}`): `0x${string}` {
+  return encodeFunctionData({ abi: PAYAI_FORWARDER_ABI, functionName: "forwardPaymentNative", args: [recipient, amountWei, ref] });
+}
+
+export function encodeForwardPayment(token: Address, recipient: Address, amountUnits: bigint, ref: `0x${string}`): `0x${string}` {
+  return encodeFunctionData({ abi: PAYAI_FORWARDER_ABI, functionName: "forwardPayment", args: [token, recipient, amountUnits, ref] });
+}
+
 export interface ForwarderUnsignedTx {
   to: Address;
   data: `0x${string}`;
@@ -93,11 +122,7 @@ export function buildForwardNativeTx(
   // exponential notation, which parseEther rejects (same guard as the existing
   // direct-transfer build path this replaces).
   const amountWei = parseEther(toParseableAmount(amount, 18));
-  const data = encodeFunctionData({
-    abi: PAYAI_FORWARDER_ABI,
-    functionName: "forwardPaymentNative",
-    args: [recipient, amountWei, toRef(ref)],
-  });
+  const data = encodeForwardPaymentNative(recipient, amountWei, toRef(ref));
   return { to: forwarder, data, value: `0x${amountWei.toString(16)}`, from: walletAddress };
 }
 
@@ -117,11 +142,7 @@ export function buildForwardErc20Tx(
   ref: string | null | undefined,
 ): ForwarderUnsignedTx {
   const amountUnits = parseUnits(toParseableAmount(amount, decimals), decimals);
-  const data = encodeFunctionData({
-    abi: PAYAI_FORWARDER_ABI,
-    functionName: "forwardPayment",
-    args: [token, recipient, amountUnits, toRef(ref)],
-  });
+  const data = encodeForwardPayment(token, recipient, amountUnits, toRef(ref));
   return { to: forwarder, data, value: "0x0", from: walletAddress };
 }
 
@@ -230,6 +251,38 @@ export function verifyPaymentForwarded(ev: DecodedPaymentForwarded, expected: Ex
     ev.token.toLowerCase() === expected.token.toLowerCase() &&
     ev.amount === expected.amountUnits
   );
+}
+
+export interface DecodedFeeCollected {
+  id: bigint;
+  token: Address;
+  feeAmount: bigint;
+  treasury: Address;
+}
+
+/** The FeeCollected event `forwarder` emitted for payment `id`, or null. */
+export function decodeFeeCollected(
+  logs: readonly { address: string; topics: readonly `0x${string}`[]; data: `0x${string}` }[],
+  forwarder: Address,
+  id: bigint,
+): DecodedFeeCollected | null {
+  const want = forwarder.toLowerCase();
+  for (const log of logs) {
+    if (log.address.toLowerCase() !== want) continue;
+    try {
+      const decoded = decodeEventLog({
+        abi: FORWARDER_FEE_COLLECTED_ABI,
+        data: log.data,
+        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+        eventName: "FeeCollected",
+      });
+      const a = decoded.args as unknown as DecodedFeeCollected;
+      if (a.id === id) return { id: a.id, token: a.token, feeAmount: a.feeAmount, treasury: a.treasury };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 export type { Hash };

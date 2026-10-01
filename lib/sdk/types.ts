@@ -192,6 +192,13 @@ export interface ActionQuoteResult {
   terms?: Readonly<Record<string, string>>;
 }
 
+/** What the build route knows beyond the inputs: the session wallet the
+ *  steps are being built for (read-only — e.g. to check an existing
+ *  allowance). Never an input a client controls. */
+export interface ActionBuildContext {
+  wallet: Address;
+}
+
 /** What the confirm route knows beyond the receipt itself: the terms the
  *  confirmed transaction was BUILT on (from the server's build record). */
 export interface ActionResultContext {
@@ -201,8 +208,14 @@ export interface ActionResultContext {
 /** A settlement's confirmed outcome, split into what reached the user's
  *  recipients and the PayAI platform fee leg (if any). */
 export interface SettledOutflows {
-  recipients: readonly ActionOutflow[];
+  /** What each recipient actually RECEIVED (amountUnits). `recordedAmountUnits`,
+   *  when present, is the amount the history row records instead — e.g. a
+   *  transfer records the gross amount sent, matching the existing send's
+   *  history rows, while `amountUnits` stays the net delivered. */
+  recipients: readonly (ActionOutflow & { recordedAmountUnits?: bigint })[];
   fee: { amountUnits: bigint; token: Address; treasury: Address; symbol: string; decimals: number } | null;
+  /** Total the payer paid, when it isn't simply recipients + fee. */
+  grossUnits?: bigint;
 }
 
 /**
@@ -261,6 +274,10 @@ export interface ActionOutputDeclaration {
 
 export interface Action extends ActionMetadata {
   inputSchema: ActionInputSchema;
+  /** OPTIONAL. The `action` label history rows record for this action
+   *  (defaults to actionId) — lets an SDK action write the same kind of row
+   *  as the existing flow it replaces (e.g. "send_payment"). */
+  historyAction?: string;
   /** OPTIONAL. The outputs this action produces on confirmation, by name.
    *  An action without declarations produces nothing bindable. */
   outputs?: Readonly<Record<string, ActionOutputDeclaration>>;
@@ -273,7 +290,7 @@ export interface Action extends ActionMetadata {
    * buggy, or outright malicious, cannot widen its own reach — the check
    * runs on its output, not on its promises.
    */
-  build(inputs: ActionInputs, quote: ActionQuoteResult): Promise<UnsignedActionStep[]>;
+  build(inputs: ActionInputs, quote: ActionQuoteResult, ctx?: ActionBuildContext): Promise<UnsignedActionStep[]>;
   /**
    * Turns a CONFIRMED on-chain receipt into display fields. Read-only, and
    * only ever called after settlement has independently verified the receipt

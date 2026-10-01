@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
         message: "PayAI's fee terms changed since this preview. Request a fresh preview to see the current terms.",
       });
     }
-    const steps = await action.build(validInputs.value, quote);
+    const steps = await action.build(validInputs.value, quote, { wallet: walletAddress });
     const validated = validateSteps(steps, action, protocol);
     if (!validated.ok) {
       await releaseRequest(key);

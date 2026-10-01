@@ -34,6 +34,7 @@ import { getProtocol, registerProtocol } from "./registry";
 import { createWmonProtocol } from "./actions/wmon";
 import { createSplitSettlementProtocol } from "./actions/split-settlement";
 import { createAaveV3MonadProtocol } from "./actions/aave-v3-monad";
+import { createTransferProtocol } from "./actions/transfer";
 
 let done = false;
 
@@ -50,6 +51,12 @@ export function ensureBuiltinsRegistered(): void {
   if (!getProtocol("aave-v3-monad")) {
     const aave = createAaveV3MonadProtocol();
     if (aave) registerProtocol(aave);
+  }
+  if (!getProtocol("payai")) {
+    // Only when forwarder payments are enabled — the transfer action settles
+    // through the forwarder and has no other path.
+    const transfer = createTransferProtocol();
+    if (transfer) registerProtocol(transfer);
   }
   done = true;
 }

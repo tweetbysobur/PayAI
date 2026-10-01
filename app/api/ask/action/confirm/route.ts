@@ -139,6 +139,15 @@ export async function POST(req: NextRequest) {
       ? await action.settledOutflows(actionReceipt, resultCtx)
       : { recipients: [], fee: null };
     const settled = settledAll.recipients;
+    // An action that decodes settlements must find one in a successful
+    // receipt of the exact transaction it built. If it doesn't — wrong
+    // emitter, wrong recipient, wrong amount — this is NOT reported as a
+    // settled payment and nothing is recorded.
+    if (action.settledOutflows && settled.length === 0) {
+      const unverified = { ok: false, verified: false, message: "This transaction confirmed, but its settlement couldn't be verified. Check the explorer before trying again.", explorerUrl, details };
+      await completeRequest(sKey, unverified);
+      return NextResponse.json(unverified);
+    }
     if (settled.length > 0) {
       const { formatUnits } = await import("viem");
       const { resolveTenantId } = await import("@/lib/platform/tenant");
@@ -155,14 +164,15 @@ export async function POST(req: NextRequest) {
         recipientTotal: recipientTotal.toString(),
         platformFee: platformFee.toString(),
         treasury: settledAll.fee?.treasury ?? null,
-        grossPaid: (recipientTotal + platformFee).toString(),
+        grossPaid: (settledAll.grossUnits ?? recipientTotal + platformFee).toString(),
       };
       for (let i = 0; i < settled.length; i++) {
         const o = settled[i];
-        const shown = o.decimals > 0 ? formatUnits(o.amountUnits, o.decimals) : o.amountUnits.toString();
+        const recorded = o.recordedAmountUnits ?? o.amountUnits;
+        const shown = o.decimals > 0 ? formatUnits(recorded, o.decimals) : recorded.toString();
         await recordTx(merchantId, {
           decision: "executed",
-          action: action.actionId,
+          action: action.historyAction ?? action.actionId,
           feature: "payment",
           // TxLogEntry.amount is a display number; the exact base-unit amount
           // is preserved in the summary text.
