@@ -835,3 +835,128 @@ describe("A1 — canonical quote helper", () => {
     expect(ctl.buildCalls).toBe(0);
   });
 });
+
+/* ══ Phase 4A: quoteId in the view; the pending-build guard ═════════════ */
+
+describe("Phase 4A — node quoteId for recovery", () => {
+  it("null before any quote; the latest attempt's id while quoting; the RECORDED transaction's id once submitted", async () => {
+    const s = await svc();
+    const planId = await approved();
+    expect((await s.getPlan(AUTH, planId)).nodes.map((n) => n.quoteId)).toEqual([null, null]);
+    const q1 = await s.quoteStep(AUTH, planId, "n1");
+    expect((await s.getPlan(AUTH, planId)).nodes[0].quoteId).toBe(q1.quoteId);
+    const q2 = await s.quoteStep(AUTH, planId, "n1"); // no build yet → not held back
+    expect((await s.getPlan(AUTH, planId)).nodes[0].quoteId).toBe(q2.quoteId);
+    // The transaction was built from attempt 1: the view names attempt 1, not the latest.
+    await seedBuild(q1.quoteId, S);
+    const tx = txHash();
+    const v = await s.recordTx(AUTH, planId, "n1", { quoteId: q1.quoteId, txHash: tx });
+    expect(v.nodes[0]).toMatchObject({ quoteId: q1.quoteId, txHash: tx, state: "submitted" });
+  });
+
+  it("is only the random id: the node view carries no token, token hash, terms/inputs hash or key", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const q = await s.quoteStep(AUTH, planId, "n1");
+    const v = await s.getPlan(AUTH, planId);
+    expect(Object.keys(v.nodes[0]).sort()).toEqual(["dependsOn", "nodeId", "quoteAttempts", "quoteId", "ref", "result", "state", "txHash"]);
+    expect(v.nodes[0].quoteId).toMatch(/^[0-9a-f]{32}$/);
+    const json = JSON.stringify(v);
+    for (const bad of [q.quoteToken, createHash("sha256").update(q.quoteToken).digest("hex"), "quoteTokenHash", "termsHash", "inputsHash", "veripay:"]) {
+      expect(json.includes(bad), bad).toBe(false);
+    }
+  });
+});
+
+describe("Phase 4A — pending-build guard in quoteStep", () => {
+  it("a fresh build on the latest attempt (no transaction) holds new quotes back for exactly 2 minutes — no SDK quote, no attempt", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const q1 = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q1.quoteId, S); // builtAt = T0
+    const calls = ctl.quoteCalls.length;
+    vi.setSystemTime(T0 + 119_999);
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
+    expect(ctl.quoteCalls.length).toBe(calls); // the SDK was never asked to quote
+    expect((await s.getPlan(AUTH, planId)).nodes[0].quoteAttempts).toBe(1);
+    vi.setSystemTime(T0 + 120_000);
+    const q2 = await s.quoteStep(AUTH, planId, "n1");
+    expect(q2.attempt).toBe(2);
+  });
+
+  it("no build on the latest attempt → quotes freely (re-quoting a stale, unbuilt quote is unaffected)", async () => {
+    const s = await svc();
+    const planId = await approved();
+    for (let n = 1; n <= 3; n++) expect((await s.quoteStep(AUTH, planId, "n1")).attempt).toBe(n);
+  });
+
+  it("only the LATEST attempt matters: an older attempt's build doesn't hold back a later re-quote", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const q1 = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q1.quoteId, S);
+    vi.setSystemTime(T0 + 2 * 60_000);
+    await s.quoteStep(AUTH, planId, "n1"); // attempt 2, not built
+    expect((await s.quoteStep(AUTH, planId, "n1")).attempt).toBe(3);
+    // …and the inverse: an unbuilt earlier attempt doesn't clear a fresh build on the latest one.
+    const p2 = await approved(sendDraft("intent_svc_4a002"));
+    await s.quoteStep(AUTH, p2, "n1"); // attempt 1, never built
+    const latest = await s.quoteStep(AUTH, p2, "n1"); // attempt 2
+    await seedBuild(latest.quoteId, S);
+    expect(await code(s.quoteStep(AUTH, p2, "n1"))).toBe("STEP_NOT_READY");
+  });
+
+  it("any build blocks (whoever built it), and a malformed builtAt falls back to the quote's own record time", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const q1 = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q1.quoteId, S, OTHER_WALLET);
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
+
+    const p2 = await approved(sendDraft("intent_svc_4a001"));
+    const qa = await s.quoteStep(AUTH, p2, "n1");
+    const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+    const { buildKey } = await import("@/lib/sdk/settlement");
+    await claimRequest(buildKey(qa.quoteId));
+    await completeRequest(buildKey(qa.quoteId), { protocolId: S[0], actionId: S[1], version: S[2], wallet: WALLET, builtAt: "yesterday" });
+    vi.setSystemTime(T0 + 60_000);
+    expect(await code(s.quoteStep(AUTH, p2, "n1"))).toBe("STEP_NOT_READY");
+    vi.setSystemTime(T0 + 120_000);
+    expect((await s.quoteStep(AUTH, p2, "n1")).attempt).toBe(2);
+  });
+
+  it("a FUTURE builtAt is malformed: it can't extend the window — the quote's own record time is used (exact 120,000 ms boundary)", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const q1 = await s.quoteStep(AUTH, planId, "n1"); // quote recorded at T0
+    const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+    const { buildKey } = await import("@/lib/sdk/settlement");
+    await claimRequest(buildKey(q1.quoteId));
+    await completeRequest(buildKey(q1.quoteId), { protocolId: S[0], actionId: S[1], version: S[2], wallet: WALLET, builtAt: T0 + 24 * 60 * 60_000 });
+    vi.setSystemTime(T0 + 119_999);
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY"); // still within the quote-time window
+    vi.setSystemTime(T0 + 120_000);
+    expect((await s.quoteStep(AUTH, planId, "n1")).attempt).toBe(2); // NOT held until T0 + 1 day + 2 min
+  });
+
+  it("is per node, not a plan lock: the next node quotes immediately after the previous one settles", async () => {
+    const s = await svc();
+    const planId = await approved();
+    await runStep(planId, "n1", S); // built + recorded + confirmed at T0
+    expect((await s.quoteStep(AUTH, planId, "n2")).attempt).toBe(1);
+  });
+
+  it("concurrent runners: once one has built, the other's quote is refused instead of producing a second transaction", async () => {
+    const s = await svc();
+    const planId = await approved();
+    const a = await s.quoteStep(AUTH, planId, "n1");
+    await s.bindQuote(AUTH, planId, "n1", a.quoteToken);
+    await seedBuild(a.quoteId, S); // runner A built; its wallet is now prompting
+    // Runner B tries to start its own attempt for the same step.
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
+    // Runner A records its transaction; the step is now submitted, never re-quotable.
+    await s.recordTx(AUTH, planId, "n1", { quoteId: a.quoteId, txHash: txHash() });
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
+    expect((await s.getPlan(AUTH, planId)).nodes[0]).toMatchObject({ state: "submitted", quoteAttempts: 1, quoteId: a.quoteId });
+  });
+});

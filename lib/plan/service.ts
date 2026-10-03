@@ -56,6 +56,10 @@ export interface PlanAuth {
 }
 
 export const LIST_PLANS_CAP = 20;
+/** While the latest quote attempt has an SDK build younger than this and no
+ *  recorded transaction, a new quote is refused — a signature may be in
+ *  progress (see quoteStep). */
+export const PENDING_BUILD_WINDOW_MS = 2 * 60 * 1000;
 const ZERO = "0x0000000000000000000000000000000000000000";
 
 const fail = (code: ConstructorParameters<typeof PlanError>[0], message: string, nodeId?: string): never => {
@@ -77,6 +81,13 @@ export interface PlanNodeView {
   dependsOn: string[];
   state: NodeState;
   quoteAttempts: number;
+  /**
+   * The quote this node's execution is tied to, for recovery (e.g. calling
+   * the SDK confirm route after a disconnect): the recorded transaction's
+   * quote when there is one, else the latest quote attempt's, else null. A
+   * random, non-secret id — never the quote token or any hash of it.
+   */
+  quoteId: string | null;
   txHash: string | null;
   result: { status: ResultStatus; outputs: Record<string, VerifiedOutputValue> | null } | null;
 }
@@ -128,6 +139,7 @@ function viewOf(l: store.LoadedPlan, now = Date.now()): PlanView {
         dependsOn: [...s.dependsOn],
         state: states[s.nodeId],
         quoteAttempts: f.quotes.length,
+        quoteId: f.tx?.quoteId ?? f.quotes.at(-1)?.quoteId ?? null,
         txHash: f.tx?.txHash ?? null,
         result: f.result ? { status: f.result.status, outputs: f.result.outputs ? JSON.parse(JSON.stringify(f.result.outputs)) : null } : null,
       };
@@ -297,6 +309,31 @@ export async function quoteStep(auth: PlanAuth, planId: string, nodeId: string):
   const l = await store.loadPlan(planId, ctx);
   requireQuotable(l, nodeId);
   const step = l.plan.steps.find((s) => s.nodeId === nodeId)!;
+
+  // Pending-build guard: if the latest attempt was already BUILT (the SDK
+  // build record exists) less than PENDING_BUILD_WINDOW_MS ago and no
+  // transaction is recorded, a wallet may be about to sign it. Quoting again
+  // would let a second runner build a second, independent transaction and
+  // prompt the user to sign twice. Not a lock: it lapses once a transaction
+  // is recorded (the step is then no longer quotable) or the window passes.
+  const latest = l.facts.nodes[nodeId].quotes.at(-1);
+  if (latest && !l.facts.nodes[nodeId].tx) {
+    const { peekRequest } = await import("@/lib/platform/idempotency");
+    const { buildKey } = await import("@/lib/sdk/settlement");
+    const build = await peekRequest<unknown>(buildKey(latest.quoteId));
+    if (build !== null && build !== undefined) {
+      const now = Date.now();
+      // A usable build time is a finite number not in the future. Anything
+      // else (missing, non-number, NaN, future) is malformed and falls back to
+      // the quote's own record time, so bad data can never extend the window.
+      const validBuiltAt = isPlain(build) && typeof build.builtAt === "number" && Number.isFinite(build.builtAt) && build.builtAt <= now;
+      const builtAt = validBuiltAt ? (build.builtAt as number) : latest.recordedAt;
+      if (now - builtAt < PENDING_BUILD_WINDOW_MS) {
+        fail("STEP_NOT_READY", "This step's last quote was just prepared for signing — finish or cancel that in your wallet, or try again shortly.", nodeId);
+      }
+    }
+  }
+
   const attempt = store.nextQuoteAttempt(l, nodeId);
   if (attempt > store.MAX_QUOTE_ATTEMPTS) fail("CONFLICT", "This step has reached its maximum number of quotes.", nodeId);
 

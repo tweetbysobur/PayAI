@@ -441,6 +441,10 @@ describe("lifecycle through the API", () => {
     expect(await op(planId, { op: "tx", nodeId: "n1", quoteId: q.quoteId, txHash: tx })).toMatchObject({ status: 404, json: { code: "NOT_FOUND" } });
     await seedBuild(q.quoteId, S, OTHER_WALLET);
     expect(await op(planId, { op: "tx", nodeId: "n1", quoteId: q.quoteId, txHash: tx })).toMatchObject({ status: 404 });
+    // Quote 1 now has a fresh build and no transaction: a new quote is held
+    // back by the pending-build guard until its 2-minute window passes.
+    expect(await op(planId, { op: "quote", nodeId: "n1" })).toMatchObject({ status: 409, json: { code: "STEP_NOT_READY" } });
+    vi.setSystemTime(T0 + 2 * MIN);
     const q2 = (await op(planId, { op: "quote", nodeId: "n1" })).json.quote;
     await seedBuild(q2.quoteId, S);
     expect((await op(planId, { op: "tx", nodeId: "n1", quoteId: q2.quoteId, txHash: tx })).status).toBe(200);
