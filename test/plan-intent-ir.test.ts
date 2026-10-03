@@ -457,9 +457,16 @@ describe("no execution", () => {
     // Call-shaped, so the validator's own list of REFUSED keys ("privateKey",
     // "signature", …) doesn't count as using them.
     const forbidden = ["sendTransaction(", "writeContract(", "readContract(", "createWalletClient", "getPublicClient(", "privateKeyToAccount", "signTransaction(", "new Anthropic", "fetch(", "resolveRecipientInput(", "resolveDomain("];
+    // The Plan Service (Stage 3B) is the one deliberate orchestration boundary
+    // that resolves .nad/payee recipients server-side to pin them; every other
+    // primitive stays forbidden there too.
+    const allowed: Record<string, string[]> = { "service.ts": ["resolveRecipientInput("] };
     for (const f of readdirSync(dir)) {
       const src = readFileSync(new URL(f, dir), "utf8");
-      for (const word of forbidden) expect(src.includes(word), `${f} must not reference ${word}`).toBe(false);
+      for (const word of forbidden) {
+        if (allowed[f]?.includes(word)) continue;
+        expect(src.includes(word), `${f} must not reference ${word}`).toBe(false);
+      }
     }
   });
 });

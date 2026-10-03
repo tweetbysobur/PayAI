@@ -42,39 +42,15 @@ export async function POST(req: NextRequest) {
 
   const { ActionInputError } = await import("@/lib/sdk/types");
   try {
-    const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
-    const { validateForQuote } = await import("@/lib/sdk/validate");
-    const { getChain } = await import("@/lib/monad/config");
-    const { enforcePaymentPolicy } = await import("@/lib/sdk/policy");
-    const { issueQuoteToken } = await import("@/lib/sdk/quoteToken");
-    ensureBuiltinsRegistered();
-
-    const chainId = getChain().id;
-    const request = {
-      protocolId: body.protocolId, actionId: body.actionId, version: body.version,
-      inputs: (body.inputs ?? {}) as import("@/lib/sdk/types").ActionInputs,
-      // walletAddress isn't needed to PREVIEW (quote() takes only inputs), but
-      // ExecutionRequest requires the field — a preview is chain-pinned and
-      // freshly timestamped here, and re-validated with a real wallet at build.
-      walletAddress: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-      chainId, quotedAt: Date.now(),
-    };
-
-    const gated = validateForQuote(request, chainId);
-    if (!gated.ok) return NextResponse.json({ ok: false, message: gated.message, code: gated.code });
-
-    const { action, protocol, inputs } = gated.value;
-    const quote = await action.quote(inputs);
-
-    const policy = action.outflows ? await enforcePaymentPolicy(await action.outflows(inputs)) : null;
-    if (policy && !policy.allowed) {
-      return NextResponse.json({ ok: false, message: policy.reason ?? "This payment can't be made.", code: "POLICY_BLOCKED" });
-    }
-
-    const { quoteToken, quoteId } = issueQuoteToken(
-      { protocolId: action.protocolId, actionId: action.actionId, version: action.version, chainId: action.chainId },
-      inputs, quote.quotedAt, quote.terms, quote.snapshot,
+    // The canonical quote sequence (lib/sdk/preview.ts) — the same one the
+    // Plan Service uses: validate → quote → payment policy → quote token.
+    const { quoteAction } = await import("@/lib/sdk/preview");
+    const r = await quoteAction(
+      { protocolId: body.protocolId, actionId: body.actionId, version: body.version },
+      (body.inputs ?? {}) as import("@/lib/sdk/types").ActionInputs,
     );
+    if (!r.ok) return NextResponse.json({ ok: false, message: r.message, code: r.code });
+    const { action, protocol, inputs, quote, policy, quoteToken, quoteId } = r;
 
     return NextResponse.json({
       ok: true,

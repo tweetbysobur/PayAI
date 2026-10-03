@@ -67,7 +67,12 @@ export type PlanErrorCode =
   | "CORRUPT"                    // a stored record fails strict validation or rehydration
   | "EXPIRED"                    // the plan is past its lifetime
   | "NOT_APPROVABLE"             // approval after approveBy, or on an abandoned plan
-  | "INVALID_NODE";              // a nodeId that isn't a step of the stored plan
+  | "INVALID_NODE"               // a nodeId that isn't a step of the stored plan
+  // Plan Service (Phase 2C Stage 3B):
+  | "NOT_APPROVED"               // the plan hasn't been approved yet
+  | "STEP_NOT_READY"             // not the current step / a dependency isn't confirmed / terminal / submitted / plan finished
+  | "QUOTE_REFUSED"              // the SDK quote, its validation or payment policy refused, or the fee rate moved
+  | "SETTLEMENT_PENDING";        // no stored confirmation verdict for the step's transaction yet
 
 export class PlanError extends Error {
   constructor(
