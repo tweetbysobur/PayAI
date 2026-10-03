@@ -31,7 +31,7 @@ import { isDomainName } from "@/lib/monad/domain-resolver";
 import { resolveExecutable, validateInputs } from "@/lib/sdk/validate";
 import type { Action, ActionInputs, ActionInputValue, ListInputField, ScalarInputField } from "@/lib/sdk/types";
 import type { IntentError, IntentErrorCode, IntentValidationResult } from "./errors";
-import { canBind, normalizeToken, staticDenomination } from "./outputs";
+import { canBind, normalizeToken, staticDenomination, staticErc20 } from "./outputs";
 import {
   INTENT_CHAIN_ID, INTENT_IR_VERSION, MAX_INTENT_NODES,
   type ActionNode, type InputValue, type IntentGraph, type ValidatedIntentGraph,
@@ -369,13 +369,22 @@ function checkScalar(
         }
       }
 
+      const literalOf = (node: ActionNode) => (input: string): string | null | undefined => {
+        const iv = node.inputs[input];
+        if (iv === undefined) return undefined;
+        return isPlainObject(iv) && iv.kind === "literal" && typeof iv.value === "string" ? iv.value : null;
+      };
+
+      // Output binding is ERC-20-only: the bound amount's token (or the bound
+      // token itself) must be provably an ERC-20 from the producer's literal
+      // inputs. Native MON, an undeclared denomination, or one that is itself
+      // bound is refused — never resolved later.
+      if (staticErc20(decl, literalOf(producer!)) === null) {
+        fail("NATIVE_OUTPUT_NOT_BINDABLE", "Only an output that is known to be an ERC-20 token can be passed to a later step (native MON can't be).", `${path}.output`, n.nodeId);
+      }
+
       // Token compatibility, when both sides are known statically.
       if (decl.type === "units" && Object.prototype.hasOwnProperty.call(actions.get(n.nodeId)!.inputSchema, "token")) {
-        const literalOf = (node: ActionNode) => (input: string): string | null | undefined => {
-          const iv = node.inputs[input];
-          if (iv === undefined) return undefined;
-          return isPlainObject(iv) && iv.kind === "literal" && typeof iv.value === "string" ? iv.value : null;
-        };
         const produced = staticDenomination(decl, literalOf(producer!));
         const consumedRaw = literalOf(n)("token");
         const consumed = consumedRaw === undefined ? "" : consumedRaw === null ? null : normalizeToken(consumedRaw);

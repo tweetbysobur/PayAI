@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     const { quoteToken, quoteId } = issueQuoteToken(
       { protocolId: action.protocolId, actionId: action.actionId, version: action.version, chainId: action.chainId },
-      inputs, quote.quotedAt, quote.terms,
+      inputs, quote.quotedAt, quote.terms, quote.snapshot,
     );
 
     return NextResponse.json({

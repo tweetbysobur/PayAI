@@ -19,7 +19,9 @@ import { NextRequest, NextResponse } from "next/server";
  *   4. parseResult() on the real logs for display; on success, history is
  *      written from settledOutflows() — the CANONICAL on-chain event's own
  *      recipients and amounts, one row per confirmed recipient — never from
- *      the preview or the request.
+ *      the preview or the request. A trade action (settledTrade) instead gets
+ *      exactly ONE "trade" row from its verified trade event, or — when the
+ *      event can't be verified against the build — nothing ("unverified").
  *
  * Exactly-once is NOT claimed: the deployed contracts don't enforce `ref`
  * uniqueness, so if the same built transaction is signed twice, both settle
@@ -121,7 +123,8 @@ export async function POST(req: NextRequest) {
     };
     // The terms the transaction was BUILT on (e.g. split's fee treasury and
     // amount) — how the result tells the fee leg apart from recipients.
-    const resultCtx = { terms: record.terms };
+    // ...and the wallet it was built for (the build record is authoritative).
+    const resultCtx = { terms: record.terms, wallet: record.wallet };
     const details = await action.parseResult(actionReceipt, resultCtx);
 
     if (receipt.status !== "success") {
@@ -132,7 +135,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(revertBody);
     }
 
-    // 4. History from the canonical on-chain event only: one row per USER
+    // 4a. A trade: ONE "trade" row, every amount from the verified trade
+    // event. Unverifiable (wrong emitter/user/tokens/amount/fee, or no single
+    // event) is not a settled trade — nothing is recorded, and there is no
+    // fallback to a client-reported or quoted amount.
+    if (action.settledTrade) {
+      const trade = await action.settledTrade(actionReceipt, resultCtx);
+      if (!trade) {
+        const unverified = { ok: false, verified: false, message: "This transaction confirmed, but the swap couldn't be verified. Check the explorer before trying again.", explorerUrl, details };
+        await completeRequest(sKey, unverified);
+        return NextResponse.json(unverified);
+      }
+      const { formatUnits } = await import("viem");
+      const { resolveTenantId } = await import("@/lib/platform/tenant");
+      const { recordTx } = await import("@/lib/platform/store");
+      const shownIn = formatUnits(trade.amountIn, trade.decimalsIn);
+      const shownOut = formatUnits(trade.amountOut, trade.decimalsOut);
+      const shownFee = formatUnits(trade.fee, trade.decimalsIn);
+      await recordTx(await resolveTenantId(req), {
+        decision: "executed",
+        action: action.historyAction ?? action.actionId,
+        feature: "trade",
+        amount: Number(shownIn),
+        token: trade.symbolIn,
+        // A trade is the user's own activity — same shape /api/swap/confirm
+        // records: recipient and sender are the wallet.
+        recipient: wallet,
+        sender: wallet,
+        riskScore: record.riskScore,
+        compliance: record.compliance,
+        txHash,
+        explorerUrl,
+        summary:
+          `Trade ${shownIn} ${trade.symbolIn} → ${shownOut} ${trade.symbolOut} via ${trade.provider} (PayAI fee ${shownFee} ${trade.symbolIn})` +
+          ` · base units: in ${trade.amountIn}, out ${trade.amountOut}, fee ${trade.fee}`,
+        outputAmount: Number(shownOut),
+        outputToken: trade.symbolOut,
+        outputTokenAddress: trade.tokenOut.toLowerCase() === "0x0000000000000000000000000000000000000000" ? null : trade.tokenOut,
+        provider: trade.provider,
+      });
+      const okBody = { ok: true, success: true, explorerUrl, details, recorded: 1 };
+      await completeRequest(sKey, okBody);
+      return NextResponse.json(okBody);
+    }
+
+    // 4b. History from the canonical on-chain event only: one row per USER
     // recipient. The platform fee is never a recipient row — it is recorded
     // on the settlement every row shares.
     const settledAll = action.settledOutflows

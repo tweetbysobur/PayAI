@@ -25,6 +25,8 @@ import { NextRequest, NextResponse } from "next/server";
  *      preview can't hand out two sets of signable steps.
  *   6. quote() — whose terms (e.g. split's live fee rate/treasury) must hash
  *      to exactly the previewed terms, else FEE_TERMS_CHANGED — then build(),
+ *      which receives the previewed snapshot (from the VERIFIED token only)
+ *      and refuses a materially changed fresh quote (QUOTE_CHANGED),
  *      then validateSteps (Layer B) — every returned
  *      step's target must be in BOTH allowlists. One bad target rejects the
  *      ENTIRE action; there is no partial build.
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: "A fresh preview is required before this action can be built.", code: "QUOTE_REQUIRED" }, { status: 400 });
   }
 
-  const { ActionInputError } = await import("@/lib/sdk/types");
+  const { ActionInputError, ActionQuoteChangedError } = await import("@/lib/sdk/types");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
   let claimedKey: string | null = null;
   try {
@@ -140,7 +142,8 @@ export async function POST(req: NextRequest) {
         message: "PayAI's fee terms changed since this preview. Request a fresh preview to see the current terms.",
       });
     }
-    const steps = await action.build(validInputs.value, quote, { wallet: walletAddress });
+    // The previewed snapshot comes ONLY from the verified token.
+    const steps = await action.build(validInputs.value, quote, { wallet: walletAddress, ...(token.snapshot ? { preview: token.snapshot } : {}) });
     const validated = validateSteps(steps, action, protocol);
     if (!validated.ok) {
       await releaseRequest(key);
@@ -171,6 +174,16 @@ export async function POST(req: NextRequest) {
       quoteId: token.quoteId,
     });
   } catch (e) {
+    if (e instanceof ActionQuoteChangedError && claimedKey) {
+      // The fresh quote moved materially from what the user previewed. Like
+      // FEE_TERMS_CHANGED, the claim stays completed-as-refused: this preview
+      // can never be retried into a build — a fresh preview is required.
+      await completeRequest(claimedKey, null).catch(() => {});
+      return NextResponse.json({
+        ok: false, code: "QUOTE_CHANGED",
+        message: e.message || "The quote changed since your preview. Request a fresh preview to see the current price.",
+      });
+    }
     if (claimedKey) await releaseRequest(claimedKey).catch(() => {});
     if (e instanceof ActionInputError) {
       return NextResponse.json({ ok: false, message: e.message, code: "INVALID_INPUT" }, { status: 400 });

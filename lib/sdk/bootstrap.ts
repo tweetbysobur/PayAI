@@ -25,6 +25,10 @@
  *     so both actions share one protocolId registration, never two. Registers
  *     only on Monad mainnet, same "register nothing rather than pin to a
  *     missing target" discipline as the other two.
+ *   - payai — PayAI's own actions under ONE protocol registration: transfer
+ *     (Phase 2B; only with forwarder payments enabled) and swap (Phase 2D;
+ *     only on mainnet with a PayAI trade executor enabled). The protocol's
+ *     allowlist is exactly the union of its actions' targets.
  *
  * Server-only: the action modules it registers are server-only (they read
  * app config and build calldata).
@@ -35,6 +39,8 @@ import { createWmonProtocol } from "./actions/wmon";
 import { createSplitSettlementProtocol } from "./actions/split-settlement";
 import { createAaveV3MonadProtocol } from "./actions/aave-v3-monad";
 import { createTransferProtocol } from "./actions/transfer";
+import { createSwapAction } from "./actions/swap";
+import type { ProtocolAdapter } from "./types";
 
 let done = false;
 
@@ -53,12 +59,33 @@ export function ensureBuiltinsRegistered(): void {
     if (aave) registerProtocol(aave);
   }
   if (!getProtocol("payai")) {
-    // Only when forwarder payments are enabled — the transfer action settles
-    // through the forwarder and has no other path.
-    const transfer = createTransferProtocol();
-    if (transfer) registerProtocol(transfer);
+    const payai = createPayAIProtocol();
+    if (payai) registerProtocol(payai);
   }
   done = true;
+}
+
+/**
+ * PayAI's own actions under ONE protocol registration, each present only when
+ * its settlement path is enabled: transfer (the forwarder — it has no other
+ * path) and swap (a PayAI trade executor — it has no direct-router path). The
+ * protocol's allowlist is exactly the union of its actions' targets. Null when
+ * neither is available.
+ */
+function createPayAIProtocol(): ProtocolAdapter | null {
+  const transfer = createTransferProtocol();
+  const swap = createSwapAction();
+  const actions = [...(transfer?.actions ?? []), ...(swap ? [swap] : [])];
+  if (actions.length === 0) return null;
+  const targets = [...new Map(actions.flatMap((a) => a.allowedTargets).map((t) => [t.toLowerCase(), t])).values()];
+  return {
+    protocolId: "payai",
+    name: "PayAI",
+    chainId: actions[0].chainId,
+    docsUrl: "https://usepayai.xyz",
+    allowedTargets: targets,
+    actions,
+  };
 }
 
 /** Test-only: forget the latch so a test that reset the registry can

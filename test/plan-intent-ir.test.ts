@@ -45,7 +45,9 @@ const SWAP = fixture("payai-swap", {
   },
   outputs: {
     amountOut: { type: "units", description: "confirmed amount received", denominatedIn: { input: "tokenOut" } },
-    tokenOut: { type: "token", description: "token received" },
+    // As the real payai/swap declares it (Phase 2D): the received token IS
+    // the tokenOut input, so the IR can prove when it's an ERC-20.
+    tokenOut: { type: "token", description: "token received", denominatedIn: { input: "tokenOut" } },
   },
 });
 
@@ -324,6 +326,72 @@ describe("inputs and bindings", () => {
     await expectError(graph([swap, split(["1"], { kind: "remainder", node: "n1", output: "amountOut", minus: ["1"] })], text), "INVALID_BINDING");
   });
 });
+
+describe("native outputs are never bindable (Phase 2D)", () => {
+  const NATIVE = "0x0000000000000000000000000000000000000000";
+  it("USDC → MON: binding the native amountOut is refused", async () => {
+    const text = `swap 35 USDC to MON and send it to ${RECIPIENT}`;
+    await expectError(graph([
+      node("n1", S, { tokenIn: lit(USDC), tokenOut: lit(NATIVE), amountIn: lit("35000000") }),
+      node("n2", T, { recipient: addr(RECIPIENT), amount: out("n1", "amountOut") }, ["n1"]),
+    ], text), "NATIVE_OUTPUT_NOT_BINDABLE");
+  });
+  it("USDC → MON: binding the native tokenOut is refused too", async () => {
+    const text = `swap 35 USDC to MON and send it to ${RECIPIENT}`;
+    await expectError(graph([
+      node("n1", S, { tokenIn: lit(USDC), tokenOut: lit(NATIVE), amountIn: lit("35000000") }),
+      node("n2", T, { recipient: addr(RECIPIENT), token: out("n1", "tokenOut"), amount: lit("1") }, ["n1"]),
+    ], text), "NATIVE_OUTPUT_NOT_BINDABLE");
+  });
+  it("MON → USDC: the ERC-20 amountOut and tokenOut are bindable", async () => {
+    const text = `swap 10 MON to USDC and send the USDC to ${RECIPIENT}`;
+    await expectValid(graph([
+      node("n1", S, { tokenOut: lit(USDC), amountIn: lit("10000000000000000000") }),
+      node("n2", T, { recipient: addr(RECIPIENT), token: out("n1", "tokenOut"), amount: out("n1", "amountOut") }, ["n1"]),
+    ], text));
+  });
+  it("a native MON transfer's amount output is refused (absent token = native)", async () => {
+    const TX = fixtureTransferWithOutputs();
+    const { registerProtocol } = await import("@/lib/sdk/registry");
+    registerProtocol(TX);
+    const text = `send 1 MON to ${RECIPIENT} and send it to ${RECIPIENT}`;
+    await expectError(graph([
+      node("n1", ["payai-tx", "transfer", "1.0.0"], { recipient: addr(RECIPIENT), amount: lit("1000000000000000000") }),
+      node("n2", ["payai-tx", "transfer", "1.0.0"], { recipient: addr(RECIPIENT), amount: out("n1", "amount") }, ["n1"]),
+    ], text), "NATIVE_OUTPUT_NOT_BINDABLE");
+  });
+  it("an output whose token is itself bound (unknown until execution) is refused", async () => {
+    const text = `swap 10 MON to USDC, swap it and send it to ${RECIPIENT}`;
+    await expectError(graph([
+      node("n1", S, { tokenOut: lit(USDC), amountIn: lit("10000000000000000000") }),
+      node("n2", S, { tokenIn: out("n1", "tokenOut"), tokenOut: out("n1", "tokenOut"), amountIn: out("n1", "amountOut") }, ["n1"]),
+      node("n3", T, { recipient: addr(RECIPIENT), token: lit(USDC), amount: out("n2", "amountOut") }, ["n2"]),
+    ], text), "NATIVE_OUTPUT_NOT_BINDABLE");
+  });
+  it("staticErc20: only a literal, non-zero address in the declared denomination proves an ERC-20", async () => {
+    const { staticErc20 } = await import("@/lib/plan/outputs");
+    const units = { type: "units", description: "x", denominatedIn: { input: "tokenOut" } } as const;
+    expect(staticErc20(units, () => USDC.toUpperCase().replace("0X", "0x"))).toBe(USDC);
+    expect(staticErc20(units, () => NATIVE)).toBeNull();
+    expect(staticErc20(units, () => undefined)).toBeNull();
+    expect(staticErc20(units, () => null)).toBeNull();
+    expect(staticErc20({ type: "units", description: "x" }, () => USDC)).toBeNull();
+    expect(staticErc20({ type: "units[]", description: "x", denominatedIn: { input: "token" } }, () => USDC)).toBeNull();
+  });
+});
+
+/** A transfer whose outputs mirror payai/transfer's (amount in `token`). */
+function fixtureTransferWithOutputs(): ProtocolAdapter {
+  return fixture("payai-tx", {
+    actionId: "transfer", version: "1.0.0", name: "Transfer", description: "test fixture",
+    inputSchema: {
+      recipient: { type: "address", required: true, description: "to" },
+      token: { type: "token", required: false, description: "token (empty = MON)" },
+      amount: { type: "units", required: true, description: "amount" },
+    },
+    outputs: { amount: { type: "units", description: "received", denominatedIn: { input: "token" } } },
+  });
+}
 
 describe("execution details can't be smuggled in", () => {
   it("arbitrary calldata", async () => {

@@ -54,6 +54,26 @@ export function staticDenomination(
   return normalizeToken(v);
 }
 
+/**
+ * The ERC-20 a bindable output provably is (a "token" output) or is
+ * denominated in (a "units" output), lowercased — decided statically from the
+ * producer's LITERAL input named by `denominatedIn`. Null when that can't be
+ * proven: native MON (input absent or the zero address), no `denominatedIn`,
+ * or an input that is itself bound / unresolved. Only outputs with a proven
+ * ERC-20 may be passed to a later step — native MON outputs are never bound.
+ */
+export function staticErc20(
+  decl: ActionOutputDeclaration,
+  producerLiteral: (input: string) => string | null | undefined,
+): string | null {
+  if (decl.type !== "units" && decl.type !== "token") return null;
+  if (!decl.denominatedIn) return null;
+  const v = producerLiteral(decl.denominatedIn.input);
+  if (v === undefined || v === null) return null;
+  const t = normalizeToken(v);
+  return /^0x[0-9a-f]{40}$/.test(t) ? t : null;
+}
+
 export function normalizeToken(v: string): string {
   const t = v.trim().toLowerCase();
   return t === NATIVE ? "" : t;

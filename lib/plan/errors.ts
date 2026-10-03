@@ -24,6 +24,7 @@ export type IntentErrorCode =
   | "UNKNOWN_OUTPUT"       // producer doesn't declare that output
   | "OUTPUT_TYPE_MISMATCH"
   | "TOKEN_MISMATCH"
+  | "NATIVE_OUTPUT_NOT_BINDABLE" // the output isn't provably an ERC-20 (native MON, or unknown until execution)
   | "INVALID_RECIPIENT"
   | "RECIPIENT_PROVENANCE";
 

@@ -190,6 +190,15 @@ export interface ActionQuoteResult {
    * executed on new terms. Strings only, canonicalized by key.
    */
   terms?: Readonly<Record<string, string>>;
+  /**
+   * OPTIONAL. What the user was SHOWN that isn't a fixed term but must not
+   * move materially before the build — e.g. a swap's expected output and
+   * route provider. Signed into the quote token (lib/sdk/quoteToken.ts) and
+   * handed back to build() VERIFIED as ActionBuildContext.preview, so the
+   * build compares a fresh quote against exactly what was previewed — never
+   * against a value the client sends. Short strings only.
+   */
+  snapshot?: Readonly<Record<string, string>>;
 }
 
 /** What the build route knows beyond the inputs: the session wallet the
@@ -197,12 +206,47 @@ export interface ActionQuoteResult {
  *  allowance). Never an input a client controls. */
 export interface ActionBuildContext {
   wallet: Address;
+  /** The previewed quote's snapshot, recovered from the VERIFIED quote token
+   *  (absent when the preview carried none). */
+  preview?: Readonly<Record<string, string>>;
 }
 
 /** What the confirm route knows beyond the receipt itself: the terms the
- *  confirmed transaction was BUILT on (from the server's build record). */
+ *  confirmed transaction was BUILT on, and the wallet it was built for (both
+ *  from the server's build record — never from the request). */
 export interface ActionResultContext {
   terms?: Readonly<Record<string, string>>;
+  /** Lowercased wallet the build was made for. */
+  wallet?: string;
+}
+
+/**
+ * Thrown by build() when a fresh quote moved materially from the previewed
+ * snapshot (route/provider change, or output drift beyond the slippage the
+ * user accepted). The build route answers QUOTE_CHANGED and consumes the
+ * quote — a fresh preview is required; nothing is built on the new numbers.
+ */
+export class ActionQuoteChangedError extends Error {}
+
+/**
+ * A swap a CONFIRMED receipt actually executed, decoded from the canonical
+ * on-chain trade event only (never from inputs, a quote or the client) and
+ * checked against the build's terms. Amounts are exact base units.
+ */
+export interface SettledTrade {
+  tokenIn: Address;
+  tokenOut: Address;
+  /** Gross amount the user paid in, fee included. */
+  amountIn: bigint;
+  /** What the user received. */
+  amountOut: bigint;
+  /** PayAI fee, in tokenIn. */
+  fee: bigint;
+  symbolIn: string;
+  symbolOut: string;
+  decimalsIn: number;
+  decimalsOut: number;
+  provider: string;
 }
 
 /** A settlement's confirmed outcome, split into what reached the user's
@@ -314,6 +358,14 @@ export interface Action extends ActionMetadata {
    * Empty recipients when the receipt carries no canonical event. Never throws.
    */
   settledOutflows?(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<SettledOutflows>;
+  /**
+   * OPTIONAL. For an action that trades the user's own funds (no third-party
+   * recipient): the trade a CONFIRMED receipt executed, verified against the
+   * build's terms and wallet, or null when it can't be verified. The confirm
+   * route records exactly one "trade" history row from it, and records
+   * nothing (reporting "unverified") when it is null. Never throws.
+   */
+  settledTrade?(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<SettledTrade | null>;
 }
 
 /** The minimum a result parser is given. Deliberately narrow — an action

@@ -13,6 +13,11 @@
  *   termsHash   — sha256 of the quote's economic terms (e.g. split's fee
  *                 rate, treasury and fee amount); build re-quotes and must
  *                 reproduce exactly these, or it refuses (FEE_TERMS_CHANGED)
+ *   snapshot    — OPTIONAL: what the user was shown that must not move
+ *                 materially (e.g. a swap's expected output + provider).
+ *                 Carried IN the signed payload and returned only once the
+ *                 token verifies, so build compares against exactly the
+ *                 previewed values — never ones a client supplies.
  *
  * So the client can't (a) build different inputs from the ones it previewed,
  * (b) refresh or invent a quote timestamp — build takes quotedAt ONLY from the
@@ -77,27 +82,51 @@ export interface QuoteIdentity {
   chainId: number;
 }
 
+type Snapshot = Readonly<Record<string, string>>;
+
 interface QuotePayload {
   p: string; a: string; v: string; c: number;
   h: string; t: number; q: string;
   /** termsHash of the quote's terms. */
   k: string;
+  /** The preview snapshot, when the action produced one. */
+  s?: Snapshot;
+}
+
+/** The longest token verifyQuoteToken accepts — and so the longest one may
+ *  ever be issued: a token the verifier would refuse is never handed out. */
+export const MAX_QUOTE_TOKEN_LENGTH = 2048;
+const SNAPSHOT_KEY_RE = /^[A-Za-z][A-Za-z0-9]{0,31}$/;
+const SNAPSHOT_MAX_KEYS = 8;
+const SNAPSHOT_MAX_VALUE = 128;
+
+/** A snapshot is a small flat map of short strings — anything else is refused
+ *  (at issue: thrown; at verify: the token is refused). */
+function isSnapshot(v: unknown): v is Snapshot {
+  if (v === null || typeof v !== "object" || Array.isArray(v) || Object.getPrototypeOf(v) !== Object.prototype) return false;
+  const entries = Object.entries(v as Record<string, unknown>);
+  return entries.length <= SNAPSHOT_MAX_KEYS
+    && entries.every(([k, x]) => SNAPSHOT_KEY_RE.test(k) && typeof x === "string" && x.length <= SNAPSHOT_MAX_VALUE);
 }
 
 export function issueQuoteToken(
-  id: QuoteIdentity, inputs: ActionInputs, quotedAt: number, terms?: Readonly<Record<string, string>>,
+  id: QuoteIdentity, inputs: ActionInputs, quotedAt: number, terms?: Readonly<Record<string, string>>, snapshot?: Snapshot,
 ): { quoteToken: string; quoteId: string } {
+  if (snapshot !== undefined && !isSnapshot(snapshot)) throw new Error("Quote snapshot is malformed.");
   const quoteId = randomBytes(16).toString("hex");
   const payload: QuotePayload = {
     p: id.protocolId, a: id.actionId, v: id.version, c: id.chainId,
     h: inputsHash(inputs), t: quotedAt, q: quoteId, k: termsHash(terms),
+    ...(snapshot !== undefined ? { s: snapshot } : {}),
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return { quoteToken: `${encoded}.${sign(encoded)}`, quoteId };
+  const quoteToken = `${encoded}.${sign(encoded)}`;
+  if (quoteToken.length > MAX_QUOTE_TOKEN_LENGTH) throw new Error("Quote token would exceed the verifiable size.");
+  return { quoteToken, quoteId };
 }
 
 export type QuoteVerifyResult =
-  | { ok: true; quotedAt: number; quoteId: string; termsHash: string }
+  | { ok: true; quotedAt: number; quoteId: string; termsHash: string; snapshot?: Snapshot }
   | { ok: false; message: string };
 
 const QUOTE_ID_RE = /^[0-9a-f]{32}$/;
@@ -110,7 +139,7 @@ const HASH_RE = /^[0-9a-f]{64}$/;
  */
 export function verifyQuoteToken(token: unknown, id: QuoteIdentity, inputs: ActionInputs): QuoteVerifyResult {
   const refuse = (message = "This preview can't be used to build the action — please request a fresh preview."): QuoteVerifyResult => ({ ok: false, message });
-  if (typeof token !== "string" || token.length > 2048) return refuse("A fresh preview is required before this action can be built.");
+  if (typeof token !== "string" || token.length > MAX_QUOTE_TOKEN_LENGTH) return refuse("A fresh preview is required before this action can be built.");
   const dot = token.indexOf(".");
   if (dot <= 0 || dot !== token.lastIndexOf(".")) return refuse();
   const encoded = token.slice(0, dot);
@@ -131,7 +160,8 @@ export function verifyQuoteToken(token: unknown, id: QuoteIdentity, inputs: Acti
     typeof payload.t !== "number" || !Number.isSafeInteger(payload.t) ||
     typeof payload.q !== "string" || !QUOTE_ID_RE.test(payload.q) ||
     typeof payload.h !== "string" || !HASH_RE.test(payload.h) ||
-    typeof payload.k !== "string" || !HASH_RE.test(payload.k)
+    typeof payload.k !== "string" || !HASH_RE.test(payload.k) ||
+    (payload.s !== undefined && !isSnapshot(payload.s))
   ) return refuse();
 
   if (payload.p !== id.protocolId || payload.a !== id.actionId || payload.v !== id.version || payload.c !== id.chainId) {
@@ -140,5 +170,5 @@ export function verifyQuoteToken(token: unknown, id: QuoteIdentity, inputs: Acti
   if (payload.h !== inputsHash(inputs)) {
     return refuse("These details differ from the preview you saw — please request a fresh preview.");
   }
-  return { ok: true, quotedAt: payload.t, quoteId: payload.q, termsHash: payload.k };
+  return { ok: true, quotedAt: payload.t, quoteId: payload.q, termsHash: payload.k, ...(payload.s !== undefined ? { snapshot: payload.s } : {}) };
 }
