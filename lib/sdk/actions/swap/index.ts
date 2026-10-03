@@ -45,7 +45,7 @@ import { prepareTradeExecution, previewTrade, type TradePreviewOk, type TradePre
 import { TRADE_EXECUTOR_ABI, applyExecutorFee, getExecutorFeeBps, selectExecutor } from "@/lib/monad/tradeExecutor";
 import { ActionInputError, ActionQuoteChangedError, inputString } from "@/lib/sdk/types";
 import type {
-  Action, ActionBuildContext, ActionInputs, ActionQuoteResult, ActionReceipt, ActionResultContext, SettledTrade, UnsignedActionStep,
+  Action, ActionBuildContext, ActionInputs, ActionQuoteResult, ActionReceipt, ActionResultContext, SettledTrade, UnsignedActionStep, VerifiedOutputs,
 } from "@/lib/sdk/types";
 
 const PROTOCOL_ID = "payai";
@@ -344,6 +344,25 @@ function swapAction(executor: Address, chainId: number): Action {
 
     async settledTrade(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<SettledTrade | null> {
       return verifiedTrade(receipt, rctx);
+    },
+
+    // Machine-readable outputs from the SAME strict verification: every value
+    // is the verified TradeExecuted's own (amountOut, fee) and its tokens are
+    // the event's, which verifiedTrade already matched to the build's terms.
+    // Unverifiable → null; never a preview, client or Transfer-log value.
+    async confirmedOutputs(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<VerifiedOutputs | null> {
+      const s = verifiedTrade(receipt, rctx);
+      if (!s) return null;
+      const tokenIn = s.tokenIn.toLowerCase();
+      const tokenOut = s.tokenOut.toLowerCase();
+      return {
+        outputs: {
+          amountOut: { verified: true, type: "units", value: s.amountOut.toString(), token: tokenOut },
+          tokenOut: { verified: true, type: "token", value: tokenOut },
+          fee: { verified: true, type: "units", value: s.fee.toString(), token: tokenIn },
+        },
+        denominations: { tokenIn, tokenOut },
+      };
     },
   };
 }

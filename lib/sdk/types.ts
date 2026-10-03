@@ -381,6 +381,40 @@ export interface Action extends ActionMetadata {
    * nothing (reporting "unverified") when it is null. Never throws.
    */
   settledTrade?(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<SettledTrade | null>;
+  /**
+   * OPTIONAL. The machine-readable outputs a CONFIRMED receipt verifiably
+   * produced, matching this action's `outputs` declarations — or null when
+   * the action's strict verification can't establish every fact (absent,
+   * ambiguous or mismatched events, missing build terms, wrong wallet…).
+   * Derived only from canonical on-chain events checked against the build's
+   * terms and wallet; never from inputs, a quote or the client. Never throws.
+   * The confirm route checks the result against the declarations
+   * (lib/sdk/settlement.ts checkOutputsAgainstDeclaration) before storing it.
+   */
+  confirmedOutputs?(receipt: ActionReceipt, ctx?: ActionResultContext): Promise<VerifiedOutputs | null>;
+}
+
+/**
+ * One output a confirmed action verifiably produced. Exact values only:
+ * base-unit amounts as uint256 decimal strings, addresses lowercased (the
+ * canonical form build terms use); native MON is the zero address — a real
+ * result, but never an ERC-20 (the planner refuses to bind it).
+ */
+export type VerifiedOutputValue =
+  | { verified: true; type: "units"; value: string; token: string }
+  | { verified: true; type: "token"; value: string }
+  | { verified: true; type: "units[]"; value: string[]; token: string };
+
+/**
+ * What confirmedOutputs() returns: the outputs by declared name, plus the
+ * token each token-valued input was VERIFIED to be in this execution (from
+ * the canonical event, which itself matched the build's terms), keyed by
+ * input name. The declaration check ties every output's token to these — an
+ * output can't name its own denomination.
+ */
+export interface VerifiedOutputs {
+  outputs: Readonly<Record<string, VerifiedOutputValue>>;
+  denominations: Readonly<Record<string, string>>;
 }
 
 /** The minimum a result parser is given. Deliberately narrow — an action

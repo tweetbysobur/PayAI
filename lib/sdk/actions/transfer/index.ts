@@ -47,7 +47,7 @@ import { platformFee, readPlatformFeeTerms, PlatformFeeUnavailableError, type Pl
 import { ActionInputError, inputString } from "@/lib/sdk/types";
 import type {
   Action, ActionBuildContext, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ActionResultContext, ProtocolAdapter,
-  SettledOutflows, UnsignedActionStep,
+  SettledOutflows, UnsignedActionStep, VerifiedOutputs,
 } from "@/lib/sdk/types";
 
 const PROTOCOL_ID = "payai";
@@ -137,6 +137,46 @@ function decodeSettled(receipt: ActionReceipt, forwarder: Address, rctx?: Action
   const fee = fc?.feeAmount ?? 0n;
   if (fee > ev.amount) return null;
   return { ev, fee, treasury: fc?.treasury ?? null, net: ev.amount - fee };
+}
+
+/**
+ * The STRICT confirmed payment, for confirmed outputs only (decodeSettled
+ * above stays as-is for parseResult/settledOutflows/history). Every fact must
+ * be established, or null:
+ *   - the build's terms and wallet are present;
+ *   - exactly one PaymentForwarded from the forwarder, paid BY the build's
+ *     wallet, to the terms' recipient, in the terms' token, for the terms'
+ *     gross;
+ *   - exactly one FeeCollected for that payment id. PayAIForwarderV2 always
+ *     emits it — with feeAmount 0 when the fee is zero — so it is required in
+ *     both cases, never inferred from its absence: same token, fee equal to
+ *     the terms' fee, treasury equal to the terms' treasury;
+ *   - gross − fee equals the terms' net.
+ */
+function verifiedPayment(receipt: ActionReceipt, forwarder: Address, rctx?: ActionResultContext) {
+  if (receipt.status !== "success") return null;
+  const t = rctx?.terms;
+  const wallet = rctx?.wallet?.toLowerCase();
+  if (!t || !wallet) return null;
+  for (const k of ["recipient", "token", "treasury"] as const) if (!t[k] || !/^0x[0-9a-f]{40}$/.test(t[k])) return null;
+  for (const k of ["gross", "fee", "net"] as const) if (!t[k] || !/^(0|[1-9][0-9]{0,77})$/.test(t[k])) return null;
+
+  // Reuse the existing decoders one log at a time, so a second event can't
+  // hide behind the first.
+  const payments = receipt.logs.map((l) => decodePaymentForwarded([l], forwarder)).filter((e) => e !== null);
+  if (payments.length !== 1) return null;
+  const ev = payments[0];
+  if (
+    ev.payer.toLowerCase() !== wallet || ev.recipient.toLowerCase() !== t.recipient ||
+    ev.token.toLowerCase() !== t.token || ev.amount.toString() !== t.gross
+  ) return null;
+
+  const fees = receipt.logs.map((l) => decodeFeeCollected([l], forwarder, ev.id)).filter((e) => e !== null);
+  if (fees.length !== 1) return null;
+  const fc = fees[0];
+  if (fc.token.toLowerCase() !== t.token || fc.feeAmount.toString() !== t.fee || fc.treasury.toLowerCase() !== t.treasury) return null;
+  if (fc.feeAmount > ev.amount || (ev.amount - fc.feeAmount).toString() !== t.net) return null;
+  return { token: t.token, gross: ev.amount, fee: fc.feeAmount, net: ev.amount - fc.feeAmount };
 }
 
 function tokenDisplay(token: Address): { symbol: string; decimals: number } | null {
@@ -276,6 +316,22 @@ function transferAction(forwarder: Address, chainId: number): Action {
         recipients: [{ recipient: getAddress(s.ev.recipient), amountUnits: s.net, recordedAmountUnits: s.ev.amount, token, symbol, decimals }],
         fee: s.fee > 0n && s.treasury ? { amountUnits: s.fee, token, treasury: getAddress(s.treasury), symbol, decimals } : null,
         grossUnits: s.ev.amount,
+      };
+    },
+
+    // Machine-readable outputs from the STRICT verification only. Unverifiable
+    // → null (history above may still record the lenient settlement).
+    async confirmedOutputs(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<VerifiedOutputs | null> {
+      const v = verifiedPayment(receipt, forwarder, rctx);
+      if (!v) return null;
+      return {
+        outputs: {
+          amount: { verified: true, type: "units", value: v.net.toString(), token: v.token },
+          gross: { verified: true, type: "units", value: v.gross.toString(), token: v.token },
+          fee: { verified: true, type: "units", value: v.fee.toString(), token: v.token },
+          token: { verified: true, type: "token", value: v.token },
+        },
+        denominations: { token: v.token },
       };
     },
   };

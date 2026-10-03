@@ -23,6 +23,15 @@ import { NextRequest, NextResponse } from "next/server";
  *      exactly ONE "trade" row from its verified trade event, or — when the
  *      event can't be verified against the build — nothing ("unverified").
  *
+ *   5. Confirmed outputs (Phase 2C): after a verified success, the action's
+ *      confirmedOutputs() — its STRICT verification of the canonical event
+ *      against the build's terms and wallet — checked against its output
+ *      declarations, then stored ONCE under `sdk-outputs:<quoteId>`
+ *      (lib/sdk/settlement.ts). Returned only when the stored record is this
+ *      exact transaction's; never read from the request body, never
+ *      overwritten. Best-effort and isolated: it never changes what history
+ *      records or whether the confirmation succeeds.
+ *
  * Exactly-once is NOT claimed: the deployed contracts don't enforce `ref`
  * uniqueness, so if the same built transaction is signed twice, both settle
  * on-chain. Each is then recorded once, as the real separate settlement it is.
@@ -174,7 +183,8 @@ export async function POST(req: NextRequest) {
         outputTokenAddress: trade.tokenOut.toLowerCase() === "0x0000000000000000000000000000000000000000" ? null : trade.tokenOut,
         provider: trade.provider,
       });
-      const okBody = { ok: true, success: true, explorerUrl, details, recorded: 1 };
+      const outputs = await confirmedOutputsFor(action, actionReceipt, resultCtx, { quoteId: body.quoteId, txHash, wallet: record.wallet, protocolId: record.protocolId, actionId: record.actionId, version: record.version });
+      const okBody = { ok: true, success: true, explorerUrl, details, recorded: 1, ...outputs };
       await completeRequest(sKey, okBody);
       return NextResponse.json(okBody);
     }
@@ -237,11 +247,44 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const okBody = { ok: true, success: true, explorerUrl, details, recorded: settled.length };
+    const outputs = await confirmedOutputsFor(action, actionReceipt, resultCtx, { quoteId: body.quoteId, txHash, wallet: record.wallet, protocolId: record.protocolId, actionId: record.actionId, version: record.version });
+    const okBody = { ok: true, success: true, explorerUrl, details, recorded: settled.length, ...outputs };
     await completeRequest(sKey, okBody);
     return NextResponse.json(okBody);
   } catch {
     await releaseRequest(sKey).catch(() => {});
     return NextResponse.json({ ok: false, message: "Couldn't verify that action on-chain. Try again in a moment." }, { status: 502 });
+  }
+}
+
+type OutputsStatus = "recorded" | "unverified" | "invalid" | "already_recorded_for_another_tx" | "unavailable";
+
+/**
+ * The confirmed outputs for a verified-success confirmation. Only for an
+ * action that declares confirmedOutputs (others get nothing added to their
+ * response). Everything comes from the receipt + the build record — the
+ * request body is never consulted. Never throws: a failure here must not
+ * turn an already-recorded settlement into a retryable error.
+ */
+async function confirmedOutputsFor(
+  action: import("@/lib/sdk/types").Action,
+  receipt: import("@/lib/sdk/types").ActionReceipt,
+  ctx: import("@/lib/sdk/types").ActionResultContext,
+  rec: import("@/lib/sdk/settlement").OutputRecordContext,
+): Promise<{ outputs?: unknown; outputsStatus?: OutputsStatus }> {
+  if (!action.confirmedOutputs) return {};
+  const none = (outputsStatus: OutputsStatus) => ({ outputs: null, outputsStatus });
+  try {
+    const { checkOutputsAgainstDeclaration, insertOutputRecordOnce } = await import("@/lib/sdk/settlement");
+    const verified = await action.confirmedOutputs(receipt, ctx);
+    if (!verified) return none("unverified");
+    const checked = checkOutputsAgainstDeclaration(action, verified);
+    if (!checked.ok) return none("invalid");
+    const stored = await insertOutputRecordOnce({ ...rec, txHash: rec.txHash.toLowerCase(), outputs: checked.outputs, recordedAt: Date.now() });
+    if (stored.status === "recorded") return { outputs: stored.record.outputs, outputsStatus: "recorded" };
+    if (stored.status === "already_recorded_for_another_tx") return none("already_recorded_for_another_tx");
+    return none("unavailable");
+  } catch {
+    return none("unavailable");
   }
 }

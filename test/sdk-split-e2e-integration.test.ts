@@ -202,6 +202,32 @@ describe("native MON — full pipeline", () => {
   });
 });
 
+describe("confirmed outputs (Phase 2C)", () => {
+  it("a confirmed split stores recipientAmounts in order WITHOUT the treasury fee leg, plus fee and gross", async () => {
+    const { bj, final, recipients, amounts } = await prepare(`split 0.05 USDC: 0.03 to ${A} and 0.02 to ${B}`);
+    expect(recipients[2].toLowerCase()).toBe(FEE_TREASURY.toLowerCase());
+    const hash = newHash();
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(USDC, recipients, amounts)] });
+    const { json } = await confirm(bj.quoteId, hash);
+    expect(json).toMatchObject({ ok: true, recorded: 2, outputsStatus: "recorded" });
+    expect(json.outputs).toEqual({
+      recipientAmounts: { verified: true, type: "units[]", value: ["30000", "20000"], token: USDC.toLowerCase() },
+      fee: { verified: true, type: "units", value: "125", token: USDC.toLowerCase() },
+      gross: { verified: true, type: "units", value: "50125", token: USDC.toLowerCase() },
+    });
+  });
+
+  it("history from a lenient settlement is unchanged, but a fee leg that doesn't match the build yields no outputs", async () => {
+    const { bj, final, recipients, amounts } = await prepare(`split 0.05 USDC: 0.03 to ${A} and 0.02 to ${B}`);
+    const hash = newHash();
+    // The event drops the fee leg: today's history still records both recipients…
+    mine(final, { status: "success", from: WALLET, logs: [canonicalLog(USDC, recipients.slice(0, 2), [amounts[0], amounts[1] + amounts[2]])] });
+    const { json } = await confirm(bj.quoteId, hash);
+    expect(json).toMatchObject({ ok: true, recorded: 2, outputs: null, outputsStatus: "unverified" });
+    expect(await historyFor(hash)).toHaveLength(2);
+  });
+});
+
 describe("ERC-20 USDC — full pipeline", () => {
   it("custom amounts survive NL → approve(exact total) + split → confirm → history", async () => {
     const { bj, final, token, recipients, amounts } = await prepare(`split 0.05 USDC: 0.03 to ${A} and 0.02 to ${B}`);

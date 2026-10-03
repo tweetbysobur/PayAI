@@ -602,6 +602,29 @@ describe("confirmation: only the build's executor's TradeExecuted, checked again
     expect((await confirm(b.quoteId, TX)).json).toMatchObject({ ok: false, verified: false });
     expect(await history()).toHaveLength(0);
   });
+  it("confirmed outputs (Phase 2C): from the verified event, stored once, never the client's or the preview's", async () => {
+    const { quoteId, final } = await built();
+    mine(final, [tradeLog({ amountOut: 4_123_456n })]);
+    const r = await confirm(quoteId, TX, WALLET, { amountOut: "999", outputs: { amountOut: { verified: true, type: "units", value: "999", token: USDC } } });
+    expect(r.json).toMatchObject({ ok: true, outputsStatus: "recorded" });
+    expect(r.json.outputs).toEqual({
+      amountOut: { verified: true, type: "units", value: "4123456", token: USDC }, // not the 4.2 preview, not 999
+      tokenOut: { verified: true, type: "token", value: USDC },
+      fee: { verified: true, type: "units", value: "25000000000000000", token: NATIVE },
+    });
+    const { readOutputRecord } = await import("@/lib/sdk/settlement");
+    expect(await readOutputRecord({ quoteId, txHash: TX, wallet: WALLET, ...ID })).toMatchObject({ status: "recorded", record: { outputs: r.json.outputs } });
+    expect((await confirm(quoteId, TX)).json).toMatchObject({ replayed: true, outputs: r.json.outputs });
+  });
+  it("confirmed outputs: an unverifiable trade stores none", async () => {
+    const { quoteId, final } = await built();
+    mine(final, [tradeLog({ fee: 1n })]);
+    const r = await confirm(quoteId, TX);
+    expect(r.json).toMatchObject({ ok: false, verified: false });
+    expect(r.json).not.toHaveProperty("outputs");
+    const { readOutputRecord } = await import("@/lib/sdk/settlement");
+    expect(await readOutputRecord({ quoteId, txHash: TX, wallet: WALLET, ...ID })).toEqual({ status: "absent" });
+  });
   it("a reverted trade is reported as reverted; nothing recorded", async () => {
     const { quoteId, final } = await built();
     mine(final, [], WALLET, "reverted");

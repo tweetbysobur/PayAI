@@ -66,7 +66,7 @@ import { getChain, getStablecoin } from "@/lib/monad/config";
 import { resolveToken } from "@/lib/monad/tokenRegistry";
 import { ActionInputError, inputList, inputString } from "@/lib/sdk/types";
 import type {
-  Action, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ActionResultContext, ProtocolAdapter, SettledOutflows, UnsignedActionStep,
+  Action, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ActionResultContext, ProtocolAdapter, SettledOutflows, UnsignedActionStep, VerifiedOutputs,
 } from "@/lib/sdk/types";
 import { readSplitFeeTerms, splitPlatformFee, type SplitFeeTerms } from "./fee";
 
@@ -329,6 +329,21 @@ function splitAction(target: Address, chainId: number): Action {
         fee: legs.fee ? { amountUnits: legs.fee.units, token, treasury: getAddress(legs.fee.recipient), symbol, decimals } : null,
       };
     },
+    // Machine-readable outputs from the STRICT verification only. The
+    // treasury fee leg is never one of recipientAmounts. Unverifiable → null
+    // (history above may still record the lenient settlement).
+    async confirmedOutputs(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<VerifiedOutputs | null> {
+      const v = verifiedSplit(receipt, target, rctx);
+      if (!v) return null;
+      return {
+        outputs: {
+          recipientAmounts: { verified: true, type: "units[]", value: v.recipientAmounts.map((a) => a.toString()), token: v.token },
+          fee: { verified: true, type: "units", value: v.fee.toString(), token: v.token },
+          gross: { verified: true, type: "units", value: v.gross.toString(), token: v.token },
+        },
+        denominations: { token: v.token },
+      };
+    },
   };
 }
 
@@ -391,6 +406,55 @@ function decodeSettlement(receipt: ActionReceipt, canonical: Address): SettledSp
     } catch { /* not our event shape — keep scanning */ }
   }
   return null;
+}
+
+/**
+ * The STRICT confirmed split, for confirmed outputs only (decodeSettlement +
+ * separateFeeLeg stay as-is for parseResult/settledOutflows/history). Every
+ * fact must be established, or null:
+ *   - the build's terms and wallet are present;
+ *   - exactly one SplitPaymentExecuted from the canonical contract, paid BY
+ *     the build's wallet, in the terms' token;
+ *   - its legs add up to its totalAmount, which is the terms' gross;
+ *   - the fee leg exactly as build() appends it: when the terms' fee is
+ *     non-zero, the LAST leg is { terms' treasury, terms' fee } and no other
+ *     leg pays the treasury; when it is zero, no leg pays the treasury at all
+ *     (build adds no fee leg, and the treasury can't be a recipient);
+ *   - the remaining legs — the user's recipients, in order — add up to the
+ *     terms' recipientTotal, and recipientTotal + fee = gross.
+ */
+function verifiedSplit(receipt: ActionReceipt, canonical: Address, rctx?: ActionResultContext) {
+  if (receipt.status !== "success") return null;
+  const t = rctx?.terms;
+  const wallet = rctx?.wallet?.toLowerCase();
+  if (!t || !wallet) return null;
+  for (const k of ["token", "treasury"] as const) if (!t[k] || !/^0x[0-9a-f]{40}$/.test(t[k])) return null;
+  for (const k of ["fee", "gross", "recipientTotal"] as const) if (!t[k] || !/^(0|[1-9][0-9]{0,77})$/.test(t[k])) return null;
+
+  // Reuse the canonical decoder one log at a time: exactly one event.
+  const events = receipt.logs.map((l) => decodeSettlement({ ...receipt, logs: [l] }, canonical)).filter((e) => e !== null);
+  if (events.length !== 1) return null;
+  const ev = events[0];
+  if (ev.payer.toLowerCase() !== wallet || ev.token.toLowerCase() !== t.token) return null;
+  if (ev.recipients.length === 0 || ev.recipients.length !== ev.amounts.length) return null;
+  const sum = ev.amounts.reduce((a, b) => a + b, 0n);
+  if (sum !== ev.totalAmount || ev.totalAmount.toString() !== t.gross) return null;
+
+  const fee = BigInt(t.fee);
+  const toTreasury = ev.recipients.map((r, i) => (r.toLowerCase() === t.treasury ? i : -1)).filter((i) => i >= 0);
+  let recipientLegs: bigint[];
+  if (fee > 0n) {
+    const last = ev.recipients.length - 1;
+    if (toTreasury.length !== 1 || toTreasury[0] !== last || ev.amounts[last] !== fee) return null;
+    recipientLegs = ev.amounts.slice(0, last);
+  } else {
+    if (toTreasury.length !== 0) return null;
+    recipientLegs = [...ev.amounts];
+  }
+  if (recipientLegs.length === 0) return null;
+  const recipientTotal = recipientLegs.reduce((a, b) => a + b, 0n);
+  if (recipientTotal.toString() !== t.recipientTotal || recipientTotal + fee !== ev.totalAmount) return null;
+  return { token: t.token, recipientAmounts: recipientLegs, fee, gross: ev.totalAmount };
 }
 
 /** Token decimals/symbol for display, without ever throwing. */
