@@ -432,7 +432,8 @@ describe("nextStep", () => {
     await s.abandonPlan(AUTH, p2);
     expect(await code(s.nextStep(AUTH, p2))).toBe("STEP_NOT_READY");
     vi.setSystemTime(T0 + 7 * DAY);
-    expect(await code(s.nextStep(AUTH, planId))).toMatch(/EXPIRED|NOT_FOUND/);
+    expect(await code(s.nextStep(AUTH, planId))).toBe("EXPIRED"); // core retained through the 24h grace
+    expect(await code(s.nextStep(OTHER, planId))).toBe("NOT_FOUND");
   });
 });
 
@@ -525,7 +526,7 @@ describe("quoteStep", () => {
     expect(await code(s.quoteStep(AUTH, v.planId, "n1"))).toBe("STEP_NOT_READY");
     const p2 = await approved(sendDraft("intent_svc_00005"));
     vi.setSystemTime(T0 + 7 * DAY);
-    expect(await code(s.quoteStep(AUTH, p2, "n1"))).toMatch(/EXPIRED|NOT_FOUND/);
+    expect(await code(s.quoteStep(AUTH, p2, "n1"))).toBe("EXPIRED");
     expect(ctl.quoteCalls).toHaveLength(0);
   });
 });
@@ -612,7 +613,7 @@ describe("recordTx", () => {
     expect(await code(s.recordTx(AUTH, planId, "n2", { quoteId: q.quoteId, txHash: txHash() }))).toBe("STEP_NOT_READY");
     expect(await code(s.recordTx(AUTH, planId, "n7", { quoteId: q.quoteId, txHash: txHash() }))).toBe("INVALID_NODE");
     vi.setSystemTime(T0 + 7 * DAY);
-    expect(await code(s.recordTx(AUTH, planId, "n1", { quoteId: q.quoteId, txHash: txHash() }))).toMatch(/EXPIRED|NOT_FOUND/);
+    expect(await code(s.recordTx(AUTH, planId, "n1", { quoteId: q.quoteId, txHash: txHash() }))).toBe("EXPIRED");
   });
 
   it("concurrent conflicting submissions: one wins", async () => {

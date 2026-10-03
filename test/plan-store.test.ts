@@ -34,6 +34,7 @@ const kv = vi.hoisted(() => ({
   store: new Map<string, { v: string; exp: number }>(),
   z: new Map<string, Map<string, number>>(),
   sets: [] as { key: string; opts?: { nx?: boolean; ex?: number } }[],
+  expires: [] as { key: string; seconds: number }[],
 }));
 vi.mock("@/lib/platform/kv", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/platform/kv")>();
@@ -55,7 +56,7 @@ vi.mock("@/lib/platform/kv", async (importActual) => {
       return "OK";
     },
     async del(key: string) { kv.store.delete(key); return 1; },
-    async expire() { return 1; },
+    async expire(key: string, seconds: number) { kv.expires.push({ key, seconds }); return 1; },
     async zadd(key: string, e: { score: number; member: string }) {
       if (kv.failIndex) throw new Error("index down");
       if (!kv.z.has(key)) kv.z.set(key, new Map());
@@ -122,7 +123,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   Object.values(spies).forEach((s) => s.mockClear());
-  kv.enabled = false; kv.failIndex = false; kv.store.clear(); kv.z.clear(); kv.sets.length = 0;
+  kv.enabled = false; kv.failIndex = false; kv.store.clear(); kv.z.clear(); kv.sets.length = 0; kv.expires.length = 0;
   (await import("@/lib/plan/store")).__resetPlanStoreForTests();
   await registry();
 });
@@ -255,17 +256,65 @@ describe.each([["KV", true], ["in-memory fallback", false]])("Plan Store (%s)", 
       expect(l.core).toMatchObject({ createdAt: T0, approveBy: T0 + 30 * MIN, expiresAt: T0 + 7 * DAY });
     });
 
-    it("the core is written once, with a 7-day TTL", async () => {
+    it("the core is written once and retained 7 days + a 24h grace (index too); it expires at 7 days", async () => {
       const { core } = await create();
+      const { planKeys, loadPlan } = await lib();
       if (useKv) {
-        const { planKeys } = await lib();
-        expect(kv.sets.filter((s) => s.key === planKeys.core(core.planId))).toEqual([{ key: planKeys.core(core.planId), opts: { nx: true, ex: 7 * 24 * 3600 } }]);
+        expect(kv.sets.filter((s) => s.key === planKeys.core(core.planId))).toEqual([{ key: planKeys.core(core.planId), opts: { nx: true, ex: 8 * 24 * 3600 } }]);
+        expect(kv.expires.filter((e) => e.key === planKeys.byWallet(WALLET))).toEqual([{ key: planKeys.byWallet(WALLET), seconds: 8 * 24 * 3600 }]);
+      } else {
+        const g = globalThis as unknown as { __payaiPlanStore: { kv: Map<string, { expiresAt: number }>; idx: Map<string, { expiresAt: number }> } };
+        expect(g.__payaiPlanStore.kv.get(planKeys.core(core.planId))!.expiresAt).toBe(T0 + 8 * DAY);
+        expect(g.__payaiPlanStore.idx.get(planKeys.byWallet(WALLET))!.expiresAt).toBe(T0 + 8 * DAY);
       }
-      const { loadPlan } = await lib();
+      expect(core.expiresAt).toBe(T0 + 7 * DAY); // the plan's lifetime is unchanged
       vi.setSystemTime(T0 + 7 * DAY - 1);
       expect(await code(loadPlan(core.planId, CTX()))).toBe("OK");
       vi.setSystemTime(T0 + 7 * DAY);
-      expect(await code(loadPlan(core.planId, CTX()))).toMatch(/NOT_FOUND|EXPIRED/);
+      expect(await code(loadPlan(core.planId, CTX()))).toBe("EXPIRED");
+    });
+
+    it("during the grace the OWNER reads EXPIRED, another wallet NOT_FOUND (like a missing plan); after it, NOT_FOUND for all", async () => {
+      const { core } = await create();
+      const { loadPlan, readPlanCore } = await lib();
+      const missing = `plan_${"7".repeat(32)}`;
+      for (const t of [T0 + 7 * DAY, T0 + 7 * DAY + 12 * 60 * MIN, T0 + 8 * DAY - 1]) {
+        vi.setSystemTime(t);
+        expect(await code(readPlanCore(core.planId, CTX()))).toBe("EXPIRED");
+        expect(await code(loadPlan(core.planId, CTX()))).toBe("EXPIRED");
+        expect(await code(loadPlan(core.planId, { ...CTX(), sessionWallet: OTHER_WALLET }))).toBe("NOT_FOUND");
+        expect(await code(loadPlan(missing, CTX()))).toBe("NOT_FOUND");
+      }
+      vi.setSystemTime(T0 + 8 * DAY);
+      expect(await code(loadPlan(core.planId, CTX()))).toBe("NOT_FOUND");
+      expect(await code(loadPlan(core.planId, { ...CTX(), sessionWallet: OTHER_WALLET }))).toBe("NOT_FOUND");
+    });
+
+    it("facts are NOT retained: they still expire at expiresAt, only the core outlives it", async () => {
+      const { core } = await create();
+      const { approvePlan, recordQuote, abandonPlan, planKeys } = await lib();
+      await approvePlan(core.planId, CTX());
+      await recordQuote(core.planId, "n1", quoteInput(1), CTX());
+      await abandonPlan(core.planId, CTX());
+      const factKeys = [planKeys.approved(core.planId), planKeys.quote(core.planId, "n1", 1), planKeys.abandoned(core.planId)];
+      if (useKv) for (const k of factKeys) expect(kv.sets.find((x) => x.key === k)?.opts, k).toEqual({ nx: true, ex: 7 * 24 * 3600 });
+      vi.setSystemTime(T0 + 7 * DAY);
+      const present = async (k: string) => useKv
+        ? (await (await import("@/lib/platform/kv")).getRedis())!.get(k).then((v) => v !== null)
+        : (globalThis as unknown as { __payaiPlanStore: { kv: Map<string, { expiresAt: number }> } }).__payaiPlanStore.kv.get(k)!.expiresAt > Date.now();
+      for (const k of factKeys) expect(await present(k), k).toBe(false);
+      expect(await present(planKeys.core(core.planId))).toBe(true);
+    });
+
+    it("documented change: an identical draft can't re-create its plan during the grace (EXPIRED); it can after", async () => {
+      const first = await create();
+      vi.setSystemTime(T0 + 7 * DAY + MIN);
+      expect(await code(create())).toBe("EXPIRED"); // the retained expired core still occupies its planId
+      vi.setSystemTime(T0 + 8 * DAY);
+      const again = await create();
+      expect(again.created).toBe(true);
+      expect(again.core.planId).toBe(first.core.planId);
+      expect(again.core.createdAt).toBe(T0 + 8 * DAY);
     });
 
     it("an identical create is idempotent (original timestamps); a conflicting one is CONFLICT and never overwrites", async () => {
@@ -677,11 +726,9 @@ describe.each([["KV", true], ["in-memory fallback", false]])("Plan Store (%s)", 
 
     it("an expired plan refuses reads and writes", async () => {
       const { core } = await create();
-      const { loadPlan, abandonPlan, readPlanCore, planKeys } = await lib();
-      // Simulate a backend that kept the record past its expiresAt.
-      const raw = await getRaw(planKeys.core(core.planId));
+      const { loadPlan, abandonPlan, readPlanCore } = await lib();
+      // The core is retained through the grace period, so the owner sees EXPIRED.
       vi.setSystemTime(T0 + 7 * DAY + 1);
-      await putRaw(planKeys.core(core.planId), raw);
       expect(await code(readPlanCore(core.planId, CTX()))).toBe("EXPIRED");
       expect(await code(loadPlan(core.planId, CTX()))).toBe("EXPIRED");
       expect(await code(abandonPlan(core.planId, CTX()))).toBe("EXPIRED");

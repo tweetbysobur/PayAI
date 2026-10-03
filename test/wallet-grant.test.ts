@@ -74,6 +74,16 @@ describe("wallet read grant", () => {
     expect((await issued.json()).address).toBe(owner.address.toLowerCase());
   });
 
+  it("the signed message states exactly what the grant allows — and that it can't move funds or sign transactions", () => {
+    expect(walletGrantMessage(owner.address, 1_700_000_000_000)).toBe([
+      "PayAI wallet access",
+      `Address: ${owner.address.toLowerCase()}`,
+      "Expires: 1700000000000",
+      "This lets this browser access your PayAI data and manage your PayAI plans.",
+      "It cannot move funds, and it cannot sign or authorize blockchain transactions.",
+    ].join("\n"));
+  });
+
   it("does not list someone's automations from their address alone", async () => {
     const res = await listAutomations(new NextRequest(
       `https://app.usepayai.xyz/api/automations?wallet=${owner.address}`,

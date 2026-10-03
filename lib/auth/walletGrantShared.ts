@@ -20,6 +20,7 @@ export function walletGrantMessage(address: string, expiresAt: number): string {
     "PayAI wallet access",
     `Address: ${address.toLowerCase()}`,
     `Expires: ${expiresAt}`,
-    "This only lets this browser read your PayAI data. It cannot move funds.",
+    "This lets this browser access your PayAI data and manage your PayAI plans.",
+    "It cannot move funds, and it cannot sign or authorize blockchain transactions.",
   ].join("\n");
 }

@@ -24,10 +24,13 @@
  * and pins all match what was stored. A registry/action change that makes
  * the draft invalid fails the same way.
  *
- * Lifetimes: the core lives 7 days; every other fact lives exactly until the
- * plan's expiresAt (never a shorter fixed TTL — a confirmed node must never
- * read back as pending while its plan lives). Approval is possible only
- * until approveBy (createdAt + 30 minutes).
+ * Lifetimes: a plan expires 7 days after creation (expiresAt); every fact
+ * lives exactly until expiresAt (never a shorter fixed TTL — a confirmed node
+ * must never read back as pending while its plan lives). The core record and
+ * its index entry alone are RETAINED a further PLAN_RETENTION_GRACE_SECONDS,
+ * so the owner of an expired plan reads EXPIRED rather than NOT_FOUND
+ * (readPlanCore checks ownership first, so no one else learns it exists).
+ * Approval is possible only until approveBy (createdAt + 30 minutes).
  *
  * Storage: getRedis() (KV) when configured. In production without KV every
  * call is UNAVAILABLE — durable plans never fall back to process memory.
@@ -55,6 +58,9 @@ import { INTENT_CHAIN_ID, type ExecutionPlan, type InputValue, type RecipientVal
 import { isValidatedIntentGraph, validateIntentGraph } from "./validate";
 
 export const PLAN_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** How long the core record (and its index entry) is kept past expiresAt —
+ *  only so an expired plan reads as EXPIRED to its owner. Facts aren't kept. */
+export const PLAN_RETENTION_GRACE_SECONDS = 24 * 60 * 60;
 export const APPROVAL_WINDOW_MS = 30 * 60 * 1000;
 export const MAX_QUOTE_ATTEMPTS = 8;
 const PLAN_TTL_MS = PLAN_TTL_SECONDS * 1000;
@@ -377,12 +383,12 @@ export async function createPlan(
     expiresAt: now + PLAN_TTL_MS,
   };
   if (!parsePlanCore(core)) fail("INVALID_PLAN", "This plan can't be stored.");
-  const res = await writeOnce(planKeys.core(core.planId), core, PLAN_TTL_SECONDS, parsePlanCore, (a, b) => coreIdentity(a) === coreIdentity(b));
+  const res = await writeOnce(planKeys.core(core.planId), core, PLAN_TTL_SECONDS + PLAN_RETENTION_GRACE_SECONDS, parsePlanCore, (a, b) => coreIdentity(a) === coreIdentity(b));
   if (res.record.expiresAt <= now) fail("EXPIRED", "This plan has expired.");
   // Best effort: the index is never the source of truth.
   try {
     const be = await backend();
-    await be.indexAdd(planKeys.byWallet(core.wallet), core.planId, res.record.createdAt, PLAN_TTL_SECONDS);
+    await be.indexAdd(planKeys.byWallet(core.wallet), core.planId, res.record.createdAt, PLAN_TTL_SECONDS + PLAN_RETENTION_GRACE_SECONDS);
   } catch { /* ignored */ }
   return { core: res.record, created: res.created };
 }
