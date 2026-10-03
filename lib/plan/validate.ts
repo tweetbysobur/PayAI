@@ -34,7 +34,7 @@ import type { IntentError, IntentErrorCode, IntentValidationResult } from "./err
 import { canBind, normalizeToken, staticDenomination, staticErc20 } from "./outputs";
 import {
   INTENT_CHAIN_ID, INTENT_IR_VERSION, MAX_INTENT_NODES,
-  type ActionNode, type InputValue, type IntentGraph, type ValidatedIntentGraph,
+  type ActionNode, type BoundOutput, type InputValue, type IntentGraph, type PlanFeePolicy, type ValidatedIntentGraph,
 } from "./types";
 
 export interface IntentValidationContext {
@@ -93,9 +93,21 @@ function str(v: unknown, path: string, max: number, nodeId?: string): string {
   return v as string;
 }
 
+/** Every graph this module has returned, by identity. The planner accepts
+ *  nothing else — a structurally identical object built anywhere else is not
+ *  in here. WeakSet: holds nothing alive. */
+const VALIDATED = new WeakSet<object>();
+
+/** True only for a graph validateIntentGraph itself returned. */
+export function isValidatedIntentGraph(g: unknown): g is ValidatedIntentGraph {
+  return typeof g === "object" && g !== null && VALIDATED.has(g);
+}
+
 export function validateIntentGraph(raw: unknown, ctx: IntentValidationContext): IntentValidationResult<ValidatedIntentGraph> {
   try {
-    return { ok: true, value: validate(raw, ctx) };
+    const value = validate(raw, ctx);
+    VALIDATED.add(value);
+    return { ok: true, value };
   } catch (e) {
     if (e instanceof Fail) return { ok: false, error: e.err };
     throw e;
@@ -166,12 +178,34 @@ function validate(raw: unknown, ctx: IntentValidationContext): ValidatedIntentGr
     const i = nodes.indexOf(n);
     actions.set(id, resolveAction(n, i, session, ctx));
   }
+  const bound: Bound = new Map();
   for (const id of order) {
     const n = byId.get(id)!;
-    validateNodeInputs(n, nodes.indexOf(n), actions, byId, sourceText);
+    validateNodeInputs(n, nodes.indexOf(n), actions, byId, sourceText, bound);
   }
 
-  const validated: ValidatedIntentGraph = {
+  // Fee policy comes from the resolved action's own metadata — never from
+  // recognising an action by name.
+  const feePolicies: Record<string, PlanFeePolicy> = {};
+  for (const id of order) {
+    const policy = actions.get(id)!.feePolicy;
+    if (policy === undefined) continue;
+    if (!isPlainObject(policy) || policy.mode !== "on_top" || Object.keys(policy).length !== 1) {
+      fail("MALFORMED", "This action declares a fee policy PayAI doesn't support.", `$.nodes[${nodes.indexOf(byId.get(id)!)}].ref`, id);
+    }
+    feePolicies[id] = { mode: "on_top" };
+  }
+  const boundOutputs: Record<string, Record<string, BoundOutput>> = {};
+  for (const id of order) {
+    const outs = bound.get(id);
+    if (!outs) continue;
+    boundOutputs[id] = {};
+    for (const name of [...outs.keys()].sort()) boundOutputs[id][name] = outs.get(name)!;
+  }
+
+  // A fresh, deep-frozen copy: nothing in it is shared with `raw`, so the
+  // caller's draft can change afterwards without changing what was validated.
+  const validated: ValidatedIntentGraph = deepFreeze(plainCopy({
     id: g.id as string,
     version: INTENT_IR_VERSION,
     chainId: INTENT_CHAIN_ID,
@@ -180,8 +214,34 @@ function validate(raw: unknown, ctx: IntentValidationContext): ValidatedIntentGr
     status: "draft",
     nodes: nodes.map((n) => ({ ...n, validation: { state: "valid" } })),
     order,
-  };
+    boundOutputs,
+    feePolicies,
+  }) as ValidatedIntentGraph);
   return validated;
+}
+
+/** What validation proved about each bound producer output. */
+type Bound = Map<string, Map<string, BoundOutput>>;
+
+/** Deep copy of JSON-shaped data (plain objects, arrays, primitives), with
+ *  object keys sorted so the same graph always has the same shape, however
+ *  the draft happened to order its keys. */
+function plainCopy(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(plainCopy);
+  if (v !== null && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) if (x !== undefined) o[k] = plainCopy(x);
+    return o;
+  }
+  return v;
+}
+
+function deepFreeze<T>(v: T): T {
+  if (v !== null && typeof v === "object" && !Object.isFrozen(v)) {
+    for (const x of Object.values(v as object)) deepFreeze(x);
+    Object.freeze(v);
+  }
+  return v;
 }
 
 /* ── Shapes ─────────────────────────────────────────────────────────────── */
@@ -270,7 +330,7 @@ function resolveAction(n: ActionNode, i: number, session: Address, ctx: IntentVa
 /* ── Inputs ─────────────────────────────────────────────────────────────── */
 
 function validateNodeInputs(
-  n: ActionNode, i: number, actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string,
+  n: ActionNode, i: number, actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string, bound: Bound,
 ) {
   const action = actions.get(n.nodeId)!;
   const schema = action.inputSchema;
@@ -285,9 +345,9 @@ function validateNodeInputs(
     }
     const field = schema[name];
     if (field.type === "list") {
-      candidate[name] = checkList(value, field, path, n, actions, byId, sourceText);
+      candidate[name] = checkList(value, field, path, n, actions, byId, sourceText, bound);
     } else {
-      candidate[name] = checkScalar(value, field, path, n, actions, byId, sourceText);
+      candidate[name] = checkScalar(value, field, path, n, actions, byId, sourceText, bound);
     }
   }
 
@@ -300,7 +360,7 @@ function validateNodeInputs(
 
 function checkList(
   value: unknown, field: ListInputField, path: string, n: ActionNode,
-  actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string,
+  actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string, bound: Bound,
 ): ActionInputValue {
   if (!isPlainObject(value) || value.kind !== "list") fail("INVALID_BINDING", "This input takes a list.", path, n.nodeId);
   const v = value as Record<string, unknown>;
@@ -317,7 +377,7 @@ function checkList(
       if (isPlainObject(iv) && iv.kind === "remainder" && ++remainders > 1) {
         fail("INVALID_BINDING", "Only one item can receive the remainder.", `${ip}.${k}`, n.nodeId);
       }
-      out[k] = checkScalar(iv, field.items[k], `${ip}.${k}`, n, actions, byId, sourceText);
+      out[k] = checkScalar(iv, field.items[k], `${ip}.${k}`, n, actions, byId, sourceText, bound);
     }
     return out;
   });
@@ -328,7 +388,7 @@ function checkList(
  *  value). */
 function checkScalar(
   value: unknown, field: ScalarInputField, path: string, n: ActionNode,
-  actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string,
+  actions: Map<string, Action>, byId: Map<string, ActionNode>, sourceText: string, bound: Bound,
 ): string {
   if (!isPlainObject(value) || typeof value.kind !== "string") fail("MALFORMED", "Each input must be a typed value.", path, n.nodeId);
   const v = value as Record<string, unknown> & { kind: string };
@@ -379,9 +439,12 @@ function checkScalar(
       // token itself) must be provably an ERC-20 from the producer's literal
       // inputs. Native MON, an undeclared denomination, or one that is itself
       // bound is refused — never resolved later.
-      if (staticErc20(decl, literalOf(producer!)) === null) {
+      const erc20 = staticErc20(decl, literalOf(producer!));
+      if (erc20 === null) {
         fail("NATIVE_OUTPUT_NOT_BINDABLE", "Only an output that is known to be an ERC-20 token can be passed to a later step (native MON can't be).", `${path}.output`, n.nodeId);
       }
+      if (!bound.has(producerId)) bound.set(producerId, new Map());
+      bound.get(producerId)!.set(outputName, { type: decl.type as "units" | "token", token: erc20 as string });
 
       // Token compatibility, when both sides are known statically.
       if (decl.type === "units" && Object.prototype.hasOwnProperty.call(actions.get(n.nodeId)!.inputSchema, "token")) {

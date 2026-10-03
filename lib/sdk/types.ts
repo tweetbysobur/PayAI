@@ -316,8 +316,23 @@ export interface ActionOutputDeclaration {
   denominatedIn?: { input: string };
 }
 
+/**
+ * How an action charges PayAI's platform fee relative to the amounts in its
+ * inputs, declared as metadata so planning code never has to recognise an
+ * action by name:
+ *   - "on_top": the fee is floor(total * feeBps / 10000) ADDED to the
+ *     input amounts — the wallet pays total + fee (split_payment).
+ * Absent = the action's input amounts are what the wallet pays (any fee is
+ * taken out of them, or there is none).
+ */
+export interface ActionFeePolicy {
+  mode: "on_top";
+}
+
 export interface Action extends ActionMetadata {
   inputSchema: ActionInputSchema;
+  /** OPTIONAL. See ActionFeePolicy. */
+  feePolicy?: Readonly<ActionFeePolicy>;
   /** OPTIONAL. The `action` label history rows record for this action
    *  (defaults to actionId) — lets an SDK action write the same kind of row
    *  as the existing flow it replaces (e.g. "send_payment"). */

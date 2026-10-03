@@ -101,8 +101,88 @@ export interface IntentGraph {
   status: IntentGraphStatus;
 }
 
-/** A graph that passed validateIntentGraph: every node valid, with a
- *  deterministic execution order (dependencies first). */
+/** A producer output some later node binds to, with the ERC-20 it was proven
+ *  to be (a "token" output) or be denominated in (a "units" output),
+ *  lowercased. Native MON is never bindable, so `token` is always an ERC-20. */
+export interface BoundOutput {
+  type: "units" | "token";
+  token: string;
+}
+
+/** The only fee policy the planner understands (from Action.feePolicy). */
+export interface PlanFeePolicy {
+  mode: "on_top";
+}
+
+/**
+ * A graph that passed validateIntentGraph: every node valid, with a
+ * deterministic execution order (dependencies first).
+ *
+ * Only the validator creates one. It is deep-frozen, shares no object with
+ * the draft it came from, and is recorded by identity
+ * (isValidatedIntentGraph) — a look-alike object built elsewhere is refused
+ * by the planner at runtime, whatever its TypeScript type says.
+ */
 export interface ValidatedIntentGraph extends IntentGraph {
   order: string[];
+  /** producer nodeId → output name → what the validator proved about it. */
+  boundOutputs: Readonly<Record<string, Readonly<Record<string, Readonly<BoundOutput>>>>>;
+  /** nodeId → fee policy, from the resolved action's metadata. Nodes whose
+   *  action declares none are absent. */
+  feePolicies: Readonly<Record<string, Readonly<PlanFeePolicy>>>;
+}
+
+/* ── Execution plan (Phase 2C) ─────────────────────────────────────────── */
+
+/** One input position in a step that is filled from another node's output,
+ *  and the token the validator proved that output to be. */
+export interface PlanExpectation {
+  /** e.g. "amount" or "recipients[1].amount". */
+  path: string;
+  node: string;
+  output: string;
+  type: "units" | "token";
+  token: string;
+}
+
+/**
+ * One step of an ExecutionPlan: WHICH action, at WHICH exact version, with
+ * WHICH inputs (literals as written; output, remainder and .nad/payee
+ * recipients still unresolved). Deliberately carries no transaction target,
+ * calldata, value, signature, key or broadcast detail — those only ever come
+ * from the action's own build(), later, behind the existing SDK gates.
+ */
+export interface PlanStep {
+  nodeId: string;
+  ref: ActionRef;
+  inputs: Readonly<Record<string, InputValue>>;
+  dependsOn: readonly string[];
+  /** This step's outputs that later steps bind to (sorted). */
+  outputsNeeded: readonly string[];
+  /** Every bound input position, with its proven token. */
+  expects: readonly PlanExpectation[];
+  /** From the action's metadata; null when it declares none. */
+  feePolicy: Readonly<PlanFeePolicy> | null;
+}
+
+export interface ExecutionPlan {
+  /** "plan_" + 32 hex, derived from graphHash — the same graph always plans
+   *  to the same id. */
+  planId: string;
+  /** SHA-256 (hex) of the graph's canonical serialization (planner.ts). */
+  graphHash: string;
+  wallet: Address;
+  chainId: typeof INTENT_CHAIN_ID;
+  /** In the validator's topological order. */
+  steps: readonly PlanStep[];
+}
+
+/** A producer output as settlement VERIFIED it on-chain (never a quote). */
+export interface ConfirmedOutputValue {
+  verified: boolean;
+  type: "units" | "token";
+  /** Base units (decimal string) for "units"; a 0x address for "token". */
+  value: string;
+  /** For "units": the token the amount is in (0x address). */
+  token?: string;
 }

@@ -212,6 +212,9 @@ function splitAction(target: Address, chainId: number): Action {
       // Optional: absent/zero-sentinel = native MON; an ERC-20 address = that token.
       token: { type: "token", required: false, description: "Token to split (leave empty for native MON)" },
     },
+    // The platform fee is charged on top of the recipients' amounts (see
+    // "Platform fee" above). Metadata only — quote/build are unchanged.
+    feePolicy: { mode: "on_top" },
     // What a confirmed split produces (decoded from SplitPaymentExecuted).
     // Declarations only — nothing here changes how a split executes.
     outputs: {

@@ -37,3 +37,38 @@ export interface IntentError {
 }
 
 export type IntentValidationResult<T> = { ok: true; value: T } | { ok: false; error: IntentError };
+
+/**
+ * Planner / resolver error codes (Phase 2C). Separate from IntentErrorCode:
+ * these are raised AFTER validation — by the planner refusing a graph it
+ * didn't get from the validator, or by resolveStepInputs refusing to turn a
+ * step into concrete inputs from what was actually confirmed.
+ */
+export type PlanErrorCode =
+  | "UNVALIDATED_GRAPH"          // not a graph validateIntentGraph returned
+  | "INVALID_PLAN"               // not a plan planIntent returned, or an unknown step
+  | "GRAPH_MUTATION"             // the graph no longer matches the plan's graphHash
+  | "WALLET_MISMATCH"            // plan/graph wallet isn't the authenticated session's
+  | "OUTPUT_NOT_CONFIRMED"       // a dependency hasn't confirmed
+  | "UNKNOWN_OUTPUT"             // the producer confirmed without that output
+  | "OUTPUT_NOT_VERIFIED"        // the output wasn't verified on-chain
+  | "INVALID_CONFIRMED_VALUE"    // wrong type / format / range
+  | "TOKEN_MISMATCH"             // a different ERC-20 from the one proven at validation
+  | "NATIVE_OUTPUT_NOT_BINDABLE" // the confirmed output is native MON
+  | "INVALID_REMAINDER"          // a remainder whose terms don't add up
+  | "REMAINDER_UNDERFLOW"        // nothing (or less than nothing) is left
+  | "REMAINDER_OVERFLOW"         // beyond uint256
+  | "FEE_TERMS_UNAVAILABLE"      // a fee-on-top remainder without authoritative feeBps
+  | "RECIPIENT_UNRESOLVED";      // a .nad / payee without a server-pinned address
+
+export class PlanError extends Error {
+  constructor(
+    public readonly code: PlanErrorCode,
+    message: string,
+    public readonly nodeId?: string,
+    public readonly path?: string,
+  ) {
+    super(message);
+    this.name = "PlanError";
+  }
+}
