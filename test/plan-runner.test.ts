@@ -7,7 +7,7 @@ import type { Action, ActionInputs, ProtocolAdapter, UnsignedActionStep } from "
 import type { WalletServiceState } from "@/lib/wallet-service/WalletServiceContext";
 import type { BoundQuote, NextStep, PlanView, StepQuote } from "@/lib/plan/service";
 import {
-  createHttpTransports, createPlanRunner, isUserRejection, PlanRunnerConfigError, SETTLE_POLL_CAP_MS,
+  createHttpTransports, createPlanRunner, isUserRejection, journalEntriesFor, PlanRunnerConfigError, SETTLE_POLL_CAP_MS,
   type BoundQuoteDTO, type BuildStepDTO, type Clock, type HttpFn, type JournalEntry, type NextStepDTO,
   type NodeStateDTO, type PlanRunnerDeps, type PlanStateDTO, type PlanTransport, type PlanViewDTO, type Reply,
   type RunnerWallet, type SdkTransport, type StepQuoteDTO,
@@ -954,6 +954,192 @@ describe("type compatibility (compile-time)", () => {
     expectTypeOf<BoundQuote>().toExtend<BoundQuoteDTO>();
     expectTypeOf<UnsignedActionStep>().toExtend<BuildStepDTO>();
     expect(true).toBe(true);
+  });
+});
+
+/* ══ Review follow-up F1: re-check before the FINAL signature ══════════════ */
+
+describe("F1 — after approvals, the final action is re-checked before it is signed", () => {
+  /** A one-step world with an approval; `during` runs while the approval is
+   *  being mined (i.e. after it was signed, before the final signature). */
+  function approvalWorld(during: (w: World) => void) {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    w.wallet.receiptFor.set(H(1), async () => { during(w); return { status: "success" }; });
+    return w;
+  }
+  /** Zero FINAL sendTransaction calls: only the approval was ever signed. */
+  const noFinal = (w: World) => {
+    expect(signs(w)).toEqual(["sign:approve"]);
+    expect(w.wallet.sent).toHaveLength(1);
+    expect(w.counts.tx).toBe(0);
+    expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+  };
+
+  it("the re-check happens between the approval receipt and the final signature: plan GET, then grant", async () => {
+    const w = approvalWorld(() => {});
+    expect((await w.run()).kind).toBe("completed");
+    const between = w.log.slice(w.log.indexOf(`receipt:${H(1)}`) + 1, w.log.indexOf("sign:action"));
+    expect(between).toEqual(["getPlan", "grant"]);
+  });
+  it("without approvals there is exactly one pre-sign check (unchanged)", async () => {
+    const w = world();
+    await w.run();
+    const before = w.log.slice(w.log.indexOf("build") + 1, w.log.indexOf("sign:action"));
+    expect(before).toEqual(["getPlan", "grant"]);
+  });
+
+  const cases: [string, (w: World) => void, Partial<{ kind: string; code: string }>][] = [
+    ["network switched", (w) => { w.wallet.chainId = 1; }, { kind: "wrong_network" }],
+    ["isWrongNetwork set", (w) => { w.wallet.isWrongNetwork = true; }, { kind: "wrong_network" }],
+    ["account switched (grant unchanged)", (w) => { w.wallet.address = OTHER; }, { kind: "wallet_mismatch" }],
+    ["grant and account both switched", (w) => { w.grant.address = OTHER; w.wallet.address = OTHER; }, { kind: "wallet_mismatch" }],
+    ["grant gone", (w) => { w.grant.address = null; }, { kind: "grant_required" }],
+    ["wallet locked", (w) => { w.wallet.address = null; }, { kind: "wallet_locked" }],
+    ["quote superseded", (w) => { w.byId("n1").quoteId = QID(600); }, { kind: "conflict", code: "QUOTE_SUPERSEDED" }],
+    ["a txHash appeared", (w) => { w.byId("n1").txHash = H(600); }, { kind: "conflict", code: "TX_ALREADY_RECORDED" }],
+    ["plan abandoned", (w) => { w.flags.abandoned = true; }, { kind: "abandoned" }],
+    ["plan no longer approved", (w) => { w.flags.approved = false; }, { kind: "not_approved" }],
+  ];
+  for (const [name, mutate, expected] of cases) {
+    it(`${name} during the approval → ${expected.kind}; the final action is never signed`, async () => {
+      const w = approvalWorld(mutate);
+      const r = await w.runner({ wallet: () => w.wallet }).run(PLAN);
+      expect(r).toMatchObject({ ...expected, nodeId: "n1", approvalTxHashes: [H(1)] });
+      noFinal(w);
+      expect(w.counts.quote).toBe(1); // never re-quoted
+    });
+  }
+
+  it("plan expired during the approval → expired; no final signature", async () => {
+    const w = approvalWorld(() => {
+      w.ov.getPlan = () => ok({ plan: { ...w.view(), expired: true } });
+    });
+    expect((await w.run()).kind).toBe("expired");
+    noFinal(w);
+  });
+  it("the node is no longer the current awaiting-signature step → step_not_ready; no final signature", async () => {
+    for (const patch of [{ currentStep: "n9" }, { stateOf: "pending" as NodeStateDTO }]) {
+      const w = approvalWorld(() => {
+        w.ov.getPlan = () => {
+          const v = w.view();
+          return ok({ plan: "currentStep" in patch ? { ...v, currentStep: patch.currentStep } : { ...v, nodes: v.nodes.map((n) => ({ ...n, state: patch.stateOf })) } });
+        };
+      });
+      expect((await w.run()).kind).toBe("step_not_ready");
+      noFinal(w);
+    }
+  });
+  it("the plan GET failing during the re-check → its stop; no final signature", async () => {
+    const w = approvalWorld(() => { w.ov.getPlan = () => err(503, "UNAVAILABLE"); });
+    expect((await w.run()).kind).toBe("unavailable");
+    noFinal(w);
+  });
+  it("an abort during the approval → aborted before the final signature", async () => {
+    const ac = new AbortController();
+    const w = approvalWorld(() => ac.abort());
+    expect((await w.runner().run(PLAN, { signal: ac.signal })).kind).toBe("aborted");
+    noFinal(w);
+  });
+  it("the final action is signed by the wallet AS IT IS NOW (getter re-read), never the pre-approval snapshot", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    const usedBy: string[] = [];
+    const as = (name: string): RunnerWallet => ({
+      address: WALLET, chainId: CHAIN, isWrongNetwork: false,
+      sendTransaction: (tx) => { usedBy.push(name); return w.wallet.sendTransaction(tx); },
+      waitForReceipt: (h) => w.wallet.waitForReceipt(h),
+    });
+    let current = as("before");
+    w.wallet.receiptFor.set(H(1), async () => { current = as("after"); return { status: "success" }; });
+    expect((await w.runner({ wallet: () => current }).run(PLAN)).kind).toBe("completed");
+    expect(usedBy).toEqual(["before", "after"]);
+  });
+});
+
+/* ══ Review follow-up F2: journal corruption is never skipped ══════════════ */
+
+describe("F2 — a journal that can't be read with certainty stops the run", () => {
+  const VALID = { planId: PLAN, nodeId: "n1", quoteId: QID(1), txHash: H(5) };
+  const FOREIGN = { planId: `plan_${"b".repeat(32)}`, nodeId: "n1", quoteId: QID(2), txHash: H(6) };
+  const withLoad = (w: World, load: () => unknown) => w.runner({ journal: { save: w.journal.save, clear: w.journal.clear, load: load as never } });
+  /** Nothing was quoted, built, signed or recorded. */
+  const untouched = (w: World) => {
+    expect(w.counts.quote + w.counts.build + w.counts.tx).toBe(0);
+    expect(w.wallet.sent).toEqual([]);
+  };
+
+  it("load() not returning an array → journal_unavailable, before any plan call", async () => {
+    for (const loaded of [null, undefined, {}, "[]", { 0: VALID, length: 1 }]) {
+      const w = world();
+      expect((await withLoad(w, async () => loaded).run(PLAN)).kind).toBe("journal_unavailable");
+      untouched(w);
+      expect(w.counts.getPlan).toBe(0);
+    }
+  });
+  it("a malformed current-plan entry → journal_unavailable (no coercion, no repair)", async () => {
+    const bad: unknown[] = [
+      null, "entry", [VALID],
+      { ...VALID, txHash: undefined }, { ...VALID, txHash: "0x1234" }, { ...VALID, txHash: 5 },
+      { ...VALID, quoteId: "" }, { ...VALID, quoteId: "ABCDEF0123456789ABCDEF0123456789" }, { ...VALID, quoteId: 7 },
+      { ...VALID, nodeId: "" }, { ...VALID, nodeId: 1 }, { nodeId: "n1", quoteId: QID(1), txHash: H(5) },
+      { ...VALID, planId: "" }, { ...VALID, planId: 1 },
+    ];
+    for (const entry of bad) {
+      const w = world();
+      expect((await withLoad(w, async () => [entry]).run(PLAN)).kind, JSON.stringify(entry)).toBe("journal_unavailable");
+      untouched(w);
+    }
+  });
+  it("a malformed entry is never silently skipped — not even next to a valid one, or for a foreign planId", async () => {
+    for (const loaded of [[VALID, { ...VALID, txHash: "bad" }], [{ ...FOREIGN, txHash: "bad" }], [FOREIGN, { planId: PLAN }]]) {
+      const w = world();
+      w.byId("n1").quoteId = QID(1);
+      expect((await withLoad(w, async () => loaded).run(PLAN)).kind).toBe("journal_unavailable");
+      untouched(w);
+    }
+  });
+  it("a well-formed entry for another plan is ignored; the run proceeds normally", async () => {
+    const w = world();
+    const r = await withLoad(w, async () => [FOREIGN]).run(PLAN);
+    expect(r.kind).toBe("completed");
+    expect(w.seen.txs.map((t) => t.txHash)).toEqual([H(1)]); // its own new hash, not the foreign one
+  });
+  it("a well-formed current-plan entry is replayed through /tx without signing", async () => {
+    const w = world();
+    w.byId("n1").quoteId = QID(1);
+    w.journal.entries.set("n1", { ...VALID });
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.seen.txs).toEqual([{ nodeId: "n1", quoteId: QID(1), txHash: H(5) }]);
+    expect(w.wallet.sent).toEqual([]);
+    expect(w.counts.quote + w.counts.build).toBe(0);
+    expect(w.journal.entries.size).toBe(0);
+  });
+  it("the entry is preserved when the replayed /tx fails (any status) — never signed or rebroadcast", async () => {
+    for (const reply of [err(404, "NOT_FOUND"), err(400, "INVALID_PLAN"), err(401, "wallet_grant_required"), { status: 0, body: null }] as Reply[]) {
+      const w = world();
+      w.byId("n1").quoteId = QID(1);
+      w.journal.entries.set("n1", { ...VALID });
+      w.ov.tx = () => reply;
+      expect(await w.run()).toMatchObject({ kind: "tx_unrecorded", journaled: true, txHash: H(5) });
+      expect(w.journal.entries.get("n1")).toEqual(VALID);
+      expect(w.wallet.sent).toEqual([]);
+      expect(w.counts.quote + w.counts.build).toBe(0);
+    }
+  });
+  it("two valid entries for the same step → the second is a conflict; nothing signed", async () => {
+    const w = world();
+    w.byId("n1").quoteId = QID(1);
+    const second = { ...VALID, txHash: H(8) };
+    const r = await withLoad(w, async () => [VALID, second]).run(PLAN);
+    expect(r).toMatchObject({ kind: "conflict", txHash: H(8) });
+    expect(w.seen.txs).toEqual([{ nodeId: "n1", quoteId: QID(1), txHash: H(5) }]);
+    expect(w.wallet.sent).toEqual([]);
+  });
+  it("journalEntriesFor: exact narrowing, no coercion", () => {
+    expect(journalEntriesFor(PLAN, [])).toEqual([]);
+    expect(journalEntriesFor(PLAN, [VALID, FOREIGN])).toEqual([VALID]);
+    expect(journalEntriesFor(PLAN, [{ ...VALID, extra: 1 }])).toEqual([VALID]);
+    expect(journalEntriesFor(PLAN, [{ ...VALID, txHash: ` ${H(5)}` }])).toBeNull();
+    expect(journalEntriesFor(PLAN, "x")).toBeNull();
   });
 });
 

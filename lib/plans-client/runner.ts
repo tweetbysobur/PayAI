@@ -390,6 +390,36 @@ function parseSteps(v: unknown): BuildStepDTO[] | null {
 const bodyCode = (b: unknown): string | null => (isPlain(b) && isStr(b.code) ? b.code : null);
 const bodyMessage = (b: unknown): string | null => (isPlain(b) && isStr(b.message) ? b.message : null);
 
+const QUOTE_ID_RE = /^[0-9a-f]{32}$/;
+
+/** One journal entry, exactly as written by the runner — or null when any
+ *  required field can't be established as-is (no coercion, no repair). */
+function wellFormedEntry(v: unknown): JournalEntry | null {
+  if (!isPlain(v)) return null;
+  const { planId, nodeId, quoteId, txHash } = v;
+  if (!isStr(planId) || !isStr(nodeId)) return null;
+  if (typeof quoteId !== "string" || !QUOTE_ID_RE.test(quoteId)) return null;
+  if (typeof txHash !== "string" || !HASH_RE.test(txHash)) return null;
+  return { planId, nodeId, quoteId, txHash };
+}
+
+/**
+ * The journal's entries for `planId`, or null when the journal can't be
+ * trusted: load() didn't return an array, or any entry is malformed. A
+ * malformed entry can't be proven to belong to another plan, so it is never
+ * skipped. Well-formed entries for other plans are ignored.
+ */
+export function journalEntriesFor(planId: string, loaded: unknown): JournalEntry[] | null {
+  if (!Array.isArray(loaded)) return null;
+  const mine: JournalEntry[] = [];
+  for (const raw of loaded) {
+    const e = wellFormedEntry(raw);
+    if (!e) return null;
+    if (e.planId === planId) mine.push(e);
+  }
+  return mine;
+}
+
 /** EIP-1193 4001 (or ethers' ACTION_REJECTED), else the wording fallback. */
 export function isUserRejection(e: unknown): boolean {
   let cur: unknown = e;
@@ -625,8 +655,8 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
     /** Resume A: a journaled hash the Plan API doesn't have yet → /tx it.
      *  Never signs. Returns the refreshed plan, or a stop. */
     const recoverJournal = async (entries: readonly JournalEntry[], plan: PlanViewDTO): Promise<PlanViewDTO | RunOutcome> => {
+      // Entries are already validated and narrowed to this plan.
       for (const e of entries) {
-        if (!isPlain(e) || e.planId !== planId || !isStr(e.nodeId) || !isStr(e.quoteId) || !isStr(e.txHash)) continue;
         const ids = { nodeId: e.nodeId, quoteId: e.quoteId, txHash: e.txHash };
         const node = plan.nodes.find((n) => n.nodeId === e.nodeId);
         if (!node) return outcome("invalid_response", { ...ids, message: "A saved transaction refers to a step this plan doesn't have." });
@@ -646,6 +676,35 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         plan = updated;
       }
       return plan;
+    };
+
+    /**
+     * The check that must pass immediately before a signature: not aborted;
+     * the plan (fetched now) still approved, not abandoned or expired; the
+     * node still the current, awaiting-signature step with no transaction and
+     * still on THIS runner's quote; the grant, wallet and network still valid
+     * and unchanged. Returns the wallet as it is now (read through the getter).
+     */
+    const presignCheck = async (nodeId: string, quoteId: string, wallet: string): Promise<{ ok: true; signer: RunnerWallet } | { ok: false; outcome: RunOutcome }> => {
+      const ids = { nodeId, quoteId };
+      const stop = (o: RunOutcome) => ({ ok: false as const, outcome: o });
+      if (aborted()) return stop(outcome("aborted", ids));
+      const plan = await fetchPlan();
+      if ("kind" in plan) return stop({ ...plan, nodeId, quoteId });
+      if (plan.abandoned) return stop(outcome("abandoned", ids));
+      if (plan.expired) return stop(outcome("expired", ids));
+      if (!plan.approved) return stop(outcome("not_approved", ids));
+      const node = plan.nodes.find((n) => n.nodeId === nodeId);
+      if (!node) return stop(outcome("invalid_response", ids));
+      if (node.txHash !== null) return stop(outcome("conflict", { ...ids, code: "TX_ALREADY_RECORDED", message: "A transaction is already recorded for this step, so nothing was signed." }));
+      if (node.quoteId !== quoteId) return stop(outcome("conflict", { ...ids, code: "QUOTE_SUPERSEDED", message: "This step was re-quoted elsewhere, so nothing was signed." }));
+      if (node.state !== "awaiting_signature" || plan.currentStep !== nodeId) return stop(outcome("step_not_ready", ids));
+      const again = await identity();
+      if ("kind" in again) return stop({ ...again, nodeId, quoteId });
+      if (again.wallet !== wallet) return stop(outcome("wallet_mismatch", ids));
+      const signer = currentWallet();
+      if (!signer) return stop(outcome("wallet_locked", ids));
+      return { ok: true, signer };
     };
 
     /** The quotable current step, from quote to a terminal settlement. */
@@ -687,22 +746,9 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       if (!steps) return outcome("build_invalid", { ...ids, status: built.status, code: "MALFORMED_STEPS" });
 
       // 11. Immediately before any signature: re-check the plan and the wallet.
-      if (aborted()) return outcome("aborted", ids);
-      const plan = await fetchPlan();
-      if ("kind" in plan) return { ...plan, nodeId, quoteId: quote.quoteId };
-      if (plan.abandoned) return outcome("abandoned", ids);
-      if (plan.expired) return outcome("expired", ids);
-      if (!plan.approved) return outcome("not_approved", ids);
-      const node = plan.nodes.find((n) => n.nodeId === nodeId);
-      if (!node) return outcome("invalid_response", ids);
-      if (node.txHash !== null) return outcome("conflict", { ...ids, code: "TX_ALREADY_RECORDED", message: "A transaction is already recorded for this step, so nothing was signed." });
-      if (node.quoteId !== quote.quoteId) return outcome("conflict", { ...ids, code: "QUOTE_SUPERSEDED", message: "This step was re-quoted elsewhere, so nothing was signed." });
-      if (node.state !== "awaiting_signature" || plan.currentStep !== nodeId) return outcome("step_not_ready", ids);
-      const again = await identity();
-      if ("kind" in again) return { ...again, nodeId, quoteId: quote.quoteId };
-      if (again.wallet !== wallet) return outcome("wallet_mismatch", ids);
-      const signer = currentWallet();
-      if (!signer) return outcome("wallet_locked", ids);
+      const first = await presignCheck(nodeId, quote.quoteId, wallet);
+      if (!first.ok) return first.outcome;
+      let signer = first.signer;
 
       // Approvals first: each must be explicitly successful on-chain before
       // anything else is signed. Their hashes are never Plan facts.
@@ -722,6 +768,16 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
           return outcome("approval_failed", { ...ids, code: "APPROVAL_TIMEOUT", message: "The token approval didn't confirm in time, so the step itself was not signed. Check your wallet's activity." });
         }
         if (!receiptSucceeded(receipt)) return outcome("approval_failed", { ...ids, code: "APPROVAL_REVERTED" });
+      }
+
+      // After approvals (which can take minutes: mining plus the user's time in
+      // the wallet), run the whole pre-sign check again and take the wallet
+      // afresh — the account, the network, the plan, or the server's
+      // pending-build window may have changed meanwhile.
+      if (steps.length > 1) {
+        const again = await presignCheck(nodeId, quote.quoteId, wallet);
+        if (!again.ok) return again.outcome;
+        signer = again.signer; // never the snapshot from before the approvals
       }
 
       // The final action: sign once.
@@ -760,13 +816,16 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         const id = await identity();
         if ("kind" in id) return id;
 
-        let entries: readonly JournalEntry[];
+        let loaded: unknown;
         try {
-          const loaded = await journal.load(planId);
-          entries = Array.isArray(loaded) ? loaded : [];
+          loaded = await journal.load(planId);
         } catch {
           return outcome("journal_unavailable");
         }
+        // The journal is a safety boundary: anything that can't be read with
+        // certainty stops the run before any quote, build or signature.
+        const entries = journalEntriesFor(planId, loaded);
+        if (!entries) return outcome("journal_unavailable", { message: "This browser's record of sent transactions is unreadable, so nothing was signed. Check your wallet's activity before continuing." });
 
         let plan = await fetchPlan();
         if ("kind" in plan) return plan;
