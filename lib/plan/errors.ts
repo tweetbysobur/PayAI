@@ -59,7 +59,15 @@ export type PlanErrorCode =
   | "REMAINDER_UNDERFLOW"        // nothing (or less than nothing) is left
   | "REMAINDER_OVERFLOW"         // beyond uint256
   | "FEE_TERMS_UNAVAILABLE"      // a fee-on-top remainder without authoritative feeBps
-  | "RECIPIENT_UNRESOLVED";      // a .nad / payee without a server-pinned address
+  | "RECIPIENT_UNRESOLVED"       // a .nad / payee without a server-pinned address
+  // Plan Store (Phase 2C Stage 3A):
+  | "UNAVAILABLE"                // production without usable KV — never falls back to memory
+  | "NOT_FOUND"                  // no such plan/fact (also: a plan the session's wallet doesn't own)
+  | "CONFLICT"                   // an immutable fact already exists with different content
+  | "CORRUPT"                    // a stored record fails strict validation or rehydration
+  | "EXPIRED"                    // the plan is past its lifetime
+  | "NOT_APPROVABLE"             // approval after approveBy, or on an abandoned plan
+  | "INVALID_NODE";              // a nodeId that isn't a step of the stored plan
 
 export class PlanError extends Error {
   constructor(
