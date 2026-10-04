@@ -235,6 +235,24 @@ export interface TxJournal {
   clear(planId: string, nodeId: string): void | Promise<void>;
 }
 
+/** What an ExecutionLock did with a task. */
+export type ExecutionLockResult<T> =
+  | { status: "ran"; value: T }
+  /** Another execution holds the lock for this wallet + plan. */
+  | { status: "held" }
+  /** The lock couldn't be established; the task did not run. */
+  | { status: "unavailable" };
+
+/**
+ * REQUIRED (Stage 5C-2b). Cross-context exclusion for one wallet + plan:
+ * runs `task` only while holding that lock, never waits for it, and runs the
+ * task at most once. A task that throws rejects runExclusive with that error.
+ * (lib/plans-client/locks.ts implements it with the Web Locks API.)
+ */
+export interface ExecutionLock {
+  runExclusive<T>(scope: { wallet: string; planId: string }, task: () => Promise<T>): Promise<ExecutionLockResult<T>>;
+}
+
 export interface PlanRunnerDeps {
   /** The wallet, or a getter returning its current state. */
   wallet: RunnerWallet | (() => RunnerWallet | null);
@@ -243,6 +261,8 @@ export interface PlanRunnerDeps {
   grant: GrantSource;
   clock: Clock;
   journal: TxJournal;
+  /** Held for the whole run, so no other tab drives this plan meanwhile. */
+  lock: ExecutionLock;
   /** The chain every signature must happen on. */
   chainId: number;
   /**
@@ -267,6 +287,7 @@ export type RunOutcomeKind =
   | "wrong_network"
   | "wallet_locked"
   | "journal_unavailable"
+  | "lock_unavailable"
   | "not_approved"
   | "expired"
   | "abandoned"
@@ -523,6 +544,7 @@ function validateDeps(d: PlanRunnerDeps): void {
   if (!isPlain(d)) throw new PlanRunnerConfigError("Plan runner dependencies are required.");
   const fns = (o: unknown, names: string[]) => isPlain(o) && names.every((n) => typeof o[n] === "function");
   if (!fns(d.journal, ["save", "load", "clear"])) throw new PlanRunnerConfigError("A transaction journal (save, load, clear) is required.");
+  if (!fns(d.lock, ["runExclusive"])) throw new PlanRunnerConfigError("An execution lock (runExclusive) is required.");
   if (typeof d.wallet !== "function" && !fns(d.wallet, ["sendTransaction", "waitForReceipt"])) throw new PlanRunnerConfigError("A wallet with sendTransaction and waitForReceipt is required.");
   if (!fns(d.plans, ["getPlan", "next", "quote", "bind", "tx", "settle"])) throw new PlanRunnerConfigError("A Plan API transport is required.");
   if (!fns(d.sdk, ["build", "confirm"])) throw new PlanRunnerConfigError("An SDK transport (build, confirm) is required.");
@@ -542,6 +564,7 @@ const MESSAGES: Record<RunOutcomeKind, string> = {
   wrong_network: "Switch your wallet to the right network to continue.",
   wallet_locked: "Connect or unlock your wallet to continue.",
   journal_unavailable: "Couldn't read this browser's record of sent transactions, so nothing was signed.",
+  lock_unavailable: "This browser couldn't make sure the plan runs in only one tab, so nothing was run.",
   not_approved: "Approve this plan first.",
   expired: "This plan has expired.",
   abandoned: "This plan was abandoned.",
@@ -606,7 +629,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
     }
   };
 
-  function runOnce(planId: string, signal: AbortSignal | undefined): Promise<RunOutcome> {
+  function runOnce(planId: string, signal: AbortSignal | undefined, lockWallet: string): Promise<RunOutcome> {
     let lastPlan: PlanViewDTO | null = null;
     const approvalTxHashes: string[] = [];
 
@@ -936,6 +959,9 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         if (aborted()) return outcome("aborted");
         const id = await identity();
         if ("kind" in id) return id;
+        // The lock is for the wallet read before it was taken; a switch since
+        // then would run this plan outside that lock.
+        if (id.wallet !== lockWallet) return outcome("wallet_mismatch");
 
         let loaded: unknown;
         try {
@@ -991,6 +1017,43 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
     return loop();
   }
 
+  /** An outcome from before the plan loop started: nothing was called. */
+  const before = (planId: string, kind: RunOutcomeKind, code: string | null = null, message = MESSAGES[kind]): RunOutcome => ({
+    kind, planId, message, nodeId: null, quoteId: null, txHash: null,
+    approvalTxHashes: [], code, status: null, journaled: null, plan: null,
+  });
+
+  /**
+   * The whole plan loop — recovery, quotes, signatures, settlement — runs
+   * inside the execution lock for the LOCAL wallet + plan. If the lock is
+   * held elsewhere or can't be established, nothing at all is called: no
+   * grant, journal, Plan API, build or wallet.
+   */
+  async function runLocked(planId: string, signal: AbortSignal | undefined): Promise<RunOutcome> {
+    const w = currentWallet();
+    if (!w || typeof w.address !== "string" || !ADDR_RE.test(w.address)) return before(planId, "wallet_locked");
+    const lockWallet = w.address.toLowerCase();
+
+    let started: Promise<RunOutcome> | null = null;
+    const task = (): Promise<RunOutcome> => {
+      if (started) return Promise.resolve(before(planId, "lock_unavailable", "LOCK_REENTERED")); // never twice
+      started = runOnce(planId, signal, lockWallet);
+      return started;
+    };
+
+    let res: unknown;
+    try {
+      res = await deps.lock.runExclusive({ wallet: lockWallet, planId }, task);
+    } catch {
+      res = null; // decided below by whether the task started
+    }
+    // Once the task has started, ITS outcome (or error) is the result — awaited
+    // to the end, whatever the lock reported or threw.
+    if (started) return started;
+    if (isPlain(res) && res.status === "held") return before(planId, "already_running", "LOCK_HELD", "This plan is already running in another tab or window.");
+    return before(planId, "lock_unavailable", "LOCK_UNAVAILABLE");
+  }
+
   return {
     get running() {
       return active;
@@ -1006,7 +1069,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       }
       active = true;
       try {
-        const result = await runOnce(planId, opts?.signal);
+        const result = await runLocked(planId, opts?.signal);
         emit(result.kind === "completed"
           ? { phase: "completed", planId, nodeId: null }
           : { phase: "failed", planId, nodeId: result.nodeId, ...(result.txHash ? { txHash: result.txHash } : {}),

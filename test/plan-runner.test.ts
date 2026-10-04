@@ -9,11 +9,12 @@ import type { BoundQuote, NextStep, PlanView, StepQuote } from "@/lib/plan/servi
 import {
   createHttpTransports, createPlanRunner, isUserRejection, journalEntriesFor, PlanRunnerConfigError, SETTLE_POLL_CAP_MS,
   type QuoteDecision, type QuoteProjection, type RunnerEvent,
-  type BoundQuoteDTO, type BuildStepDTO, type Clock, type HttpFn, type JournalEntry, type NextStepDTO,
+  type BoundQuoteDTO, type BuildStepDTO, type ExecutionLockResult, type Clock, type HttpFn, type JournalEntry, type NextStepDTO,
   type NodeStateDTO, type PlanRunnerDeps, type PlanStateDTO, type PlanTransport, type PlanViewDTO, type Reply,
   type RunnerWallet, type SdkTransport, type StepQuoteDTO,
 } from "@/lib/plans-client/runner";
 import { createLocalJournal } from "@/lib/plans-client/journal";
+import { createWebExecutionLock } from "@/lib/plans-client/locks";
 
 /**
  * Phase 2C Stage 4B — the headless client-side Plan Runner
@@ -56,7 +57,36 @@ interface FakeNode {
 const ok = (body: Record<string, unknown>): Reply => ({ status: 200, body: { ok: true, ...body } });
 const err = (status: number, code: string, message = code): Reply => ({ status, body: { ok: false, code, message } });
 
-function world(specs: NodeSpec[] = [{ nodeId: "n1" }]) {
+/**
+ * A fake ExecutionLock: exclusive per wallet + plan over a shared `held` set
+ * (pass several runners the same one to contend), released when the task
+ * settles. `mode` scripts the other results.
+ */
+function fakeLock(held = new Set<string>()) {
+  const lk = {
+    held,
+    mode: "pass" as "pass" | "held" | "unavailable" | "throw",
+    scopes: [] as { wallet: string; planId: string }[],
+    async runExclusive<T>(scope: { wallet: string; planId: string }, task: () => Promise<T>): Promise<ExecutionLockResult<T>> {
+      lk.scopes.push({ ...scope });
+      if (lk.mode === "held") return { status: "held" };
+      if (lk.mode === "unavailable") return { status: "unavailable" };
+      if (lk.mode === "throw") throw new Error("SecurityError: locks blocked");
+      const key = `${scope.wallet}:${scope.planId}`;
+      if (lk.held.has(key)) return { status: "held" };
+      lk.held.add(key);
+      try {
+        return { status: "ran", value: await task() };
+      } finally {
+        lk.held.delete(key);
+      }
+    },
+  };
+  return lk;
+}
+
+function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; lock?: ReturnType<typeof fakeLock> } = {}) {
+  const PID = o.planId ?? PLAN;
   const log: string[] = [];
   const t = { now: T0, sleeps: [] as number[] };
   const clock: Clock = {
@@ -96,7 +126,7 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }]) {
     return flags.approved ? "approved" : "planned";
   };
   const view = (): PlanViewDTO => ({
-    planId: PLAN, state: planState(), approved: flags.approved, abandoned: flags.abandoned, expired: false, approvable: false,
+    planId: PID, state: planState(), approved: flags.approved, abandoned: flags.abandoned, expired: false, approvable: false,
     createdAt: T0, approveBy: T0, expiresAt: T0 + 7 * 86_400_000, currentStep: current()?.nodeId ?? null,
     nodes: nodes.map((n) => ({
       nodeId: n.nodeId, ref: { ...REF }, dependsOn: [...n.dependsOn], state: stateOf(n), quoteAttempts: n.quotes,
@@ -219,10 +249,11 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }]) {
     async load(planId: string) { log.push("journal:load"); if (journal.failLoad) throw new Error("blocked"); return [...journal.entries.values()].filter((e) => e.planId === planId); },
     async clear(_p: string, nodeId: string) { log.push(`journal:clear:${nodeId}`); journal.entries.delete(nodeId); },
   };
-  const deps = (o: Partial<PlanRunnerDeps> = {}): PlanRunnerDeps => ({ wallet, plans, sdk, grant, clock, journal, chainId: CHAIN, ...o });
-  const runner = (o: Partial<PlanRunnerDeps> = {}) => createPlanRunner(deps(o));
-  const run = (o: Partial<PlanRunnerDeps> = {}) => runner(o).run(PLAN);
-  return { log, t, clock, flags, nodes, byId, verdicts, outcomeOf, confirmScript, ov, counts, seen, plans, sdk, wallet, grant, journal, deps, runner, run, view };
+  const lock = o.lock ?? fakeLock();
+  const deps = (d: Partial<PlanRunnerDeps> = {}): PlanRunnerDeps => ({ wallet, plans, sdk, grant, clock, journal, lock, chainId: CHAIN, ...d });
+  const runner = (d: Partial<PlanRunnerDeps> = {}) => createPlanRunner(deps(d));
+  const run = (d: Partial<PlanRunnerDeps> = {}) => runner(d).run(PID);
+  return { log, t, clock, flags, nodes, byId, verdicts, outcomeOf, confirmScript, ov, counts, seen, plans, sdk, wallet, grant, journal, lock, deps, runner, run, view };
 }
 type World = ReturnType<typeof world>;
 const signs = (w: World) => w.log.filter((l) => l.startsWith("sign:"));
@@ -1354,7 +1385,7 @@ describe("integration: real Plan API, wallet grant, build and confirm routes", (
     const clock: Clock = { now: () => Date.now(), async sleep(ms) { vi.setSystemTime(Date.now() + ms); } };
 
     const runner = createPlanRunner({
-      wallet, plans, sdk, grant: t.grant, clock, chainId: 143,
+      wallet, plans, sdk, grant: t.grant, clock, chainId: 143, lock: fakeLock(),
       journal: { save: (e) => void journal.set(e.nodeId, e), load: () => [...journal.values()], clear: (_p, n) => void journal.delete(n) },
     });
     const r = await runner.run(planId);
@@ -1630,5 +1661,291 @@ describe("5C-1 — source guards", () => {
     for (const m of src.matchAll(/confirmQuote\(([^)]*)\)/g)) expect(m[1].includes("quoteToken")).toBe(false);
     expect(src).not.toMatch(/^\s*import\s/m);
     for (const word of ["localStorage", "navigator.locks", "react", "useState", "useEffect", "document."]) expect(src.includes(word), word).toBe(false);
+  });
+});
+
+/* ══ 5C-2b — cross-tab execution lock ══════════════════════════════════════ */
+
+describe("5C-2b — execution lock: the whole run happens inside one wallet + plan lock", () => {
+  /** A manual gate: `wait` pends until `open()`. */
+  const gate = () => {
+    let open!: () => void;
+    const wait = new Promise<void>((r) => { open = r; });
+    return { wait, open };
+  };
+  const PLAN2 = `plan_${"b".repeat(32)}`;
+  /** Nothing at all was called: no grant, journal, Plan API, SDK or wallet. */
+  const nothingCalled = (w: World) => {
+    expect(w.log).toEqual([]);
+    expect(Object.values(w.counts).every((c) => c === 0)).toBe(true);
+    expect(w.wallet.sent).toEqual([]);
+    expect(signs(w)).toEqual([]);
+    expect(w.seen.txs).toEqual([]);
+  };
+
+  it("held → already_running / LOCK_HELD, and nothing at all is called", async () => {
+    const w = world();
+    w.lock.mode = "held";
+    const r = await w.run();
+    expect(r).toMatchObject({ kind: "already_running", code: "LOCK_HELD", planId: PLAN, nodeId: null, txHash: null, plan: null });
+    expect(r.message).toMatch(/another tab or window/);
+    expect(w.lock.scopes).toEqual([{ wallet: WALLET, planId: PLAN }]);
+    nothingCalled(w);
+  });
+  it("unavailable → lock_unavailable / LOCK_UNAVAILABLE, and nothing at all is called", async () => {
+    const w = world();
+    w.lock.mode = "unavailable";
+    expect(await w.run()).toMatchObject({ kind: "lock_unavailable", code: "LOCK_UNAVAILABLE", nodeId: null, txHash: null });
+    nothingCalled(w);
+  });
+  it("a throwing lock → lock_unavailable (fail closed), and nothing at all is called", async () => {
+    const w = world();
+    w.lock.mode = "throw";
+    expect(await w.run()).toMatchObject({ kind: "lock_unavailable", code: "LOCK_UNAVAILABLE" });
+    nothingCalled(w);
+  });
+  it("a malformed lock result (or 'ran' without running the task) → lock_unavailable, nothing called", async () => {
+    for (const res of [undefined, null, {}, { status: "ok" }, { status: "ran", value: { kind: "completed" } }, "held"]) {
+      const w = world();
+      const r = await w.run({ lock: { runExclusive: async () => res as never } });
+      expect(r).toMatchObject({ kind: "lock_unavailable", code: "LOCK_UNAVAILABLE" });
+      nothingCalled(w);
+    }
+  });
+  it("lock failure leaves a pre-seeded journal byte-for-byte untouched (no load, save or clear)", async () => {
+    for (const mode of ["held", "unavailable", "throw"] as const) {
+      const w = world();
+      w.nodes[0].txHash = null;
+      const store = new Map<string, string>();
+      const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+      const journal = createLocalJournal({ storage, wallet: WALLET, planId: PLAN });
+      journal.save({ planId: PLAN, nodeId: "n1", quoteId: QID(7), txHash: H(7) });
+      const before = new Map(store);
+      const spy = { getItem: vi.fn(storage.getItem), setItem: vi.fn(storage.setItem), removeItem: vi.fn(storage.removeItem) };
+      w.lock.mode = mode;
+      const r = await w.run({ journal: createLocalJournal({ storage: spy, wallet: WALLET, planId: PLAN }) });
+      expect(["already_running", "lock_unavailable"]).toContain(r.kind);
+      expect(store).toEqual(before);
+      expect(spy.getItem).not.toHaveBeenCalled();
+      expect(spy.setItem).not.toHaveBeenCalled();
+      expect(spy.removeItem).not.toHaveBeenCalled();
+      nothingCalled(w);
+    }
+  });
+  it("no local wallet → wallet_locked before the lock is even asked for", async () => {
+    for (const address of [null, "0x123", ""]) {
+      const w = world();
+      w.wallet.address = address;
+      expect((await w.run()).kind).toBe("wallet_locked");
+      expect(w.lock.scopes).toEqual([]);
+      nothingCalled(w);
+    }
+  });
+  it("the lock scope is the LOCAL wallet, lowercased, and the plan id", async () => {
+    const w = world();
+    w.wallet.address = WALLET.toUpperCase().replace("0X", "0x");
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.lock.scopes).toEqual([{ wallet: WALLET, planId: PLAN }]);
+  });
+
+  /* ── contention: the lock is held for the whole run ── */
+
+  const contend = async (w: World, a: ReturnType<World["runner"]>, waitFor: () => void, release: () => void) => {
+    const first = a.run(PLAN);
+    await vi.waitFor(waitFor);
+    const calls = w.log.length;
+    const sent = w.wallet.sent.length;
+    const second = w.runner(); // another runner (another tab) on the same lock
+    expect(await second.run(PLAN)).toMatchObject({ kind: "already_running", code: "LOCK_HELD" });
+    expect(w.log.length).toBe(calls); // the second made no calls at all
+    expect(w.wallet.sent.length).toBe(sent);
+    expect(w.lock.held.size).toBe(1);
+    release();
+    const r = await first;
+    expect(w.lock.held.size).toBe(0);
+    return { r, second };
+  };
+
+  it("held while the quote is under review (confirmQuote)", async () => {
+    const w = world();
+    const g = gate();
+    const a = w.runner({ confirmQuote: async () => { await g.wait; return "continue"; } });
+    const { r } = await contend(w, a, () => expect(w.log).toContain("bind:n1"), g.open);
+    expect(r.kind).toBe("completed");
+    expect(signs(w)).toEqual(["sign:action"]);
+  });
+  it("held while the wallet pop-up is open (sendTransaction), then released after completion", async () => {
+    const w = world();
+    const g = gate();
+    w.wallet.sendQueue.push(async () => { await g.wait; return H(1); });
+    const { r, second } = await contend(w, w.runner(), () => expect(signs(w)).toEqual(["sign:action"]), g.open);
+    expect(r.kind).toBe("completed");
+    expect(signs(w)).toEqual(["sign:action"]);
+    // Released: the other runner can now take the lock (and finds the plan done).
+    expect((await second.run(PLAN)).kind).toBe("completed");
+    expect(signs(w)).toEqual(["sign:action"]);
+  });
+  it("held during settlement polling", async () => {
+    const w = world();
+    const g = gate();
+    let pending = 0;
+    w.ov.settle = () => (++pending === 1 ? err(202, "SETTLEMENT_PENDING") : undefined);
+    const clock: Clock = { now: () => w.t.now, async sleep(ms, s) { await g.wait; return w.clock.sleep(ms, s); } };
+    const a = w.runner({ clock });
+    const { r } = await contend(w, a, () => expect(pending).toBe(1), g.open);
+    expect(r.kind).toBe("completed");
+  });
+  it("held during journal recovery: the other runner can't replay or sign", async () => {
+    const w = world();
+    Object.assign(w.byId("n1"), { quoteId: QID(9), quotes: 1, quotedAt: w.t.now }); // quoted and sent in an earlier run
+    w.journal.entries.set("n1", { planId: PLAN, nodeId: "n1", quoteId: QID(9), txHash: H(9) });
+    const g = gate();
+    let replaying = false;
+    const realTx = w.plans.tx;
+    w.plans.tx = async (p, n, i) => { if (!replaying) { replaying = true; await g.wait; } return realTx(p, n, i); };
+    const { r } = await contend(w, w.runner(), () => expect(replaying).toBe(true), g.open);
+    expect(r.kind).toBe("completed");
+    expect(signs(w)).toEqual([]); // recovered, never signed
+    expect(w.seen.txs).toEqual([{ nodeId: "n1", quoteId: QID(9), txHash: H(9) }]);
+  });
+  it("same wallet, different plans: each has its own lock and both complete", async () => {
+    const lock = fakeLock();
+    const w1 = world([{ nodeId: "n1" }], { lock });
+    const w2 = world([{ nodeId: "n1" }], { planId: PLAN2, lock });
+    const g = gate();
+    w1.wallet.sendQueue.push(async () => { await g.wait; return H(1); });
+    const first = w1.runner().run(PLAN);
+    await vi.waitFor(() => expect(signs(w1)).toEqual(["sign:action"]));
+    expect((await w2.runner().run(PLAN2)).kind).toBe("completed");
+    expect(lock.scopes).toEqual([{ wallet: WALLET, planId: PLAN }, { wallet: WALLET, planId: PLAN2 }]);
+    g.open();
+    expect((await first).kind).toBe("completed");
+    expect(lock.held.size).toBe(0);
+  });
+
+  /* ── release ── */
+
+  it("released after a failed run, after an abort and after a thrown run", async () => {
+    const w = world();
+    w.flags.approved = false;
+    expect((await w.run()).kind).toBe("not_approved");
+    expect(w.lock.held.size).toBe(0);
+
+    const ac = new AbortController();
+    ac.abort();
+    expect((await w.runner().run(PLAN, { signal: ac.signal })).kind).toBe("aborted");
+    expect(w.lock.held.size).toBe(0);
+
+    w.flags.approved = true;
+    const runner = w.runner({ clock: { now: () => { throw new Error("clock broke"); }, sleep: w.clock.sleep } });
+    await expect(runner.run(PLAN)).rejects.toThrow("clock broke");
+    expect(w.lock.held.size).toBe(0);
+    expect(runner.running).toBe(false);
+
+    expect((await w.run()).kind).toBe("completed"); // reacquired
+    expect(w.lock.scopes).toHaveLength(4);
+  });
+  it("aborting mid-run releases the lock once the run stops", async () => {
+    const w = world();
+    const ac = new AbortController();
+    const a = w.runner({ confirmQuote: async () => { ac.abort(); return "continue"; } });
+    const r = await a.run(PLAN, { signal: ac.signal });
+    expect(r.kind).toBe("aborted");
+    expect(signs(w)).toEqual([]);
+    expect(w.lock.held.size).toBe(0);
+  });
+
+  /* ── wallet consistency ── */
+
+  it("a wallet switch after the lock was taken → wallet_mismatch before the next step is quoted", async () => {
+    const w = world([{ nodeId: "n1" }, { nodeId: "n2", dependsOn: ["n1"] }]);
+    w.ov.settle = () => {
+      if (w.byId("n1").txHash && !w.byId("n1").result) { w.wallet.address = OTHER; w.grant.address = OTHER; }
+      return undefined;
+    };
+    const r = await w.run();
+    expect(r.kind).toBe("wallet_mismatch");
+    expect(w.counts.quote).toBe(1);
+    expect(signs(w)).toEqual(["sign:action"]);
+    expect(w.lock.held.size).toBe(0);
+  });
+
+  /* ── configuration ── */
+
+  it("a lock is REQUIRED: missing or malformed → PlanRunnerConfigError", () => {
+    const w = world();
+    for (const lock of [undefined, null, {}, { runExclusive: true }, { run: async () => ({}) }, () => {}]) {
+      expect(() => createPlanRunner({ ...w.deps(), lock: lock as never })).toThrow(/execution lock/);
+    }
+    expect(() => createPlanRunner(w.deps())).not.toThrow();
+  });
+
+  /* ── what actually ran is never hidden ── */
+
+  it("an adapter that reports unavailable or throws AFTER running the task can't hide the real outcome", async () => {
+    for (const after of ["unavailable", "held", "throw"] as const) {
+      const w = world();
+      const r = await w.run({
+        lock: {
+          async runExclusive(_s, task) {
+            await task();
+            if (after === "throw") throw new Error("release failed");
+            return { status: after } as never;
+          },
+        },
+      });
+      expect(r.kind).toBe("completed");
+      expect(signs(w)).toEqual(["sign:action"]);
+    }
+  });
+  it("an adapter that calls the task twice still runs the plan once", async () => {
+    const w = world();
+    const second: unknown[] = [];
+    const r = await w.run({
+      lock: {
+        async runExclusive(_s, task) {
+          const v = await task();
+          second.push(await task());
+          return { status: "ran", value: v };
+        },
+      },
+    });
+    expect(r.kind).toBe("completed");
+    expect(second).toEqual([expect.objectContaining({ kind: "lock_unavailable", code: "LOCK_REENTERED" })]);
+    expect(signs(w)).toEqual(["sign:action"]);
+    expect(w.counts.quote).toBe(1);
+  });
+  it("an adapter that settles before the task finishes: the run's own outcome is still awaited and returned", async () => {
+    const w = world();
+    const r = await w.run({ lock: { async runExclusive(_s, task) { void task(); return { status: "unavailable" }; } } });
+    expect(r.kind).toBe("completed");
+    expect(signs(w)).toEqual(["sign:action"]);
+  });
+
+  /* ── with the real Web Locks adapter ── */
+
+  it("with createWebExecutionLock over a fake LockManager: a second runner is refused while the first signs", async () => {
+    const held = new Set<string>();
+    const manager = {
+      async request(name: string, _o: unknown, cb: (l: unknown) => Promise<unknown>) {
+        if (held.has(name)) return cb(null);
+        held.add(name);
+        try { return await cb({ name }); } finally { held.delete(name); }
+      },
+    };
+    const w = world();
+    const lock = createWebExecutionLock(manager);
+    const g = gate();
+    w.wallet.sendQueue.push(async () => { await g.wait; return H(1); });
+    const first = w.runner({ lock }).run(PLAN);
+    await vi.waitFor(() => expect(signs(w)).toEqual(["sign:action"]));
+    expect([...held]).toEqual([`payai_plan_run:${WALLET}:${PLAN}`]);
+    const calls = w.log.length;
+    expect(await w.runner({ lock }).run(PLAN)).toMatchObject({ kind: "already_running", code: "LOCK_HELD" });
+    expect(w.log.length).toBe(calls);
+    g.open();
+    expect((await first).kind).toBe("completed");
+    expect(held.size).toBe(0);
+    expect(await w.runner({ lock: createWebExecutionLock(null) }).run(PLAN)).toMatchObject({ kind: "lock_unavailable" });
   });
 });
