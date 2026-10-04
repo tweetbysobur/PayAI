@@ -6,6 +6,12 @@ import { rateLimited } from "@/lib/platform/ratelimit";
  *
  *   GET  /api/plans            → the signed-in wallet's plans (newest first)
  *   POST /api/plans  {draft}   → validate, plan, pin recipients, store
+ *   POST /api/plans  {text}    → the same, from a deterministic text request
+ *                                (Stage 5B: lib/plan-intake; 422 when the
+ *                                adapter refuses it)
+ *
+ * Exactly one of draft / text. Create returns { plan, review }: the review is
+ * derived on the server from the stored plan, never from the request.
  *
  * Authenticated by the wallet grant cookie only (lib/plan/http.ts); the
  * wallet is never taken from the request. All plan rules live in the Plan
@@ -39,9 +45,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const limited = await walletLimited(req, auth, "create");
     if (limited) return limited;
     const body = await readBody(req);
-    if (!Object.prototype.hasOwnProperty.call(body, "draft")) throw new PlanInputError("\"draft\" is required.");
-    const { createPlan } = await import("@/lib/plan/service");
-    return planJson({ ok: true, plan: await createPlan(auth, body.draft) });
+    const hasDraft = Object.prototype.hasOwnProperty.call(body, "draft");
+    const hasText = Object.prototype.hasOwnProperty.call(body, "text");
+    if (hasDraft === hasText) throw new PlanInputError("Send exactly one of \"draft\" or \"text\".");
+    if (hasText) {
+      if (typeof body.text !== "string") throw new PlanInputError("\"text\" must be a string.");
+      const { createPlanFromText } = await import("@/lib/plan-intake/intake");
+      const r = await createPlanFromText(auth, body.text);
+      if (!r.ok) return planJson({ ok: false, code: r.code, message: r.message }, 422);
+      return planJson({ ok: true, plan: r.plan, review: r.review });
+    }
+    const { createPlan, getPlanWithReview } = await import("@/lib/plan/service");
+    const created = await createPlan(auth, body.draft);
+    return planJson({ ok: true, ...(await getPlanWithReview(auth, created.planId)) });
   } catch (e) {
     return planErrorResponse(e);
   }

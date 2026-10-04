@@ -4,7 +4,7 @@ import { rateLimited } from "@/lib/platform/ratelimit";
 /**
  * The Plan API — one plan (Phase 2C, Stage 3C).
  *
- *   GET  /api/plans/:planId                                  → the plan view
+ *   GET  /api/plans/:planId                                  → the plan view + its server-derived review
  *   POST /api/plans/:planId  { op: "approve" }               → approve
  *                            { op: "abandon" }               → abandon
  *                            { op: "next" }                  → the current step
@@ -37,8 +37,8 @@ export async function GET(req: NextRequest, { params }: Ctx): Promise<NextRespon
     const limited = await walletLimited(req, auth, "read");
     if (limited) return limited;
     const { planId } = await params;
-    const { getPlan } = await import("@/lib/plan/service");
-    return planJson({ ok: true, plan: await getPlan(auth, planId) });
+    const { getPlanWithReview } = await import("@/lib/plan/service");
+    return planJson({ ok: true, ...(await getPlanWithReview(auth, planId)) });
   } catch (e) {
     return planErrorResponse(e);
   }

@@ -110,9 +110,13 @@ const SWAP = fixture("payai-swap", {
 });
 
 let savedNetwork: string | undefined;
+let savedUsdc: string | undefined;
 beforeEach(async () => {
   savedNetwork = process.env.MONAD_NETWORK;
   process.env.MONAD_NETWORK = "mainnet";
+  // The configured stablecoin, so a payai/transfer plan in it is reviewable (Stage 5B).
+  savedUsdc = process.env.MONAD_MAINNET_USDC;
+  process.env.MONAD_MAINNET_USDC = USDC;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   Object.assign(ctl, { feeBps: 25, policy: null, quoteThrows: null, buildCalls: 0, limiterThrows: null, grantThrows: false });
@@ -133,6 +137,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   if (savedNetwork === undefined) delete process.env.MONAD_NETWORK; else process.env.MONAD_NETWORK = savedNetwork;
+  if (savedUsdc === undefined) delete process.env.MONAD_MAINNET_USDC; else process.env.MONAD_MAINNET_USDC = savedUsdc;
   vi.useRealTimers();
   vi.unstubAllEnvs();
 });
@@ -210,11 +215,19 @@ async function seedOutputs(quoteId: string, tx: string, ref: Ref, outputs: Recor
   return insertOutputRecordOnce({ quoteId, txHash: tx, wallet: WALLET, protocolId: ref[0], actionId: ref[1], version: ref[2], outputs: outputs as never, recordedAt: Date.now() });
 }
 
+/** Approval as SETUP for post-approval behaviour: straight through the store,
+ *  which skips only the service's Stage 5B review guard (these drafts use
+ *  test-only actions that are deliberately not reviewable). API approval
+ *  itself is tested with reviewable plans (singleDraft). */
+async function storeApprove(planId: string) {
+  const store = await import("@/lib/plan/store");
+  await store.approvePlan(planId, { sessionWallet: WALLET, activeChainId: 143 });
+}
 async function approvedPlan(draft: unknown = sendDraft()) {
   const c = await create(draft);
   expect(c.status).toBe(200);
   const planId = c.json.plan.planId as string;
-  expect((await op(planId, { op: "approve" })).status).toBe(200);
+  await storeApprove(planId);
   return planId;
 }
 /** quote → bind → (build) → tx → (confirm) → settle, through the API. */
@@ -239,7 +252,7 @@ describe("the full lifecycle over HTTP", () => {
     const c = await create(sendDraft());
     expect(c).toMatchObject({ status: 200, cache: "no-store", json: { ok: true, plan: { state: "planned", currentStep: "n1" } } });
     const planId = c.json.plan.planId;
-    expect(await op(planId, { op: "approve" })).toMatchObject({ status: 200, cache: "no-store", json: { ok: true, plan: { state: "approved" } } });
+    await storeApprove(planId); // the swap fixture is test-only (not reviewable); API approval is covered with reviewable plans
     expect(await op(planId, { op: "next" })).toMatchObject({ status: 200, cache: "no-store", json: { ok: true, next: { nodeId: "n1", quotable: true } } });
     const s1 = await runStep(planId, "n1", S);
     expect(s1.settled).toMatchObject({ status: 200, cache: "no-store", json: { plan: { nodes: [{ state: "confirmed" }, { state: "pending" }] } } });
@@ -354,7 +367,7 @@ describe("input validation at the boundary", () => {
 
 describe("lifecycle through the API", () => {
   it("unapproved: next/quote are 409 NOT_APPROVED; late approval 409 NOT_APPROVABLE", async () => {
-    const c = await create(sendDraft());
+    const c = await create(singleDraft());
     const planId = c.json.plan.planId;
     expect(await op(planId, { op: "next" })).toMatchObject({ status: 409, json: { code: "NOT_APPROVED" } });
     expect(await op(planId, { op: "quote", nodeId: "n1" })).toMatchObject({ status: 409, json: { code: "NOT_APPROVED" } });
@@ -367,16 +380,20 @@ describe("lifecycle through the API", () => {
     const q = await op(planId, { op: "quote", nodeId: "n1" });
     await seedBuild(q.json.quote.quoteId, S);
     expect(await op(planId, { op: "abandon" })).toMatchObject({ status: 200, json: { plan: { abandoned: true } } });
-    expect(await op(planId, { op: "approve" })).toMatchObject({ status: 200 }); // already approved: idempotent
     expect(await op(planId, { op: "quote", nodeId: "n1" })).toMatchObject({ status: 409, json: { code: "STEP_NOT_READY" } });
     const tx = txHash();
     expect((await op(planId, { op: "tx", nodeId: "n1", quoteId: q.json.quote.quoteId, txHash: tx })).status).toBe(200);
     await seedVerdict(tx, OK_VERDICT);
     await seedOutputs(q.json.quote.quoteId, tx, S, SWAP_OUTPUTS);
     expect(await op(planId, { op: "settle", nodeId: "n1" })).toMatchObject({ status: 200, json: { plan: { state: "partial" } } });
-    const p2 = (await create(sendDraft("intent_api_00004"))).json.plan.planId;
+    const p2 = (await create(singleDraft("intent_api_00004"))).json.plan.planId;
     await op(p2, { op: "abandon" });
     expect(await op(p2, { op: "approve" })).toMatchObject({ status: 409, json: { code: "NOT_APPROVABLE" } });
+    // Approved before abandonment: re-approving is idempotent (reviewable plan, real guard).
+    const p3 = (await create(singleDraft("intent_api_00005"))).json.plan.planId;
+    expect(await op(p3, { op: "approve" })).toMatchObject({ status: 200, cache: "no-store", json: { ok: true, plan: { state: "approved" } } });
+    await op(p3, { op: "abandon" });
+    expect(await op(p3, { op: "approve" })).toMatchObject({ status: 200, json: { plan: { approved: true, abandoned: true } } });
   });
 
   it("quote races never double-issue an attempt (any interleaving); the 9th attempt is 409; a non-current step is 409", async () => {

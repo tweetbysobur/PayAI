@@ -119,9 +119,13 @@ const PAYOUT = fixture("acme", {
 });
 
 let savedNetwork: string | undefined;
+let savedUsdc: string | undefined;
 beforeEach(async () => {
   savedNetwork = process.env.MONAD_NETWORK;
   process.env.MONAD_NETWORK = "mainnet";
+  // The configured stablecoin, so a payai/transfer plan in it is reviewable (Stage 5B).
+  savedUsdc = process.env.MONAD_MAINNET_USDC;
+  process.env.MONAD_MAINNET_USDC = USDC;
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   Object.assign(ctl, { feeBps: 25, policy: null, quoteFeeBps: null, quoteThrows: null, buildCalls: 0 });
@@ -142,6 +146,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   if (savedNetwork === undefined) delete process.env.MONAD_NETWORK; else process.env.MONAD_NETWORK = savedNetwork;
+  if (savedUsdc === undefined) delete process.env.MONAD_MAINNET_USDC; else process.env.MONAD_MAINNET_USDC = savedUsdc;
   vi.useRealTimers();
 });
 
@@ -220,10 +225,18 @@ async function created(draft: unknown = sendDraft()) {
   const s = await svc();
   return s.createPlan(AUTH, draft);
 }
+/** Approval as SETUP for post-approval behaviour: straight through the store,
+ *  which skips only the service's Stage 5B review guard (these drafts use
+ *  test-only actions that are deliberately not reviewable). Approval itself
+ *  is tested through the service in "approvePlan" below. */
+async function storeApprove(planId: string) {
+  const store = await import("@/lib/plan/store");
+  await store.approvePlan(planId, { sessionWallet: WALLET, activeChainId: 143 });
+}
 async function approved(draft: unknown = sendDraft()) {
   const s = await svc();
   const v = await s.createPlan(AUTH, draft);
-  await s.approvePlan(AUTH, v.planId);
+  await storeApprove(v.planId);
   return v.planId;
 }
 /** quote → bind → (build) → tx → (confirm) → settle, for one step. */
@@ -347,7 +360,7 @@ describe("authorization", () => {
 
 describe("approvePlan", () => {
   it("approves; a repeat is idempotent; concurrent approvals agree", async () => {
-    const v = await created();
+    const v = await created(singleDraft());
     const s = await svc();
     const [a, b] = await Promise.all([s.approvePlan(AUTH, v.planId), s.approvePlan(AUTH, v.planId)]);
     expect(a.state).toBe("approved");
@@ -356,11 +369,11 @@ describe("approvePlan", () => {
   });
   it("late approval and approval after abandonment are NOT_APPROVABLE; executes nothing", async () => {
     const s = await svc();
-    const v = await created();
+    const v = await created(singleDraft());
     vi.setSystemTime(T0 + 31 * MIN);
     expect(await code(s.approvePlan(AUTH, v.planId))).toBe("NOT_APPROVABLE");
     vi.setSystemTime(T0);
-    const w = await created(sendDraft("intent_svc_00002"));
+    const w = await created(singleDraft("intent_svc_00002"));
     await s.abandonPlan(AUTH, w.planId);
     expect(await code(s.approvePlan(AUTH, w.planId))).toBe("NOT_APPROVABLE");
     expect(ctl.quoteCalls).toHaveLength(0);
@@ -375,7 +388,7 @@ describe("nextStep", () => {
     const s = await svc();
     const v = await created();
     expect(await code(s.nextStep(AUTH, v.planId))).toBe("NOT_APPROVED");
-    await s.approvePlan(AUTH, v.planId);
+    await storeApprove(v.planId);
     expect(await s.nextStep(AUTH, v.planId)).toEqual({ nodeId: "n1", ref: { protocolId: "payai-swap", actionId: "swap", version: "1.0.0" }, state: "pending", quotable: true });
   });
 
@@ -519,7 +532,7 @@ describe("quoteStep", () => {
     const s = await svc();
     const v = await created();
     expect(await code(s.quoteStep(AUTH, v.planId, "n1"))).toBe("NOT_APPROVED");
-    await s.approvePlan(AUTH, v.planId);
+    await storeApprove(v.planId);
     expect(await code(s.quoteStep(AUTH, v.planId, "n2"))).toBe("STEP_NOT_READY");
     expect(await code(s.quoteStep(AUTH, v.planId, "n9"))).toBe("INVALID_NODE");
     await s.abandonPlan(AUTH, v.planId);

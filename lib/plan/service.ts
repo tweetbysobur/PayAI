@@ -48,6 +48,7 @@ import {
 import * as store from "./store";
 import type { ActionRef, InputValue, RecipientValue } from "./types";
 import { validateIntentGraph } from "./validate";
+import { reviewOf, type PlanReview, type ReviewConfig } from "./review";
 import type { VerifiedOutputValue } from "@/lib/sdk/types";
 
 /** The wallet the caller has authenticated (Stage 3C: the wallet grant). */
@@ -201,6 +202,39 @@ export async function getPlan(auth: PlanAuth, planId: string): Promise<PlanView>
   return viewOf(await store.loadPlan(planId, ctx));
 }
 
+/* ── Review (Stage 5B) ─────────────────────────────────────────────────── */
+
+/** Server configuration for reviews: chain, token metadata and fee limits —
+ *  all from existing config modules, never from the request. */
+async function reviewConfig(): Promise<ReviewConfig> {
+  const { getChain, getStablecoin } = await import("@/lib/monad/config");
+  const { MAX_PLATFORM_FEE_BPS } = await import("@/lib/sdk/fees");
+  const { DEFAULT_SLIPPAGE } = await import("@/lib/monad/swap");
+  const chain = getChain();
+  let stable: ReviewConfig["stable"] = null;
+  try {
+    const s = getStablecoin();
+    stable = { address: s.address, symbol: s.symbol, decimals: s.decimals };
+  } catch {
+    stable = null; // no stablecoin configured: only MON can be described
+  }
+  return {
+    chain: { id: chain.id, name: chain.name },
+    monDecimals: chain.nativeCurrency.decimals,
+    stable,
+    maxPlatformFeeBps: MAX_PLATFORM_FEE_BPS,
+    swapDefaultSlippageBps: Math.round(DEFAULT_SLIPPAGE * 10_000),
+  };
+}
+
+/** The plan view and its server-derived review, from one load. */
+export async function getPlanWithReview(auth: PlanAuth, planId: string): Promise<{ plan: PlanView; review: PlanReview }> {
+  const ctx = await context(auth);
+  const l = await store.loadPlan(planId, ctx);
+  const now = Date.now();
+  return { plan: viewOf(l, now), review: reviewOf(l, await reviewConfig(), now) };
+}
+
 /** The wallet's live plans, newest first, at most LIST_PLANS_CAP. Entries
  *  that don't load cleanly (stale, corrupt, foreign) are skipped. */
 export async function listPlans(auth: PlanAuth): Promise<PlanSummary[]> {
@@ -227,6 +261,12 @@ export async function listPlans(auth: PlanAuth): Promise<PlanSummary[]> {
  *  idempotent when repeated). Executes nothing. */
 export async function approvePlan(auth: PlanAuth, planId: string): Promise<PlanView> {
   const ctx = await context(auth);
+  // Only a plan whose every step can be shown faithfully may be approved —
+  // decided here, from the stored plan; nothing from the client counts.
+  const l = await store.loadPlan(planId, ctx);
+  if (!reviewOf(l, await reviewConfig(), Date.now()).reviewable) {
+    fail("NOT_APPROVABLE", "This plan includes a step PayAI can't show you in full, so it can't be approved.");
+  }
   await store.approvePlan(planId, ctx);
   return getPlan(auth, planId);
 }

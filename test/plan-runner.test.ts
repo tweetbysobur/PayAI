@@ -1286,11 +1286,14 @@ describe("integration: real Plan API, wallet grant, build and confirm routes", (
       ],
     };
     // The plan is created and APPROVED by the user — the runner never approves.
+    // Its fixture actions are test-only (not reviewable under Stage 5B), so the
+    // approval here is set up through the store; approval itself is tested
+    // with reviewable plans in plan-service / plan-api / plan-review tests.
     const created = await http(`${BASE}/api/plans`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ draft }), credentials: "same-origin", cache: "no-store" });
     expect(created.status).toBe(200);
     const planId = JSON.parse(await created.text()).plan.planId as string;
-    const approved = await http(`${BASE}/api/plans/${planId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "approve" }), credentials: "same-origin", cache: "no-store" });
-    expect(approved.status).toBe(200);
+    const store = await import("@/lib/plan/store");
+    await store.approvePlan(planId, { sessionWallet: WALLET, activeChainId: 143 });
 
     // Spy on what crosses each port.
     const t = createHttpTransports({ http, baseUrl: BASE });
