@@ -8,6 +8,7 @@ import type { WalletServiceState } from "@/lib/wallet-service/WalletServiceConte
 import type { BoundQuote, NextStep, PlanView, StepQuote } from "@/lib/plan/service";
 import {
   createHttpTransports, createPlanRunner, isUserRejection, journalEntriesFor, PlanRunnerConfigError, SETTLE_POLL_CAP_MS,
+  type QuoteDecision, type QuoteProjection, type RunnerEvent,
   type BoundQuoteDTO, type BuildStepDTO, type Clock, type HttpFn, type JournalEntry, type NextStepDTO,
   type NodeStateDTO, type PlanRunnerDeps, type PlanStateDTO, type PlanTransport, type PlanViewDTO, type Reply,
   type RunnerWallet, type SdkTransport, type StepQuoteDTO,
@@ -47,7 +48,7 @@ type Op = "getPlan" | "next" | "quote" | "bind" | "tx" | "settle" | "build" | "c
 interface NodeSpec { nodeId: string; dependsOn?: string[]; approve?: boolean }
 interface FakeNode {
   nodeId: string; dependsOn: string[]; approve: boolean;
-  quoteId: string | null; quotes: number; txHash: string | null;
+  quoteId: string | null; quotes: number; txHash: string | null; quotedAt?: number;
   result: { status: "confirmed" | "reverted" | "unverified"; outputs: null } | null;
 }
 
@@ -123,6 +124,7 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }]) {
       if (current() !== n || !quotable(n)) return err(409, "STEP_NOT_READY");
       n.quotes++;
       n.quoteId = QID(++qseq);
+      n.quotedAt = t.now;
       return ok({ quote: { nodeId, ref: { ...REF }, attempt: n.quotes, quoteId: n.quoteId, quoteToken: `tok-${n.quoteId}`, inputs: { amount: "100", recipient: OTHER }, summary: "s", details: {}, quotedAt: t.now } });
     },
     async bind(_p, nodeId, token) {
@@ -130,7 +132,10 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }]) {
       const o = hook("bind", nodeId, token); if (o) return o;
       const n = byId(nodeId);
       if (token !== `tok-${n.quoteId}`) return err(404, "NOT_FOUND");
-      return ok({ bound: { nodeId, ref: { ...REF }, attempt: n.quotes, quoteId: n.quoteId, quotedAt: t.now, freshUntil: t.now + 90_000 } });
+      // Like the server: fresh for 90s from the quote, and refused after.
+      const quotedAt = n.quotedAt ?? t.now;
+      if (t.now - quotedAt > 90_000) return err(410, "EXPIRED");
+      return ok({ bound: { nodeId, ref: { ...REF }, attempt: n.quotes, quoteId: n.quoteId, quotedAt, freshUntil: quotedAt + 90_000 } });
     },
     async tx(_p, nodeId, input) {
       log.push(`tx:${nodeId}:${input.txHash}`);
@@ -1359,5 +1364,246 @@ describe("integration: real Plan API, wallet grant, build and confirm routes", (
       ["n2", "confirmed", sent[2].hash, seen.quotes[1].quoteId],
     ]);
     expect(journal.size).toBe(0);
+  });
+});
+
+
+/* ══ Stage 5C-1: the quote review port and progress events ═════════════════ */
+
+describe("5C-1 — confirmQuote: an explicit review boundary before anything is built", () => {
+  /** A reviewer that records what it saw and answers `answer`. */
+  function reviewer(w: World, answer: (q: QuoteProjection) => Promise<QuoteDecision> | QuoteDecision = () => "continue") {
+    const seen: QuoteProjection[] = [];
+    const confirmQuote = async (q: QuoteProjection) => { w.log.push("review"); seen.push(q); return answer(q); };
+    return { seen, confirmQuote };
+  }
+  const tokenFree = (v: unknown) => {
+    const json = JSON.stringify(v);
+    expect(json).not.toMatch(/tok-/);
+    expect(json).not.toMatch(/quoteToken|quoteTokenHash|termsHash|inputsHash|graphHash/);
+  };
+
+  it("runs after quote + bind and before build; the binding is re-checked by the server after the review", async () => {
+    const w = world();
+    const { confirmQuote } = reviewer(w);
+    const r = await w.runner({ confirmQuote }).run(PLAN);
+    expect(r.kind).toBe("completed");
+    const i = (s: string) => w.log.indexOf(s);
+    expect(w.log.slice(i("quote:n1"), i("build") + 1)).toEqual(["quote:n1", "bind:n1", "review", "bind:n1", "build"]);
+    expect(i("review")).toBeLessThan(i("sign:action"));
+  });
+
+  it("receives the server's projection — summary, details, freshness, risk/warnings — and never the quote token", async () => {
+    const w = world();
+    w.ov.quote = () => {
+      const n = w.byId("n1");
+      n.quotes++; n.quoteId = QID(41); n.quotedAt = w.t.now;
+      return ok({ quote: { nodeId: "n1", ref: REF, attempt: n.quotes, quoteId: n.quoteId, quoteToken: `tok-${n.quoteId}`, inputs: { amount: "100" },
+        summary: "Send 1 USDC (they receive 0.9975 USDC)", details: { "you send": "1 USDC", "platform fee": "0.0025 USDC", "recipient receives": "0.9975 USDC" },
+        quotedAt: w.t.now, risk: { score: 5, level: "low", compliance: "approved" }, warnings: ["first payment to this address"] } });
+    };
+    const { seen, confirmQuote } = reviewer(w);
+    expect((await w.runner({ confirmQuote }).run(PLAN)).kind).toBe("completed");
+    expect(seen).toEqual([{
+      nodeId: "n1", ref: REF, attempt: 1, quoteId: QID(41),
+      summary: "Send 1 USDC (they receive 0.9975 USDC)", details: { "you send": "1 USDC", "platform fee": "0.0025 USDC", "recipient receives": "0.9975 USDC" },
+      quotedAt: T0, freshUntil: T0 + 90_000, risk: { score: 5, level: "low", compliance: "approved" }, warnings: ["first payment to this address"],
+    }]);
+    tokenFree(seen);
+  });
+
+  it("malformed risk / warnings from the server are dropped, not passed on", async () => {
+    const w = world();
+    const real = w.plans.quote;
+    w.plans.quote = async (p, n) => {
+      const r = await real(p, n);
+      Object.assign((r.body as { quote: Record<string, unknown> }).quote, { risk: { score: "high" }, warnings: ["ok", 5] });
+      return r;
+    };
+    const { seen, confirmQuote } = reviewer(w);
+    await w.runner({ confirmQuote }).run(PLAN);
+    expect(seen[0]).not.toHaveProperty("risk");
+    expect(seen[0]).not.toHaveProperty("warnings");
+  });
+
+  it("continue → the existing execution proceeds unchanged (one signature, /tx, confirm, settle)", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    const { confirmQuote } = reviewer(w);
+    expect((await w.runner({ confirmQuote }).run(PLAN)).kind).toBe("completed");
+    expect(signs(w)).toEqual(["sign:approve", "sign:action"]);
+    expect(w.seen.txs).toEqual([{ nodeId: "n1", quoteId: w.byId("n1").quoteId, txHash: H(2) }]);
+  });
+
+  it("decline → quote_declined: nothing built, signed or recorded, and no automatic re-quote", async () => {
+    const w = world();
+    const { confirmQuote } = reviewer(w, () => "decline");
+    const r = await w.runner({ confirmQuote }).run(PLAN);
+    expect(r).toMatchObject({ kind: "quote_declined", code: "DECLINED", nodeId: "n1", quoteId: w.byId("n1").quoteId, txHash: null });
+    expect([w.counts.build, w.counts.tx, w.counts.quote]).toEqual([0, 0, 1]);
+    expect(w.wallet.sent).toEqual([]);
+    expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+  });
+
+  it("anything but an explicit \"continue\" is not a continue (undefined, true, 'yes', objects)", async () => {
+    for (const answer of [undefined, null, true, "yes", "Continue", { decision: "continue" }, 1]) {
+      const w = world();
+      const { confirmQuote } = reviewer(w, () => answer as unknown as QuoteDecision);
+      expect(await w.runner({ confirmQuote }).run(PLAN)).toMatchObject({ kind: "quote_declined", code: "NO_DECISION" });
+      expect([w.counts.build, w.wallet.sent.length]).toEqual([0, 0]);
+    }
+  });
+
+  it("a review that throws → quote_declined (CONFIRMATION_ERROR); fails closed, no retry", async () => {
+    const w = world();
+    const { confirmQuote } = reviewer(w, () => { throw new Error("modal crashed"); });
+    expect(await w.runner({ confirmQuote }).run(PLAN)).toMatchObject({ kind: "quote_declined", code: "CONFIRMATION_ERROR" });
+    expect([w.counts.build, w.counts.quote, w.wallet.sent.length]).toEqual([0, 1, 0]);
+  });
+
+  it("a slow review: the server refuses the stale binding → bind_failed EXPIRED; nothing built or signed; no silent refresh", async () => {
+    const w = world();
+    const { confirmQuote } = reviewer(w, () => { w.t.now += 91_000; return "continue"; });
+    expect(await w.runner({ confirmQuote }).run(PLAN)).toMatchObject({ kind: "bind_failed", code: "EXPIRED", status: 410 });
+    expect([w.counts.build, w.counts.quote, w.wallet.sent.length]).toEqual([0, 1, 0]);
+  });
+
+  it("re-quoted elsewhere during the review: the stale token is refused → bind_failed; nothing built", async () => {
+    const w = world();
+    const { confirmQuote } = reviewer(w, () => { w.byId("n1").quoteId = QID(900); return "continue"; });
+    expect(await w.runner({ confirmQuote }).run(PLAN)).toMatchObject({ kind: "bind_failed", code: "NOT_FOUND" });
+    expect([w.counts.build, w.wallet.sent.length]).toEqual([0, 0]);
+  });
+
+  it("aborted during the review → aborted; nothing built", async () => {
+    const w = world();
+    const ac = new AbortController();
+    const { confirmQuote } = reviewer(w, () => { ac.abort(); return "continue"; });
+    expect((await w.runner({ confirmQuote }).run(PLAN, { signal: ac.signal })).kind).toBe("aborted");
+    expect(w.counts.build).toBe(0);
+  });
+
+  it("without the port, behaviour is exactly as before: one bind, no review", async () => {
+    const w = world();
+    await w.run();
+    expect(w.log.filter((l) => l === "bind:n1")).toHaveLength(1);
+    expect(w.log).not.toContain("review");
+  });
+
+  it("each step of a multi-step plan is reviewed before it is built", async () => {
+    const w = world([{ nodeId: "n1" }, { nodeId: "n2", dependsOn: ["n1"] }]);
+    const { seen, confirmQuote } = reviewer(w);
+    expect((await w.runner({ confirmQuote }).run(PLAN)).kind).toBe("completed");
+    expect(seen.map((q) => q.nodeId)).toEqual(["n1", "n2"]);
+    expect(w.log.indexOf("quote:n2")).toBeGreaterThan(w.log.indexOf("settle:n1"));
+  });
+
+  it("a non-function confirmQuote / onEvent is a configuration error", () => {
+    const w = world();
+    expect(() => createPlanRunner(w.deps({ confirmQuote: "continue" as never }))).toThrow(PlanRunnerConfigError);
+    expect(() => createPlanRunner(w.deps({ onEvent: {} as never }))).toThrow(PlanRunnerConfigError);
+  });
+});
+
+describe("5C-1 — onEvent: deterministic, safe progress events", () => {
+  function listen(_w: World) {
+    const events: RunnerEvent[] = [];
+    return { events, onEvent: (e: RunnerEvent) => { events.push(structuredClone(e)); } };
+  }
+  const phases = (events: RunnerEvent[]) => events.map((e) => e.phase + (e.signature ? `:${e.signature}` : ""));
+
+  it("one step with a review: the full lifecycle, in order", async () => {
+    const w = world();
+    const { events, onEvent } = listen(w);
+    const r = await w.runner({ onEvent, confirmQuote: async () => "continue" }).run(PLAN);
+    expect(r.kind).toBe("completed");
+    expect(phases(events)).toEqual([
+      "quoting", "binding", "waiting_for_quote_review", "building", "waiting_for_wallet:action",
+      "recording", "waiting_for_receipt:action", "confirming", "settling", "completed",
+    ]);
+    expect(events.find((e) => e.phase === "recording")).toMatchObject({ nodeId: "n1", txHash: H(1) });
+    expect(events.find((e) => e.phase === "waiting_for_quote_review")!.quote).toMatchObject({ nodeId: "n1", quoteId: w.byId("n1").quoteId });
+    expect(events.every((e) => e.planId === PLAN)).toBe(true);
+  });
+
+  it("approvals, polling and failures are reported; a decline ends with a failed event carrying the outcome", async () => {
+    const a = world([{ nodeId: "n1", approve: true }]);
+    a.confirmScript.push({ status: 502, body: { ok: false } });
+    const la = listen(a);
+    await a.runner({ onEvent: la.onEvent }).run(PLAN);
+    expect(phases(la.events)).toEqual([
+      "quoting", "binding", "building", "waiting_for_wallet:approval", "waiting_for_receipt:approval", "waiting_for_wallet:action",
+      "recording", "waiting_for_receipt:action", "confirming", "settling", "polling", "confirming", "settling", "completed",
+    ]);
+    expect(la.events.find((e) => e.phase === "polling")).toMatchObject({ delayMs: 5_000 });
+
+    const b = world();
+    const lb = listen(b);
+    await b.runner({ onEvent: lb.onEvent, confirmQuote: async () => "decline" }).run(PLAN);
+    expect(lb.events.at(-1)).toMatchObject({ phase: "failed", nodeId: "n1", outcome: { kind: "quote_declined", code: "DECLINED" } });
+  });
+
+  it("journal replay reports recording; a resumed submitted step reports confirming/settling — never quoting or signing", async () => {
+    const w = world();
+    w.byId("n1").quoteId = QID(1);
+    w.journal.entries.set("n1", { planId: PLAN, nodeId: "n1", quoteId: QID(1), txHash: H(5) });
+    const { events, onEvent } = listen(w);
+    await w.runner({ onEvent }).run(PLAN);
+    expect(phases(events)).toEqual(["recording", "confirming", "settling", "completed"]);
+  });
+
+  it("events never carry the quote token, token hashes or calldata", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    const { events, onEvent } = listen(w);
+    await w.runner({ onEvent, confirmQuote: async () => "continue" }).run(PLAN);
+    const json = JSON.stringify(events);
+    expect(json).not.toMatch(/tok-/);
+    expect(json).not.toMatch(/quoteToken|quoteTokenHash|termsHash|inputsHash|graphHash/);
+    expect(json).not.toContain("0xabcdef01"); // the action's calldata
+    expect(json).not.toContain("0x095ea7b3"); // the approval's calldata
+  });
+
+  it("a throwing or mutating listener can't affect the run or the review", async () => {
+    const w = world();
+    const seen: QuoteProjection[] = [];
+    const onEvent = (e: RunnerEvent) => {
+      if (e.quote) (e.quote as { summary: string }).summary = "tampered";
+      throw new Error("listener bug");
+    };
+    const r = await w.runner({ onEvent, confirmQuote: async (q) => { seen.push(q); return "continue"; } }).run(PLAN);
+    expect(r.kind).toBe("completed");
+    expect(seen[0].summary).toBe("s");
+  });
+
+  it("no events are emitted without a listener, and an already-running instance emits nothing", async () => {
+    const w = world();
+    const { events, onEvent } = listen(w);
+    let release!: () => void;
+    const gate = new Promise<void>((res) => { release = res; });
+    const real = w.plans.settle;
+    w.plans.settle = async (p, n) => { await gate; return real(p, n); };
+    const runner = w.runner({ onEvent });
+    const first = runner.run(PLAN);
+    await vi.waitFor(() => expect(events.some((e) => e.phase === "settling")).toBe(true));
+    const count = events.length;
+    expect((await runner.run(PLAN)).kind).toBe("already_running");
+    expect(events.length).toBe(count);
+    release();
+    await first;
+  });
+});
+
+describe("5C-1 — source guards", () => {
+  const src = readFileSync(join(__dirname, "..", "lib", "plans-client", "runner.ts"), "utf8");
+  it("the quote projection is built field by field and never mentions the token", () => {
+    const body = src.slice(src.indexOf("function projectQuote"), src.indexOf("function parseBound"));
+    expect(body.length).toBeGreaterThan(50);
+    expect(body.includes("quoteToken")).toBe(false);
+    expect(body).not.toMatch(/\.\.\.q\b(?!\.)/); // no spreading the whole quote
+  });
+  it("no emitted event or review argument names the token; still no imports, UI, storage or locks", () => {
+    for (const m of src.matchAll(/emit\(\{[^;]*?\}\)/g)) expect(m[0].includes("quoteToken"), m[0]).toBe(false);
+    for (const m of src.matchAll(/confirmQuote\(([^)]*)\)/g)) expect(m[1].includes("quoteToken")).toBe(false);
+    expect(src).not.toMatch(/^\s*import\s/m);
+    for (const word of ["localStorage", "navigator.locks", "react", "useState", "useEffect", "document."]) expect(src.includes(word), word).toBe(false);
   });
 });

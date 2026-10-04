@@ -4,7 +4,7 @@
  * and the existing SDK build / confirm routes — with every transaction signed
  * by the user's own connected wallet.
  *
- *   per step:  next → quote → bind → build → pre-sign re-check
+ *   per step:  next → quote → bind → [confirmQuote → bind again] → build → pre-sign re-check
  *              → [approval → receipt]* → final action → journal → /tx
  *              → receipt → confirm → settle (bounded confirm/settle polling)
  *
@@ -96,6 +96,51 @@ export interface BoundQuoteDTO {
   quoteId: string;
   quotedAt: number;
   freshUntil: number;
+}
+
+/**
+ * What the user sees before deciding to go ahead with a quote (Stage 5C-1):
+ * the server's own formatted summary and details, its risk/warnings when it
+ * sent them, and the freshness window. Never the quote token or any hash.
+ */
+export interface QuoteProjection {
+  nodeId: string;
+  ref: ActionRefDTO;
+  attempt: number;
+  /** A random, non-secret id (already visible on the plan's node view). */
+  quoteId: string;
+  summary: string;
+  details: Readonly<Record<string, string>>;
+  quotedAt: number;
+  /** The bound quote must be built before this (server-enforced). */
+  freshUntil: number;
+  risk?: { score: number; level: string; compliance: string };
+  warnings?: readonly string[];
+}
+
+/** The only answers to a quote review. Anything else is not a "continue". */
+export type QuoteDecision = "continue" | "decline";
+
+export type RunnerPhase =
+  | "quoting" | "binding" | "waiting_for_quote_review" | "building"
+  | "waiting_for_wallet" | "waiting_for_receipt" | "recording"
+  | "confirming" | "settling" | "polling" | "completed" | "failed";
+
+/** A progress event — safe data only (no token, hash of a token, or calldata). */
+export interface RunnerEvent {
+  phase: RunnerPhase;
+  planId: string;
+  nodeId: string | null;
+  /** A transaction hash already broadcast (approval or final action). */
+  txHash?: string;
+  /** Which signature a wallet / receipt wait is for. */
+  signature?: "approval" | "action";
+  /** For waiting_for_quote_review. */
+  quote?: QuoteProjection;
+  /** For polling: the wait before the next confirm/settle round. */
+  delayMs?: number;
+  /** For failed. */
+  outcome?: { kind: RunOutcomeKind; code: string | null; status: number | null; message: string };
 }
 
 /** One unsigned step, exactly as the build route returns it. */
@@ -200,6 +245,15 @@ export interface PlanRunnerDeps {
   journal: TxJournal;
   /** The chain every signature must happen on. */
   chainId: number;
+  /**
+   * Optional (Stage 5C-1): shown the projected quote after it is bound and
+   * before anything is built. Only an explicit "continue" proceeds; "decline",
+   * any other value, or a throw stops with quote_declined (nothing built or
+   * signed). Without it, the runner behaves exactly as before.
+   */
+  confirmQuote?: (quote: QuoteProjection) => Promise<QuoteDecision>;
+  /** Optional progress events. A throwing listener is ignored. */
+  onEvent?: (event: RunnerEvent) => void;
 }
 
 /* ══ Outcomes ══════════════════════════════════════════════════════════════ */
@@ -221,6 +275,7 @@ export type RunOutcomeKind =
   | "quote_refused"
   | "conflict"
   | "bind_failed"
+  | "quote_declined"
   | "build_refused"
   | "build_invalid"
   | "wallet_rejected"
@@ -360,6 +415,21 @@ function parseQuote(v: unknown): StepQuoteDTO | null {
     summary: typeof v.summary === "string" ? v.summary : "",
     details: isPlain(v.details) ? (v.details as Record<string, string>) : {},
     quotedAt: isNum(v.quotedAt) ? v.quotedAt : 0,
+    ...(isPlain(v.risk) && isNum(v.risk.score) && typeof v.risk.level === "string" && typeof v.risk.compliance === "string"
+      ? { risk: { score: v.risk.score, level: v.risk.level, compliance: v.risk.compliance } } : {}),
+    ...(Array.isArray(v.warnings) && v.warnings.every((w) => typeof w === "string") ? { warnings: [...(v.warnings as string[])] } : {}),
+  };
+}
+
+/** The user-facing projection of a bound quote — built field by field, so
+ *  the quote token can never ride along. */
+function projectQuote(q: StepQuoteDTO, bound: BoundQuoteDTO): QuoteProjection {
+  return {
+    nodeId: q.nodeId, ref: { ...q.ref }, attempt: q.attempt, quoteId: q.quoteId,
+    summary: q.summary, details: { ...q.details },
+    quotedAt: q.quotedAt, freshUntil: bound.freshUntil,
+    ...(q.risk ? { risk: { ...q.risk } } : {}),
+    ...(q.warnings ? { warnings: [...q.warnings] } : {}),
   };
 }
 
@@ -459,6 +529,8 @@ function validateDeps(d: PlanRunnerDeps): void {
   if (!fns(d.grant, ["currentAddress"])) throw new PlanRunnerConfigError("A wallet grant source is required.");
   if (!fns(d.clock, ["now", "sleep"])) throw new PlanRunnerConfigError("A clock (now, sleep) is required.");
   if (!Number.isInteger(d.chainId) || d.chainId <= 0) throw new PlanRunnerConfigError("The expected chain id is required.");
+  if (d.confirmQuote !== undefined && typeof d.confirmQuote !== "function") throw new PlanRunnerConfigError("confirmQuote must be a function.");
+  if (d.onEvent !== undefined && typeof d.onEvent !== "function") throw new PlanRunnerConfigError("onEvent must be a function.");
 }
 
 const MESSAGES: Record<RunOutcomeKind, string> = {
@@ -478,6 +550,7 @@ const MESSAGES: Record<RunOutcomeKind, string> = {
   quote_refused: "This step couldn't be quoted.",
   conflict: "This step changed while it was being prepared, so nothing was signed.",
   bind_failed: "This step's quote couldn't be confirmed — request a new one.",
+  quote_declined: "The quote wasn't accepted, so nothing was prepared or signed.",
   build_refused: "This step's transaction couldn't be prepared.",
   build_invalid: "The prepared transaction wasn't what this step expected, so nothing was signed.",
   wallet_rejected: "You canceled the transaction in your wallet. Nothing was retried.",
@@ -506,6 +579,14 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
   validateDeps(deps);
   const { plans, sdk, grant, clock, journal } = deps;
   let active = false;
+
+  /** Progress events: fire-and-forget; a listener can't affect the run. */
+  const emit = (e: RunnerEvent): void => {
+    if (!deps.onEvent) return;
+    try {
+      deps.onEvent(e);
+    } catch { /* ignored */ }
+  };
 
   const currentWallet = (): RunnerWallet | null => {
     try {
@@ -613,6 +694,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
 
       const tick = async (): Promise<StepResult | "pending"> => {
         if (!verdictStored) {
+          emit({ phase: "confirming", planId, nodeId: node.nodeId, txHash: node.txHash });
           const c = await call(() => sdk.confirm({ ...node.ref, txHash: node.txHash, walletAddress: wallet, quoteId: node.quoteId }));
           if (confirmIsTerminal(c)) verdictStored = true;
           // A malformed confirm request can never succeed: stop, don't poll.
@@ -620,6 +702,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
           // Network, 409, 429, 502, … : no stored verdict yet — keep polling.
           if (!verdictStored && overCap()) return outcome("stalled", ids);
         }
+        emit({ phase: "settling", planId, nodeId: node.nodeId, txHash: node.txHash });
         const s = await call(() => plans.settle(planId, node.nodeId));
         if (s.status === 200) {
           const plan = planFrom(s);
@@ -641,6 +724,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         const delay = SETTLE_POLL_DELAYS_MS[Math.min(i, SETTLE_POLL_DELAYS_MS.length - 1)];
         if (clock.now() - start + delay > SETTLE_POLL_CAP_MS) return outcome("stalled", ids);
         if (aborted()) return outcome("aborted", ids);
+        emit({ phase: "polling", planId, nodeId: node.nodeId, txHash: node.txHash, delayMs: delay });
         try {
           await clock.sleep(delay, signal);
         } catch {
@@ -669,6 +753,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
           // Keep the journal; this needs the user's attention, not a retry.
           return outcome("conflict", { ...ids, message: "A different transaction is already recorded for this step. Check your wallet's activity — this saved transaction was kept." });
         }
+        emit({ phase: "recording", planId, nodeId: e.nodeId, txHash: e.txHash });
         const r = await call(() => plans.tx(planId, e.nodeId, { quoteId: e.quoteId, txHash: e.txHash }));
         const updated = planFrom(r);
         if (!updated) return outcome("tx_unrecorded", { ...ids, journaled: true, status: r.status, code: bodyCode(r.body) });
@@ -713,6 +798,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       if (aborted()) return outcome("aborted", { nodeId });
 
       // 7. Quote.
+      emit({ phase: "quoting", planId, nodeId });
       const q = await call(() => plans.quote(planId, nodeId));
       if (q.status !== 200 || !isPlain(q.body) || q.body.ok !== true) return planFailure(q, nodeId);
       const quote = parseQuote(q.body.quote);
@@ -720,19 +806,49 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       const ids = { nodeId, quoteId: quote.quoteId };
 
       // 8. Bind the token to the step's latest attempt (and check freshness).
-      const b = await call(() => plans.bind(planId, nodeId, quote.quoteToken));
-      if (b.status === 0) return outcome("network_error", { ...ids, status: 0 });
-      if (b.status === 401) return outcome("grant_required", { ...ids, status: 401 });
-      if (b.status === 429) return outcome("rate_limited", { ...ids, status: 429 });
-      if (b.status !== 200 || !isPlain(b.body) || b.body.ok !== true) {
-        return outcome("bind_failed", { ...ids, status: b.status, code: bodyCode(b.body), ...(bodyMessage(b.body) ? { message: bodyMessage(b.body)! } : {}) });
-      }
-      const bound = parseBound(b.body.bound);
-      if (!bound || bound.quoteId !== quote.quoteId || bound.nodeId !== nodeId) return outcome("bind_failed", { ...ids, status: 200, code: "QUOTE_MISMATCH" });
-      if (clock.now() >= bound.freshUntil) return outcome("bind_failed", { ...ids, status: 200, code: "EXPIRED", message: "This quote went stale before it could be prepared — run the plan again." });
+      // The server is authoritative: the token must still be this step's
+      // latest attempt, still fresh, and the step still quotable.
+      const bindNow = async (): Promise<{ ok: true; bound: BoundQuoteDTO } | { ok: false; outcome: RunOutcome }> => {
+        const stop = (o: RunOutcome) => ({ ok: false as const, outcome: o });
+        const b = await call(() => plans.bind(planId, nodeId, quote.quoteToken));
+        if (b.status === 0) return stop(outcome("network_error", { ...ids, status: 0 }));
+        if (b.status === 401) return stop(outcome("grant_required", { ...ids, status: 401 }));
+        if (b.status === 429) return stop(outcome("rate_limited", { ...ids, status: 429 }));
+        if (b.status !== 200 || !isPlain(b.body) || b.body.ok !== true) {
+          return stop(outcome("bind_failed", { ...ids, status: b.status, code: bodyCode(b.body), ...(bodyMessage(b.body) ? { message: bodyMessage(b.body)! } : {}) }));
+        }
+        const bound = parseBound(b.body.bound);
+        if (!bound || bound.quoteId !== quote.quoteId || bound.nodeId !== nodeId) return stop(outcome("bind_failed", { ...ids, status: 200, code: "QUOTE_MISMATCH" }));
+        if (clock.now() >= bound.freshUntil) return stop(outcome("bind_failed", { ...ids, status: 200, code: "EXPIRED", message: "This quote went stale before it could be prepared — run the plan again." }));
+        return { ok: true, bound };
+      };
+      emit({ phase: "binding", planId, nodeId });
+      const firstBind = await bindNow();
+      if (!firstBind.ok) return firstBind.outcome;
       if (aborted()) return outcome("aborted", ids);
 
+      // 8b. The user's review of the quote (only when a reviewer is wired).
+      // Nothing but an explicit "continue" goes on; afterwards the binding
+      // is checked AGAIN by the server — the user may have taken a while.
+      if (deps.confirmQuote) {
+        const projection = projectQuote(quote, firstBind.bound);
+        emit({ phase: "waiting_for_quote_review", planId, nodeId, quote: projectQuote(quote, firstBind.bound) });
+        let decision: unknown;
+        try {
+          decision = await deps.confirmQuote(projection);
+        } catch {
+          return outcome("quote_declined", { ...ids, code: "CONFIRMATION_ERROR", message: "The quote review didn't complete, so nothing was prepared or signed." });
+        }
+        if (decision !== "continue") {
+          return outcome("quote_declined", { ...ids, code: decision === "decline" ? "DECLINED" : "NO_DECISION" });
+        }
+        if (aborted()) return outcome("aborted", ids);
+        const again = await bindNow();
+        if (!again.ok) return again.outcome;
+      }
+
       // 9–10. Build through the existing SDK route; judge by `ok`, not status.
+      emit({ phase: "building", planId, nodeId });
       const built = await call(() => sdk.build({
         protocolId: quote.ref.protocolId, actionId: quote.ref.actionId, version: quote.ref.version,
         inputs: quote.inputs, walletAddress: wallet, quoteToken: quote.quoteToken,
@@ -754,6 +870,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       // anything else is signed. Their hashes are never Plan facts.
       for (const step of steps.slice(0, -1)) {
         let hash: string;
+        emit({ phase: "waiting_for_wallet", planId, nodeId, signature: "approval" });
         try {
           hash = await signer.sendTransaction({ ...step.tx });
         } catch (e) {
@@ -762,6 +879,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         if (typeof hash !== "string" || !HASH_RE.test(hash)) return outcome("wallet_error", ids);
         approvalTxHashes.push(hash);
         let receipt: unknown;
+        emit({ phase: "waiting_for_receipt", planId, nodeId, txHash: hash, signature: "approval" });
         try {
           receipt = await signer.waitForReceipt(hash);
         } catch {
@@ -783,6 +901,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       // The final action: sign once.
       const final = steps[steps.length - 1];
       let txHash: string;
+      emit({ phase: "waiting_for_wallet", planId, nodeId, signature: "action" });
       try {
         txHash = await signer.sendTransaction({ ...final.tx });
       } catch (e) {
@@ -797,12 +916,14 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       } catch {
         return outcome("tx_unrecorded", { ...sent, journaled: false, message: "Your transaction was sent, but it couldn't be saved or recorded. Don't send it again — keep this transaction hash." });
       }
+      emit({ phase: "recording", planId, nodeId, txHash });
       const recorded = await call(() => plans.tx(planId, nodeId, { quoteId: quote.quoteId, txHash }));
       if (!planFrom(recorded)) return outcome("tx_unrecorded", { ...sent, journaled: true, status: recorded.status, code: bodyCode(recorded.body) });
       await Promise.resolve(journal.clear(planId, nodeId)).catch(() => {});
 
       // The client's own receipt wait is advisory: a revert or a timeout both
       // still go to confirm, which is authoritative.
+      emit({ phase: "waiting_for_receipt", planId, nodeId, txHash, signature: "action" });
       try {
         await signer.waitForReceipt(txHash);
       } catch { /* confirm decides */ }
@@ -885,7 +1006,12 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       }
       active = true;
       try {
-        return await runOnce(planId, opts?.signal);
+        const result = await runOnce(planId, opts?.signal);
+        emit(result.kind === "completed"
+          ? { phase: "completed", planId, nodeId: null }
+          : { phase: "failed", planId, nodeId: result.nodeId, ...(result.txHash ? { txHash: result.txHash } : {}),
+              outcome: { kind: result.kind, code: result.code, status: result.status, message: result.message } });
+        return result;
       } finally {
         active = false;
       }
