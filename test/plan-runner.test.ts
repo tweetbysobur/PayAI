@@ -15,6 +15,7 @@ import {
 } from "@/lib/plans-client/runner";
 import { createLocalJournal } from "@/lib/plans-client/journal";
 import { createWebExecutionLock } from "@/lib/plans-client/locks";
+import { classifyOutcome } from "@/lib/plans-client/outcomes";
 
 /**
  * Phase 2C Stage 4B — the headless client-side Plan Runner
@@ -1947,5 +1948,79 @@ describe("5C-2b — execution lock: the whole run happens inside one wallet + pl
     expect((await first).kind).toBe("completed");
     expect(held.size).toBe(0);
     expect(await w.runner({ lock: createWebExecutionLock(null) }).run(PLAN)).toMatchObject({ kind: "lock_unavailable" });
+  });
+});
+
+/* ══ 5C-2c — outcome facts for classification ═════════════════════════════ */
+
+describe("5C-2c — outcomes carry the facts a classifier needs", () => {
+  it("a settlement failure keeps the recorded step's quoteId and txHash", async () => {
+    for (const reply of [err(410, "EXPIRED"), err(500, "CORRUPT"), err(404, "NOT_FOUND"), err(401, "UNAUTHORIZED")]) {
+      const w = world();
+      w.ov.settle = () => reply;
+      const r = await w.run();
+      expect(r).toMatchObject({ nodeId: "n1", quoteId: w.byId("n1").quoteId, txHash: H(1), status: reply.status });
+      expect(w.wallet.sent).toHaveLength(1);
+    }
+  });
+  it("approval send failure → wallet_error APPROVAL_SEND_FAILED; the action is never signed", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    w.wallet.sendQueue.push(() => Promise.reject(new Error("insufficient funds for gas")));
+    expect(await w.run()).toMatchObject({ kind: "wallet_error", code: "APPROVAL_SEND_FAILED", txHash: null });
+    expect(signs(w)).toEqual(["sign:approve"]);
+  });
+  it("approval with a malformed hash → wallet_error APPROVAL_HASH_INVALID; the action is never signed", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    w.wallet.sendQueue.push(async () => "0xbad");
+    expect(await w.run()).toMatchObject({ kind: "wallet_error", code: "APPROVAL_HASH_INVALID", approvalTxHashes: [] });
+    expect(signs(w)).toEqual(["sign:approve"]);
+  });
+  it("action send failure → wallet_error ACTION_SEND_FAILED; nothing journaled or recorded", async () => {
+    const w = world();
+    w.wallet.sendQueue.push(() => Promise.reject(new Error("internal JSON-RPC error")));
+    expect(await w.run()).toMatchObject({ kind: "wallet_error", code: "ACTION_SEND_FAILED", txHash: null });
+    expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+    expect(w.counts.tx).toBe(0);
+  });
+  it("action with no hash returned → wallet_error ACTION_HASH_MISSING; nothing journaled or recorded", async () => {
+    const w = world();
+    w.wallet.sendQueue.push(async () => "");
+    expect(await w.run()).toMatchObject({ kind: "wallet_error", code: "ACTION_HASH_MISSING" });
+    expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+    expect(w.counts.tx).toBe(0);
+  });
+  it("rejections say whether a code or only the wording proved them (approval and action)", async () => {
+    const cases: [unknown, string][] = [
+      [{ code: 4001 }, "REJECTED_CODE"],
+      [{ code: "ACTION_REJECTED" }, "REJECTED_CODE"],
+      [{ message: "wrapped", cause: { code: 4001 } }, "REJECTED_CODE"],
+      [new Error("User rejected the request."), "REJECTED_TEXT"],
+      [{ message: "x", cause: "user denied" }, "REJECTED_TEXT"],
+    ];
+    for (const [e, code] of cases) {
+      const a = world();
+      a.wallet.sendQueue.push(() => Promise.reject(e));
+      expect(await a.run()).toMatchObject({ kind: "wallet_rejected", code });
+      const b = world([{ nodeId: "n1", approve: true }]);
+      b.wallet.sendQueue.push(() => Promise.reject(e));
+      expect(await b.run()).toMatchObject({ kind: "wallet_rejected", code });
+      expect(signs(b)).toEqual(["sign:approve"]);
+    }
+  });
+  it("recovery finding a DIFFERENT recorded hash → conflict JOURNAL_CONFLICT; the journal entry is kept", async () => {
+    const w = world();
+    Object.assign(w.byId("n1"), { quoteId: QID(1), quotes: 1, txHash: H(1) });
+    w.journal.entries.set("n1", { planId: PLAN, nodeId: "n1", quoteId: QID(1), txHash: H(9) });
+    expect(await w.run()).toMatchObject({ kind: "conflict", code: "JOURNAL_CONFLICT", txHash: H(9) });
+    expect(w.journal.entries.get("n1")?.txHash).toBe(H(9));
+    expect(signs(w)).toEqual([]);
+  });
+  it("end to end with the classifier: an action send failure is never retryable; a settle error resumes", async () => {
+    const a = world();
+    a.wallet.sendQueue.push(() => Promise.reject(new Error("timeout")));
+    expect(classifyOutcome(await a.run())).toMatchObject({ tx: "uncertain", retry: "UNKNOWN_TRANSACTION_STATE", resumeScope: "none" });
+    const b = world();
+    b.ov.settle = () => err(500, "CORRUPT");
+    expect(classifyOutcome(await b.run())).toMatchObject({ tx: "recorded", retry: "SAFE_TO_RESUME", txHash: H(1) });
   });
 });

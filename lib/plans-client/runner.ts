@@ -513,16 +513,22 @@ export function journalEntriesFor(planId: string, loaded: unknown): JournalEntry
 
 /** EIP-1193 4001 (or ethers' ACTION_REJECTED), else the wording fallback. */
 export function isUserRejection(e: unknown): boolean {
+  return rejectionCode(e) !== null;
+}
+
+/** Why an error counts as a user rejection: REJECTED_CODE (a 4001 /
+ *  ACTION_REJECTED code), REJECTED_TEXT (wording only), or null. */
+function rejectionCode(e: unknown): "REJECTED_CODE" | "REJECTED_TEXT" | null {
   let cur: unknown = e;
   for (let depth = 0; depth < 4 && cur !== null && cur !== undefined; depth++) {
-    if (typeof cur === "string") return REJECTION_RE.test(cur);
-    if (typeof cur !== "object") return false;
+    if (typeof cur === "string") return REJECTION_RE.test(cur) ? "REJECTED_TEXT" : null;
+    if (typeof cur !== "object") return null;
     const o = cur as { code?: unknown; message?: unknown; cause?: unknown };
-    if (o.code === 4001 || o.code === "4001" || o.code === "ACTION_REJECTED") return true;
-    if (typeof o.message === "string" && REJECTION_RE.test(o.message)) return true;
+    if (o.code === 4001 || o.code === "4001" || o.code === "ACTION_REJECTED") return "REJECTED_CODE";
+    if (typeof o.message === "string" && REJECTION_RE.test(o.message)) return "REJECTED_TEXT";
     cur = o.cause;
   }
-  return false;
+  return null;
 }
 
 /** Explicit success only: viem's "success", or a raw 1 / 0x1. */
@@ -739,7 +745,8 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         }
         // 202 SETTLEMENT_PENDING, or a transient failure: still pending.
         if (s.status === 202 || s.status === 0 || s.status === 429 || s.status === 502 || s.status === 503) return "pending";
-        return planFailure(s, node.nodeId);
+        // The step's transaction is already recorded: keep its facts.
+        return { ...planFailure(s, node.nodeId), quoteId: node.quoteId, txHash: node.txHash };
       };
 
       let r = await tick();
@@ -774,7 +781,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
           }
           // A DIFFERENT transaction is recorded for this step: two were sent.
           // Keep the journal; this needs the user's attention, not a retry.
-          return outcome("conflict", { ...ids, message: "A different transaction is already recorded for this step. Check your wallet's activity — this saved transaction was kept." });
+          return outcome("conflict", { ...ids, code: "JOURNAL_CONFLICT", message: "A different transaction is already recorded for this step. Check your wallet's activity — this saved transaction was kept." });
         }
         emit({ phase: "recording", planId, nodeId: e.nodeId, txHash: e.txHash });
         const r = await call(() => plans.tx(planId, e.nodeId, { quoteId: e.quoteId, txHash: e.txHash }));
@@ -897,9 +904,10 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         try {
           hash = await signer.sendTransaction({ ...step.tx });
         } catch (e) {
-          return outcome(isUserRejection(e) ? "wallet_rejected" : "wallet_error", ids);
+          const rejected = rejectionCode(e);
+          return rejected ? outcome("wallet_rejected", { ...ids, code: rejected }) : outcome("wallet_error", { ...ids, code: "APPROVAL_SEND_FAILED" });
         }
-        if (typeof hash !== "string" || !HASH_RE.test(hash)) return outcome("wallet_error", ids);
+        if (typeof hash !== "string" || !HASH_RE.test(hash)) return outcome("wallet_error", { ...ids, code: "APPROVAL_HASH_INVALID" });
         approvalTxHashes.push(hash);
         let receipt: unknown;
         emit({ phase: "waiting_for_receipt", planId, nodeId, txHash: hash, signature: "approval" });
@@ -928,9 +936,10 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
       try {
         txHash = await signer.sendTransaction({ ...final.tx });
       } catch (e) {
-        return outcome(isUserRejection(e) ? "wallet_rejected" : "wallet_error", ids);
+        const rejected = rejectionCode(e);
+        return rejected ? outcome("wallet_rejected", { ...ids, code: rejected }) : outcome("wallet_error", { ...ids, code: "ACTION_SEND_FAILED" });
       }
-      if (typeof txHash !== "string" || txHash.length === 0) return outcome("wallet_error", ids);
+      if (typeof txHash !== "string" || txHash.length === 0) return outcome("wallet_error", { ...ids, code: "ACTION_HASH_MISSING" });
       const sent = { ...ids, txHash };
 
       // Journal BEFORE the Plan API hears of it; /tx only after it's saved.
