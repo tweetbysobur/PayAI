@@ -34,6 +34,8 @@ const CASES: [string, RunOutcome][] = [
   ["already_running LOCK_HELD", out("already_running", { code: "LOCK_HELD" })],
   ["lock_unavailable", out("lock_unavailable", { code: "LOCK_UNAVAILABLE" })],
   ["lock_unavailable reentered", out("lock_unavailable", { code: "LOCK_REENTERED" })],
+  ["signature_unresolved", out("signature_unresolved", { code: "SIGNATURE_UNRESOLVED", nodeId: "n1", quoteId: QID })],
+  ["signature_unresolved, quote unknown", out("signature_unresolved", { code: "SIGNATURE_UNRESOLVED", nodeId: "n1" })],
   ["aborted before signing", out("aborted", { nodeId: "n1", quoteId: QID })],
   ["aborted after approvals", out("aborted", { nodeId: "n1", approvalTxHashes: [H(5)] })],
   ["aborted while settling", out("aborted", { nodeId: "n1", quoteId: QID, txHash: H(1) })],
@@ -77,6 +79,7 @@ const CASES: [string, RunOutcome][] = [
   ["approval_failed APPROVAL_TIMEOUT", out("approval_failed", { code: "APPROVAL_TIMEOUT", approvalTxHashes: [H(5)] })],
   ["approval_failed unknown", out("approval_failed")],
   ["tx_unrecorded journaled", out("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, status: 502 })],
+  ["tx_unrecorded journaled NOT_FOUND", out("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, status: 404, code: "NOT_FOUND" })],
   ["tx_unrecorded not journaled", out("tx_unrecorded", { journaled: false, txHash: H(1), quoteId: QID })],
   ["tx_unrecorded not journaled, malformed hash", out("tx_unrecorded", { journaled: false, txHash: "0xnot-a-hash" })],
   ["confirm_rejected", out("confirm_rejected", { status: 400, txHash: H(1) })],
@@ -262,6 +265,19 @@ describe("classifications", () => {
     expectClass("approval_failed APPROVAL_REVERTED", { tx: "approvals_only", retry: "SAFE_TO_RETRY" });
     expectClass("approval_failed APPROVAL_TIMEOUT", { tx: "approvals_only", retry: "USER_ACTION_REQUIRED", action: "wait_for_approval" });
     expectClass("approval_failed unknown", { tx: "approvals_only", retry: "USER_ACTION_REQUIRED", action: "check_wallet_activity", resumeScope: "none" });
+  });
+  it("signature_unresolved (5C-2d): a final signature may have been sent — unknown, never resumable or retryable", () => {
+    for (const n of ["signature_unresolved", "signature_unresolved, quote unknown"]) {
+      expectClass(n, { category: "recovery", tx: "uncertain", retry: "UNKNOWN_TRANSACTION_STATE", action: "check_wallet_activity", resumeScope: "none", terminal: true });
+    }
+    expect(c("signature_unresolved").code).toBeNull();
+    expect(c("signature_unresolved", { code: "SIGNATURE_UNRESOLVED" }).code).toBe("SIGNATURE_UNRESOLVED");
+  });
+  it("tx_unrecorded journaled + NOT_FOUND (S3): resuming can't record it — get help, in this browser", () => {
+    expectClass("tx_unrecorded journaled NOT_FOUND", { tx: "journaled", retry: "USER_ACTION_REQUIRED", action: "contact_support", resumeScope: "this_browser", terminal: false });
+    expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "NOT_FOUND" }).txHash).toBe(H(1));
+    // Other /tx failure codes still resume.
+    expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "CONFLICT" }).retry).toBe("SAFE_TO_RESUME");
   });
   it("tx_unrecorded: journaled resumes in this browser only; unjournaled must never run again", () => {
     expectClass("tx_unrecorded journaled", { category: "recovery", tx: "journaled", retry: "SAFE_TO_RESUME", resumeScope: "this_browser", terminal: false });

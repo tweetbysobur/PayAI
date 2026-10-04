@@ -8,6 +8,8 @@
  *   veripay:plan:<planId>:node:<nodeId>:quote:<n>      quote attempt n (1…8)
  *   veripay:plan:<planId>:node:<nodeId>:tx             submitted transaction
  *   veripay:plan:<planId>:node:<nodeId>:result         confirmed/reverted/unverified result
+ *   veripay:plan:<planId>:node:<nodeId>:intent:<slot>      signing intent n (1…8; before the final signature)
+ *   veripay:plan:<planId>:node:<nodeId>:release:<quoteId>  release of that signing attempt
  *   veripay:plan:<planId>:abandoned                    abandonment
  *   veripay:plans:by-wallet:<wallet>                   best-effort index (sorted set)
  *
@@ -52,8 +54,10 @@ import { PlanError, type PlanErrorCode } from "./errors";
 import { assertPlanMatchesGraph, assertSessionWallet, canonicalize, planIntent } from "./planner";
 import { recipientKey } from "./resolve";
 import type {
-  AbandonFact, ApprovalFact, NodeFacts, PlanFacts, PlanShape, QuoteFact, ResultFact, ResultStatus, TxFact,
+  AbandonFact, ApprovalFact, NodeFacts, PlanFacts, PlanShape, QuoteFact, ReleaseFact, ReleaseReason, ResultFact, ResultStatus,
+  SigningIntentFact, TxFact,
 } from "./state";
+import { unresolvedIntent } from "./state";
 import { INTENT_CHAIN_ID, type ExecutionPlan, type InputValue, type RecipientValue, type ValidatedIntentGraph } from "./types";
 import { isValidatedIntentGraph, validateIntentGraph } from "./validate";
 
@@ -86,6 +90,10 @@ function checkNodeId(nodeId: string): string {
   if (typeof nodeId !== "string" || !NODE_ID_RE.test(nodeId)) fail("INVALID_NODE", "No such step in this plan.");
   return nodeId;
 }
+function checkQuoteId(quoteId: string, nodeId: string): string {
+  if (typeof quoteId !== "string" || !QUOTE_ID_RE.test(quoteId)) fail("INVALID_PLAN", "Invalid quote.", nodeId);
+  return quoteId;
+}
 export const planKeys = {
   core: (planId: string) => `veripay:plan:${checkPlanId(planId)}`,
   approved: (planId: string) => `veripay:plan:${checkPlanId(planId)}:approved`,
@@ -96,6 +104,14 @@ export const planKeys = {
   },
   tx: (planId: string, nodeId: string) => `veripay:plan:${checkPlanId(planId)}:node:${checkNodeId(nodeId)}:tx`,
   result: (planId: string, nodeId: string) => `veripay:plan:${checkPlanId(planId)}:node:${checkNodeId(nodeId)}:result`,
+  /** Per NODE, not per quote: concurrent intents for different quotes compete
+   *  for the same slot, so at most one can be written (SET NX). */
+  intent: (planId: string, nodeId: string, slot: number) => {
+    if (!Number.isInteger(slot) || slot < 1 || slot > MAX_QUOTE_ATTEMPTS) fail("INVALID_PLAN", "Invalid signing slot.", nodeId);
+    return `veripay:plan:${checkPlanId(planId)}:node:${checkNodeId(nodeId)}:intent:${slot}`;
+  },
+  release: (planId: string, nodeId: string, quoteId: string) =>
+    `veripay:plan:${checkPlanId(planId)}:node:${checkNodeId(nodeId)}:release:${checkQuoteId(quoteId, nodeId)}`,
   byWallet: (wallet: string) => {
     if (typeof wallet !== "string" || !LOWER_ADDR_RE.test(wallet)) fail("NOT_FOUND", "No such wallet.");
     return `veripay:plans:by-wallet:${wallet}`;
@@ -241,6 +257,21 @@ function parseTx(raw: unknown, planId: string, nodeId: string): TxFact | null {
   if (raw.planId !== planId || raw.nodeId !== nodeId) return null;
   if (!isStr(raw.quoteId, QUOTE_ID_RE) || !isStr(raw.txHash, TX_HASH_RE) || !isStr(raw.wallet, LOWER_ADDR_RE) || !isTime(raw.submittedAt)) return null;
   return copy(raw) as unknown as TxFact;
+}
+function parseIntent(raw: unknown, planId: string, nodeId: string): SigningIntentFact | null {
+  if (!isPlain(raw) || !exactKeys(raw, ["planId", "nodeId", "quoteId", "attempt", "wallet", "intentAt", "buildDigest"])) return null;
+  if (raw.planId !== planId || raw.nodeId !== nodeId || !isStr(raw.quoteId, QUOTE_ID_RE)) return null;
+  if (!Number.isInteger(raw.attempt) || (raw.attempt as number) < 1 || (raw.attempt as number) > MAX_QUOTE_ATTEMPTS) return null;
+  if (!isStr(raw.wallet, LOWER_ADDR_RE) || !isTime(raw.intentAt) || !isStr(raw.buildDigest, HEX64_RE)) return null;
+  return copy(raw) as unknown as SigningIntentFact;
+}
+const RELEASE_REASONS: readonly ReleaseReason[] = ["wallet_rejected", "user_attested_not_sent"];
+function parseRelease(raw: unknown, planId: string, nodeId: string, quoteId: string): ReleaseFact | null {
+  if (!isPlain(raw) || !exactKeys(raw, ["planId", "nodeId", "quoteId", "wallet", "reason", "releasedAt"])) return null;
+  if (raw.planId !== planId || raw.nodeId !== nodeId || raw.quoteId !== quoteId) return null;
+  if (!isStr(raw.wallet, LOWER_ADDR_RE) || !isTime(raw.releasedAt)) return null;
+  if (typeof raw.reason !== "string" || !RELEASE_REASONS.includes(raw.reason as ReleaseReason)) return null;
+  return copy(raw) as unknown as ReleaseFact;
 }
 const RESULT_STATUSES: readonly ResultStatus[] = ["confirmed", "reverted", "unverified"];
 function parseOutputs(v: unknown): Record<string, VerifiedOutputValue> | null | undefined {
@@ -482,7 +513,30 @@ async function readFacts(core: PlanCore): Promise<PlanFacts> {
     if (tx && (tx.wallet !== core.wallet || !quotes.some((q) => q.quoteId === tx.quoteId))) fail("CORRUPT", "A stored plan record is invalid.", nodeId);
     const result = await read(planKeys.result(id, nodeId), (r) => parseResult(r, id, nodeId), nodeId);
     if (result && (!tx || result.txHash !== tx.txHash || result.quoteId !== tx.quoteId)) fail("CORRUPT", "A stored plan record is invalid.", nodeId);
-    nodes[nodeId] = { quotes, tx, result };
+    // Signing intents, slot by slot (1, 2, …): each for one of this node's
+    // own quotes (at its attempt), each quote at most once.
+    const intents: SigningIntentFact[] = [];
+    for (let n = 1; n <= MAX_QUOTE_ATTEMPTS; n++) {
+      const intent = await read(planKeys.intent(id, nodeId, n), (r) => parseIntent(r, id, nodeId), nodeId);
+      if (!intent) break;
+      const q = quotes.find((x) => x.quoteId === intent.quoteId);
+      if (!q || intent.attempt !== q.attempt || intent.wallet !== core.wallet || intents.some((i) => i.quoteId === intent.quoteId)) {
+        fail("CORRUPT", "A stored plan record is invalid.", nodeId);
+      }
+      intents.push(intent);
+    }
+    // A release only ever follows its quote's intent.
+    const releases: ReleaseFact[] = [];
+    for (const q of quotes) {
+      const release = await read(planKeys.release(id, nodeId, q.quoteId), (r) => parseRelease(r, id, nodeId, q.quoteId), nodeId);
+      if (!release) continue;
+      if (release.wallet !== core.wallet || !intents.some((i) => i.quoteId === q.quoteId)) fail("CORRUPT", "A stored plan record is invalid.", nodeId);
+      releases.push(release);
+    }
+    // A later slot is only ever written once every earlier intent is resolved.
+    const resolved = (i: SigningIntentFact) => (tx !== null && tx.quoteId === i.quoteId) || releases.some((r) => r.quoteId === i.quoteId);
+    if (intents.slice(0, -1).some((i) => !resolved(i))) fail("CORRUPT", "A stored plan record is invalid.", nodeId);
+    nodes[nodeId] = { quotes, tx, result, intents, releases };
   }
   return { approval, abandoned, nodes };
 }
@@ -573,6 +627,76 @@ export async function recordTx(planId: string, nodeId: string, input: { quoteId:
   const record: TxFact = { planId, nodeId, quoteId: input.quoteId, txHash: input.txHash.toLowerCase(), wallet: loaded.core.wallet, submittedAt: now };
   const same = sameBy<TxFact>(["planId", "nodeId", "quoteId", "txHash", "wallet"]);
   return (await writeOnce(planKeys.tx(planId, nodeId), record, remainingTtl(loaded.core, now), (r) => parseTx(r, planId, nodeId), same, nodeId)).record;
+}
+
+/**
+ * Record, BEFORE the final action of a quote attempt is requested from the
+ * wallet, that it may be signed (Stage 5C-2d). Write-once per node + quote.
+ * The wallet comes from the stored plan; intentAt from the server clock; the
+ * build digest from the caller (the Plan Service, from the SDK build record).
+ * Refused unless the plan is approved and not abandoned, the quote is the
+ * node's LATEST attempt, no transaction is recorded for the node, and no
+ * other signing attempt on the node is unresolved.
+ */
+export async function recordSigningIntent(
+  planId: string, nodeId: string, input: { quoteId: string; buildDigest: string }, ctx: StoreContext,
+): Promise<SigningIntentFact> {
+  checkNodeId(nodeId);
+  const loaded = await loadPlan(planId, ctx);
+  stepOf(loaded, nodeId);
+  const now = ctx.now ?? Date.now();
+  if (!isStr(input?.quoteId, QUOTE_ID_RE)) fail("INVALID_PLAN", "Invalid quote.", nodeId);
+  if (!isStr(input?.buildDigest, HEX64_RE)) fail("INVALID_PLAN", "Invalid build.", nodeId);
+  const f = loaded.facts.nodes[nodeId];
+  if (!loaded.facts.approval) fail("NOT_APPROVED", "Approve this plan first.", nodeId);
+  if (loaded.facts.abandoned) fail("CONFLICT", "This plan was abandoned.", nodeId);
+  const latest = f.quotes.at(-1);
+  if (!latest || latest.quoteId !== input.quoteId) {
+    if (!f.quotes.some((q) => q.quoteId === input.quoteId)) fail("NOT_FOUND", "No such quote for this step.", nodeId);
+    fail("CONFLICT", "That isn't this step's latest quote.", nodeId);
+  }
+  if (f.tx) fail("CONFLICT", "A transaction is already recorded for this step.", nodeId);
+  // The slot: this quote's own (a repeat is idempotent), else the next one —
+  // allowed only when every earlier intent is resolved. Two callers that read
+  // the same facts compute the SAME slot, and SET NX lets only one write it;
+  // the other gets CONFLICT and must not sign.
+  const own = f.intents.findIndex((i) => i.quoteId === input.quoteId);
+  let slot: number;
+  if (own >= 0) {
+    slot = own + 1;
+  } else {
+    if (unresolvedIntent(f)) fail("SIGNATURE_UNRESOLVED", "An earlier signature for this step is unresolved.", nodeId);
+    slot = f.intents.length + 1;
+    if (slot > MAX_QUOTE_ATTEMPTS) fail("CONFLICT", "This step has no signing attempts left.", nodeId);
+  }
+  const record: SigningIntentFact = {
+    planId, nodeId, quoteId: input.quoteId, attempt: latest!.attempt, wallet: loaded.core.wallet, intentAt: now, buildDigest: input.buildDigest,
+  };
+  const same = sameBy<SigningIntentFact>(["planId", "nodeId", "quoteId", "attempt", "wallet", "buildDigest"]);
+  return (await writeOnce(planKeys.intent(planId, nodeId, slot), record, remainingTtl(loaded.core, now), (r) => parseIntent(r, planId, nodeId), same, nodeId)).record;
+}
+
+/**
+ * Record that the owner released a signing attempt: its final action was
+ * not sent. Write-once per node + quote. Requires that attempt's intent and
+ * no transaction recorded for it. Leaves the intent in place, and never
+ * prevents recordTx for that quote — chain evidence wins.
+ */
+export async function recordRelease(
+  planId: string, nodeId: string, input: { quoteId: string; reason: ReleaseReason }, ctx: StoreContext,
+): Promise<ReleaseFact> {
+  checkNodeId(nodeId);
+  const loaded = await loadPlan(planId, ctx);
+  stepOf(loaded, nodeId);
+  const now = ctx.now ?? Date.now();
+  if (!isStr(input?.quoteId, QUOTE_ID_RE)) fail("INVALID_PLAN", "Invalid quote.", nodeId);
+  if (typeof input.reason !== "string" || !RELEASE_REASONS.includes(input.reason)) fail("INVALID_PLAN", "Invalid release reason.", nodeId);
+  const f = loaded.facts.nodes[nodeId];
+  if (!f.intents.some((i) => i.quoteId === input.quoteId)) fail("NOT_FOUND", "No signing attempt for that quote.", nodeId);
+  if (f.tx && f.tx.quoteId === input.quoteId) fail("CONFLICT", "A transaction is already recorded for that quote.", nodeId);
+  const record: ReleaseFact = { planId, nodeId, quoteId: input.quoteId, wallet: loaded.core.wallet, reason: input.reason, releasedAt: now };
+  const same = sameBy<ReleaseFact>(["planId", "nodeId", "quoteId", "wallet", "reason"]);
+  return (await writeOnce(planKeys.release(planId, nodeId, input.quoteId), record, remainingTtl(loaded.core, now), (r) => parseRelease(r, planId, nodeId, input.quoteId), same, nodeId)).record;
 }
 
 export interface ResultInput {

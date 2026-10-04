@@ -872,7 +872,7 @@ describe("Phase 4A — node quoteId for recovery", () => {
     const planId = await approved();
     const q = await s.quoteStep(AUTH, planId, "n1");
     const v = await s.getPlan(AUTH, planId);
-    expect(Object.keys(v.nodes[0]).sort()).toEqual(["dependsOn", "nodeId", "quoteAttempts", "quoteId", "ref", "result", "state", "txHash"]);
+    expect(Object.keys(v.nodes[0]).sort()).toEqual(["dependsOn", "nodeId", "quoteAttempts", "quoteId", "ref", "result", "signing", "state", "txHash"]);
     expect(v.nodes[0].quoteId).toMatch(/^[0-9a-f]{32}$/);
     const json = JSON.stringify(v);
     for (const bad of [q.quoteToken, createHash("sha256").update(q.quoteToken).digest("hex"), "quoteTokenHash", "termsHash", "inputsHash", "veripay:"]) {
@@ -971,5 +971,239 @@ describe("Phase 4A — pending-build guard in quoteStep", () => {
     await s.recordTx(AUTH, planId, "n1", { quoteId: a.quoteId, txHash: txHash() });
     expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
     expect((await s.getPlan(AUTH, planId)).nodes[0]).toMatchObject({ state: "submitted", quoteAttempts: 1, quoteId: a.quoteId });
+  });
+});
+
+/* ══ Stage 5C-2d — durable signing intent ══════════════════════════════════ */
+
+describe("Stage 5C-2d — signing intent and release", () => {
+  /** An approved plan whose n1 has a built latest quote — ready to sign. */
+  async function built(draft: unknown = sendDraft()) {
+    const s = await svc();
+    const planId = await approved(draft);
+    const q = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q.quoteId, S);
+    return { s, planId, q };
+  }
+  const storeCtx = { sessionWallet: WALLET, activeChainId: 143 };
+
+  it("records the intent server-side: wallet from the plan, server clock, attempt, digest of the built final tx; view shows only { quoteId }", async () => {
+    const { s, planId, q } = await built();
+    vi.setSystemTime(T0 + 5_000);
+    const v = await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    expect(v.nodes[0].signing).toEqual({ quoteId: q.quoteId });
+    const store = await import("@/lib/plan/store");
+    const l = await store.loadPlan(planId, storeCtx);
+    const intent = l.facts.nodes.n1.intents[0];
+    const digest = createHash("sha256").update(JSON.stringify({ to: "0x00000000000000000000000000000000000000f1", data: "0x", value: "0" })).digest("hex");
+    expect(intent).toEqual({ planId, nodeId: "n1", quoteId: q.quoteId, attempt: 1, wallet: WALLET, intentAt: T0 + 5_000, buildDigest: digest });
+    const json = JSON.stringify(await s.getPlan(AUTH, planId));
+    for (const bad of [digest, "buildDigest", "intentAt", ":intent:", "finalTx", "0x00000000000000000000000000000000000000f1"]) expect(json.includes(bad), bad).toBe(false);
+  });
+
+  it("an unresolved intent blocks new quotes with SIGNATURE_UNRESOLVED — forever, not for 120 s — and the SDK is never asked", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    const calls = ctl.quoteCalls.length;
+    for (const t of [T0 + 1_000, T0 + 120_000, T0 + DAY, T0 + 6 * DAY]) {
+      vi.setSystemTime(t);
+      expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("SIGNATURE_UNRESOLVED");
+    }
+    expect(ctl.quoteCalls.length).toBe(calls);
+    expect((await s.getPlan(AUTH, planId)).nodes[0]).toMatchObject({ quoteAttempts: 1, signing: { quoteId: q.quoteId } });
+  });
+
+  it("without an intent the existing 120 s pending-build guard is unchanged", async () => {
+    const { s, planId } = await built();
+    vi.setSystemTime(T0 + 119_999);
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY");
+    vi.setSystemTime(T0 + 120_000);
+    expect((await s.quoteStep(AUTH, planId, "n1")).attempt).toBe(2);
+  });
+
+  it("a recorded transaction for the intent's quote resolves it", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    const v = await s.recordTx(AUTH, planId, "n1", { quoteId: q.quoteId, txHash: txHash() });
+    expect(v.nodes[0]).toMatchObject({ state: "submitted", signing: null });
+  });
+
+  it("write-once: the same intent again is idempotent; different content conflicts; a malformed stored intent is CORRUPT", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    vi.setSystemTime(T0 + MIN);
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId }); // same content, later clock
+    const store = await import("@/lib/plan/store");
+    expect((await store.loadPlan(planId, storeCtx)).facts.nodes.n1.intents).toHaveLength(1);
+    expect((await store.loadPlan(planId, storeCtx)).facts.nodes.n1.intents[0].intentAt).toBe(T0);
+    expect(await code(store.recordSigningIntent(planId, "n1", { quoteId: q.quoteId, buildDigest: "b".repeat(64) }, storeCtx))).toBe("CONFLICT");
+
+    const p2 = await built(sendDraft("intent_svc_5c2d1"));
+    store.__putRawForTests(store.planKeys.intent(p2.planId, "n1", 1), "{oops");
+    expect(await code(s.getPlan(AUTH, p2.planId))).toBe("CORRUPT");
+  });
+
+  it("preconditions: wallet, approval, abandonment, expiry, current step, latest quote, build record, no transaction", async () => {
+    const s = await svc();
+    // Another wallet: the plan reads as missing.
+    const a = await built();
+    expect(await code(s.recordSigningIntent(OTHER, a.planId, "n1", { quoteId: a.q.quoteId }))).toBe("NOT_FOUND");
+    // Not approved.
+    const unapproved = await created(sendDraft("intent_svc_5c2d2"));
+    expect(await code(s.recordSigningIntent(AUTH, unapproved.planId, "n1", { quoteId: "a".repeat(32) }))).toBe("NOT_APPROVED");
+    // Abandoned.
+    const b = await built(sendDraft("intent_svc_5c2d3"));
+    await s.abandonPlan(AUTH, b.planId);
+    expect(await code(s.recordSigningIntent(AUTH, b.planId, "n1", { quoteId: b.q.quoteId }))).toBe("STEP_NOT_READY");
+    // Not the current step.
+    expect(await code(s.recordSigningIntent(AUTH, a.planId, "n2", { quoteId: a.q.quoteId }))).toBe("STEP_NOT_READY");
+    // Not the latest quote.
+    const c = await built(sendDraft("intent_svc_5c2d4"));
+    vi.setSystemTime(T0 + 2 * MIN);
+    const c2 = await s.quoteStep(AUTH, c.planId, "n1");
+    await seedBuild(c2.quoteId, S);
+    expect(await code(s.recordSigningIntent(AUTH, c.planId, "n1", { quoteId: c.q.quoteId }))).toBe("CONFLICT");
+    expect(await code(s.recordSigningIntent(AUTH, c.planId, "n1", { quoteId: "f".repeat(32) }))).toBe("NOT_FOUND");
+    vi.setSystemTime(T0);
+    // No build record / another wallet's / another action's.
+    const d = await approved(sendDraft("intent_svc_5c2d5"));
+    const dq = await s.quoteStep(AUTH, d, "n1");
+    expect(await code(s.recordSigningIntent(AUTH, d, "n1", { quoteId: dq.quoteId }))).toBe("NOT_FOUND");
+    await seedBuild(dq.quoteId, S, OTHER_WALLET);
+    expect(await code(s.recordSigningIntent(AUTH, d, "n1", { quoteId: dq.quoteId }))).toBe("NOT_FOUND");
+    const e = await approved(sendDraft("intent_svc_5c2d6"));
+    const eq = await s.quoteStep(AUTH, e, "n1");
+    await seedBuild(eq.quoteId, T);
+    expect(await code(s.recordSigningIntent(AUTH, e, "n1", { quoteId: eq.quoteId }))).toBe("NOT_FOUND");
+    // A transaction already recorded.
+    const f = await built(sendDraft("intent_svc_5c2d7"));
+    await s.recordTx(AUTH, f.planId, "n1", { quoteId: f.q.quoteId, txHash: txHash() });
+    expect(await code(s.recordSigningIntent(AUTH, f.planId, "n1", { quoteId: f.q.quoteId }))).toBe("STEP_NOT_READY");
+    const store = await import("@/lib/plan/store");
+    expect(await code(store.recordSigningIntent(f.planId, "n1", { quoteId: f.q.quoteId, buildDigest: "c".repeat(64) }, storeCtx))).toBe("CONFLICT");
+    // Expired.
+    vi.setSystemTime(T0 + 7 * DAY);
+    expect(await code(s.recordSigningIntent(AUTH, a.planId, "n1", { quoteId: a.q.quoteId }))).toBe("EXPIRED");
+  });
+
+  it("the store refuses a second intent while another quote's intent on the node is unresolved", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    const store = await import("@/lib/plan/store");
+    // Bypass the service's quote guard to create a newer attempt directly.
+    await store.recordQuote(planId, "n1", { attempt: 2, quoteId: "9".repeat(32), quoteToken: "tok2", inputsHash: "a".repeat(64), termsHash: "b".repeat(64), quotedAt: T0 }, storeCtx);
+    expect(await code(store.recordSigningIntent(planId, "n1", { quoteId: "9".repeat(32), buildDigest: "d".repeat(64) }, storeCtx))).toBe("SIGNATURE_UNRESOLVED");
+  });
+
+  it("release: requires the intent; the step can be quoted again (after the 120 s build window); the intent stays", async () => {
+    const { s, planId, q } = await built();
+    expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" }))).toBe("NOT_FOUND");
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    const v = await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" });
+    expect(v.nodes[0].signing).toBeNull();
+    expect(await code(s.quoteStep(AUTH, planId, "n1"))).toBe("STEP_NOT_READY"); // the existing build window still applies
+    vi.setSystemTime(T0 + 2 * MIN);
+    expect((await s.quoteStep(AUTH, planId, "n1")).attempt).toBe(2);
+    const store = await import("@/lib/plan/store");
+    const facts = (await store.loadPlan(planId, storeCtx)).facts.nodes.n1;
+    expect(facts.intents.map((i) => i.quoteId)).toEqual([q.quoteId]);
+    expect(facts.releases).toEqual([{ planId, nodeId: "n1", quoteId: q.quoteId, wallet: WALLET, reason: "wallet_rejected", releasedAt: T0 }]);
+  });
+
+  it("release: reasons are restricted; write-once (same idempotent, different reason conflicts, malformed CORRUPT); another wallet can't", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    for (const reason of ["", "oops", "WALLET_REJECTED", null, 1]) expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason }))).toBe("INVALID_PLAN");
+    expect(await code(s.releaseAttempt(OTHER, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" }))).toBe("NOT_FOUND");
+    await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "user_attested_not_sent" });
+    vi.setSystemTime(T0 + MIN);
+    await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "user_attested_not_sent" });
+    expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" }))).toBe("CONFLICT");
+
+    const p2 = await built(sendDraft("intent_svc_5c2d8"));
+    await s.recordSigningIntent(AUTH, p2.planId, "n1", { quoteId: p2.q.quoteId });
+    const store = await import("@/lib/plan/store");
+    store.__putRawForTests(store.planKeys.release(p2.planId, "n1", p2.q.quoteId), JSON.stringify({ planId: p2.planId }));
+    expect(await code(s.getPlan(AUTH, p2.planId))).toBe("CORRUPT");
+  });
+
+  it("release is refused once that quote's transaction is recorded", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    await s.recordTx(AUTH, planId, "n1", { quoteId: q.quoteId, txHash: txHash() });
+    expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "user_attested_not_sent" }))).toBe("CONFLICT");
+  });
+
+  it("evidence wins: a transaction for a RELEASED quote can still be recorded later", async () => {
+    const { s, planId, q } = await built();
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
+    await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" });
+    const tx = txHash();
+    const v = await s.recordTx(AUTH, planId, "n1", { quoteId: q.quoteId, txHash: tx });
+    expect(v.nodes[0]).toMatchObject({ state: "submitted", txHash: tx, signing: null });
+  });
+
+  it("a release with no intent behind it is CORRUPT on read", async () => {
+    const { s, planId, q } = await built();
+    const store = await import("@/lib/plan/store");
+    store.__putRawForTests(store.planKeys.release(planId, "n1", q.quoteId), JSON.stringify({ planId, nodeId: "n1", quoteId: q.quoteId, wallet: WALLET, reason: "wallet_rejected", releasedAt: T0 }));
+    expect(await code(s.getPlan(AUTH, planId))).toBe("CORRUPT");
+  });
+});
+
+describe("Stage 5C-2d — stored intent integrity", () => {
+  it("a stored intent whose wallet or attempt doesn't match its plan / quote is CORRUPT", async () => {
+    const s = await svc();
+    const store = await import("@/lib/plan/store");
+    for (const [i, bad] of [{ wallet: OTHER_WALLET }, { attempt: 2 }].entries()) {
+      const planId = await approved(sendDraft(`intent_svc_5c2e${i}`));
+      const q = await s.quoteStep(AUTH, planId, "n1");
+      const rec = { planId, nodeId: "n1", quoteId: q.quoteId, attempt: 1, wallet: WALLET, intentAt: T0, buildDigest: "a".repeat(64), ...bad };
+      store.__putRawForTests(store.planKeys.intent(planId, "n1", 1), JSON.stringify(rec));
+      expect(await code(s.getPlan(AUTH, planId))).toBe("CORRUPT");
+    }
+  });
+  it("intent keys are per node SLOT (1…8), release keys per quote; both validated", async () => {
+    const { planKeys } = await import("@/lib/plan/store");
+    const P = `plan_${"a".repeat(32)}`;
+    expect(planKeys.intent(P, "n1", 1)).toBe(`veripay:plan:${P}:node:n1:intent:1`);
+    expect(planKeys.intent(P, "n1", 8)).toBe(`veripay:plan:${P}:node:n1:intent:8`);
+    for (const n of [0, 9, 1.5, -1, NaN]) expect(() => planKeys.intent(P, "n1", n)).toThrow();
+    expect(planKeys.release(P, "n1", "b".repeat(32))).toBe(`veripay:plan:${P}:node:n1:release:${"b".repeat(32)}`);
+    for (const q of ["", "B".repeat(32), "b".repeat(31), "b:x", "../x"]) expect(() => planKeys.release(P, "n1", q)).toThrow();
+  });
+});
+
+describe("Stage 5C-2d — only the intent's own quote resolves it", () => {
+  it("a late transaction for an EARLIER released quote doesn't resolve a newer quote's intent — both may have been sent", async () => {
+    const s = await svc();
+    const planId = await approved(sendDraft("intent_svc_5c2f0"));
+    const q1 = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q1.quoteId, S);
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q1.quoteId });
+    await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q1.quoteId, reason: "user_attested_not_sent" });
+    vi.setSystemTime(T0 + 2 * MIN);
+    const q2 = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q2.quoteId, S);
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q2.quoteId });
+    // Evidence for the released attempt arrives after all.
+    const v = await s.recordTx(AUTH, planId, "n1", { quoteId: q1.quoteId, txHash: txHash() });
+    expect(v.nodes[0]).toMatchObject({ state: "submitted", quoteId: q1.quoteId, signing: { quoteId: q2.quoteId } });
+  });
+});
+
+describe("Stage 5C-2d follow-up — the service never answers 'recorded' when the slot write lost", () => {
+  it("the slot already holds a different intent → recordSigningIntent rejects with CONFLICT (so the runner can't sign)", async () => {
+    const s = await svc();
+    const planId = await approved(sendDraft("intent_svc_5c2g0"));
+    const q = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q.quoteId, S);
+    const store = await import("@/lib/plan/store");
+    // Another request won slot 1 for this quote with a different build digest.
+    await store.recordSigningIntent(planId, "n1", { quoteId: q.quoteId, buildDigest: "b".repeat(64) }, { sessionWallet: WALLET, activeChainId: 143 });
+    expect(await code(s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId }))).toBe("CONFLICT");
+    const { planErrorResponse } = await import("@/lib/plan/http");
+    const { PlanError } = await import("@/lib/plan/errors");
+    expect(planErrorResponse(new PlanError("CONFLICT", "x")).status).toBe(409);
   });
 });

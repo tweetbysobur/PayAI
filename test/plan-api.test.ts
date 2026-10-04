@@ -668,3 +668,69 @@ describe("the HTTP layer stays thin", () => {
     }
   });
 });
+
+/* ══ Stage 5C-2d — intent / release ops ════════════════════════════════════ */
+
+describe("Stage 5C-2d — POST { op: intent | release }", () => {
+  async function builtPlan(id?: string) {
+    const planId = await approvedPlan(sendDraft(id));
+    const q = await op(planId, { op: "quote", nodeId: "n1" });
+    expect(q.status).toBe(200);
+    const quoteId = q.json.quote.quoteId as string;
+    await seedBuild(quoteId, S);
+    return { planId, quoteId };
+  }
+
+  it("intent → 200 with the plan view (signing: { quoteId } only), no-store; then quote → 409 SIGNATURE_UNRESOLVED", async () => {
+    const { planId, quoteId } = await builtPlan();
+    const r = await op(planId, { op: "intent", nodeId: "n1", quoteId });
+    expect(r).toMatchObject({ status: 200, cache: "no-store", json: { ok: true } });
+    expect(r.json.plan.nodes[0].signing).toEqual({ quoteId });
+    expect(r.text).not.toMatch(/buildDigest|intentAt|finalTx|veripay:/);
+    expect(await op(planId, { op: "quote", nodeId: "n1" })).toMatchObject({ status: 409, json: { code: "SIGNATURE_UNRESOLVED" } });
+  });
+
+  it("release → 200, after which the step is no longer blocked by the intent", async () => {
+    const { planId, quoteId } = await builtPlan();
+    await op(planId, { op: "intent", nodeId: "n1", quoteId });
+    const r = await op(planId, { op: "release", nodeId: "n1", quoteId, reason: "wallet_rejected" });
+    expect(r).toMatchObject({ status: 200, json: { ok: true } });
+    expect(r.json.plan.nodes[0].signing).toBeNull();
+  });
+
+  it("accepts EXACTLY its fields: any wallet, hash, status, build, calldata, target, token, amount, fee or chain field is refused (400)", async () => {
+    const { planId, quoteId } = await builtPlan();
+    for (const extra of [
+      { wallet: WALLET }, { txHash: "0x" + "1".repeat(64) }, { status: "confirmed" }, { build: {} }, { data: "0x" }, { calldata: "0x" },
+      { to: RECIPIENT }, { target: RECIPIENT }, { token: USDC }, { amount: "1" }, { fee: "1" }, { chainId: 143 }, { buildDigest: "a".repeat(64) },
+    ]) {
+      expect(await op(planId, { op: "intent", nodeId: "n1", quoteId, ...extra }), JSON.stringify(extra)).toMatchObject({ status: 400, json: { code: "INVALID_INPUT" } });
+      expect(await op(planId, { op: "release", nodeId: "n1", quoteId, reason: "wallet_rejected", ...extra })).toMatchObject({ status: 400, json: { code: "INVALID_INPUT" } });
+    }
+    // Nothing was recorded by any of those.
+    expect((await get(planId)).json.plan.nodes[0].signing).toBeNull();
+  });
+
+  it("release reason is restricted; missing fields are refused", async () => {
+    const { planId, quoteId } = await builtPlan();
+    await op(planId, { op: "intent", nodeId: "n1", quoteId });
+    for (const reason of ["", "oops", "rejected", 1, null]) {
+      expect(await op(planId, { op: "release", nodeId: "n1", quoteId, reason })).toMatchObject({ status: 400, json: { code: "INVALID_INPUT" } });
+    }
+    expect(await op(planId, { op: "intent", nodeId: "n1" })).toMatchObject({ status: 400 });
+    expect(await op(planId, { op: "release", nodeId: "n1", quoteId })).toMatchObject({ status: 400 });
+    expect((await get(planId)).json.plan.nodes[0].signing).toEqual({ quoteId });
+  });
+
+  it("the wallet is the grant's: another wallet reads NOT_FOUND; no grant → 401", async () => {
+    const { planId, quoteId } = await builtPlan();
+    expect(await op(planId, { op: "intent", nodeId: "n1", quoteId }, { wallet: OTHER_WALLET })).toMatchObject({ status: 404, json: { code: "NOT_FOUND" } });
+    expect((await op(planId, { op: "intent", nodeId: "n1", quoteId }, { wallet: null })).status).toBe(401);
+    expect((await get(planId)).json.plan.nodes[0].signing).toBeNull();
+  });
+
+  it("SIGNATURE_UNRESOLVED maps to 409", async () => {
+    const { PLAN_ERROR_STATUS } = await import("@/lib/plan/http");
+    expect(PLAN_ERROR_STATUS.SIGNATURE_UNRESOLVED).toBe(409);
+  });
+});

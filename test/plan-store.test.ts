@@ -35,6 +35,8 @@ const kv = vi.hoisted(() => ({
   z: new Map<string, Map<string, number>>(),
   sets: [] as { key: string; opts?: { nx?: boolean; ex?: number } }[],
   expires: [] as { key: string; seconds: number }[],
+  /** Test-only: awaited at the start of every SET (to interleave concurrent writers). */
+  beforeSet: undefined as ((key: string) => Promise<void>) | undefined,
 }));
 vi.mock("@/lib/platform/kv", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/platform/kv")>();
@@ -50,6 +52,7 @@ vi.mock("@/lib/platform/kv", async (importActual) => {
       try { return JSON.parse(e.v); } catch { return e.v; } // Upstash returns non-JSON as a string
     },
     async set(key: string, value: unknown, opts?: { nx?: boolean; ex?: number }) {
+      if (kv.beforeSet) await kv.beforeSet(key);
       kv.sets.push({ key, opts });
       if (opts?.nx && live(key)) return null;
       kv.store.set(key, { v: JSON.stringify(value), exp: opts?.ex ? Date.now() + opts.ex * 1000 : Infinity });
@@ -123,7 +126,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(T0);
   Object.values(spies).forEach((s) => s.mockClear());
-  kv.enabled = false; kv.failIndex = false; kv.store.clear(); kv.z.clear(); kv.sets.length = 0; kv.expires.length = 0;
+  kv.enabled = false; kv.failIndex = false; kv.store.clear(); kv.z.clear(); kv.sets.length = 0; kv.expires.length = 0; kv.beforeSet = undefined;
   (await import("@/lib/plan/store")).__resetPlanStoreForTests();
   await registry();
 });
@@ -832,6 +835,7 @@ describe("derived state", () => {
         quotes: k ? [q(id)] : [],
         tx: k && k !== "quote" ? tx(id) : null,
         result: k === "confirmed" || k === "reverted" || k === "unverified" ? res(id, k) : null,
+        intents: [], releases: [],
       };
     }
     return { approval: { planId: "p", graphHash: H("0"), wallet: WALLET, approvedAt: T0 }, abandoned: null, nodes, ...extra };
@@ -956,5 +960,163 @@ describe("integration with Stage 1 and no execution", () => {
       // No action quote/build call (planKeys.quote is the key builder).
       expect(code_.match(/(?<!planKeys)\.(quote|build)\(/g), f).toBeNull();
     }
+  });
+});
+
+/* ══ Stage 5C-2d follow-up — one unresolved signing intent per node, atomically ══ */
+
+describe("signing intent slots: at most one unresolved intent per node, enforced by SET NX", () => {
+  const D = (c: string) => c.repeat(64);
+  async function ready() {
+    const { approvePlan, recordQuote } = await lib();
+    const { core } = await create();
+    await approvePlan(core.planId, CTX());
+    await recordQuote(core.planId, "n1", quoteInput(1), CTX());
+    return core.planId;
+  }
+
+  it("THE RACE (KV): A reads, B quotes anew and writes its intent, A's stale write loses on the same slot — CONFLICT", async () => {
+    kv.enabled = true;
+    const { recordQuote, recordSigningIntent, loadPlan, unresolvedIntent, planKeys } = await lib();
+    const planId = await ready();
+    // Pause A's first intent SET until B is done.
+    let paused!: () => void;
+    const reached = new Promise<void>((r) => { paused = r; });
+    let resume!: () => void;
+    const gate = new Promise<void>((r) => { resume = r; });
+    let first = true;
+    kv.beforeSet = async (key) => {
+      if (first && key.includes(":intent:")) { first = false; paused(); await gate; }
+    };
+    const a = recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX()); // A: snapshot has q1 latest, no intents
+    await reached;
+    await recordQuote(planId, "n1", quoteInput(2), CTX()); // B quotes attempt 2 meanwhile
+    const b = await recordSigningIntent(planId, "n1", { quoteId: QID(2), buildDigest: D("b") }, CTX()); // B: writes slot 1
+    expect(b).toMatchObject({ quoteId: QID(2), attempt: 2 });
+    resume();
+    expect(await code(a)).toBe("CONFLICT"); // A must not sign
+    const f = (await loadPlan(planId, CTX())).facts.nodes.n1;
+    expect(f.intents.map((i) => i.quoteId)).toEqual([QID(2)]);
+    expect(unresolvedIntent(f)?.quoteId).toBe(QID(2));
+    expect(kv.store.has(planKeys.intent(planId, "n1", 1))).toBe(true);
+    expect(kv.store.has(planKeys.intent(planId, "n1", 2))).toBe(false);
+    expect(kv.sets.filter((x) => x.key.includes(":intent:")).every((x) => x.opts?.nx === true)).toBe(true);
+  });
+
+  /**
+   * Both requests read the node (no intents → slot 1) and are held just
+   * before their SET NX; they are then let go in a chosen order. A is for q1
+   * (read while q1 was latest), B for q2 (read after q2 was quoted).
+   */
+  async function forcedRace(firstToWrite: "A" | "B") {
+    kv.enabled = true;
+    const { recordQuote, recordSigningIntent, loadPlan, unresolvedIntent, planKeys } = await lib();
+    const planId = await ready();
+    const held: { key: string; go: () => void }[] = [];
+    let arrived!: () => void;
+    let waitFor = 0;
+    let arrivals = new Promise<void>((r) => { arrived = r; });
+    kv.beforeSet = async (key) => {
+      if (!key.includes(":intent:")) return;
+      await new Promise<void>((go) => { held.push({ key, go }); if (held.length === waitFor) arrived(); });
+    };
+    waitFor = 1;
+    const a = recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX());
+    await arrivals; // A has loaded, computed slot 1 and is held before SET NX
+    await recordQuote(planId, "n1", quoteInput(2), CTX());
+    arrivals = new Promise<void>((r) => { arrived = r; });
+    waitFor = 2;
+    const b = recordSigningIntent(planId, "n1", { quoteId: QID(2), buildDigest: D("b") }, CTX());
+    await arrivals; // B has loaded, computed slot 1 and is held too
+    expect(held.map((h) => h.key)).toEqual([planKeys.intent(planId, "n1", 1), planKeys.intent(planId, "n1", 1)]);
+    const [winner, loser] = firstToWrite === "A" ? [a, b] : [b, a];
+    held[firstToWrite === "A" ? 0 : 1].go();
+    const won = await winner;
+    held[firstToWrite === "A" ? 1 : 0].go();
+    expect(await code(loser)).toBe("CONFLICT");
+    kv.beforeSet = undefined;
+    const f = (await loadPlan(planId, CTX())).facts.nodes.n1;
+    const want = firstToWrite === "A" ? QID(1) : QID(2);
+    expect(won.quoteId).toBe(want);
+    expect(f.intents.map((i) => i.quoteId)).toEqual([want]);
+    expect(f.intents.filter((i) => i === unresolvedIntent(f))).toHaveLength(1);
+    expect(kv.store.has(planKeys.intent(planId, "n1", 2))).toBe(false);
+  }
+  it("slots are read 1, 2, … and reading stops at the first gap (like quote attempts) — writes never leave one", async () => {
+    kv.enabled = true;
+    const { loadPlan, planKeys, recordSigningIntent } = await lib();
+    const planId = await ready();
+    await putRaw(planKeys.intent(planId, "n1", 2), { planId, nodeId: "n1", quoteId: QID(1), attempt: 1, wallet: WALLET, intentAt: T0, buildDigest: D("a") });
+    expect((await loadPlan(planId, CTX())).facts.nodes.n1.intents).toEqual([]);
+    await recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX());
+    expect(kv.sets.filter((x) => x.key.includes(":intent:")).map((x) => x.key)).toEqual([planKeys.intent(planId, "n1", 1)]);
+  });
+  it("forced interleaving, A writes first: both computed slot 1, A wins, B gets CONFLICT", async () => { await forcedRace("A"); });
+  it("forced interleaving, B writes first: both computed slot 1, B wins, A gets CONFLICT", async () => { await forcedRace("B"); });
+
+  describe.each([["KV", true], ["in-memory", false]])("%s", (_l, useKv) => {
+    beforeEach(() => { kv.enabled = useKv as boolean; });
+
+    it("two concurrent intents from the same snapshot compute the same slot; exactly one wins", async () => {
+      const { recordSigningIntent, loadPlan } = await lib();
+      const planId = await ready();
+      const res = await Promise.allSettled([
+        recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX()),
+        recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("b") }, CTX()),
+      ]);
+      expect(res.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect((res.find((r) => r.status === "rejected") as PromiseRejectedResult).reason.code).toBe("CONFLICT");
+      expect((await loadPlan(planId, CTX())).facts.nodes.n1.intents).toHaveLength(1);
+    });
+    it("the same intent repeated concurrently is idempotent — one fact, one slot", async () => {
+      const { recordSigningIntent, loadPlan } = await lib();
+      const planId = await ready();
+      const [x, y] = await Promise.all([
+        recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX()),
+        recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX()),
+      ]);
+      expect(x).toEqual(y);
+      expect((await loadPlan(planId, CTX())).facts.nodes.n1.intents).toHaveLength(1);
+      // …and again later, still slot 1.
+      expect(await recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX())).toEqual(x);
+    });
+    it("an unresolved intent refuses a new quote's intent; after its release the next intent takes slot 2", async () => {
+      const { recordQuote, recordSigningIntent, recordRelease, loadPlan, planKeys } = await lib();
+      const planId = await ready();
+      await recordSigningIntent(planId, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX());
+      await recordQuote(planId, "n1", quoteInput(2), CTX());
+      expect(await code(recordSigningIntent(planId, "n1", { quoteId: QID(2), buildDigest: D("b") }, CTX()))).toBe("SIGNATURE_UNRESOLVED");
+      await recordRelease(planId, "n1", { quoteId: QID(1), reason: "wallet_rejected" }, CTX());
+      await recordSigningIntent(planId, "n1", { quoteId: QID(2), buildDigest: D("b") }, CTX());
+      const f = (await loadPlan(planId, CTX())).facts.nodes.n1;
+      expect(f.intents.map((i) => i.quoteId)).toEqual([QID(1), QID(2)]);
+      expect((await getRaw(planKeys.intent(planId, "n1", 2))).quoteId).toBe(QID(2));
+    });
+    it("stored slots are checked on read: an unknown quote, a repeated quote, or an unresolved intent before a later one is CORRUPT", async () => {
+      const { recordQuote, recordSigningIntent, loadPlan, planKeys } = await lib();
+      const rec = (planId: string, quoteId: string, attempt: number) => ({ planId, nodeId: "n1", quoteId, attempt, wallet: WALLET, intentAt: T0, buildDigest: D("a") });
+      // Unknown quote in slot 1.
+      const p1 = await ready();
+      await putRaw(planKeys.intent(p1, "n1", 1), rec(p1, QID(9), 1));
+      expect(await code(loadPlan(p1, CTX()))).toBe("CORRUPT");
+      // Two unresolved intents (slot 1 not released, slot 2 present).
+      const p2 = (await create(sendDraft("intent_store_0002"))).core.planId;
+      await (await lib()).approvePlan(p2, CTX());
+      await recordQuote(p2, "n1", quoteInput(1), CTX());
+      await recordSigningIntent(p2, "n1", { quoteId: QID(1), buildDigest: D("a") }, CTX());
+      await recordQuote(p2, "n1", quoteInput(2), CTX());
+      await putRaw(planKeys.intent(p2, "n1", 2), rec(p2, QID(2), 2));
+      expect(await code(loadPlan(p2, CTX()))).toBe("CORRUPT");
+      // The same quote in two slots.
+      const p3 = (await create(sendDraft("intent_store_0003"))).core.planId;
+      await (await lib()).approvePlan(p3, CTX());
+      await recordQuote(p3, "n1", quoteInput(1), CTX());
+      await putRaw(planKeys.intent(p3, "n1", 1), rec(p3, QID(1), 1));
+      // Slot 1 is released, so only the repeated quote is wrong.
+      await putRaw(planKeys.release(p3, "n1", QID(1)), { planId: p3, nodeId: "n1", quoteId: QID(1), wallet: WALLET, reason: "wallet_rejected", releasedAt: T0 });
+      expect((await loadPlan(p3, CTX())).facts.nodes.n1.intents).toHaveLength(1);
+      await putRaw(planKeys.intent(p3, "n1", 2), rec(p3, QID(1), 1));
+      expect(await code(loadPlan(p3, CTX()))).toBe("CORRUPT");
+    });
   });
 });

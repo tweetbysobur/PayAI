@@ -42,8 +42,8 @@ import { PlanError } from "./errors";
 import { planIntent } from "./planner";
 import { recipientKey, resolveStepInputs } from "./resolve";
 import {
-  confirmedOutputsOf, currentStep, deriveNodeStates, derivePlanState, planExpiry,
-  type NodeState, type PlanState, type ResultStatus,
+  confirmedOutputsOf, currentStep, deriveNodeStates, derivePlanState, planExpiry, unresolvedIntent,
+  type NodeState, type PlanState, type ReleaseReason, type ResultStatus,
 } from "./state";
 import * as store from "./store";
 import type { ActionRef, InputValue, RecipientValue } from "./types";
@@ -91,6 +91,11 @@ export interface PlanNodeView {
   quoteId: string | null;
   txHash: string | null;
   result: { status: ResultStatus; outputs: Record<string, VerifiedOutputValue> | null } | null;
+  /**
+   * An unresolved signing attempt (Stage 5C-2d): its final action may have
+   * been sent and nothing records the outcome. Only its quote id is shown.
+   */
+  signing: { quoteId: string } | null;
 }
 
 export interface PlanView {
@@ -143,6 +148,7 @@ function viewOf(l: store.LoadedPlan, now = Date.now()): PlanView {
         quoteId: f.tx?.quoteId ?? f.quotes.at(-1)?.quoteId ?? null,
         txHash: f.tx?.txHash ?? null,
         result: f.result ? { status: f.result.status, outputs: f.result.outputs ? JSON.parse(JSON.stringify(f.result.outputs)) : null } : null,
+        signing: ((i) => (i ? { quoteId: i.quoteId } : null))(unresolvedIntent(f)),
       };
     }),
     recipients: { ...l.core.pins },
@@ -356,6 +362,14 @@ export async function quoteStep(auth: PlanAuth, planId: string, nodeId: string):
   // would let a second runner build a second, independent transaction and
   // prompt the user to sign twice. Not a lock: it lapses once a transaction
   // is recorded (the step is then no longer quotable) or the window passes.
+  // Unresolved-signature guard (Stage 5C-2d): a final signature for this
+  // node may have been requested and nothing records whether it was sent.
+  // Not time-based — it holds until a transaction is recorded for that quote
+  // or the attempt is released. Quoting again could pay twice.
+  if (unresolvedIntent(l.facts.nodes[nodeId])) {
+    fail("SIGNATURE_UNRESOLVED", "A signature for this step may already have been sent. Check your wallet's activity before continuing.", nodeId);
+  }
+
   const latest = l.facts.nodes[nodeId].quotes.at(-1);
   if (latest && !l.facts.nodes[nodeId].tx) {
     const { peekRequest } = await import("@/lib/platform/idempotency");
@@ -490,6 +504,70 @@ export async function recordTx(auth: PlanAuth, planId: string, nodeId: string, i
   ) return fail("NOT_FOUND", "No matching prepared transaction for this quote.", nodeId);
 
   await store.recordTx(planId, nodeId, { quoteId, txHash }, ctx);
+  return getPlan(auth, planId);
+}
+
+/** SHA-256 of a build record's final transaction (to, data, value), or null
+ *  when the record has no usable final transaction. */
+function buildDigestOf(build: Record<string, unknown>): string | null {
+  const t = build.finalTx;
+  if (!isPlain(t) || typeof t.to !== "string" || typeof t.data !== "string" || typeof t.value !== "string") return null;
+  const canonical = JSON.stringify({ to: t.to.toLowerCase(), data: t.data.toLowerCase(), value: t.value });
+  return createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
+/**
+ * Record the signing intent for the current step's latest quote (Stage
+ * 5C-2d): called immediately BEFORE the final action is requested from the
+ * wallet. The quote's SDK build record must exist for this plan's wallet and
+ * this step's exact action; its final transaction is digested here. The
+ * wallet comes from the plan, never the request. Until a transaction is
+ * recorded for this quote or the attempt is released, the step can't be
+ * quoted again (SIGNATURE_UNRESOLVED).
+ */
+export async function recordSigningIntent(auth: PlanAuth, planId: string, nodeId: string, input: { quoteId: unknown }): Promise<PlanView> {
+  const ctx = await context(auth);
+  const l = await store.loadPlan(planId, ctx);
+  const step = l.plan.steps.find((s) => s.nodeId === nodeId);
+  if (!step) return fail("INVALID_NODE", "No such step in this plan.", nodeId);
+  if (!l.facts.approval) return fail("NOT_APPROVED", "Approve this plan first.", nodeId);
+  if (l.facts.abandoned) return fail("STEP_NOT_READY", "This plan was abandoned.", nodeId);
+  const states = deriveNodeStates(l.shape, l.facts);
+  if (currentStep(l.shape, l.facts) !== nodeId || states[nodeId] !== "awaiting_signature") {
+    return fail("STEP_NOT_READY", "That isn't the plan's current step.", nodeId);
+  }
+  const quoteId = typeof input?.quoteId === "string" ? input.quoteId : "";
+
+  const { peekRequest } = await import("@/lib/platform/idempotency");
+  const { buildKey } = await import("@/lib/sdk/settlement");
+  const build = /^[0-9a-f]{32}$/.test(quoteId) ? await peekRequest<unknown>(buildKey(quoteId)) : null;
+  if (
+    !isPlain(build) || build.wallet !== l.core.wallet ||
+    build.protocolId !== step.ref.protocolId || build.actionId !== step.ref.actionId || build.version !== step.ref.version
+  ) return fail("NOT_FOUND", "No matching prepared transaction for this quote.", nodeId);
+  const buildDigest = buildDigestOf(build);
+  if (!buildDigest) return fail("NOT_FOUND", "No matching prepared transaction for this quote.", nodeId);
+
+  await store.recordSigningIntent(planId, nodeId, { quoteId, buildDigest }, ctx);
+  return getPlan(auth, planId);
+}
+
+const RELEASE_REASONS: readonly ReleaseReason[] = ["wallet_rejected", "user_attested_not_sent"];
+
+/**
+ * Release one signing attempt: the owner states its final action was not
+ * sent (the wallet rejected it, or they checked). The intent stays; a
+ * transaction for that quote can still be recorded later. Allowed on an
+ * abandoned plan, not an expired one.
+ */
+export async function releaseAttempt(auth: PlanAuth, planId: string, nodeId: string, input: { quoteId: unknown; reason: unknown }): Promise<PlanView> {
+  const ctx = await context(auth);
+  const l = await store.loadPlan(planId, ctx);
+  if (!l.plan.steps.some((s) => s.nodeId === nodeId)) return fail("INVALID_NODE", "No such step in this plan.", nodeId);
+  const quoteId = typeof input?.quoteId === "string" ? input.quoteId : "";
+  const reason = input?.reason;
+  if (typeof reason !== "string" || !RELEASE_REASONS.includes(reason as ReleaseReason)) return fail("INVALID_PLAN", "Invalid release reason.", nodeId);
+  await store.recordRelease(planId, nodeId, { quoteId, reason: reason as ReleaseReason }, ctx);
   return getPlan(auth, planId);
 }
 

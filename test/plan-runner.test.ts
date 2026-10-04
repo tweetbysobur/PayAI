@@ -47,12 +47,14 @@ const QID = (n: number) => n.toString(16).padStart(32, "0");
 /* ══ The fake world ════════════════════════════════════════════════════════ */
 
 type Verdict = "success" | "reverted" | "unverified";
-type Op = "getPlan" | "next" | "quote" | "bind" | "tx" | "settle" | "build" | "confirm";
+type Op = "getPlan" | "next" | "quote" | "bind" | "tx" | "settle" | "build" | "confirm" | "intent" | "release";
 interface NodeSpec { nodeId: string; dependsOn?: string[]; approve?: boolean }
 interface FakeNode {
   nodeId: string; dependsOn: string[]; approve: boolean;
   quoteId: string | null; quotes: number; txHash: string | null; quotedAt?: number;
   result: { status: "confirmed" | "reverted" | "unverified"; outputs: null } | null;
+  /** Stage 5C-2d (mirrors the server): signing intents and releases, by quoteId. */
+  intents: string[]; releases: string[]; txQuoteId?: string;
 }
 
 const ok = (body: Record<string, unknown>): Reply => ({ status: 200, body: { ok: true, ...body } });
@@ -95,7 +97,9 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; loc
     async sleep(ms) { t.sleeps.push(ms); log.push(`sleep:${ms}`); t.now += ms; },
   };
   const flags = { approved: true, abandoned: false };
-  const nodes: FakeNode[] = specs.map((s) => ({ nodeId: s.nodeId, dependsOn: s.dependsOn ?? [], approve: !!s.approve, quoteId: null, quotes: 0, txHash: null, result: null }));
+  const nodes: FakeNode[] = specs.map((s) => ({ nodeId: s.nodeId, dependsOn: s.dependsOn ?? [], approve: !!s.approve, quoteId: null, quotes: 0, txHash: null, result: null, intents: [], releases: [] }));
+  /** The server's rule: an intent with no transaction for its quote and no release. */
+  const unresolved = (n: FakeNode) => n.intents.find((q) => n.txQuoteId !== q && !n.releases.includes(q)) ?? null;
   const byId = (id: string) => nodes.find((n) => n.nodeId === id)!;
   /** Verdicts the confirm route has stored, by tx hash. */
   const verdicts = new Map<string, Verdict>();
@@ -105,7 +109,7 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; loc
   const confirmScript: (Reply | "throw" | ((t: { now: number }) => Reply))[] = [];
   /** Per-op overrides: return a Reply to replace the default, undefined to fall through. */
   const ov: Partial<Record<Op, (...a: never[]) => Reply | undefined>> = {};
-  const counts: Record<Op, number> = { getPlan: 0, next: 0, quote: 0, bind: 0, tx: 0, settle: 0, build: 0, confirm: 0 };
+  const counts: Record<Op, number> = { getPlan: 0, next: 0, quote: 0, bind: 0, tx: 0, settle: 0, build: 0, confirm: 0, intent: 0, release: 0 };
   const seen = { builds: [] as unknown[], confirms: [] as unknown[], txs: [] as { nodeId: string; quoteId: string; txHash: string }[] };
   let qseq = 0;
 
@@ -132,6 +136,7 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; loc
     nodes: nodes.map((n) => ({
       nodeId: n.nodeId, ref: { ...REF }, dependsOn: [...n.dependsOn], state: stateOf(n), quoteAttempts: n.quotes,
       quoteId: n.quoteId, txHash: n.txHash, result: n.result ? { ...n.result } : null,
+      signing: ((q) => (q ? { quoteId: q } : null))(unresolved(n)),
     })),
     recipients: {},
   });
@@ -154,6 +159,7 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; loc
       if (!flags.approved) return err(409, "NOT_APPROVED");
       const n = byId(nodeId);
       if (current() !== n || !quotable(n)) return err(409, "STEP_NOT_READY");
+      if (unresolved(n)) return err(409, "SIGNATURE_UNRESOLVED");
       n.quotes++;
       n.quoteId = QID(++qseq);
       n.quotedAt = t.now;
@@ -176,6 +182,28 @@ function world(specs: NodeSpec[] = [{ nodeId: "n1" }], o: { planId?: string; loc
       const n = byId(nodeId);
       if (n.txHash && n.txHash !== input.txHash) return err(409, "CONFLICT");
       n.txHash = input.txHash;
+      n.txQuoteId = input.quoteId;
+      return ok({ plan: view() });
+    },
+    async intent(_p, nodeId, input) {
+      log.push(`intent:${nodeId}`);
+      const o = hook("intent", nodeId, input); if (o) return o;
+      const n = byId(nodeId);
+      if (!flags.approved) return err(409, "NOT_APPROVED");
+      if (n.quoteId !== input.quoteId) return err(409, "CONFLICT");
+      if (n.txHash) return err(409, "CONFLICT");
+      const open = unresolved(n);
+      if (open && open !== input.quoteId) return err(409, "SIGNATURE_UNRESOLVED");
+      if (!n.intents.includes(input.quoteId)) n.intents.push(input.quoteId);
+      return ok({ plan: view() });
+    },
+    async release(_p, nodeId, input) {
+      log.push(`release:${nodeId}:${input.reason}`);
+      const o = hook("release", nodeId, input); if (o) return o;
+      const n = byId(nodeId);
+      if (!n.intents.includes(input.quoteId)) return err(404, "NOT_FOUND");
+      if (n.txQuoteId === input.quoteId) return err(409, "CONFLICT");
+      if (!n.releases.includes(input.quoteId)) n.releases.push(input.quoteId);
       return ok({ plan: view() });
     },
     async settle(_p, nodeId) {
@@ -268,7 +296,7 @@ describe("happy path", () => {
     expect(r.kind).toBe("completed");
     expect(w.log).toEqual([
       "grant", "journal:load", "getPlan", "next", "quote:n1", "bind:n1", "build",
-      "getPlan", "grant", "sign:action", `journal:save:${H(1)}`, `tx:n1:${H(1)}`, "journal:clear:n1",
+      "getPlan", "grant", "intent:n1", "sign:action", `journal:save:${H(1)}`, `tx:n1:${H(1)}`, "journal:clear:n1",
       `receipt:${H(1)}`, `confirm:${H(1)}`, "settle:n1",
       "grant", "journal:load", "getPlan",
     ]);
@@ -924,13 +952,15 @@ describe("HTTP transport adapter", () => {
   it("maps every port to the existing routes: same-origin, no-store, exact bodies; no approve/abandon", async () => {
     const { http, calls } = fakeHttp(() => ({ status: 200, text: "{\"ok\":true}" }));
     const t = createHttpTransports({ http, baseUrl: "https://app.example" });
-    expect(Object.keys(t.plans).sort()).toEqual(["bind", "getPlan", "next", "quote", "settle", "tx"]);
+    expect(Object.keys(t.plans).sort()).toEqual(["bind", "getPlan", "intent", "next", "quote", "release", "settle", "tx"]);
     await t.plans.getPlan("plan_x/y");
     await t.plans.next("p");
     await t.plans.quote("p", "n1");
     await t.plans.bind("p", "n1", "tok");
     await t.plans.tx("p", "n1", { quoteId: "q", txHash: "h" });
     await t.plans.settle("p", "n1");
+    await t.plans.intent("p", "n1", { quoteId: "q" });
+    await t.plans.release("p", "n1", { quoteId: "q", reason: "wallet_rejected" });
     await t.sdk.build({ ...REF, inputs: { a: "1" }, walletAddress: WALLET, quoteToken: "tok" });
     await t.sdk.confirm({ ...REF, txHash: "h", walletAddress: WALLET, quoteId: "q" });
     expect(calls.map((c) => `${c.init.method} ${c.url} ${c.init.body ?? ""}`)).toEqual([
@@ -940,6 +970,8 @@ describe("HTTP transport adapter", () => {
       "POST https://app.example/api/plans/p {\"op\":\"bind\",\"nodeId\":\"n1\",\"quoteToken\":\"tok\"}",
       "POST https://app.example/api/plans/p {\"op\":\"tx\",\"nodeId\":\"n1\",\"quoteId\":\"q\",\"txHash\":\"h\"}",
       "POST https://app.example/api/plans/p {\"op\":\"settle\",\"nodeId\":\"n1\"}",
+      "POST https://app.example/api/plans/p {\"op\":\"intent\",\"nodeId\":\"n1\",\"quoteId\":\"q\"}",
+      "POST https://app.example/api/plans/p {\"op\":\"release\",\"nodeId\":\"n1\",\"quoteId\":\"q\",\"reason\":\"wallet_rejected\"}",
       `POST https://app.example/api/ask/action/build {"protocolId":"payai","actionId":"transfer","version":"1.0.0","inputs":{"a":"1"},"walletAddress":"${WALLET}","quoteToken":"tok"}`,
       `POST https://app.example/api/ask/action/confirm {"protocolId":"payai","actionId":"transfer","version":"1.0.0","txHash":"h","walletAddress":"${WALLET}","quoteId":"q"}`,
     ]);
@@ -998,7 +1030,7 @@ describe("source boundary", () => {
   it("never approves or abandons a plan; the adapter only sends the step ops", () => {
     expect(src).not.toMatch(/approvePlan|abandonPlan|["']abandon["']|op:\s*["']approve["']/);
     const ops = [...src.matchAll(/op:\s*"(\w+)"/g)].map((m) => m[1]);
-    expect(new Set(ops)).toEqual(new Set(["next", "quote", "bind", "tx", "settle"]));
+    expect(new Set(ops)).toEqual(new Set(["next", "quote", "bind", "tx", "settle", "intent", "release"]));
   });
   it("lives outside lib/plan (the Phase 2A guard's directory is untouched)", () => {
     expect(join("lib", "plans-client", "runner.ts").startsWith(join("lib", "plan") + "/")).toBe(false);
@@ -1041,13 +1073,13 @@ describe("F1 — after approvals, the final action is re-checked before it is si
     const w = approvalWorld(() => {});
     expect((await w.run()).kind).toBe("completed");
     const between = w.log.slice(w.log.indexOf(`receipt:${H(1)}`) + 1, w.log.indexOf("sign:action"));
-    expect(between).toEqual(["getPlan", "grant"]);
+    expect(between).toEqual(["getPlan", "grant", "intent:n1"]);
   });
   it("without approvals there is exactly one pre-sign check (unchanged)", async () => {
     const w = world();
     await w.run();
     const before = w.log.slice(w.log.indexOf("build") + 1, w.log.indexOf("sign:action"));
-    expect(before).toEqual(["getPlan", "grant"]);
+    expect(before).toEqual(["getPlan", "grant", "intent:n1"]);
   });
 
   const cases: [string, (w: World) => void, Partial<{ kind: string; code: string }>][] = [
@@ -2022,5 +2054,221 @@ describe("5C-2c — outcomes carry the facts a classifier needs", () => {
     const b = world();
     b.ov.settle = () => err(500, "CORRUPT");
     expect(classifyOutcome(await b.run())).toMatchObject({ tx: "recorded", retry: "SAFE_TO_RESUME", txHash: H(1) });
+  });
+});
+
+/* ══ 5C-2d — durable signing intent ════════════════════════════════════════ */
+
+describe("5C-2d — a server-side signing intent comes before the final signature", () => {
+  const order = (w: World, ...entries: string[]) => {
+    const at = entries.map((e) => w.log.indexOf(e));
+    expect(at.every((i) => i >= 0), JSON.stringify(entries)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  };
+  /** Another runner on the same server: a fresh journal and its own lock (another browser / device). */
+  const elsewhere = (w: World) => {
+    const entries = new Map<string, JournalEntry>();
+    return w.runner({
+      lock: fakeLock(),
+      journal: { save: (e) => void entries.set(e.nodeId, e), load: () => [...entries.values()], clear: (_p, n) => void entries.delete(n) },
+    });
+  };
+  const blocked = async (w: World, r: ReturnType<World["runner"]>) => {
+    const before = { quote: w.counts.quote, build: w.counts.build, sent: w.wallet.sent.length };
+    const out = await r.run(PLAN);
+    expect(out).toMatchObject({ kind: "signature_unresolved", code: "SIGNATURE_UNRESOLVED", nodeId: "n1", quoteId: w.byId("n1").quoteId });
+    expect({ quote: w.counts.quote, build: w.counts.build, sent: w.wallet.sent.length }).toEqual(before);
+    expect(classifyOutcome(out)).toMatchObject({ category: "recovery", tx: "uncertain", retry: "UNKNOWN_TRANSACTION_STATE", action: "check_wallet_activity", resumeScope: "none", terminal: true });
+    return out;
+  };
+
+  it("A. normal run: final presign → intent → sign → journal → /tx; exactly one intent, resolved by the transaction", async () => {
+    const w = world();
+    expect((await w.run()).kind).toBe("completed");
+    order(w, "build", "intent:n1", "sign:action", `journal:save:${H(1)}`, `tx:n1:${H(1)}`);
+    const i = w.log.indexOf("intent:n1");
+    expect(w.log.slice(i - 2, i + 2)).toEqual(["getPlan", "grant", "intent:n1", "sign:action"]); // final presign → intent → sign
+    expect(w.counts.intent).toBe(1);
+    expect(w.counts.release).toBe(0);
+    expect(w.byId("n1").intents).toEqual([w.byId("n1").quoteId]);
+    expect(w.view().nodes[0].signing).toBeNull(); // J. resolved by the TxFact
+  });
+  it("A. with an approval: no intent for the approval; the intent comes after the approval and the re-check", async () => {
+    const w = world([{ nodeId: "n1", approve: true }]);
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.intent).toBe(1);
+    order(w, "sign:approve", `receipt:${H(1)}`, "intent:n1", "sign:action");
+    expect(w.log.slice(w.log.indexOf("sign:approve"), w.log.indexOf(`receipt:${H(1)}`))).not.toContain("intent:n1");
+  });
+  it("B. stopping before the intent (quote declined): no intent, nothing signed; the next run quotes again normally", async () => {
+    const w = world();
+    expect((await w.run({ confirmQuote: async () => "decline" })).kind).toBe("quote_declined");
+    expect(w.counts.intent).toBe(0);
+    expect(w.wallet.sent).toEqual([]);
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.quote).toBe(2);
+    expect(signs(w)).toEqual(["sign:action"]);
+  });
+  it("C. intent refused or unreachable → the wallet is never asked; nothing is built again or retried", async () => {
+    for (const reply of [err(500, "CORRUPT"), { status: 0, body: null } as Reply, err(409, "CONFLICT"), err(404, "NOT_FOUND"), ok({})]) {
+      const w = world();
+      w.ov.intent = () => reply;
+      const r = await w.run();
+      expect(["server_error", "network_error", "conflict", "not_found", "invalid_response"]).toContain(r.kind);
+      expect(r).toMatchObject({ nodeId: "n1", txHash: null });
+      expect(w.wallet.sent).toEqual([]);
+      expect(w.counts.build).toBe(1);
+      expect(w.counts.intent).toBe(1);
+      expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+    }
+  });
+  it("C. intent answered with SIGNATURE_UNRESOLVED → signature_unresolved, nothing signed", async () => {
+    const w = world();
+    w.ov.intent = () => err(409, "SIGNATURE_UNRESOLVED");
+    expect(await w.run()).toMatchObject({ kind: "signature_unresolved", code: "SIGNATURE_UNRESOLVED", quoteId: w.byId("n1").quoteId });
+    expect(w.wallet.sent).toEqual([]);
+  });
+  it("D. intent written but its response lost → nothing signed; the next run finds it and never quotes, builds or signs", async () => {
+    const w = world();
+    w.ov.intent = (nodeId: string, input: { quoteId: string }) => { w.byId(nodeId).intents.push(input.quoteId); return { status: 0, body: null }; };
+    expect((await w.run()).kind).toBe("network_error");
+    expect(w.wallet.sent).toEqual([]);
+    delete w.ov.intent;
+    await blocked(w, w.runner());
+  });
+  it("E/F/G. final send failed, no hash, or a text-only rejection → no release; every later run (any browser) is blocked", async () => {
+    const failures: [() => Promise<string>, string, string][] = [
+      [() => Promise.reject(new Error("internal JSON-RPC error")), "wallet_error", "ACTION_SEND_FAILED"],
+      [async () => "", "wallet_error", "ACTION_HASH_MISSING"],
+      [() => Promise.reject(new Error("User rejected the request.")), "wallet_rejected", "REJECTED_TEXT"],
+    ];
+    for (const [send, kind, code] of failures) {
+      const w = world();
+      w.wallet.sendQueue.push(send);
+      expect(await w.run()).toMatchObject({ kind, code });
+      expect(w.counts.release).toBe(0);
+      expect(w.view().nodes[0].signing).toEqual({ quoteId: w.byId("n1").quoteId });
+      await blocked(w, w.runner()); // N. same browser, another tab (the lock is free again)
+      await blocked(w, elsewhere(w)); // M/O. browser restart, another browser or device
+      expect(await w.plans.quote(PLAN, "n1")).toMatchObject({ status: 409, body: { code: "SIGNATURE_UNRESOLVED" } }); // Q. the server refuses
+      expect(w.wallet.sent).toHaveLength(1);
+    }
+  });
+  it("H. a 4001 (code) rejection of the final action releases the attempt; the next run quotes and signs anew — only then", async () => {
+    const w = world();
+    w.wallet.sendQueue.push(() => Promise.reject({ code: 4001 }));
+    expect(await w.run()).toMatchObject({ kind: "wallet_rejected", code: "REJECTED_CODE" });
+    expect(w.log).toContain("release:n1:wallet_rejected");
+    expect(w.byId("n1").releases).toEqual([w.byId("n1").quoteId]);
+    expect(w.view().nodes[0].signing).toBeNull();
+    expect(w.wallet.sent).toHaveLength(1); // the release signed nothing
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.quote).toBe(2);
+    expect(w.wallet.sent).toHaveLength(2);
+  });
+  it("H. if that release isn't recorded, the attempt stays unresolved and the outcome says so", async () => {
+    for (const reply of [err(500, "CORRUPT"), { status: 0, body: null } as Reply]) {
+      const w = world();
+      w.wallet.sendQueue.push(() => Promise.reject({ code: 4001 }));
+      w.ov.release = () => reply;
+      expect(await w.run()).toMatchObject({ kind: "signature_unresolved", code: "SIGNATURE_UNRESOLVED", quoteId: w.byId("n1").quoteId });
+      delete w.ov.release;
+      await blocked(w, w.runner());
+    }
+  });
+  it("I. an approval rejection creates and releases nothing", async () => {
+    for (const e of [{ code: 4001 }, new Error("User rejected the request.")]) {
+      const w = world([{ nodeId: "n1", approve: true }]);
+      w.wallet.sendQueue.push(() => Promise.reject(e));
+      expect((await w.run()).kind).toBe("wallet_rejected");
+      expect(w.counts.intent).toBe(0);
+      expect(w.counts.release).toBe(0);
+      expect(w.view().nodes[0].signing).toBeNull();
+    }
+  });
+  it("K. journal saved but /tx failed → the next run replays the journal; no new quote or signature; the intent resolves", async () => {
+    const w = world();
+    w.ov.tx = () => ({ status: 0, body: null });
+    expect(await w.run()).toMatchObject({ kind: "tx_unrecorded", journaled: true });
+    delete w.ov.tx;
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.quote).toBe(1);
+    expect(signs(w)).toEqual(["sign:action"]);
+    expect(w.view().nodes[0].signing).toBeNull();
+  });
+  it("K. journal saved, /tx failed, then ANOTHER browser (no journal) runs → blocked; it never signs", async () => {
+    const w = world();
+    w.ov.tx = () => ({ status: 0, body: null });
+    await w.run();
+    delete w.ov.tx;
+    await blocked(w, elsewhere(w));
+  });
+  it("L. journal save failure → tx_unrecorded (journaled:false); the next run is blocked by the unresolved intent", async () => {
+    const w = world();
+    w.journal.failSave = true;
+    expect(await w.run()).toMatchObject({ kind: "tx_unrecorded", journaled: false });
+    w.journal.failSave = false;
+    await blocked(w, w.runner());
+  });
+  it("a plan view whose signing field is malformed or missing is unreadable (fail closed)", async () => {
+    for (const signing of [undefined, "x", { quoteId: "nope" }, {}, []]) {
+      const w = world();
+      w.ov.getPlan = () => { const v = w.view(); return ok({ plan: { ...v, nodes: v.nodes.map((n) => ({ ...n, signing })) } }); };
+      expect((await w.run()).kind).toBe("invalid_response");
+      expect(w.wallet.sent).toEqual([]);
+    }
+  });
+});
+
+describe("5C-2d — source guards", () => {
+  const src = readFileSync(join(__dirname, "..", "lib", "plans-client", "runner.ts"), "utf8");
+  const finalSend = src.lastIndexOf("signer.sendTransaction(");
+  const intent = src.indexOf("plans.intent(");
+  it("the intent call comes after the last pre-sign check and immediately before the final send, with a stop if it fails", () => {
+    expect(src.match(/plans\.intent\(/g)).toHaveLength(1);
+    expect(intent).toBeGreaterThan(src.lastIndexOf("presignCheck(nodeId, quote.quoteId, wallet)"));
+    expect(intent).toBeLessThan(finalSend);
+    const between = src.slice(intent, finalSend);
+    expect(between).toMatch(/if \(!planFrom\(intended\)\) \{\s*return /);
+    expect(between).not.toMatch(/sendTransaction|plans\.(quote|bind|release)\(|sdk\.build\(/);
+  });
+  it("no approval path records an intent", () => {
+    const approvals = src.slice(src.indexOf("for (const step of steps.slice(0, -1))"), src.indexOf("if (steps.length > 1) {"));
+    expect(approvals.length).toBeGreaterThan(100);
+    expect(approvals).not.toMatch(/intent|release/);
+  });
+  it("release is called exactly once, only in the REJECTED_CODE branch, only with wallet_rejected", () => {
+    expect(src.match(/plans\.release\(/g)).toHaveLength(1);
+    const at = src.indexOf("plans.release(");
+    expect(src.slice(at - 250, at)).toMatch(/if \(rejected === "REJECTED_CODE"\) \{/);
+    expect(src.slice(at, at + 120)).toMatch(/reason: "wallet_rejected"/);
+    expect(src).not.toMatch(/user_attested_not_sent/);
+    expect(src.match(/signer\.sendTransaction\(/g)).toHaveLength(2); // no rebroadcast added
+  });
+  it("the route's intent / release ops take only listed fields and never read wallet, hash, status, calldata or target", () => {
+    const route = readFileSync(join(__dirname, "..", "app", "api", "plans", "[planId]", "route.ts"), "utf8");
+    expect(route).toMatch(/intent: \["op", "nodeId", "quoteId"\]/);
+    expect(route).toMatch(/release: \["op", "nodeId", "quoteId", "reason"\]/);
+    const ops = route.slice(route.indexOf('case "intent":'));
+    expect(ops).not.toMatch(/stringField\(body, "(wallet|txHash|status|data|to|target|token|amount|fee|chainId)"/);
+  });
+});
+
+describe("5C-2d follow-up — losing the intent slot race never reaches the wallet", () => {
+  it("intent → 409 CONFLICT (another runner's intent took the node's slot): no signature, no journal, no /tx; the next run is blocked", async () => {
+    const w = world();
+    const winner = "f".repeat(32);
+    w.ov.intent = (nodeId: string) => { w.byId(nodeId).intents.push(winner); return err(409, "CONFLICT"); };
+    const r = await w.run();
+    expect(r).toMatchObject({ kind: "conflict", code: "CONFLICT", nodeId: "n1", txHash: null });
+    expect(w.wallet.sent).toEqual([]);
+    expect(w.log.some((l) => l.startsWith("journal:save"))).toBe(false);
+    expect(w.counts.tx).toBe(0);
+    expect(classifyOutcome(r).retry).not.toBe("SAFE_TO_RETRY");
+    delete w.ov.intent;
+    const quotes = w.counts.quote;
+    expect(await w.runner().run(PLAN)).toMatchObject({ kind: "signature_unresolved", code: "SIGNATURE_UNRESOLVED", quoteId: winner });
+    expect(w.counts.quote).toBe(quotes);
+    expect(w.wallet.sent).toEqual([]);
   });
 });

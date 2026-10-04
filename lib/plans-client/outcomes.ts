@@ -78,6 +78,7 @@ export const KIND_CATEGORY: Readonly<Record<RunOutcomeKind, OutcomeCategory>> = 
   completed: "success",
   already_running: "lock",
   lock_unavailable: "lock",
+  signature_unresolved: "recovery",
   aborted: "execution",
   grant_required: "wallet",
   wallet_mismatch: "wallet",
@@ -192,6 +193,11 @@ function classify(kind: RunOutcomeKind, code: string | null, o: RunOutcome, hasH
     case "lock_unavailable":
       return make("DO_NOT_RETRY", "unsupported_browser");
 
+    case "signature_unresolved":
+      // A final signature may have been sent and nothing records it. The
+      // server refuses new quotes until it's recorded or released.
+      return make("UNKNOWN_TRANSACTION_STATE", "check_wallet_activity", { tx: "uncertain" });
+
     case "aborted":
       // With a hash: stopped while settling a recorded step. Without: every
       // abort point is before the final signature.
@@ -254,6 +260,11 @@ function classify(kind: RunOutcomeKind, code: string | null, o: RunOutcome, hasH
       return make("USER_ACTION_REQUIRED", "check_wallet_activity", { tx: "approvals_only", resumeScope: "none" });
 
     case "tx_unrecorded":
+      // The server no longer has what it needs to record this hash (its
+      // build record is gone): resuming can't succeed — get help.
+      if (o.journaled === true && code === "NOT_FOUND") {
+        return make("USER_ACTION_REQUIRED", "contact_support", { tx: "journaled", resumeScope: "this_browser" });
+      }
       if (o.journaled === true) return make("SAFE_TO_RESUME", "none", { tx: "journaled", resumeScope: "this_browser" });
       // Sent, but not saved anywhere: running again could send it twice.
       return make("DO_NOT_RETRY", "check_wallet_activity", { category: "execution", tx: "sent_unrecorded" });

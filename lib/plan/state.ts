@@ -45,11 +45,53 @@ export interface ResultFact {
 
 export interface AbandonFact { planId: string; wallet: string; abandonedAt: number }
 
+/**
+ * Written BEFORE the final action of a quote attempt is requested from the
+ * wallet (Stage 5C-2d): from then on a transaction may exist even if nothing
+ * records its hash. Metadata only — it authorizes nothing and holds no
+ * calldata (buildDigest is a SHA-256 of the built final transaction).
+ */
+export interface SigningIntentFact {
+  planId: string;
+  nodeId: string;
+  quoteId: string;
+  attempt: number;
+  wallet: string;
+  intentAt: number;
+  buildDigest: string;
+}
+
+export type ReleaseReason = "wallet_rejected" | "user_attested_not_sent";
+
+/** The owner released one signing attempt: its final action was not sent.
+ *  Never deletes the intent, and never stops that quote's transaction from
+ *  being recorded later — chain evidence wins. */
+export interface ReleaseFact {
+  planId: string;
+  nodeId: string;
+  quoteId: string;
+  wallet: string;
+  reason: ReleaseReason;
+  releasedAt: number;
+}
+
 export interface NodeFacts {
   /** Attempts in order (1, 2, …). */
   quotes: readonly QuoteFact[];
   tx: TxFact | null;
   result: ResultFact | null;
+  /** Signing intents, in quote-attempt order. */
+  intents: readonly SigningIntentFact[];
+  releases: readonly ReleaseFact[];
+}
+
+/**
+ * The node's unresolved signing intent: one with neither a transaction
+ * recorded for its quote nor a release. While it exists the node must not be
+ * quoted again — a transaction may already be on its way.
+ */
+export function unresolvedIntent(f: NodeFacts): SigningIntentFact | null {
+  return f.intents.find((i) => !(f.tx && f.tx.quoteId === i.quoteId) && !f.releases.some((r) => r.quoteId === i.quoteId)) ?? null;
 }
 
 export interface PlanFacts {
@@ -72,7 +114,7 @@ export type NodeState = "pending" | "awaiting_signature" | "submitted" | "confir
 const FAILED: ReadonlySet<NodeState> = new Set(["reverted", "unverified", "skipped"]);
 const TERMINAL: ReadonlySet<NodeState> = new Set(["confirmed", "reverted", "unverified", "skipped"]);
 
-const EMPTY: NodeFacts = { quotes: [], tx: null, result: null };
+const EMPTY: NodeFacts = { quotes: [], tx: null, result: null, intents: [], releases: [] };
 
 /**
  * Every node's state, in step order (dependencies first, so a failure

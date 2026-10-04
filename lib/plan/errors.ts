@@ -72,7 +72,9 @@ export type PlanErrorCode =
   | "NOT_APPROVED"               // the plan hasn't been approved yet
   | "STEP_NOT_READY"             // not the current step / a dependency isn't confirmed / terminal / submitted / plan finished
   | "QUOTE_REFUSED"              // the SDK quote, its validation or payment policy refused, or the fee rate moved
-  | "SETTLEMENT_PENDING";        // no stored confirmation verdict for the step's transaction yet
+  | "SETTLEMENT_PENDING"         // no stored confirmation verdict for the step's transaction yet
+  // Signing intent (Phase 2C Stage 5C-2d):
+  | "SIGNATURE_UNRESOLVED";      // a final signature may have been requested and nothing records its outcome
 
 export class PlanError extends Error {
   constructor(

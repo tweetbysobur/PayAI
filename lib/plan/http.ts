@@ -64,6 +64,7 @@ export const PLAN_ERROR_STATUS: Readonly<Record<PlanErrorCode, number>> = {
   NOT_APPROVABLE: 409,
   NOT_APPROVED: 409,
   STEP_NOT_READY: 409,
+  SIGNATURE_UNRESOLVED: 409,
   // The step's bound inputs can't be resolved from what was confirmed.
   OUTPUT_NOT_CONFIRMED: 409,
   UNKNOWN_OUTPUT: 409,

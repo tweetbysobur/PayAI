@@ -50,6 +50,8 @@ export interface PlanNodeViewDTO {
   quoteId: string | null;
   txHash: string | null;
   result: { status: ResultStatusDTO; outputs: Readonly<Record<string, unknown>> | null } | null;
+  /** Stage 5C-2d: an unresolved signing attempt (the server's), else null. */
+  signing: { quoteId: string } | null;
 }
 
 export interface PlanViewDTO {
@@ -197,6 +199,10 @@ export interface PlanTransport {
   bind(planId: string, nodeId: string, quoteToken: string): Promise<Reply>;
   tx(planId: string, nodeId: string, input: { quoteId: string; txHash: string }): Promise<Reply>;
   settle(planId: string, nodeId: string): Promise<Reply>;
+  /** Stage 5C-2d: record the signing intent — immediately before the final signature. */
+  intent(planId: string, nodeId: string, input: { quoteId: string }): Promise<Reply>;
+  /** Stage 5C-2d: release a signing attempt. The runner sends only "wallet_rejected". */
+  release(planId: string, nodeId: string, input: { quoteId: string; reason: "wallet_rejected" }): Promise<Reply>;
 }
 
 /** The existing SDK routes (/api/ask/action/build and /confirm). */
@@ -288,6 +294,7 @@ export type RunOutcomeKind =
   | "wallet_locked"
   | "journal_unavailable"
   | "lock_unavailable"
+  | "signature_unresolved"
   | "not_approved"
   | "expired"
   | "abandoned"
@@ -383,6 +390,12 @@ function parseNode(v: unknown): PlanNodeViewDTO | null {
   if (!ref) return null;
   if (v.quoteId !== null && !isStr(v.quoteId)) return null;
   if (v.txHash !== null && !isStr(v.txHash)) return null;
+  // Stage 5C-2d: required. Anything but null or { quoteId } is unreadable.
+  let signing: PlanNodeViewDTO["signing"] = null;
+  if (v.signing !== null) {
+    if (!isPlain(v.signing) || typeof v.signing.quoteId !== "string" || !QUOTE_ID_RE.test(v.signing.quoteId)) return null;
+    signing = { quoteId: v.signing.quoteId };
+  }
   let result: PlanNodeViewDTO["result"] = null;
   if (v.result !== null && v.result !== undefined) {
     if (!isPlain(v.result) || typeof v.result.status !== "string" || !RESULT_STATES.includes(v.result.status)) return null;
@@ -395,7 +408,7 @@ function parseNode(v: unknown): PlanNodeViewDTO | null {
     nodeId: v.nodeId, ref, state: v.state as NodeStateDTO,
     dependsOn: Array.isArray(v.dependsOn) ? v.dependsOn.filter(isStr) : [],
     quoteAttempts: isNum(v.quoteAttempts) ? v.quoteAttempts : 0,
-    quoteId: v.quoteId as string | null, txHash: v.txHash as string | null, result,
+    quoteId: v.quoteId as string | null, txHash: v.txHash as string | null, result, signing,
   };
 }
 
@@ -552,7 +565,7 @@ function validateDeps(d: PlanRunnerDeps): void {
   if (!fns(d.journal, ["save", "load", "clear"])) throw new PlanRunnerConfigError("A transaction journal (save, load, clear) is required.");
   if (!fns(d.lock, ["runExclusive"])) throw new PlanRunnerConfigError("An execution lock (runExclusive) is required.");
   if (typeof d.wallet !== "function" && !fns(d.wallet, ["sendTransaction", "waitForReceipt"])) throw new PlanRunnerConfigError("A wallet with sendTransaction and waitForReceipt is required.");
-  if (!fns(d.plans, ["getPlan", "next", "quote", "bind", "tx", "settle"])) throw new PlanRunnerConfigError("A Plan API transport is required.");
+  if (!fns(d.plans, ["getPlan", "next", "quote", "bind", "tx", "settle", "intent", "release"])) throw new PlanRunnerConfigError("A Plan API transport is required.");
   if (!fns(d.sdk, ["build", "confirm"])) throw new PlanRunnerConfigError("An SDK transport (build, confirm) is required.");
   if (!fns(d.grant, ["currentAddress"])) throw new PlanRunnerConfigError("A wallet grant source is required.");
   if (!fns(d.clock, ["now", "sleep"])) throw new PlanRunnerConfigError("A clock (now, sleep) is required.");
@@ -571,6 +584,7 @@ const MESSAGES: Record<RunOutcomeKind, string> = {
   wallet_locked: "Connect or unlock your wallet to continue.",
   journal_unavailable: "Couldn't read this browser's record of sent transactions, so nothing was signed.",
   lock_unavailable: "This browser couldn't make sure the plan runs in only one tab, so nothing was run.",
+  signature_unresolved: "A transaction for this step may already have been sent. Check your wallet's activity — nothing new was signed.",
   not_approved: "Approve this plan first.",
   expired: "This plan has expired.",
   abandoned: "This plan was abandoned.",
@@ -660,6 +674,10 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         case "NOT_APPROVED":
         case "NOT_APPROVABLE": return outcome("not_approved", base);
         case "STEP_NOT_READY": return outcome("step_not_ready", base);
+        case "SIGNATURE_UNRESOLVED": {
+          const signing = lastPlan?.nodes.find((n) => n.nodeId === nodeId)?.signing ?? null;
+          return outcome("signature_unresolved", { ...base, quoteId: signing?.quoteId ?? null });
+        }
         case "QUOTE_REFUSED": return outcome("quote_refused", base);
         case "CONFLICT": return outcome("conflict", base);
         case "NOT_FOUND":
@@ -929,6 +947,13 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         signer = again.signer; // never the snapshot from before the approvals
       }
 
+      // Stage 5C-2d: the durable signing intent, recorded by the server
+      // BEFORE the wallet is asked. If it isn't recorded, nothing is signed.
+      const intended = await call(() => plans.intent(planId, nodeId, { quoteId: quote.quoteId }));
+      if (!planFrom(intended)) {
+        return intended.status === 200 ? outcome("invalid_response", { ...ids, status: 200 }) : { ...planFailure(intended, nodeId), quoteId: quote.quoteId };
+      }
+
       // The final action: sign once.
       const final = steps[steps.length - 1];
       let txHash: string;
@@ -937,6 +962,13 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         txHash = await signer.sendTransaction({ ...final.tx });
       } catch (e) {
         const rejected = rejectionCode(e);
+        if (rejected === "REJECTED_CODE") {
+          // The one proof nothing was sent: release this attempt. If the
+          // release isn't recorded, the attempt stays unresolved — say so.
+          const released = await call(() => plans.release(planId, nodeId, { quoteId: quote.quoteId, reason: "wallet_rejected" }));
+          if (!planFrom(released)) return outcome("signature_unresolved", { ...ids, code: "SIGNATURE_UNRESOLVED" });
+          return outcome("wallet_rejected", { ...ids, code: rejected });
+        }
         return rejected ? outcome("wallet_rejected", { ...ids, code: rejected }) : outcome("wallet_error", { ...ids, code: "ACTION_SEND_FAILED" });
       }
       if (typeof txHash !== "string" || txHash.length === 0) return outcome("wallet_error", { ...ids, code: "ACTION_HASH_MISSING" });
@@ -1004,6 +1036,13 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         if (plan.state === "failed" || plan.state === "partial") {
           const ended = plan.nodes.find((n) => n.state === "reverted" || n.state === "unverified");
           if (ended) return outcome(ended.state as "reverted" | "unverified", { nodeId: ended.nodeId, quoteId: ended.quoteId, txHash: ended.txHash });
+        }
+        // Stage 5C-2d: a final signature may already have been requested for
+        // a step and nothing records its outcome (journal replay ran above).
+        // Never quote, build or sign it again — in any browser.
+        const unresolved = plan.nodes.find((n) => n.signing !== null && n.txHash === null);
+        if (unresolved) {
+          return outcome("signature_unresolved", { nodeId: unresolved.nodeId, quoteId: unresolved.signing!.quoteId, code: "SIGNATURE_UNRESOLVED" });
         }
         if (plan.abandoned) return outcome("abandoned");
         if (plan.expired) return outcome("expired");
@@ -1157,6 +1196,8 @@ export function createHttpTransports(opts: { http?: HttpFn; baseUrl?: string } =
     bind: (planId, nodeId, quoteToken) => send("POST", planPath(planId), { op: "bind", nodeId, quoteToken }),
     tx: (planId, nodeId, input) => send("POST", planPath(planId), { op: "tx", nodeId, quoteId: input.quoteId, txHash: input.txHash }),
     settle: (planId, nodeId) => send("POST", planPath(planId), { op: "settle", nodeId }),
+    intent: (planId, nodeId, input) => send("POST", planPath(planId), { op: "intent", nodeId, quoteId: input.quoteId }),
+    release: (planId, nodeId, input) => send("POST", planPath(planId), { op: "release", nodeId, quoteId: input.quoteId, reason: input.reason }),
   };
   const sdk: SdkTransport = {
     build: (req) => send("POST", "/api/ask/action/build", {
