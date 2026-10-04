@@ -13,6 +13,7 @@ import {
   type NodeStateDTO, type PlanRunnerDeps, type PlanStateDTO, type PlanTransport, type PlanViewDTO, type Reply,
   type RunnerWallet, type SdkTransport, type StepQuoteDTO,
 } from "@/lib/plans-client/runner";
+import { createLocalJournal } from "@/lib/plans-client/journal";
 
 /**
  * Phase 2C Stage 4B — the headless client-side Plan Runner
@@ -619,6 +620,30 @@ describe("journal → /tx", () => {
     expect(await w.run()).toMatchObject({ kind: "tx_unrecorded", journaled: false, txHash: H(1) });
     expect(w.counts.tx).toBe(0);
     expect(w.wallet.sent).toHaveLength(1);
+  });
+  it("with the real localStorage journal: a malformed final hash is refused by save → tx_unrecorded (journaled:false), nothing stored, /tx NOT called", async () => {
+    const w = world();
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    const journal = createLocalJournal({ storage, wallet: WALLET, planId: PLAN });
+    w.wallet.sendQueue.push(async () => "0xnot-a-hash");
+    const r = await w.run({ journal });
+    expect(r).toMatchObject({ kind: "tx_unrecorded", journaled: false, nodeId: "n1", txHash: "0xnot-a-hash" });
+    expect(w.wallet.sent).toHaveLength(1);
+    expect(w.counts.tx).toBe(0);
+    expect(w.counts.confirm).toBe(0);
+    expect(store.size).toBe(0);
+  });
+  it("with the real localStorage journal: a normal run journals, records, clears the key and completes", async () => {
+    const w = world();
+    const store = new Map<string, string>();
+    const writes: string[] = [];
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { writes.push(v); store.set(k, v); }, removeItem: (k: string) => void store.delete(k) };
+    const r = await w.run({ journal: createLocalJournal({ storage, wallet: WALLET, planId: PLAN }) });
+    expect(r.kind).toBe("completed");
+    expect(writes).toEqual([JSON.stringify([{ planId: PLAN, nodeId: "n1", quoteId: w.byId("n1").quoteId, txHash: H(1) }])]);
+    expect(w.seen.txs).toEqual([{ nodeId: "n1", quoteId: w.byId("n1").quoteId, txHash: H(1) }]);
+    expect(store.size).toBe(0);
   });
   it("resume replays the journal into /tx — never signs again — then confirms and completes", async () => {
     const w = world();
