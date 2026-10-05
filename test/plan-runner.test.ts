@@ -2321,3 +2321,113 @@ describe("5C-2e — confirm refusals: permanent codes stop, transient ones keep 
     expect((await w.run()).kind).toBe("stalled");
   });
 });
+
+/* ══ 5C-2f — a sent transaction is never hidden behind a dead plan ═════════ */
+
+describe("5C-2f — plan unreadable while this browser holds a sent transaction", () => {
+  /** The real localStorage journal over a recording Map, pre-seeded with entries. */
+  function journalWith(...entries: JournalEntry[]) {
+    const store = new Map<string, string>();
+    const writes: string[] = [];
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => { writes.push(`set:${k}`); store.set(k, v); },
+      removeItem: (k: string) => { writes.push(`remove:${k}`); store.delete(k); },
+    };
+    const journal = createLocalJournal({ storage, wallet: WALLET, planId: PLAN });
+    for (const e of entries) journal.save(e);
+    const snapshot = new Map(store);
+    writes.length = 0;
+    return { journal, store, writes, unchanged: () => expect(store).toEqual(snapshot) };
+  }
+  const E7 = { planId: PLAN, nodeId: "n1", quoteId: QID(7), txHash: H(7) };
+  const nothingNew = (w: World) => {
+    expect(w.counts.quote + w.counts.bind + w.counts.build + w.counts.tx + w.counts.intent + w.counts.release + w.counts.confirm + w.counts.settle).toBe(0);
+    expect(w.wallet.sent).toEqual([]);
+  };
+
+  it("EXPIRED / NOT_FOUND with no journal entry: unchanged (expired / not_found)", async () => {
+    for (const [reply, kind] of [[err(410, "EXPIRED"), "expired"], [err(404, "NOT_FOUND"), "not_found"]] as const) {
+      const w = world();
+      const j = journalWith();
+      w.ov.getPlan = () => reply;
+      expect(await w.run({ journal: j.journal })).toMatchObject({ kind, code: reply.body && (reply.body as { code: string }).code, txHash: null });
+      nothingNew(w);
+    }
+  });
+
+  for (const [label, reply, code] of [
+    ["410 EXPIRED", err(410, "EXPIRED"), "EXPIRED"],
+    ["404 NOT_FOUND", err(404, "NOT_FOUND"), "NOT_FOUND"],
+    ["410 without a code", { status: 410, body: { ok: false } } as Reply, "EXPIRED"],
+    ["404 without a code", { status: 404, body: null } as Reply, "NOT_FOUND"],
+    ["500 CORRUPT", err(500, "CORRUPT"), "CORRUPT"],
+    ["400 INVALID_PLAN", err(400, "INVALID_PLAN"), "INVALID_PLAN"],
+    ["503 UNAVAILABLE", err(503, "UNAVAILABLE"), "UNAVAILABLE"],
+  ] as const) {
+    it(`${label} with a journal entry → tx_unrecorded (journaled) carrying the entry; journal untouched; nothing new done`, async () => {
+      const w = world();
+      const j = journalWith(E7);
+      w.ov.getPlan = () => reply;
+      const r = await w.run({ journal: j.journal });
+      expect(r).toMatchObject({ kind: "tx_unrecorded", journaled: true, nodeId: "n1", quoteId: QID(7), txHash: H(7), code, status: reply.status });
+      j.unchanged();
+      expect(j.writes).toEqual([]);
+      nothingNew(w);
+      const cls = classifyOutcome(r);
+      expect(cls).toMatchObject({ tx: "journaled", txHash: H(7), resumeScope: "this_browser" });
+      expect(cls.action).not.toBe("new_plan");
+      expect(cls.retry).toBe(code === "UNAVAILABLE" ? "SAFE_TO_RESUME" : "USER_ACTION_REQUIRED");
+    });
+  }
+
+  it("transient failures keep today's outcomes even with an entry (network, grant, rate limit, uncoded 500, unreadable plan)", async () => {
+    for (const [reply, kind] of [
+      [{ status: 0, body: null }, "network_error"],
+      [err(401, "UNAUTHORIZED"), "grant_required"],
+      [err(429, "RATE_LIMITED"), "rate_limited"],
+      [{ status: 500, body: { ok: false } }, "server_error"],
+      [ok({ plan: { planId: PLAN, state: "weird" } }), "invalid_response"],
+    ] as [Reply, string][]) {
+      const w = world();
+      const j = journalWith(E7);
+      w.ov.getPlan = () => reply;
+      expect(await w.run({ journal: j.journal }), kind).toMatchObject({ kind, txHash: null });
+      j.unchanged();
+      nothingNew(w);
+    }
+  });
+
+  it("with several entries, the first in journal order is surfaced; all stay saved", async () => {
+    const w = world([{ nodeId: "n1" }, { nodeId: "n2", dependsOn: ["n1"] }]);
+    const E8 = { planId: PLAN, nodeId: "n2", quoteId: QID(8), txHash: H(8) };
+    const j = journalWith(E7, E8);
+    w.ov.getPlan = () => err(410, "EXPIRED");
+    expect(await w.run({ journal: j.journal })).toMatchObject({ kind: "tx_unrecorded", nodeId: "n1", txHash: H(7) });
+    expect(j.journal.load(PLAN)).toEqual([E7, E8]);
+    j.unchanged();
+  });
+
+  it("the /tx EXPIRED path: sent → journaled → /tx 410 → plan expires → resume still shows the transaction, never 'expired / new plan'", async () => {
+    const w = world();
+    const j = journalWith();
+    w.ov.tx = () => err(410, "EXPIRED");
+    const first = await w.run({ journal: j.journal });
+    expect(first).toMatchObject({ kind: "tx_unrecorded", journaled: true, code: "EXPIRED", txHash: H(1), nodeId: "n1" });
+    expect(classifyOutcome(first)).toMatchObject({ retry: "USER_ACTION_REQUIRED", action: "check_wallet_activity", resumeScope: "this_browser" });
+    const quoteId = w.byId("n1").quoteId;
+    const saved = new Map(j.store);
+    expect([...saved.values()]).toHaveLength(1);
+    // The plan is gone now.
+    w.ov.getPlan = () => err(410, "EXPIRED");
+    const txCalls = w.counts.tx;
+    const resumed = await w.runner({ journal: j.journal }).run(PLAN);
+    expect(resumed).toMatchObject({ kind: "tx_unrecorded", journaled: true, code: "EXPIRED", txHash: H(1), nodeId: "n1", quoteId });
+    const cls = classifyOutcome(resumed);
+    expect(cls.retry).toBe("USER_ACTION_REQUIRED");
+    expect(cls.action).not.toBe("new_plan");
+    expect(w.counts.tx).toBe(txCalls); // no automatic /tx retry from the failure branch
+    expect(j.store).toEqual(saved);
+    expect(w.wallet.sent).toHaveLength(1);
+  });
+});

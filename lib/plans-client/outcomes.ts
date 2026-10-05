@@ -119,6 +119,10 @@ const PLAN_FAILURE_KINDS: ReadonlySet<RunOutcomeKind> = new Set<RunOutcomeKind>(
   "quote_refused", "conflict", "not_found", "unavailable", "server_error", "plan_error",
 ]);
 
+/** Plan failures that are permanent for a sent-but-unrecorded transaction
+ *  (Stage 5C-2f): the plan can't record it any more. Exactly these. */
+const PERMANENT_PLAN_CODES: ReadonlySet<string> = new Set(["EXPIRED", "NOT_FOUND", "INVALID_PLAN", "INVALID_NODE", "CORRUPT"]);
+
 type Shape = Omit<OutcomeClass, "kind" | "code" | "txHash">;
 
 const UNKNOWN: Shape = {
@@ -260,10 +264,11 @@ function classify(kind: RunOutcomeKind, code: string | null, o: RunOutcome, hasH
       return make("USER_ACTION_REQUIRED", "check_wallet_activity", { tx: "approvals_only", resumeScope: "none" });
 
     case "tx_unrecorded":
-      // The server no longer has what it needs to record this hash (its
-      // build record is gone): resuming can't succeed — get help.
-      if (o.journaled === true && code === "NOT_FOUND") {
-        return make("USER_ACTION_REQUIRED", "contact_support", { tx: "journaled", resumeScope: "this_browser" });
+      // The transaction was sent, but the plan can no longer record it (it
+      // expired, is gone, or is unreadable): resuming can't succeed, and a
+      // new plan could pay twice. The user must check their wallet first.
+      if (o.journaled === true && code !== null && PERMANENT_PLAN_CODES.has(code)) {
+        return make("USER_ACTION_REQUIRED", "check_wallet_activity", { tx: "journaled", resumeScope: "this_browser" });
       }
       if (o.journaled === true) return make("SAFE_TO_RESUME", "none", { tx: "journaled", resumeScope: "this_browser" });
       // Sent, but not saved anywhere: running again could send it twice.

@@ -80,6 +80,8 @@ const CASES: [string, RunOutcome][] = [
   ["approval_failed unknown", out("approval_failed")],
   ["tx_unrecorded journaled", out("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, status: 502 })],
   ["tx_unrecorded journaled NOT_FOUND", out("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, status: 404, code: "NOT_FOUND" })],
+  ...["EXPIRED", "INVALID_PLAN", "INVALID_NODE", "CORRUPT"].map((code): [string, RunOutcome] =>
+    [`tx_unrecorded journaled ${code}`, out("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, nodeId: "n1", code })]),
   ["tx_unrecorded not journaled", out("tx_unrecorded", { journaled: false, txHash: H(1), quoteId: QID })],
   ["tx_unrecorded not journaled, malformed hash", out("tx_unrecorded", { journaled: false, txHash: "0xnot-a-hash" })],
   ["confirm_rejected", out("confirm_rejected", { status: 400, txHash: H(1) })],
@@ -273,8 +275,8 @@ describe("classifications", () => {
     expect(c("signature_unresolved").code).toBeNull();
     expect(c("signature_unresolved", { code: "SIGNATURE_UNRESOLVED" }).code).toBe("SIGNATURE_UNRESOLVED");
   });
-  it("tx_unrecorded journaled + NOT_FOUND (S3): resuming can't record it — get help, in this browser", () => {
-    expectClass("tx_unrecorded journaled NOT_FOUND", { tx: "journaled", retry: "USER_ACTION_REQUIRED", action: "contact_support", resumeScope: "this_browser", terminal: false });
+  it("tx_unrecorded journaled + NOT_FOUND (S3): resuming can't record it — check the wallet, in this browser (5C-2f action)", () => {
+    expectClass("tx_unrecorded journaled NOT_FOUND", { tx: "journaled", retry: "USER_ACTION_REQUIRED", action: "check_wallet_activity", resumeScope: "this_browser", terminal: false });
     expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "NOT_FOUND" }).txHash).toBe(H(1));
     // Other /tx failure codes still resume.
     expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "CONFLICT" }).retry).toBe("SAFE_TO_RESUME");
@@ -334,5 +336,41 @@ describe("source boundary: outcomes.ts", () => {
   it("builds no UI copy: never reads or writes a message", () => {
     expect(src).not.toMatch(/\.message\b|\bmessage\s*:/);
     expect(src).not.toMatch(/\btitle\b|\blabel\b|\bdescription\b/);
+  });
+});
+
+/* ══ Stage 5C-2f — a sent transaction is never hidden behind a dead plan ═══ */
+
+describe("5C-2f — tx_unrecorded (journaled) with a permanent plan failure", () => {
+  const PERMANENT = ["EXPIRED", "NOT_FOUND", "INVALID_PLAN", "INVALID_NODE", "CORRUPT"];
+  it("each permanent code → USER_ACTION_REQUIRED / check_wallet_activity / this_browser; hash and quote kept; never resume, retry or new_plan", () => {
+    for (const code of PERMANENT) {
+      const r = c("tx_unrecorded", { journaled: true, txHash: H(1), quoteId: QID, nodeId: "n1", code });
+      expect(r, code).toMatchObject({
+        kind: "tx_unrecorded", code, category: "recovery", tx: "journaled", txHash: H(1),
+        retry: "USER_ACTION_REQUIRED", action: "check_wallet_activity", resumeScope: "this_browser", terminal: false,
+      });
+      expect(r.action).not.toBe("new_plan");
+    }
+  });
+  it("other journaled codes keep resuming; unjournaled keeps DO_NOT_RETRY", () => {
+    for (const code of [null, "CONFLICT", "UNAVAILABLE", "INTERNAL_ERROR", "RATE_LIMITED", "expired", "Not_Found"]) {
+      expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code }).retry, String(code)).toBe("SAFE_TO_RESUME");
+    }
+    for (const code of [null, ...PERMANENT]) {
+      expect(c("tx_unrecorded", { journaled: false, txHash: H(1), code })).toMatchObject({ tx: "sent_unrecorded", retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none" });
+    }
+  });
+  it("sweep: no journaled tx_unrecorded with a permanent code is ever SAFE_TO_RESUME, SAFE_TO_RETRY or new_plan", () => {
+    for (const code of PERMANENT) for (const status of [null, 404, 410, 500]) for (const txHash of [H(1), "0xbad"]) {
+      const r = c("tx_unrecorded", { journaled: true, code, status, txHash });
+      expect(["SAFE_TO_RESUME", "SAFE_TO_RETRY"]).not.toContain(r.retry);
+      expect(r.action).not.toBe("new_plan");
+      expect(r.resumeScope).toBe("this_browser");
+    }
+    for (const [name, o] of CASES) {
+      const r = classifyOutcome(o);
+      if (o.kind === "tx_unrecorded" && o.journaled === true && o.code && PERMANENT.includes(o.code)) expect(r.retry, name).toBe("USER_ACTION_REQUIRED");
+    }
   });
 });

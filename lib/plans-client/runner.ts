@@ -553,6 +553,11 @@ function receiptSucceeded(r: unknown): boolean {
 
 /** A confirm reply that carries a STORED verdict (success / reverted /
  *  unverified) — after one, only settle is needed. */
+/** Plan-read failures (besides expired / not found) that, with a server
+ *  failure code, mean the plan can't be loaded to record a sent transaction
+ *  (Stage 5C-2f). Grant, rate-limit and network failures are not among them. */
+const DEAD_PLAN_KINDS: ReadonlySet<RunOutcomeKind> = new Set<RunOutcomeKind>(["server_error", "plan_error", "unavailable"]);
+
 /** Confirm refusals that are permanent for this transaction (Stage 5C-2e):
  *  no build record for it, sent by another wallet, or not the built
  *  transaction. Any other 409 (CONFIRM_IN_PROGRESS, or uncoded) is transient. */
@@ -1025,7 +1030,21 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         if (!entries) return outcome("journal_unavailable", { message: "This browser's record of sent transactions is unreadable, so nothing was signed. Check your wallet's activity before continuing." });
 
         let plan = await fetchPlan();
-        if ("kind" in plan) return plan;
+        if ("kind" in plan) {
+          // Stage 5C-2f: a plan that can no longer be read must not hide a
+          // transaction this browser already sent. Surface the saved entry
+          // (unchanged, still saved) with the plan's failure code — never
+          // "expired / nothing sent". Transient failures keep today's path.
+          const sent = entries[0];
+          const code = plan.code ?? (plan.kind === "expired" ? "EXPIRED" : plan.kind === "not_found" ? "NOT_FOUND" : null);
+          if (sent && (plan.kind === "expired" || plan.kind === "not_found" || (DEAD_PLAN_KINDS.has(plan.kind) && plan.code !== null))) {
+            return outcome("tx_unrecorded", {
+              nodeId: sent.nodeId, quoteId: sent.quoteId, txHash: sent.txHash, journaled: true, code, status: plan.status,
+              message: "A transaction this browser sent for this plan isn't recorded, and the plan can't be loaded. Don't send it again — check your wallet's activity.",
+            });
+          }
+          return plan;
+        }
         if (entries.length > 0) {
           plan = await recoverJournal(entries, plan);
           if ("kind" in plan) return plan;
