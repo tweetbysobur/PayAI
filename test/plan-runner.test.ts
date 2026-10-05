@@ -2466,3 +2466,44 @@ describe("5C-2g — G1: a plan that expires after its transaction was recorded n
     expect(classifyOutcome(out)).toMatchObject({ retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none" });
   });
 });
+
+/* ══ 5C-2h — a partly executed plan never suggests starting over ══════════ */
+
+describe("5C-2h — step 1 confirmed, step 2 fails: the classifier never recommends a new plan", () => {
+  const twoStep = () => world([{ nodeId: "n1" }, { nodeId: "n2", dependsOn: ["n1"] }]);
+
+  it("step 2 quote_refused → check_wallet_activity (the plan context reaches the classifier)", async () => {
+    const w = twoStep();
+    w.ov.quote = (nodeId: string) => (nodeId === "n2" ? err(422, "QUOTE_REFUSED") : undefined);
+    const r = await w.run();
+    expect(r).toMatchObject({ kind: "quote_refused", nodeId: "n2" });
+    expect(r.plan?.nodes.find((n) => n.nodeId === "n1")).toMatchObject({ state: "confirmed", txHash: H(1) });
+    const cls = classifyOutcome(r);
+    expect(cls).toMatchObject({ retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none", terminal: true });
+    expect(cls.action).not.toBe("new_plan");
+    expect(signs(w)).toEqual(["sign:action"]); // step 1 only
+  });
+
+  it("step 2 reverted → check_wallet_activity", async () => {
+    const w = twoStep();
+    w.outcomeOf.set("n2", "reverted");
+    const r = await w.run();
+    expect(r).toMatchObject({ kind: "reverted", nodeId: "n2", txHash: H(2) });
+    expect(r.plan?.nodes.map((n) => [n.state, n.txHash])).toEqual([["confirmed", H(1)], ["reverted", H(2)]]);
+    expect(classifyOutcome(r)).toMatchObject({ retry: "DO_NOT_RETRY", tx: "recorded", action: "check_wallet_activity", terminal: true });
+  });
+
+  it("a single step that reverted (nothing else executed) still gets new_plan", async () => {
+    const w = world();
+    w.outcomeOf.set("n1", "reverted");
+    const r = await w.run();
+    expect(r).toMatchObject({ kind: "reverted", txHash: H(1) });
+    expect(classifyOutcome(r).action).toBe("new_plan");
+  });
+
+  it("step 1 quote_refused (nothing executed) still gets new_plan", async () => {
+    const w = twoStep();
+    w.ov.quote = () => err(422, "QUOTE_REFUSED");
+    expect(classifyOutcome(await w.run()).action).toBe("new_plan");
+  });
+});

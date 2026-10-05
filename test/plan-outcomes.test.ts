@@ -409,3 +409,73 @@ describe("5C-2g — expired / not_found never recommend a new plan", () => {
     for (const [name, o] of CASES) if (o.txHash !== null) expect(classifyOutcome(o).retry, name).not.toBe("SAFE_TO_RETRY");
   });
 });
+
+/* ══ Stage 5C-2h — a partly executed plan never suggests starting over ═════ */
+
+describe("5C-2h — new_plan is never recommended once a step's transaction was recorded (and not reverted)", () => {
+  type N = [state: string, txHash: string | null];
+  const planWith = (...nodes: N[]) => ({
+    planId: PLAN, state: "running", approved: true, abandoned: false, expired: false, approvable: false,
+    createdAt: 1, approveBy: 1, expiresAt: 2, currentStep: null, recipients: {},
+    nodes: nodes.map(([state, txHash], i) => ({ nodeId: `n${i + 1}`, ref: { protocolId: "payai", actionId: "swap", version: "1.0.0" }, dependsOn: [], state, quoteAttempts: 1, quoteId: QID, txHash, result: null, signing: null })),
+  }) as unknown as RunOutcome["plan"];
+  /** Every classifier path that returns new_plan (with plan: null). */
+  const NEW_PLAN: [string, RunOutcome][] = [
+    ["abandoned", out("abandoned")],
+    ["quote_refused", out("quote_refused", { code: "QUOTE_REFUSED", status: 422, nodeId: "n2" })],
+    ["build_refused POLICY_BLOCKED", out("build_refused", { code: "POLICY_BLOCKED", nodeId: "n2" })],
+    ["build_refused TARGET_NOT_ALLOWLISTED", out("build_refused", { code: "TARGET_NOT_ALLOWLISTED", nodeId: "n2" })],
+    ["build_refused INVALID_INPUT", out("build_refused", { code: "INVALID_INPUT", nodeId: "n2" })],
+    ["reverted", out("reverted", { nodeId: "n2", quoteId: QID, txHash: H(2) })],
+  ];
+  const without = (o: RunOutcome) => { const { action, ...rest } = classifyOutcome(o); void action; return rest; };
+
+  it("the table covers every path that returns new_plan", () => {
+    for (const [name, o] of NEW_PLAN) expect(classifyOutcome(o).action, name).toBe("new_plan");
+    const all = CASES.filter(([, o]) => classifyOutcome(o).action === "new_plan").map(([, o]) => `${o.kind}/${o.code}`);
+    for (const k of all) expect(NEW_PLAN.some(([, o]) => `${o.kind}/${o.code}` === k), k).toBe(true);
+  });
+
+  for (const executed of ["confirmed", "submitted", "unverified"]) {
+    it(`a ${executed} step with a transaction → check_wallet_activity on every new_plan path; nothing else changes`, () => {
+      for (const [name, o] of NEW_PLAN) {
+        // n1 executed; n2 is the failing step (reverted with its own hash for the reverted case).
+        const plan = planWith([executed, H(1)], [o.kind === "reverted" ? "reverted" : "awaiting_signature", o.kind === "reverted" ? H(2) : null]);
+        const r = classifyOutcome({ ...o, plan });
+        expect(r.action, `${name} / ${executed}`).toBe("check_wallet_activity");
+        expect(without({ ...o, plan }), name).toEqual(without(o)); // retry, tx, terminal, resumeScope, category, hash, code unchanged
+      }
+    });
+  }
+
+  it("unchanged (still new_plan): only reverted steps with transactions, steps without transactions, or no plan", () => {
+    const plans: [string, RunOutcome["plan"]][] = [
+      ["only reverted", planWith(["reverted", H(1)])],
+      ["reverted + pending", planWith(["reverted", H(1)], ["pending", null])],
+      ["no transactions", planWith(["awaiting_signature", null], ["pending", null])],
+      ["confirmed state but no hash", planWith(["confirmed", null])],
+      ["no nodes", planWith()],
+      ["null", null],
+    ];
+    for (const [name, o] of NEW_PLAN) for (const [label, plan] of plans) {
+      expect(classifyOutcome({ ...o, plan }).action, `${name} / ${label}`).toBe("new_plan");
+    }
+  });
+
+  it("outcomes without new_plan are untouched by an executed plan", () => {
+    const plan = planWith(["confirmed", H(1)], ["pending", null]);
+    for (const [name, o] of CASES) {
+      if (classifyOutcome(o).action === "new_plan") continue;
+      expect(classifyOutcome({ ...o, plan }), name).toEqual(classifyOutcome(o));
+    }
+  });
+
+  it("sweep: any executed (non-reverted, hashed) node in the plan → never new_plan, for every case", () => {
+    for (const executed of ["confirmed", "submitted", "unverified"]) for (const at of [0, 1]) {
+      const nodes: N[] = [["pending", null], ["reverted", H(3)]];
+      nodes.splice(at, 0, [executed, H(1)]);
+      const plan = planWith(...nodes);
+      for (const [name, o] of [...CASES, ...NEW_PLAN]) expect(classifyOutcome({ ...o, plan }).action, `${name} / ${executed}@${at}`).not.toBe("new_plan");
+    }
+  });
+});

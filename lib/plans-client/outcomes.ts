@@ -146,7 +146,22 @@ export function classifyOutcome(outcome: RunOutcome): OutcomeClass {
   const approvals = Array.isArray(outcome.approvalTxHashes) && outcome.approvalTxHashes.length > 0;
 
   const shape = classify(kind, code, outcome, hasHash, approvals);
-  return { kind, code, txHash, ...enforce(shape, hasHash) };
+  return { kind, code, txHash, ...neverStartOver(enforce(shape, hasHash), outcome) };
+}
+
+/**
+ * Stage 5C-2h: a plan with a step whose transaction was recorded and not
+ * reverted (confirmed, submitted or unverified) has already moved funds, or
+ * may have. Starting a new plan would repeat that step — so the action is
+ * "check_wallet_activity" instead of "new_plan". Only the action changes; a
+ * reverted step alone moved nothing and keeps "new_plan".
+ */
+function neverStartOver(s: Shape, o: RunOutcome): Shape {
+  if (s.action !== "new_plan") return s;
+  const nodes: unknown = o.plan?.nodes;
+  if (!Array.isArray(nodes)) return s;
+  const executed = nodes.some((n) => n !== null && typeof n === "object" && (n as { txHash?: unknown }).txHash !== null && (n as { state?: unknown }).state !== "reverted");
+  return executed ? { ...s, action: "check_wallet_activity" } : s;
 }
 
 /** run() rejected instead of returning an outcome: nothing is known. */
