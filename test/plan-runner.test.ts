@@ -2431,3 +2431,38 @@ describe("5C-2f — plan unreadable while this browser holds a sent transaction"
     expect(w.wallet.sent).toHaveLength(1);
   });
 });
+
+/* ══ 5C-2g — G1: expired after a recorded, unsettled transaction ═══════════ */
+
+describe("5C-2g — G1: a plan that expires after its transaction was recorded never suggests a new plan", () => {
+  it("TxFact recorded (journal cleared), not settled → plan expires → this browser and another device get expired → check wallet, never new_plan", async () => {
+    const w = world();
+    w.ov.settle = () => err(202, "SETTLEMENT_PENDING");
+    w.ov.confirm = () => ({ status: 502, body: { ok: false, code: "RECEIPT_UNAVAILABLE" } });
+    const first = await w.run();
+    expect(first).toMatchObject({ kind: "stalled", txHash: H(1) });
+    expect(w.byId("n1").txHash).toBe(H(1)); // the TxFact exists…
+    expect(w.journal.entries.size).toBe(0); // …and the journal was cleared after /tx
+    // The plan expires: its facts are gone.
+    w.ov.getPlan = () => err(410, "EXPIRED");
+    const counts = { ...w.counts };
+    const sent = w.wallet.sent.length;
+    const freshJournal = { save: () => {}, load: () => [], clear: () => {} };
+    for (const r of [w.runner(), w.runner({ journal: freshJournal, lock: fakeLock() })]) {
+      const out = await r.run(PLAN);
+      expect(out).toMatchObject({ kind: "expired", code: "EXPIRED", txHash: null }); // no hash is fabricated
+      const cls = classifyOutcome(out);
+      expect(cls).toMatchObject({ retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none", txHash: null });
+      expect(cls.action).not.toBe("new_plan");
+    }
+    // Nothing was quoted, built, signed, recorded or released by the resumes.
+    for (const op of ["quote", "bind", "build", "intent", "release", "tx", "confirm", "settle"] as const) expect(w.counts[op], op).toBe(counts[op]);
+    expect(w.wallet.sent).toHaveLength(sent);
+  });
+  it("a plan that is NOT_FOUND on resume gets the same conservative guidance", async () => {
+    const w = world();
+    w.ov.getPlan = () => err(404, "NOT_FOUND");
+    const out = await w.run();
+    expect(classifyOutcome(out)).toMatchObject({ retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none" });
+  });
+});

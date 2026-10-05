@@ -220,8 +220,12 @@ function classify(kind: RunOutcomeKind, code: string | null, o: RunOutcome, hasH
 
     case "not_approved": return make("USER_ACTION_REQUIRED", "approve_plan");
     case "expired":
-    case "abandoned":
     case "not_found":
+      // Stage 5C-2g: once a plan expires (or can't be found) its facts are
+      // gone, so a transaction sent for it can no longer be ruled out — never
+      // suggest a new plan, which could pay twice. Check the wallet first.
+      return make("DO_NOT_RETRY", "check_wallet_activity");
+    case "abandoned":
     case "quote_refused":
       return make("DO_NOT_RETRY", "new_plan");
     case "step_not_ready": return make("SAFE_TO_RETRY", "wait");

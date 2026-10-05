@@ -218,7 +218,9 @@ describe("classifications", () => {
   });
   it("plan state before signing", () => {
     expectClass("not_approved", { retry: "USER_ACTION_REQUIRED", action: "approve_plan" });
-    for (const n of ["expired", "abandoned", "not_found", "quote_refused"]) expectClass(n, { tx: "none", retry: "DO_NOT_RETRY", action: "new_plan", terminal: true });
+    for (const n of ["abandoned", "quote_refused"]) expectClass(n, { tx: "none", retry: "DO_NOT_RETRY", action: "new_plan", terminal: true });
+    // 5C-2g: an expired / missing plan never suggests a new plan.
+    for (const n of ["expired", "not_found", "not_found WALLET_MISMATCH"]) expectClass(n, { tx: "none", retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none", terminal: true });
     expectClass("step_not_ready", { retry: "SAFE_TO_RETRY", action: "wait", terminal: false });
   });
   it("settlement errors after a recorded transaction resume — never a fresh retry — and keep the hash", () => {
@@ -372,5 +374,38 @@ describe("5C-2f — tx_unrecorded (journaled) with a permanent plan failure", ()
       const r = classifyOutcome(o);
       if (o.kind === "tx_unrecorded" && o.journaled === true && o.code && PERMANENT.includes(o.code)) expect(r.retry, name).toBe("USER_ACTION_REQUIRED");
     }
+  });
+});
+
+/* ══ Stage 5C-2g — an expired plan never implies "nothing was sent" ════════ */
+
+describe("5C-2g — expired / not_found never recommend a new plan", () => {
+  const WANT = { retry: "DO_NOT_RETRY", action: "check_wallet_activity", resumeScope: "none", terminal: true };
+  it("expired and not_found, with or without a code, → DO_NOT_RETRY / check_wallet_activity / none", () => {
+    for (const [kind, code, status] of [["expired", null, 410], ["expired", "EXPIRED", 410], ["not_found", null, 404], ["not_found", "NOT_FOUND", 404]] as const) {
+      const r = c(kind, { code, status });
+      expect(r, `${kind}/${code}`).toMatchObject({ kind, code, tx: "none", txHash: null, ...WANT });
+    }
+    expect(c("expired", { approvalTxHashes: [H(5)] })).toMatchObject({ tx: "approvals_only", ...WANT });
+  });
+  it("sweep: no expired / not_found outcome (any code, status or approval) ever returns new_plan, or a retry/resume class", () => {
+    for (const kind of ["expired", "not_found"] as const) {
+      for (const code of [null, "EXPIRED", "NOT_FOUND", "WALLET_MISMATCH", "SOMETHING"]) for (const status of [null, 404, 410, 403]) for (const approvals of [[], [H(5)]]) {
+        const r = c(kind, { code, status, approvalTxHashes: approvals });
+        expect(r.action, `${kind}/${code}/${status}`).not.toBe("new_plan");
+        expect(["SAFE_TO_RETRY", "SAFE_TO_RESUME", "USER_ACTION_REQUIRED"]).not.toContain(r.retry);
+      }
+    }
+    for (const [name, o] of CASES) {
+      if ((o.kind === "expired" || o.kind === "not_found") && o.txHash === null) expect(classifyOutcome(o).action, name).toBe("check_wallet_activity");
+    }
+  });
+  it("unchanged: abandoned / quote_refused keep new_plan; hash-carrying and journaled outcomes keep their classes", () => {
+    for (const kind of ["abandoned", "quote_refused"] as const) expect(c(kind)).toMatchObject({ retry: "DO_NOT_RETRY", action: "new_plan", resumeScope: "none" });
+    expect(c("expired", { txHash: H(1), code: "EXPIRED" })).toMatchObject({ category: "settlement", tx: "recorded", retry: "SAFE_TO_RESUME", txHash: H(1) });
+    expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "EXPIRED" })).toMatchObject({ tx: "journaled", retry: "USER_ACTION_REQUIRED", action: "check_wallet_activity", resumeScope: "this_browser" });
+    expect(c("tx_unrecorded", { journaled: true, txHash: H(1), code: "UNAVAILABLE" }).retry).toBe("SAFE_TO_RESUME");
+    expect(c("tx_unrecorded", { journaled: false, txHash: H(1) })).toMatchObject({ retry: "DO_NOT_RETRY", tx: "sent_unrecorded" });
+    for (const [name, o] of CASES) if (o.txHash !== null) expect(classifyOutcome(o).retry, name).not.toBe("SAFE_TO_RETRY");
   });
 });
