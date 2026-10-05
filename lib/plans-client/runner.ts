@@ -553,6 +553,11 @@ function receiptSucceeded(r: unknown): boolean {
 
 /** A confirm reply that carries a STORED verdict (success / reverted /
  *  unverified) — after one, only settle is needed. */
+/** Confirm refusals that are permanent for this transaction (Stage 5C-2e):
+ *  no build record for it, sent by another wallet, or not the built
+ *  transaction. Any other 409 (CONFIRM_IN_PROGRESS, or uncoded) is transient. */
+const PERMANENT_CONFIRM_409: ReadonlySet<string> = new Set(["BUILD_NOT_FOUND", "WRONG_SENDER", "TX_MISMATCH"]);
+
 function confirmIsTerminal(r: Reply): boolean {
   if (r.status !== 200 || !isPlain(r.body)) return false;
   const b = r.body;
@@ -746,7 +751,11 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
           if (confirmIsTerminal(c)) verdictStored = true;
           // A malformed confirm request can never succeed: stop, don't poll.
           else if (c.status === 400) return outcome("confirm_rejected", { ...ids, status: 400, code: bodyCode(c.body), ...(bodyMessage(c.body) ? { message: bodyMessage(c.body)! } : {}) });
-          // Network, 409, 429, 502, … : no stored verdict yet — keep polling.
+          // A permanent refusal for this transaction: stop — never re-sign or re-quote.
+          else if (c.status === 409 && PERMANENT_CONFIRM_409.has(bodyCode(c.body) ?? "")) {
+            return outcome("confirm_rejected", { ...ids, status: 409, code: bodyCode(c.body) });
+          }
+          // Network, other 409s, 429, 502, … : no stored verdict yet — keep polling.
           if (!verdictStored && overCap()) return outcome("stalled", ids);
         }
         emit({ phase: "settling", planId, nodeId: node.nodeId, txHash: node.txHash });

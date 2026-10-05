@@ -41,6 +41,11 @@ import { NextRequest, NextResponse } from "next/server";
  *
  * parseResult never throws (see the action's own doc) and this route never
  * signs or builds — it only reads, matches, records and formats.
+ *
+ * Machine codes on refusals (Stage 5C-2e), so a caller can tell permanent
+ * from transient without reading messages: 409 BUILD_NOT_FOUND / WRONG_SENDER
+ * / TX_MISMATCH are permanent for this transaction; 409 CONFIRM_IN_PROGRESS
+ * and 502 RECEIPT_UNAVAILABLE are transient.
  */
 export async function POST(req: NextRequest) {
   const { rateLimited } = await import("@/lib/platform/ratelimit");
@@ -77,7 +82,7 @@ export async function POST(req: NextRequest) {
   // 1. The build this confirm is for.
   const record = await peekRequest<BuildRecord>(buildKey(body.quoteId));
   if (!record || record.wallet !== wallet || record.protocolId !== body.protocolId || record.actionId !== body.actionId || record.version !== body.version) {
-    return NextResponse.json({ ok: false, message: "No matching prepared transaction was found for this confirmation." }, { status: 409 });
+    return NextResponse.json({ ok: false, code: "BUILD_NOT_FOUND", message: "No matching prepared transaction was found for this confirmation." }, { status: 409 });
   }
 
   // 2. One settlement per transaction hash.
@@ -85,7 +90,7 @@ export async function POST(req: NextRequest) {
   const claim = await claimRequest<Record<string, unknown>>(sKey);
   if (!claim.claimed) {
     if (claim.status === "done" && claim.result) return NextResponse.json({ ...claim.result, replayed: true });
-    return NextResponse.json({ ok: false, message: "This confirmation is already being processed." }, { status: 409 });
+    return NextResponse.json({ ok: false, code: "CONFIRM_IN_PROGRESS", message: "This confirmation is already being processed." }, { status: 409 });
   }
 
   try {
@@ -110,19 +115,19 @@ export async function POST(req: NextRequest) {
       tx = await pub.getTransaction({ hash: txHash });
     } catch {
       await releaseRequest(sKey);
-      return NextResponse.json({ ok: false, message: "Couldn't confirm that on-chain yet. Check the explorer — it may still settle.", explorerUrl }, { status: 502 });
+      return NextResponse.json({ ok: false, code: "RECEIPT_UNAVAILABLE", message: "Couldn't confirm that on-chain yet. Check the explorer — it may still settle.", explorerUrl }, { status: 502 });
     }
 
     // Must have been sent by the declared wallet — same guard /api/swap/confirm
     // applies, so nobody can point at an unrelated tx as "proof".
     if (receipt.from.toLowerCase() !== wallet) {
       await releaseRequest(sKey);
-      return NextResponse.json({ ok: false, message: "Transaction was not sent from the declared wallet." }, { status: 409 });
+      return NextResponse.json({ ok: false, code: "WRONG_SENDER", message: "Transaction was not sent from the declared wallet." }, { status: 409 });
     }
     // 3. And it must be exactly the transaction PayAI built for this quote.
     if (!matchesBuiltTx(record, { from: tx.from, to: tx.to, input: tx.input, value: tx.value })) {
       await releaseRequest(sKey);
-      return NextResponse.json({ ok: false, message: "That transaction doesn't match the one prepared for this action." }, { status: 409 });
+      return NextResponse.json({ ok: false, code: "TX_MISMATCH", message: "That transaction doesn't match the one prepared for this action." }, { status: 409 });
     }
 
     const actionReceipt = {

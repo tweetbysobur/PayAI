@@ -24,6 +24,20 @@ import { createHash } from "node:crypto";
 import { getRedis } from "./kv";
 
 const TTL_SECONDS = 24 * 60 * 60; // 24h — long enough to outlive any realistic retry window
+/** The default record lifetime. A caller may ask for a different one per
+ *  record (claimRequest / completeRequest `ttlSeconds`); nothing else does. */
+export const IDEMPOTENCY_TTL_SECONDS = TTL_SECONDS;
+
+export interface IdempotencyOptions {
+  /** This record's lifetime in seconds (a positive integer). Defaults to IDEMPOTENCY_TTL_SECONDS. */
+  ttlSeconds?: number;
+}
+
+function ttlOf(opts: IdempotencyOptions | undefined): number {
+  if (opts?.ttlSeconds === undefined) return TTL_SECONDS;
+  if (!Number.isSafeInteger(opts.ttlSeconds) || opts.ttlSeconds <= 0) throw new Error("ttlSeconds must be a positive integer.");
+  return opts.ttlSeconds;
+}
 
 export type IdempotencyStatus = "new" | "in_progress" | "done";
 
@@ -39,10 +53,23 @@ const key = (id: string) => `veripay:idem:${id}`;
 // Vercel's distributed serverless instances when KV isn't configured.
 const g = globalThis as unknown as { __veripayIdem?: Map<string, IdempotencyRecord<unknown>> };
 const mem = (g.__veripayIdem ??= new Map());
+/** In-memory records with a non-default lifetime: requestId → ttlSeconds. */
+const gt = globalThis as unknown as { __veripayIdemTtl?: Map<string, number> };
+const memTtl = (gt.__veripayIdemTtl ??= new Map());
 
 function pruneMem() {
-  const cutoff = Date.now() - TTL_SECONDS * 1000;
-  for (const [k, v] of mem) if (v.createdAt < cutoff) mem.delete(k);
+  const now = Date.now();
+  for (const [k, v] of mem) {
+    if (v.createdAt < now - (memTtl.get(k) ?? TTL_SECONDS) * 1000) {
+      mem.delete(k);
+      memTtl.delete(k);
+    }
+  }
+}
+function memSet(requestId: string, record: IdempotencyRecord<unknown>, ttl: number) {
+  mem.set(requestId, record);
+  if (ttl === TTL_SECONDS) memTtl.delete(requestId);
+  else memTtl.set(requestId, ttl);
 }
 
 /**
@@ -92,7 +119,9 @@ export function hashSignature(signature: string): string {
  */
 export async function claimRequest<T>(
   requestId: string,
+  opts?: IdempotencyOptions,
 ): Promise<{ claimed: true } | { claimed: false; status: IdempotencyStatus; result?: T }> {
+  const ttl = ttlOf(opts);
   const r = await getRedis();
   if (r) {
     // SET NX, not GET-then-SET. A read followed by a write is two round trips
@@ -105,7 +134,7 @@ export async function claimRequest<T>(
     const claimed = await r.set(
       key(requestId),
       { status: "in_progress", createdAt: Date.now() } as IdempotencyRecord<T>,
-      { nx: true, ex: TTL_SECONDS },
+      { nx: true, ex: ttl },
     );
     if (claimed) return { claimed: true };
     const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
@@ -119,7 +148,7 @@ export async function claimRequest<T>(
   pruneMem();
   const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
   if (existing) return { claimed: false, status: existing.status, result: existing.result };
-  mem.set(requestId, { status: "in_progress", createdAt: Date.now() });
+  memSet(requestId, { status: "in_progress", createdAt: Date.now() }, ttl);
   return { claimed: true };
 }
 
@@ -141,17 +170,18 @@ export async function peekRequest<T>(requestId: string): Promise<T | null> {
 }
 
 /** Store the final outcome under a claimed request id so retries replay it. */
-export async function completeRequest<T>(requestId: string, result: T): Promise<void> {
+export async function completeRequest<T>(requestId: string, result: T, opts?: IdempotencyOptions): Promise<void> {
+  const ttl = ttlOf(opts);
   const record: IdempotencyRecord<T> = { status: "done", result, createdAt: Date.now() };
   const r = await getRedis();
   if (r) {
     // TTL in the same command. Setting it separately leaves a window where a
     // failed EXPIRE strands the record forever, which would permanently block
     // that requestId from ever being usable again.
-    await r.set(key(requestId), record, { ex: TTL_SECONDS });
+    await r.set(key(requestId), record, { ex: ttl });
     return;
   }
-  mem.set(requestId, record);
+  memSet(requestId, record, ttl);
 }
 
 /** Release a claim without recording a result — used when execution fails before any chain action, so a genuine retry isn't permanently blocked. */
@@ -165,4 +195,5 @@ export async function releaseRequest(requestId: string): Promise<void> {
     return;
   }
   mem.delete(requestId);
+  memTtl.delete(requestId);
 }

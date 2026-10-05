@@ -1115,8 +1115,9 @@ describe("Stage 5C-2d — signing intent and release", () => {
     await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId });
     for (const reason of ["", "oops", "WALLET_REJECTED", null, 1]) expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason }))).toBe("INVALID_PLAN");
     expect(await code(s.releaseAttempt(OTHER, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" }))).toBe("NOT_FOUND");
+    vi.setSystemTime(T0 + 10 * MIN); // an attestation needs the 10-minute window (5C-2e)
     await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "user_attested_not_sent" });
-    vi.setSystemTime(T0 + MIN);
+    vi.setSystemTime(T0 + 11 * MIN);
     await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "user_attested_not_sent" });
     expect(await code(s.releaseAttempt(AUTH, planId, "n1", { quoteId: q.quoteId, reason: "wallet_rejected" }))).toBe("CONFLICT");
 
@@ -1181,8 +1182,9 @@ describe("Stage 5C-2d — only the intent's own quote resolves it", () => {
     const q1 = await s.quoteStep(AUTH, planId, "n1");
     await seedBuild(q1.quoteId, S);
     await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q1.quoteId });
+    vi.setSystemTime(T0 + 10 * MIN); // an attestation needs the 10-minute window (5C-2e)
     await s.releaseAttempt(AUTH, planId, "n1", { quoteId: q1.quoteId, reason: "user_attested_not_sent" });
-    vi.setSystemTime(T0 + 2 * MIN);
+    vi.setSystemTime(T0 + 12 * MIN);
     const q2 = await s.quoteStep(AUTH, planId, "n1");
     await seedBuild(q2.quoteId, S);
     await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q2.quoteId });
@@ -1205,5 +1207,72 @@ describe("Stage 5C-2d follow-up — the service never answers 'recorded' when th
     const { planErrorResponse } = await import("@/lib/plan/http");
     const { PlanError } = await import("@/lib/plan/errors");
     expect(planErrorResponse(new PlanError("CONFLICT", "x")).status).toBe(409);
+  });
+});
+
+/* ══ Stage 5C-2e — release timing (server clock vs the stored intentAt) ════ */
+
+describe("Stage 5C-2e — release timing", () => {
+  async function intended(id: string) {
+    const s = await svc();
+    const planId = await approved(sendDraft(id));
+    const q = await s.quoteStep(AUTH, planId, "n1");
+    await seedBuild(q.quoteId, S);
+    await s.recordSigningIntent(AUTH, planId, "n1", { quoteId: q.quoteId }); // intentAt = T0
+    return { s, planId, q };
+  }
+  const rel = (x: Awaited<ReturnType<typeof intended>>, reason: string, extra: Record<string, unknown> = {}) =>
+    x.s.releaseAttempt(AUTH, x.planId, "n1", { quoteId: x.q.quoteId, reason, ...extra } as never);
+
+  it("wallet_rejected: allowed at intentAt and at exactly +10 min; refused 1 ms later", async () => {
+    expect(await code(rel(await intended("intent_svc_5c2h0"), "wallet_rejected"))).toBe("OK");
+    const b = await intended("intent_svc_5c2h1");
+    vi.setSystemTime(T0 + 10 * MIN);
+    expect(await code(rel(b, "wallet_rejected"))).toBe("OK");
+    vi.setSystemTime(T0);
+    const c = await intended("intent_svc_5c2h2");
+    vi.setSystemTime(T0 + 10 * MIN + 1);
+    expect(await code(rel(c, "wallet_rejected"))).toBe("CONFLICT");
+    expect((await c.s.getPlan(AUTH, c.planId)).nodes[0].signing).toEqual({ quoteId: c.q.quoteId });
+  });
+  it("user_attested_not_sent: refused before +10 min; allowed at exactly +10 min and after", async () => {
+    const a = await intended("intent_svc_5c2h3");
+    for (const t of [T0, T0 + MIN, T0 + 10 * MIN - 1]) {
+      vi.setSystemTime(t);
+      expect(await code(rel(a, "user_attested_not_sent"))).toBe("STEP_NOT_READY");
+    }
+    expect((await a.s.getPlan(AUTH, a.planId)).nodes[0].signing).toEqual({ quoteId: a.q.quoteId });
+    vi.setSystemTime(T0 + 10 * MIN);
+    expect(await code(rel(a, "user_attested_not_sent"))).toBe("OK");
+    vi.setSystemTime(T0);
+    const b = await intended("intent_svc_5c2h4");
+    vi.setSystemTime(T0 + 3 * DAY);
+    expect(await code(rel(b, "user_attested_not_sent"))).toBe("OK");
+  });
+  it("client-supplied times are ignored: only the server clock and the stored intentAt decide", async () => {
+    const a = await intended("intent_svc_5c2h5");
+    const bypass = { now: T0 + DAY, releasedAt: T0 + DAY, intentAt: 0, at: T0 + DAY };
+    expect(await code(rel(a, "user_attested_not_sent", bypass))).toBe("STEP_NOT_READY");
+    vi.setSystemTime(T0 + 11 * MIN);
+    expect(await code(rel(a, "wallet_rejected", { now: T0, releasedAt: T0, intentAt: T0 + 11 * MIN }))).toBe("CONFLICT");
+    const store = await import("@/lib/plan/store");
+    const l = await store.loadPlan(a.planId, { sessionWallet: WALLET, activeChainId: 143 });
+    expect(l.facts.nodes.n1.intents[0].intentAt).toBe(T0);
+    expect(l.facts.nodes.n1.releases).toEqual([]);
+  });
+  it("write-once still holds outside the window: the same release repeats idempotently; a different reason conflicts", async () => {
+    const a = await intended("intent_svc_5c2h6");
+    await rel(a, "wallet_rejected");
+    vi.setSystemTime(T0 + DAY);
+    expect(await code(rel(a, "wallet_rejected"))).toBe("OK");
+    expect(await code(rel(a, "user_attested_not_sent"))).toBe("CONFLICT");
+  });
+  it("owner checks are unchanged, and a later transaction for the quote still wins over a release", async () => {
+    const a = await intended("intent_svc_5c2h7");
+    vi.setSystemTime(T0 + 10 * MIN);
+    expect(await code(a.s.releaseAttempt(OTHER, a.planId, "n1", { quoteId: a.q.quoteId, reason: "user_attested_not_sent" }))).toBe("NOT_FOUND");
+    await rel(a, "user_attested_not_sent");
+    const tx = txHash();
+    expect((await a.s.recordTx(AUTH, a.planId, "n1", { quoteId: a.q.quoteId, txHash: tx })).nodes[0]).toMatchObject({ state: "submitted", txHash: tx });
   });
 });

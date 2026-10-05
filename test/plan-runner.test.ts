@@ -2272,3 +2272,52 @@ describe("5C-2d follow-up — losing the intent slot race never reaches the wall
     expect(w.wallet.sent).toEqual([]);
   });
 });
+
+/* ══ 5C-2e — permanent vs transient confirm refusals ═══════════════════════ */
+
+describe("5C-2e — confirm refusals: permanent codes stop, transient ones keep polling", () => {
+  for (const code of ["BUILD_NOT_FOUND", "WRONG_SENDER", "TX_MISMATCH"]) {
+    it(`409 ${code} → confirm_rejected at once (no polling), keeping txHash and quoteId; nothing re-signed, re-quoted or rebroadcast`, async () => {
+      const w = world();
+      w.confirmScript.push(err(409, code));
+      const r = await w.run();
+      expect(r).toMatchObject({ kind: "confirm_rejected", code, status: 409, nodeId: "n1", txHash: H(1), quoteId: w.byId("n1").quoteId });
+      expect(w.t.sleeps).toEqual([]);
+      expect(w.counts.confirm).toBe(1);
+      expect(w.counts.settle).toBe(0);
+      expect(w.counts.quote).toBe(1);
+      expect(w.counts.build).toBe(1);
+      expect(w.wallet.sent).toHaveLength(1);
+      expect(classifyOutcome(r)).toMatchObject({ retry: "DO_NOT_RETRY", action: "contact_support", tx: "recorded", txHash: H(1) });
+    });
+  }
+  it("409 CONFIRM_IN_PROGRESS is transient: polling continues and the step completes", async () => {
+    const w = world();
+    w.confirmScript.push(err(409, "CONFIRM_IN_PROGRESS"));
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.confirm).toBe(2);
+    expect(w.t.sleeps).toEqual([5_000]);
+  });
+  it("an uncoded 409 keeps the existing (transient) behaviour", async () => {
+    const w = world();
+    w.confirmScript.push({ status: 409, body: { ok: false, message: "This confirmation is already being processed." } });
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.counts.confirm).toBe(2);
+  });
+  it("a 409 with an unknown code is not treated as permanent", async () => {
+    const w = world();
+    w.confirmScript.push(err(409, "SOMETHING_ELSE"));
+    expect((await w.run()).kind).toBe("completed");
+  });
+  it("502 RECEIPT_UNAVAILABLE stays transient", async () => {
+    const w = world();
+    w.confirmScript.push(err(502, "RECEIPT_UNAVAILABLE"), err(502, "RECEIPT_UNAVAILABLE"));
+    expect((await w.run()).kind).toBe("completed");
+    expect(w.t.sleeps).toEqual([5_000, 10_000]);
+  });
+  it("persistent CONFIRM_IN_PROGRESS still ends as stalled at the cap, never rejected", async () => {
+    const w = world();
+    w.ov.confirm = () => err(409, "CONFIRM_IN_PROGRESS");
+    expect((await w.run()).kind).toBe("stalled");
+  });
+});

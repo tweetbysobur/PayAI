@@ -67,6 +67,10 @@ export const PLAN_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const PLAN_RETENTION_GRACE_SECONDS = 24 * 60 * 60;
 export const APPROVAL_WINDOW_MS = 30 * 60 * 1000;
 export const MAX_QUOTE_ATTEMPTS = 8;
+/** Release timing (Stage 5C-2e), from the intent's server-recorded intentAt:
+ *  a wallet rejection is recorded within this window; an owner's "not sent"
+ *  attestation only from its end. */
+export const RELEASE_WINDOW_MS = 10 * 60 * 1000;
 const PLAN_TTL_MS = PLAN_TTL_SECONDS * 1000;
 
 const PLAN_ID_RE = /^plan_[0-9a-f]{32}$/;
@@ -692,8 +696,25 @@ export async function recordRelease(
   if (!isStr(input?.quoteId, QUOTE_ID_RE)) fail("INVALID_PLAN", "Invalid quote.", nodeId);
   if (typeof input.reason !== "string" || !RELEASE_REASONS.includes(input.reason)) fail("INVALID_PLAN", "Invalid release reason.", nodeId);
   const f = loaded.facts.nodes[nodeId];
-  if (!f.intents.some((i) => i.quoteId === input.quoteId)) fail("NOT_FOUND", "No signing attempt for that quote.", nodeId);
+  const intent = f.intents.find((i) => i.quoteId === input.quoteId);
+  if (!intent) return fail("NOT_FOUND", "No signing attempt for that quote.", nodeId);
   if (f.tx && f.tx.quoteId === input.quoteId) fail("CONFLICT", "A transaction is already recorded for that quote.", nodeId);
+  // Write-once first: the same release again is idempotent at any time.
+  const existing = f.releases.find((r) => r.quoteId === input.quoteId);
+  if (existing) {
+    if (existing.reason !== input.reason || existing.wallet !== loaded.core.wallet) fail("CONFLICT", "This signing attempt was already released differently.", nodeId);
+    return existing;
+  }
+  // Timing, by the server's clock against the stored intentAt — never a
+  // client's. A wallet rejection is immediate; "not sent" needs time for a
+  // pending transaction to show up first.
+  const windowEnd = intent.intentAt + RELEASE_WINDOW_MS;
+  if (input.reason === "wallet_rejected" && now > windowEnd) {
+    fail("CONFLICT", "A wallet rejection can only be recorded right after the signature was requested.", nodeId);
+  }
+  if (input.reason === "user_attested_not_sent" && now < windowEnd) {
+    fail("STEP_NOT_READY", "Check your wallet's activity — this can be confirmed 10 minutes after the signature was requested.", nodeId);
+  }
   const record: ReleaseFact = { planId, nodeId, quoteId: input.quoteId, wallet: loaded.core.wallet, reason: input.reason, releasedAt: now };
   const same = sameBy<ReleaseFact>(["planId", "nodeId", "quoteId", "wallet", "reason"]);
   return (await writeOnce(planKeys.release(planId, nodeId, input.quoteId), record, remainingTtl(loaded.core, now), (r) => parseRelease(r, planId, nodeId, input.quoteId), same, nodeId)).record;

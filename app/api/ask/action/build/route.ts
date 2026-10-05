@@ -68,6 +68,12 @@ export async function POST(req: NextRequest) {
 
   const { ActionInputError, ActionQuoteChangedError } = await import("@/lib/sdk/types");
   const { claimRequest, completeRequest, releaseRequest } = await import("@/lib/platform/idempotency");
+  // A build record is post-signature evidence: /tx, confirm and settlement
+  // need it for as long as a plan can still use it (Stage 5C-2e) — the plan's
+  // lifetime plus its retention grace, not the default 24h. Only these
+  // sdk-build records get it.
+  const { PLAN_TTL_SECONDS, PLAN_RETENTION_GRACE_SECONDS } = await import("@/lib/plan/store");
+  const BUILD_RECORD_TTL = { ttlSeconds: PLAN_TTL_SECONDS + PLAN_RETENTION_GRACE_SECONDS };
   let claimedKey: string | null = null;
   try {
     const { ensureBuiltinsRegistered } = await import("@/lib/sdk/bootstrap");
@@ -119,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     // 5. One build per quote.
     const key = buildKey(token.quoteId);
-    const claim = await claimRequest<import("@/lib/sdk/settlement").BuildRecord>(key);
+    const claim = await claimRequest<import("@/lib/sdk/settlement").BuildRecord>(key, BUILD_RECORD_TTL);
     if (!claim.claimed) {
       return NextResponse.json({
         ok: false, code: "ALREADY_BUILT",
@@ -135,7 +141,7 @@ export async function POST(req: NextRequest) {
     // completed-as-refused, so this preview can't be retried into a build.
     const quote = await action.quote(validInputs.value);
     if (termsHash(quote.terms) !== token.termsHash) {
-      await completeRequest(key, null);
+      await completeRequest(key, null, BUILD_RECORD_TTL);
       claimedKey = null;
       return NextResponse.json({
         ok: false, code: "FEE_TERMS_CHANGED",
@@ -161,7 +167,7 @@ export async function POST(req: NextRequest) {
       ...(quote.terms ? { terms: quote.terms } : {}),
       builtAt: Date.now(),
     };
-    await completeRequest(key, record);
+    await completeRequest(key, record, BUILD_RECORD_TTL);
     claimedKey = null;
 
     return NextResponse.json({
@@ -178,7 +184,7 @@ export async function POST(req: NextRequest) {
       // The fresh quote moved materially from what the user previewed. Like
       // FEE_TERMS_CHANGED, the claim stays completed-as-refused: this preview
       // can never be retried into a build — a fresh preview is required.
-      await completeRequest(claimedKey, null).catch(() => {});
+      await completeRequest(claimedKey, null, BUILD_RECORD_TTL).catch(() => {});
       return NextResponse.json({
         ok: false, code: "QUOTE_CHANGED",
         message: e.message || "The quote changed since your preview. Request a fresh preview to see the current price.",

@@ -136,3 +136,30 @@ describe("claim / complete / peek / release", () => {
     expect(retry.claimed).toBe(true);
   });
 });
+
+/* ══ Stage 5C-2e — in-memory record lifetime ═══════════════════════════════ */
+
+describe("in-memory fallback lifetime (5C-2e)", () => {
+  it("a default record is gone after 24h; an extended one survives until its own ttl", async () => {
+    const { vi } = await import("vitest");
+    const { claimRequest, completeRequest, peekRequest } = await import("@/lib/platform/idempotency");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const T = Date.UTC(2026, 9, 3, 12);
+      vi.setSystemTime(T);
+      await claimRequest("mem-default");
+      await completeRequest("mem-default", "d");
+      await claimRequest("mem-long", { ttlSeconds: 8 * 86_400 });
+      await completeRequest("mem-long", "l", { ttlSeconds: 8 * 86_400 });
+      vi.setSystemTime(T + 24 * 3_600_000 - 1);
+      expect(await peekRequest("mem-default")).toBe("d");
+      vi.setSystemTime(T + 25 * 3_600_000);
+      expect(await peekRequest("mem-default")).toBeNull();
+      expect(await peekRequest("mem-long")).toBe("l");
+      vi.setSystemTime(T + 8 * 86_400_000 + 1);
+      expect(await peekRequest("mem-long")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

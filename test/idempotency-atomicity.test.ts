@@ -119,3 +119,68 @@ describe("claimRequest — atomicity across instances", () => {
     expect((await claimRequest(id)).claimed, "a released id must be claimable again").toBe(true);
   });
 });
+
+/* ══ Stage 5C-2e — record lifetime ═════════════════════════════════════════ */
+
+describe("record lifetime (5C-2e): 24h by default; an explicit ttlSeconds only where asked", () => {
+  beforeEach(() => {
+    store.clear();
+  });
+  const setOpts = () => {
+    const spy = vi.spyOn(fakeRedis, "set");
+    return { spy, opts: () => spy.mock.calls.map((c) => c[2]) };
+  };
+
+  it("claimRequest and completeRequest default to exactly 24h (86,400 s)", async () => {
+    const { claimRequest, completeRequest, IDEMPOTENCY_TTL_SECONDS } = await import("@/lib/platform/idempotency");
+    expect(IDEMPOTENCY_TTL_SECONDS).toBe(86_400);
+    const { spy, opts } = setOpts();
+    await claimRequest("ttl-default");
+    await completeRequest("ttl-default", { ok: 1 });
+    expect(opts()).toEqual([{ nx: true, ex: 86_400 }, { ex: 86_400 }]);
+    spy.mockRestore();
+  });
+  it("an explicit ttlSeconds is used for that record's claim and completion only", async () => {
+    const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+    const { spy, opts } = setOpts();
+    await claimRequest("ttl-long", { ttlSeconds: 691_200 });
+    await completeRequest("ttl-long", { ok: 1 }, { ttlSeconds: 691_200 });
+    await claimRequest("ttl-other");
+    expect(opts()).toEqual([{ nx: true, ex: 691_200 }, { ex: 691_200 }, { nx: true, ex: 86_400 }]);
+    spy.mockRestore();
+  });
+  it("an invalid ttlSeconds is refused, never silently replaced", async () => {
+    const { claimRequest, completeRequest } = await import("@/lib/platform/idempotency");
+    for (const ttlSeconds of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(claimRequest("ttl-bad", { ttlSeconds })).rejects.toThrow(/ttlSeconds/);
+      await expect(completeRequest("ttl-bad", 1, { ttlSeconds })).rejects.toThrow(/ttlSeconds/);
+    }
+    expect(store.has("veripay:idem:ttl-bad")).toBe(false);
+  });
+  it("source guard: only the SDK build route asks for a non-default lifetime, at every sdk-build write", async () => {
+    const { readFileSync, readdirSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const root = join(__dirname, "..");
+    const files: string[] = [];
+    const walk = (d: string) => {
+      for (const f of readdirSync(d)) {
+        const p = join(d, f);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(f)) files.push(p);
+      }
+    };
+    walk(join(root, "app"));
+    walk(join(root, "lib"));
+    // Callers of the idempotency module that pass a lifetime (lib/plan/store.ts's own
+    // backend also has a ttlSeconds parameter, unrelated to this module).
+    const users = files
+      .filter((f) => { const src = readFileSync(f, "utf8"); return /ttlSeconds/.test(src) && (/@\/lib\/platform\/idempotency/.test(src) || f.endsWith("idempotency.ts")); })
+      .map((f) => f.slice(root.length + 1)).sort();
+    expect(users).toEqual(["app/api/ask/action/build/route.ts", "lib/platform/idempotency.ts"]);
+    const build = readFileSync(join(root, "app/api/ask/action/build/route.ts"), "utf8");
+    expect(build).toMatch(/BUILD_RECORD_TTL = \{ ttlSeconds: PLAN_TTL_SECONDS \+ PLAN_RETENTION_GRACE_SECONDS \}/);
+    const calls = [...build.matchAll(/(claimRequest|completeRequest)(<[^>]*>)?\(([^;]*?)\)/g)].map((m) => m[3]);
+    expect(calls.length).toBe(4);
+    for (const args of calls) expect(args).toMatch(/BUILD_RECORD_TTL$/);
+  });
+});

@@ -734,3 +734,18 @@ describe("Stage 5C-2d — POST { op: intent | release }", () => {
     expect(PLAN_ERROR_STATUS.SIGNATURE_UNRESOLVED).toBe(409);
   });
 });
+
+describe("Stage 5C-2e — release timing through the API", () => {
+  it("a client time in the body is refused outright; the server window applies (409 / 200)", async () => {
+    const planId = await approvedPlan(sendDraft());
+    const q = await op(planId, { op: "quote", nodeId: "n1" });
+    const quoteId = q.json.quote.quoteId as string;
+    await seedBuild(quoteId, S);
+    await op(planId, { op: "intent", nodeId: "n1", quoteId });
+    for (const extra of [{ now: Date.now() + 86_400_000 }, { releasedAt: 1 }, { intentAt: 0 }]) {
+      expect(await op(planId, { op: "release", nodeId: "n1", quoteId, reason: "user_attested_not_sent", ...extra })).toMatchObject({ status: 400, json: { code: "INVALID_INPUT" } });
+    }
+    expect(await op(planId, { op: "release", nodeId: "n1", quoteId, reason: "user_attested_not_sent" })).toMatchObject({ status: 409, json: { code: "STEP_NOT_READY" } });
+    expect(await op(planId, { op: "release", nodeId: "n1", quoteId, reason: "wallet_rejected" })).toMatchObject({ status: 200, json: { ok: true } });
+  });
+});

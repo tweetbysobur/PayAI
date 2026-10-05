@@ -39,6 +39,8 @@ const onchain = { feeBps: 25n as bigint, treasury: TREASURY as string, allowance
 const chain: {
   tx?: { from: string; to: string | null; input: string; value: bigint };
   receipt?: { status: "success" | "reverted"; from: string; logs: { address: string; topics: string[]; data: string }[] };
+  /** Test-only: the receipt wait fails (provider timeout / unavailable). */
+  receiptThrows?: boolean;
 } = {};
 vi.mock("@/lib/monad/wallet", () => ({
   getPublicClient: () => ({
@@ -48,7 +50,7 @@ vi.mock("@/lib/monad/wallet", () => ({
       if (functionName === "allowance") return onchain.allowance;
       throw new Error(`unexpected read ${functionName}`);
     },
-    waitForTransactionReceipt: async () => chain.receipt,
+    waitForTransactionReceipt: async () => { if (chain.receiptThrows) throw new Error("timed out"); return chain.receipt; },
     getTransaction: async () => chain.tx,
   }),
 }));
@@ -89,7 +91,7 @@ beforeEach(async () => {
   delete process.env.PAYAI_TRADE_EXECUTOR_V2_ENABLED;
   delete process.env.PAYAI_TREASURY_ADDRESS;
   onchain.feeBps = 25n; onchain.treasury = TREASURY; onchain.allowance = 0n;
-  delete chain.tx; delete chain.receipt;
+  delete chain.tx; delete chain.receipt; delete chain.receiptThrows;
   kv.enabled = false; kv.store.clear(); kv.sets.length = 0;
   (globalThis as unknown as { __veripayIdem?: Map<string, unknown> }).__veripayIdem?.clear();
   (await import("@/lib/sdk/settlement")).__resetOutputRecordsForTests();
@@ -813,5 +815,108 @@ describe("confirm route: outputs written once, returned only for their own trans
   it("an action without confirmedOutputs gets an unchanged response shape", async () => {
     const wrap = await action("wmon", "wrap", "1.0.0");
     expect(wrap.confirmedOutputs).toBeUndefined();
+  });
+});
+
+/* ══ Stage 5C-2e — build-record lifetime and confirm refusal codes ═════════ */
+
+describe("5C-2e — sdk-build records live for the plan's lifetime; confirm refusals carry machine codes", () => {
+  const ID = { protocolId: "payai", actionId: "transfer", version: "1.0.0" };
+  const post = (url: string, body: unknown) => new NextRequest(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const I = { recipient: RECIPIENT, token: USDC, amount: usdc("20").toString() };
+  let seq = 0;
+  const hash = () => `0x${(++seq).toString(16).padStart(64, "e")}`;
+  async function prepared() {
+    const { POST: preview } = await import("@/app/api/ask/action/route");
+    const pj = await (await preview(post("https://usepayai.xyz/api/ask/action", { ...ID, inputs: I }))).json();
+    const { POST: build } = await import("@/app/api/ask/action/build/route");
+    const bj = await (await build(post("https://usepayai.xyz/api/ask/action/build", { ...ID, inputs: I, walletAddress: WALLET, quoteToken: pj.quoteToken }))).json();
+    expect(bj.ok).toBe(true);
+    return { quoteId: bj.quoteId as string, final: bj.steps.at(-1) as { tx: { to: string; data: string; value: string } } };
+  }
+  function mine(final: { tx: { to: string; data: string; value: string } }, o: { from?: string; input?: string } = {}) {
+    chain.tx = { from: o.from ?? WALLET, to: final.tx.to, input: o.input ?? final.tx.data, value: BigInt(final.tx.value) };
+    chain.receipt = { status: "success", from: o.from ?? WALLET, logs: [paymentForwarded(), feeCollected()] };
+  }
+  async function confirm(quoteId: string, txHash: string, extra: Record<string, unknown> = {}) {
+    const { POST } = await import("@/app/api/ask/action/confirm/route");
+    const res = await POST(post("https://usepayai.xyz/api/ask/action/confirm", { ...ID, txHash, walletAddress: WALLET, quoteId, ...extra }));
+    return { status: res.status, json: await res.json() };
+  }
+
+  it("R1: the sdk-build claim and record get PLAN_TTL + retention grace (8 days); other records keep the 24h default", async () => {
+    kv.enabled = true;
+    const { PLAN_TTL_SECONDS, PLAN_RETENTION_GRACE_SECONDS } = await import("@/lib/plan/store");
+    const { IDEMPOTENCY_TTL_SECONDS } = await import("@/lib/platform/idempotency");
+    const EXTENDED = PLAN_TTL_SECONDS + PLAN_RETENTION_GRACE_SECONDS;
+    expect(EXTENDED).toBe(8 * 24 * 60 * 60);
+    expect(IDEMPOTENCY_TTL_SECONDS).toBe(24 * 60 * 60);
+    const { quoteId } = await prepared();
+    const buildSets = kv.sets.filter((x) => x.key === `veripay:idem:sdk-build:${quoteId}`);
+    expect(buildSets.map((x) => x.opts)).toEqual([{ nx: true, ex: EXTENDED }, { ex: EXTENDED }]);
+    // Only sdk-build records got the extended lifetime; every other write in the flow is unchanged.
+    expect(kv.sets.filter((x) => x.opts?.ex === EXTENDED).every((x) => x.key.startsWith("veripay:idem:sdk-build:"))).toBe(true);
+    expect(kv.sets.filter((x) => x.key.startsWith("veripay:idem:") && !x.key.startsWith("veripay:idem:sdk-build:")).every((x) => x.opts?.ex === IDEMPOTENCY_TTL_SECONDS)).toBe(true);
+  });
+
+  it("R1 (in-memory fallback): a build record is still readable 25 hours later, and gone after 8 days", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.UTC(2026, 9, 3, 12));
+      const { quoteId } = await prepared();
+      const { peekRequest } = await import("@/lib/platform/idempotency");
+      const { buildKey } = await import("@/lib/sdk/settlement");
+      vi.setSystemTime(Date.UTC(2026, 9, 4, 13));
+      expect(await peekRequest(buildKey(quoteId))).not.toBeNull();
+      vi.setSystemTime(Date.UTC(2026, 9, 11, 12, 0, 1));
+      expect(await peekRequest(buildKey(quoteId))).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("R2: BUILD_NOT_FOUND (409) — no build record for this quote / wallet / action", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final);
+    for (const extra of [{}, { walletAddress: OTHER }, { actionId: "swap" }]) {
+      const q = Object.keys(extra).length ? quoteId : "f".repeat(32);
+      expect(await confirm(q, hash(), extra)).toMatchObject({ status: 409, json: { ok: false, code: "BUILD_NOT_FOUND" } });
+    }
+  });
+  it("R2: CONFIRM_IN_PROGRESS (409) — the same transaction is mid-confirmation", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final);
+    const h = hash();
+    const { claimRequest } = await import("@/lib/platform/idempotency");
+    const { settleKey } = await import("@/lib/sdk/settlement");
+    await claimRequest(settleKey(h));
+    expect(await confirm(quoteId, h)).toMatchObject({ status: 409, json: { ok: false, code: "CONFIRM_IN_PROGRESS" } });
+  });
+  it("R2: WRONG_SENDER (409) — mined, but not from the declared wallet", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final, { from: OTHER });
+    expect(await confirm(quoteId, hash())).toMatchObject({ status: 409, json: { ok: false, code: "WRONG_SENDER" } });
+  });
+  it("R2: TX_MISMATCH (409) — from the wallet, but not the built transaction", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final, { input: "0xdeadbeef" });
+    expect(await confirm(quoteId, hash())).toMatchObject({ status: 409, json: { ok: false, code: "TX_MISMATCH" } });
+  });
+  it("R2: RECEIPT_UNAVAILABLE (502) — the receipt couldn't be read; the claim is released for a retry", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final);
+    chain.receiptThrows = true;
+    const h = hash();
+    expect(await confirm(quoteId, h)).toMatchObject({ status: 502, json: { ok: false, code: "RECEIPT_UNAVAILABLE" } });
+    chain.receiptThrows = false;
+    expect((await confirm(quoteId, h)).json.ok).toBe(true);
+  });
+  it("R2: a successful confirmation's body is unchanged (no code field)", async () => {
+    const { quoteId, final } = await prepared();
+    mine(final);
+    const c = await confirm(quoteId, hash());
+    expect(c.status).toBe(200);
+    expect(c.json).toMatchObject({ ok: true, success: true });
+    expect("code" in c.json).toBe(false);
   });
 });
