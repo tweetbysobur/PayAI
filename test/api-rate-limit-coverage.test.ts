@@ -34,6 +34,8 @@ const EXEMPT: Record<string, string> = {
     "Gated on a bearer CRON_SECRET and refuses every request without it, which is a strictly tighter limit than any per-IP window. Rate-limiting it by IP would instead risk dropping real scheduled runs.",
   "health/route.ts":
     "Liveness probe. Throttling it makes the platform's own monitoring report a false outage.",
+  "health/kv/route.ts":
+    "Temporary operational probe. Fixed work per request (one SET/GET/DEL/GET on a 30s disposable key), no input, no user data, no chain access; a limiter would itself use the KV being probed. Remove this entry with the route.",
   "automation-config/route.ts":
     "Returns configured contract addresses read from env. Constant work per request, no chain or DB access.",
   "fees/route.ts":
