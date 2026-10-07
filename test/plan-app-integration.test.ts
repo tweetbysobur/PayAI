@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { Action, ProtocolAdapter, UnsignedActionStep } from "@/lib/sdk/types";
 import { runPlanInApp, type AppRunResult } from "@/lib/plans-client/app";
-import { approvePlan, createPlanFromText, getPlanWithReview, listPlans, type PlanReviewDTO } from "@/lib/plans-client/api";
+import { abandonPlan, approvePlan, createPlanFromText, getPlanWithReview, listPlans, type PlanReviewDTO, type PlanSummaryDTO } from "@/lib/plans-client/api";
 import type { PlanReview } from "@/lib/plan/review";
-import { canApprove, canStartRun, describeOutcome } from "@/lib/plans-client/view";
+import { canApprove, canCancel, canStartRun, describeOutcome, idleReason, planStatus, stepStatus, summaryStatus } from "@/lib/plans-client/view";
 import { classifyOutcome } from "@/lib/plans-client/outcomes";
 import { JOURNAL_KEY_PREFIX } from "@/lib/plans-client/journal";
 import { LOCK_NAME_PREFIX } from "@/lib/plans-client/locks";
@@ -506,6 +506,98 @@ describe("review and approval go through the existing Plan API", () => {
 });
 
 /* ══ Source boundary: the UI reaches execution only through the runner ═════ */
+
+
+/* ══ Declining a quote, then cancelling — what the screen shows ═══════════ */
+
+describe("after a declined quote the plan can be cancelled, and reads as what it is", () => {
+  it("decline → 'Ready to run' (not 'running'), step 'Quote not used', Get a new quote or Cancel; cancel → 'Cancelled' everywhere, nothing runs", async () => {
+    const r = await routes();
+    const planId = await approvedPlan(r.http);
+    const w = memoryWallet();
+    const f = (url: string, init: RequestInit) => r.http(url, init as Parameters<HttpFn>[1]);
+
+    const res = await run(planId, w, r, { confirmQuote: async () => "decline" });
+    expect(res.outcome.kind).toBe("quote_declined");
+    const v = describeOutcome(res);
+    expect(v.resumeLabel).toBe("Get a new quote");
+
+    // The server still calls it "running" (a quote was recorded) — the screen doesn't.
+    const after = (await getPlanWithReview(planId, f)).body as { plan: PlanViewDTO };
+    expect(after.plan.state).toBe("running");
+    expect(after.plan.nodes[0].state).toBe("awaiting_signature");
+    expect(planStatus(after.plan)).toEqual({ label: "Ready to run", tone: "primary" });
+    expect(stepStatus(after.plan.nodes[0], after.plan)).toBe("Quote not used");
+    // The list agrees with the review: nothing in flight, so not "In progress".
+    const declinedRow = ((await listPlans(f)).body as { plans: PlanSummaryDTO[] }).plans.find((p) => p.planId === planId)!;
+    expect(declinedRow).toMatchObject({ state: "running", inFlight: false });
+    expect(summaryStatus(declinedRow).label).toBe("Ready to run");
+    expect(v.advice).toMatch(/Get a new quote/);
+    expect(canCancel(after.plan, false)).toBe(true);
+    expect(canCancel(after.plan, true)).toBe(false); // never during a run
+
+    // Cancel through the existing Plan API.
+    const cancelled = await abandonPlan(planId, f);
+    expect(cancelled.status).toBe(200);
+    const view = (await getPlanWithReview(planId, f)).body as { plan: PlanViewDTO; review: { reviewable: boolean } };
+    expect(view.plan.abandoned).toBe(true);
+    expect(planStatus(view.plan)).toEqual({ label: "Cancelled", tone: "neutral" });
+    expect(stepStatus(view.plan.nodes[0], view.plan)).toBe("Cancelled");
+    expect(canStartRun(view.plan, false, null)).toBe(false);
+    expect(canCancel(view.plan, false)).toBe(false);
+    expect(idleReason(view.plan, view.review)).toMatch(/cancelled/);
+
+    // The list shows the request and "Cancelled" — not a red "failed".
+    const row = ((await listPlans(f)).body as { plans: PlanSummaryDTO[] }).plans.find((p) => p.planId === planId)!;
+    expect(row.abandoned).toBe(true);
+    expect(row.request).toContain(RECIPIENT);
+    expect(summaryStatus(row)).toEqual({ label: "Cancelled", tone: "neutral" });
+    expect(row.inFlight).toBe(false);
+
+    // And a run on the cancelled plan signs nothing.
+    const again = await run(planId, w, r);
+    expect(again.outcome.kind).toBe("abandoned");
+    expect(w.sends).toBe(0);
+  });
+});
+
+describe("status words and the cancel rule", () => {
+  const node = (o: Partial<PlanViewDTO["nodes"][number]> = {}): PlanViewDTO["nodes"][number] => ({
+    nodeId: "n1", ref: { protocolId: "payai", actionId: "transfer", version: "1.0.0" }, dependsOn: [], state: "pending", quoteAttempts: 0,
+    quoteId: null, txHash: null, result: null, signing: null, ...o,
+  });
+  const plan = (o: Partial<PlanViewDTO> = {}, nodes = [node()]): PlanViewDTO => ({
+    planId: `plan_${"c".repeat(32)}`, state: "approved", approved: true, abandoned: false, expired: false, approvable: false,
+    createdAt: T0, approveBy: T0, expiresAt: T0 + 1, currentStep: "n1", nodes, recipients: {}, ...o,
+  });
+
+  it("a cancelled plan is never shown as failed (the abandoned test plan's case)", () => {
+    const p = plan({ state: "failed", abandoned: true }, [node({ state: "skipped" })]);
+    expect(planStatus(p)).toEqual({ label: "Cancelled", tone: "neutral" });
+    expect(summaryStatus({ state: "failed", abandoned: true }).label).toBe("Cancelled");
+    expect(summaryStatus({ state: "failed", abandoned: false }).label).toBe("Failed");
+    expect(summaryStatus({ state: "running", inFlight: true }).label).toBe("In progress");
+    expect(summaryStatus({ state: "failed", abandoned: true, inFlight: true }).label).toBe("In progress"); // a sent tx outranks "cancelled"
+  });
+
+  it("a possibly-pending signature or a sent transaction wins over every other label, and blocks cancel", () => {
+    const signing = plan({ state: "running" }, [node({ state: "awaiting_signature", signing: { quoteId: "0".repeat(32) } })]);
+    expect(planStatus(signing).label).toBe("Check your wallet");
+    expect(stepStatus(signing.nodes[0], signing)).toBe("Waiting for your wallet");
+    expect(canCancel(signing, false)).toBe(false);
+    const sent = plan({ state: "running", abandoned: true }, [node({ state: "submitted", txHash: H(9) })]);
+    expect(planStatus(sent).label).toBe("Confirming");
+    expect(canCancel(sent, false)).toBe(false);
+  });
+
+  it("ended plans can't be cancelled; plans past the approval window say so", () => {
+    expect(canCancel(plan({ state: "completed" }, [node({ state: "confirmed", txHash: H(1) })]), false)).toBe(false);
+    const late = plan({ state: "planned", approved: false, approvable: false });
+    expect(planStatus(late).label).toBe("Approval window passed");
+    expect(idleReason(late, { reviewable: true })).toMatch(/window to approve/);
+    expect(canCancel(late, false)).toBe(true);
+  });
+});
 
 describe("review DTO", () => {
   it("the client's review mirror stays assignable from the server's PlanReview (compile-time)", () => {

@@ -780,7 +780,13 @@ describe("abandonPlan and listPlans", () => {
     const list = await s.listPlans(AUTH);
     expect(list).toHaveLength(20);
     expect(list.map((p) => p.planId)).toEqual(ids.slice(-20).reverse());
-    expect(list[0]).toEqual({ planId: ids[21], state: "planned", currentStep: "n1", steps: 2, createdAt: T0 + 21_000, expiresAt: T0 + 21_000 + 7 * DAY });
+    expect(list[0]).toEqual({
+      planId: ids[21], request: expect.stringContaining("swap 100 MON"), state: "planned", abandoned: false, inFlight: false,
+      currentStep: "n1", steps: 2, createdAt: T0 + 21_000, expiresAt: T0 + 21_000 + 7 * DAY,
+    });
+    // A cancelled plan stays listed, marked abandoned (the screen shows "Cancelled").
+    await s.abandonPlan(AUTH, ids[20]);
+    expect((await s.listPlans(AUTH)).find((p) => p.planId === ids[20])).toMatchObject({ abandoned: true });
     // A corrupt plan is skipped.
     const { planKeys, __putRawForTests } = await import("@/lib/plan/store");
     __putRawForTests(planKeys.core(ids[21]), "{oops");

@@ -116,7 +116,14 @@ export interface PlanView {
 
 export interface PlanSummary {
   planId: string;
+  /** The user's original request — inert text, for the list. */
+  request: string;
   state: PlanState;
+  /** Abandoned plans keep their facts; the list shows them as cancelled. */
+  abandoned: boolean;
+  /** A step's transaction is sent but not settled, or a signature for it may
+   *  be pending — something may be on its way. */
+  inFlight: boolean;
   currentStep: string | null;
   steps: number;
   createdAt: number;
@@ -252,8 +259,11 @@ export async function listPlans(auth: PlanAuth): Promise<PlanSummary[]> {
     if (out.length >= LIST_PLANS_CAP) break;
     try {
       const l = await store.loadPlan(c.planId, ctx);
+      const nodeStates = deriveNodeStates(l.shape, l.facts);
+      const inFlight = l.core.stepOrder.some((id) => nodeStates[id] === "submitted" || unresolvedIntent(l.facts.nodes[id]) !== null);
       out.push({
-        planId: l.core.planId, state: derivePlanState(l.shape, l.facts), currentStep: currentStep(l.shape, l.facts),
+        planId: l.core.planId, request: l.graph.source.text, state: derivePlanState(l.shape, l.facts), abandoned: l.facts.abandoned !== null, inFlight,
+        currentStep: currentStep(l.shape, l.facts),
         steps: l.core.stepOrder.length, createdAt: l.core.createdAt, expiresAt: l.core.expiresAt,
       });
     } catch { /* skipped */ }

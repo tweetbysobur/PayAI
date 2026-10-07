@@ -1,7 +1,9 @@
 /**
  * The Plan API calls the app makes OUTSIDE execution: create a plan from a
  * request, list the wallet's plans, read one with its server-derived review,
- * and approve it. Approval executes nothing.
+ * approve it, and cancel (abandon) it. Neither approval nor cancelling
+ * executes anything; cancelling blocks further quotes and approvals, and a
+ * transaction already sent can still be recorded (the chain is authoritative).
  *
  * Deliberately absent: next, quote, bind, tx, intent, release, settle and the
  * SDK build / confirm routes. Those belong to the Plan Runner alone, reached
@@ -98,6 +100,19 @@ export const listPlans = (f?: ApiFetch) => send(f, "GET", "/api/plans");
 export const getPlanWithReview = (planId: string, f?: ApiFetch) => send(f, "GET", planPath(planId));
 /** POST /api/plans/:id {op:"approve"} — refused unless every step is reviewable. */
 export const approvePlan = (planId: string, f?: ApiFetch) => send(f, "POST", planPath(planId), { op: "approve" });
+/** POST /api/plans/:id {op:"abandon"} — cancel the plan (idempotent). */
+export const abandonPlan = (planId: string, f?: ApiFetch) => send(f, "POST", planPath(planId), { op: "abandon" });
+
+/** One row of GET /api/plans (a mirror of the service's PlanSummary). */
+export interface PlanSummaryDTO {
+  planId: string;
+  request: string;
+  state: string;
+  abandoned: boolean;
+  inFlight: boolean;
+  steps: number;
+  createdAt: number;
+}
 
 /** The server's error code and message from a refused reply, when given. */
 export function replyError(r: ApiReply): { code: string | null; message: string } {

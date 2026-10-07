@@ -16,25 +16,16 @@ import { Badge, Button, Card, Input } from "@/components/ui";
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
 import { MONAD_CHAIN_ID, MONAD_EXPLORER } from "@/lib/monad/public";
 import { runPlanInApp } from "@/lib/plans-client/app";
-import { approvePlan, createPlanFromText, getPlanWithReview, listPlans, replyError, type PlanReviewDTO, type ReviewAmountDTO, type ReviewOutputAmountDTO, type ReviewStepDTO } from "@/lib/plans-client/api";
-import { canApprove, canStartRun, describeOutcome, phaseLabel, type OutcomeView } from "@/lib/plans-client/view";
+import { abandonPlan, approvePlan, createPlanFromText, getPlanWithReview, listPlans, replyError, type PlanReviewDTO, type PlanSummaryDTO, type ReviewAmountDTO, type ReviewOutputAmountDTO, type ReviewStepDTO } from "@/lib/plans-client/api";
+import { canApprove, canCancel, canStartRun, describeOutcome, idleReason, phaseLabel, planStatus, stepStatus, summaryStatus, type OutcomeView } from "@/lib/plans-client/view";
 import type { PlanViewDTO, QuoteDecision, QuoteProjection, RunnerPhase, RunnerWallet } from "@/lib/plans-client/runner";
 
-interface PlanSummary {
-  planId: string;
-  state: string;
-  steps: number;
-  createdAt: number;
-}
+type PlanSummary = PlanSummaryDTO;
 
 interface Opened {
   plan: PlanViewDTO;
   review: PlanReviewDTO;
 }
-
-const STATE_TONE: Record<string, "neutral" | "primary" | "success" | "warning" | "danger"> = {
-  planned: "neutral", approved: "primary", running: "warning", completed: "success", partial: "warning", failed: "danger",
-};
 
 function plansFrom(r: { status: number; body: unknown }): PlanSummary[] {
   const list = (r.body as { plans?: unknown } | null)?.plans;
@@ -46,7 +37,11 @@ function amountText(a: ReviewAmountDTO | ReviewOutputAmountDTO): string {
 }
 
 function stepText(s: ReviewStepDTO): string {
-  if (s.action === "transfer") return `Send ${amountText(s.amount)} to ${s.recipient.display} (${s.recipient.address})`;
+  if (s.action === "transfer") {
+    // The resolved address only when it adds something (a name or a payee).
+    const to = s.recipient.display.toLowerCase() === s.recipient.address.toLowerCase() ? s.recipient.address : `${s.recipient.display} (${s.recipient.address})`;
+    return `Send ${amountText(s.amount)} to ${to}`;
+  }
   if (s.action === "swap") return `Swap ${amountText(s.pay)} for ${s.receiveToken.symbol} (max slippage ${(s.slippageBps / 100).toFixed(2)}%)`;
   return "A step PayAI can't describe in full — this plan can't be approved.";
 }
@@ -68,7 +63,8 @@ export function PlansPanel() {
   const [plans, setPlans] = useState<PlanSummary[] | null>(null);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState<"create" | "approve" | "open" | null>(null);
+  const [busy, setBusy] = useState<"create" | "approve" | "open" | "cancel" | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [running, setRunning] = useState(false);
@@ -138,6 +134,19 @@ export function PlansPanel() {
     void refreshList();
   }
 
+  async function cancel() {
+    if (!opened) return;
+    setBusy("cancel");
+    setError(null);
+    const r = await abandonPlan(opened.plan.planId);
+    setBusy(null);
+    setConfirmCancel(false);
+    setLast(null);
+    await open(opened.plan.planId); // the plan as the server now has it
+    if (r.status !== 200) setError(replyError(r).message); // after open(), which clears errors
+    void refreshList();
+  }
+
   async function run() {
     if (!opened || runningRef.current) return;
     runningRef.current = true;
@@ -145,6 +154,7 @@ export function PlansPanel() {
     setLast(null);
     setError(null);
     setPhase(null);
+    setConfirmCancel(false);
     const planId = opened.plan.planId;
     try {
       const result = await runPlanInApp({
@@ -177,11 +187,14 @@ export function PlansPanel() {
 
   const plan = opened?.plan ?? null;
   const showRun = !!plan && canStartRun(plan, running, last);
+  const showCancel = !!plan && canCancel(plan, running);
+  const status = plan ? planStatus(plan) : null;
+  const idle = plan && opened ? idleReason(plan, opened.review) : null;
 
   return (
     <div className="space-y-6">
       <Card title="New plan">
-        <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="flex flex-col gap-3 sm:flex-row [&>input]:flex-1">
           <Input
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -201,30 +214,58 @@ export function PlansPanel() {
       )}
 
       {plan && opened && (
-        <Card title="Review" right={<Badge tone={STATE_TONE[plan.state] ?? "neutral"}>{plan.state}</Badge>}>
+        <Card title="Review" right={status && <Badge tone={status.tone}>{status.label}</Badge>}>
           <p className="text-sm text-muted-foreground">“{opened.review.request}”</p>
           <ol className="mt-4 space-y-2">
             {opened.review.steps.map((s) => (
               <li key={s.nodeId} className="flex gap-3 text-sm">
                 <span className="text-muted-foreground">{s.order}.</span>
                 <span className="text-foreground">{stepText(s)}</span>
-                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{plan.nodes.find((n) => n.nodeId === s.nodeId)?.state}</span>
+                {(() => {
+                  const node = plan.nodes.find((n) => n.nodeId === s.nodeId);
+                  if (!node) return null;
+                  return (
+                    <span className="ml-auto shrink-0 text-right text-xs text-muted-foreground">
+                      {stepStatus(node, plan)}
+                      {node.txHash && (
+                        <a className="ml-2 font-mono text-primary-ink hover:underline" href={`${MONAD_EXPLORER}/tx/${node.txHash}`} target="_blank" rel="noreferrer">
+                          {node.txHash.slice(0, 10)}…
+                        </a>
+                      )}
+                    </span>
+                  );
+                })()}
               </li>
             ))}
           </ol>
-          <p className="mt-4 text-xs text-muted-foreground">
-            {plan.expired ? "This plan has expired." : plan.abandoned ? "This plan was abandoned." : `Expires ${new Date(plan.expiresAt).toLocaleString()}.`}
-            {!plan.approved && !plan.expired && plan.approvable ? ` Approve by ${new Date(plan.approveBy).toLocaleTimeString()}.` : ""}
-          </p>
+          {!plan.expired && !plan.abandoned && plan.state !== "completed" && (
+            <p className="mt-4 text-xs text-muted-foreground">
+              {`Expires ${new Date(plan.expiresAt).toLocaleString()}.`}
+              {!plan.approved && plan.approvable ? ` Approve by ${new Date(plan.approveBy).toLocaleTimeString()}.` : ""}
+            </p>
+          )}
 
           <div className="mt-5 flex flex-wrap gap-3">
             {canApprove(plan, opened.review) && (
               <Button onClick={approve} disabled={busy === "approve" || running}>{busy === "approve" ? "Approving…" : "Approve plan"}</Button>
             )}
             {showRun && (
-              <Button onClick={run} disabled={running}>{last?.canResume ? "Resume" : "Run plan"}</Button>
+              <Button onClick={run} disabled={running}>{last?.canResume ? last.resumeLabel : "Run plan"}</Button>
+            )}
+            {showCancel && !confirmCancel && (
+              <Button variant="secondary" onClick={() => setConfirmCancel(true)} disabled={busy === "cancel"}>Cancel plan</Button>
             )}
           </div>
+          {showCancel && confirmCancel && (
+            <div className="mt-3 rounded-lg border border-border bg-input p-3 text-sm">
+              <p className="text-foreground">{"Cancel this plan? It can't be run or approved again. Nothing has been sent."}</p>
+              <div className="mt-3 flex gap-3">
+                <Button variant="secondary" onClick={cancel} disabled={busy === "cancel"}>{busy === "cancel" ? "Cancelling…" : "Yes, cancel plan"}</Button>
+                <Button variant="ghost" onClick={() => setConfirmCancel(false)} disabled={busy === "cancel"}>Keep it</Button>
+              </div>
+            </div>
+          )}
+          {idle && <p className="mt-3 text-xs text-muted-foreground">{idle}</p>}
           {!opened.review.reviewable && (
             <p className="mt-3 text-xs text-warning">{"PayAI can't show every step of this plan in full, so it can't be approved."}</p>
           )}
@@ -286,12 +327,16 @@ export function PlansPanel() {
               <li key={p.planId}>
                 <button
                   className="flex w-full items-center justify-between py-3 text-left text-sm hover:bg-input/50 disabled:opacity-50"
-                  onClick={() => { setLast(null); void open(p.planId); }}
+                  onClick={() => { setLast(null); setConfirmCancel(false); void open(p.planId); }}
                   disabled={running || busy === "open"}
                 >
-                  <span className="font-mono text-xs text-muted-foreground">{p.planId.slice(0, 13)}…</span>
-                  <span className="text-xs text-muted-foreground">{p.steps} step{p.steps === 1 ? "" : "s"} · {new Date(p.createdAt).toLocaleString()}</span>
-                  <Badge tone={STATE_TONE[p.state] ?? "neutral"}>{p.state}</Badge>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-foreground">{p.request || "Plan"}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {p.steps} step{p.steps === 1 ? "" : "s"} · {new Date(p.createdAt).toLocaleString()} · <span className="font-mono">{p.planId.slice(0, 13)}…</span>
+                    </span>
+                  </span>
+                  {(() => { const st = summaryStatus(p); return <span className="ml-3 shrink-0"><Badge tone={st.tone}>{st.label}</Badge></span>; })()}
                 </button>
               </li>
             ))}
