@@ -1,8 +1,9 @@
 /**
- * What the Plans screen shows for a run, derived ONLY from the runner's
- * outcome and its classification (./outcomes.ts). Pure; no React.
+ * What the user is shown for a plan run — by whichever surface runs plans
+ * (Ask PayAI) — derived ONLY from the runner's outcome and its
+ * classification (./outcomes.ts). Pure; no React.
  *
- * The rules the screen must never break, decided here so they are testable:
+ * The rules a surface must never break, decided here so they are testable:
  *   - "Resume" is offered only when the classification says running again is
  *     safe: never when a transaction may be in flight or unrecorded
  *     (check_wallet_activity, UNKNOWN_TRANSACTION_STATE, DO_NOT_RETRY), never

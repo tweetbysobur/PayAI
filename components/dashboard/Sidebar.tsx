@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import {
   LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
-  Wallet, Settings, Repeat, ListChecks,
+  Wallet, Settings, Repeat,
   GraduationCap, Rocket, BookOpen, Lock, HelpCircle, Compass,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -46,7 +46,6 @@ export const NAV: { href: string; label: string; icon: NavIcon; section: string 
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
   { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark, section: null },
   { href: "/dashboard/payments", label: "Payments", icon: ArrowUpRight, section: "Payments" },
-  { href: "/dashboard/plans", label: "Plans", icon: ListChecks, section: "Payments" },
   { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
   { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments", soon: true },
   { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Automation" },

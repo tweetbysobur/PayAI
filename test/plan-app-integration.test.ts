@@ -619,14 +619,11 @@ describe("source boundary", () => {
     }
     return out;
   }
-  const UI = [...files("app/dashboard/plans"), ...files("components/plans"), "lib/plans-client/api.ts", "lib/plans-client/view.ts"];
+  const exists = (p: string) => { try { statSync(join(root, p)); return true; } catch { return false; } };
+  // The client helpers a surface (Ask PayAI) uses to show and manage plans.
+  const UI = ["lib/plans-client/api.ts", "lib/plans-client/view.ts"];
 
-  it("the Plans screen executes through runPlanInApp", () => {
-    expect(read("components/plans/PlansPanel.tsx")).toMatch(/import \{ runPlanInApp \} from "@\/lib\/plans-client\/app"/);
-    expect(strip(read("components/plans/PlansPanel.tsx"))).toMatch(/runPlanInApp\(\{/);
-  });
-
-  it("no Plans UI file sends, signs, records or builds a transaction itself", () => {
+  it("the client plan helpers never send, sign, record or build a transaction themselves", () => {
     const banned: [string, RegExp][] = [
       ["a wallet send", /\bsendTransaction(From)?\s*\(/],
       ["a receipt wait", /\bwaitForReceipt\s*\(/],
@@ -652,8 +649,18 @@ describe("source boundary", () => {
     expect(wiring).not.toMatch(/\bsendTransaction\s*\(/);
   });
 
-  it("the app's plan code imports the client runner from the real application path", () => {
-    const importers = [...files("app"), ...files("components")].filter((f) => /from "@\/lib\/plans-client\//.test(read(f)));
-    expect(importers).toContain("components/plans/PlansPanel.tsx");
+  it("runner-only Plan API ops are used nowhere outside the plan infrastructure (only the runner drives execution)", () => {
+    const outside = [...files("app"), ...files("components"), ...files("lib")]
+      .filter((f) => !f.startsWith("lib/plans-client/") && !f.startsWith("lib/plan/") && !f.startsWith("app/api/plans/"));
+    for (const f of outside) expect(strip(read(f)), f).not.toMatch(/op:\s*["'](next|quote|bind|tx|intent|release|settle)["']/);
+  });
+
+  it("planning is internal to Ask PayAI: there is no standalone Plans product", () => {
+    expect(exists("app/dashboard/plans"), "/dashboard/plans must not exist").toBe(false);
+    expect(exists("components/plans"), "components/plans must not exist").toBe(false);
+    expect(read("components/dashboard/Sidebar.tsx")).not.toMatch(/\/dashboard\/plans|label:\s*"Plans"/);
+    for (const f of [...files("app"), ...files("components"), ...files("lib")]) {
+      expect(read(f), f).not.toMatch(/@\/components\/plans\/|["']\/dashboard\/plans["']/);
+    }
   });
 });
