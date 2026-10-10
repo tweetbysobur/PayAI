@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeAbiParameters, getAddress, parseUnits, toEventSelector } from "viem";
+import { grossForNet } from "@/lib/payment/feeOnTop";
 import type { Action, ActionReceipt } from "@/lib/sdk/types";
 
 /**
@@ -127,8 +128,10 @@ async function check(a: Action, result: unknown) {
 
 /* ── Swap ──────────────────────────────────────────────────────────────── */
 
-const GROSS = parseUnits("10", 18);
-const SWAP_TERMS = { executor: EXECUTOR.toLowerCase(), feeBps: "25", tokenIn: NATIVE, tokenOut: USDC, amountIn: GROSS.toString(), slippageBps: "50" };
+/** 10 MON swapped in full; the executor is handed it plus PayAI's fee on top. */
+const AMOUNT_IN = parseUnits("10", 18);
+const GROSS = grossForNet(AMOUNT_IN, 25);
+const SWAP_TERMS = { executor: EXECUTOR.toLowerCase(), feeBps: "25", tokenIn: NATIVE, tokenOut: USDC, amountIn: AMOUNT_IN.toString(), slippageBps: "50" };
 const SWAP_CTX = { terms: SWAP_TERMS, wallet: WALLET };
 function tradeLog(o: { emitter?: string; user?: string; venue?: number; tokenIn?: string; tokenOut?: string; amountIn?: bigint; amountOut?: bigint; fee?: bigint } = {}) {
   const gross = o.amountIn ?? GROSS;
@@ -167,14 +170,15 @@ describe("swap — outputs from the verified TradeExecuted", () => {
     const r = await a.confirmedOutputs!(receipt([tradeLog({ amountOut: 5_123_456n })]), SWAP_CTX);
     expect(r!.outputs.amountOut).toMatchObject({ value: "5123456", token: USDC });
     expect(r!.outputs.tokenOut).toEqual({ verified: true, type: "token", value: USDC }); // event emitted the checksummed form
-    expect(r!.outputs.fee).toMatchObject({ value: "25000000000000000", token: NATIVE }); // = floor(10e18 * 25 / 10000) at the BUILD rate
+    expect(r!.outputs.fee).toMatchObject({ value: "25062656641604010", token: NATIVE }); // = floor(GROSS * 25 / 10000) at the BUILD rate, on top of 10 MON
     // USDC → MON: amountOut is native MON (the zero address) and the fee is in USDC.
     const usdcIn = { ...SWAP_TERMS, tokenIn: USDC, tokenOut: NATIVE, amountIn: "35000000" };
-    const r2 = await a.confirmedOutputs!(receipt([tradeLog({ tokenIn: USDC_CHECKSUM, tokenOut: NATIVE, amountIn: 35_000_000n, amountOut: 10n ** 18n })]), { terms: usdcIn, wallet: WALLET });
+    const usdcGross = grossForNet(35_000_000n, 25); // 35 USDC + fee on top
+    const r2 = await a.confirmedOutputs!(receipt([tradeLog({ tokenIn: USDC_CHECKSUM, tokenOut: NATIVE, amountIn: usdcGross, amountOut: 10n ** 18n })]), { terms: usdcIn, wallet: WALLET });
     expect(r2!.outputs).toEqual({
       amountOut: { verified: true, type: "units", value: (10n ** 18n).toString(), token: NATIVE },
       tokenOut: { verified: true, type: "token", value: NATIVE },
-      fee: { verified: true, type: "units", value: "87500", token: USDC },
+      fee: { verified: true, type: "units", value: (usdcGross - 35_000_000n).toString(), token: USDC },
     });
     expect((await check(a, r2)).ok).toBe(true);
   });
@@ -556,7 +560,7 @@ describe("verified output value shapes", () => {
       id: "intent_outputs_02", version: 1, chainId: 143, wallet: WALLET, status: "draft",
       source: { text, adapter: "deterministic", adapterVersion: "1" },
       nodes: [
-        node("n1", ["payai", "swap", "1.0.0"], { tokenOut: { kind: "literal", value: USDC }, amountIn: { kind: "literal", value: GROSS.toString() } }),
+        node("n1", ["payai", "swap", "1.0.0"], { tokenOut: { kind: "literal", value: USDC }, amountIn: { kind: "literal", value: AMOUNT_IN.toString() } }),
         node("n2", ["payai", "transfer", "1.0.0"], { recipient: { kind: "recipient", display: RECIPIENT, source: "address", address: RECIPIENT }, token: { kind: "literal", value: USDC }, amount: { kind: "output", node: "n1", output: "amountOut" } }, ["n1"]),
       ],
     }, { sessionWallet: WALLET, activeChainId: 143 });
@@ -675,6 +679,10 @@ describe("confirm route: outputs written once, returned only for their own trans
   const ID = { protocolId: "payai", actionId: "transfer", version: "1.0.0" };
   const post = (url: string, body: unknown) => new NextRequest(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const I = { recipient: RECIPIENT, token: USDC, amount: usdc("20").toString() };
+  // 20 USDC delivered in full: the forwarder is handed 20.050125 and its fee
+  // floor(20050125 × 25 / 10000) = 50125 leaves exactly 20000000.
+  const pf = (o: Parameters<typeof paymentForwarded>[0] = {}) => paymentForwarded({ amount: 20_050125n, ...o });
+  const fc = (o: Parameters<typeof feeCollected>[0] = {}) => feeCollected({ fee: 50125n, ...o });
   let seq = 0;
   const hash = () => `0x${(++seq).toString(16).padStart(64, "c")}`;
 
@@ -687,7 +695,7 @@ describe("confirm route: outputs written once, returned only for their own trans
     expect(bj.ok).toBe(true);
     return { quoteId: bj.quoteId as string, final: bj.steps.at(-1) as { tx: { to: string; data: string; value: string } } };
   }
-  function mine(final: { tx: { to: string; data: string; value: string } }, logs = [paymentForwarded(), feeCollected()]) {
+  function mine(final: { tx: { to: string; data: string; value: string } }, logs = [pf(), fc()]) {
     chain.tx = { from: WALLET, to: final.tx.to, input: final.tx.data, value: BigInt(final.tx.value) };
     chain.receipt = { status: "success", from: WALLET, logs };
   }
@@ -701,9 +709,9 @@ describe("confirm route: outputs written once, returned only for their own trans
     return readOutputRecord({ quoteId, txHash, wallet: WALLET, ...ID });
   }
   const EXPECTED = {
-    amount: { verified: true, type: "units", value: "19950000", token: USDC },
-    gross: { verified: true, type: "units", value: "20000000", token: USDC },
-    fee: { verified: true, type: "units", value: "50000", token: USDC },
+    amount: { verified: true, type: "units", value: "20000000", token: USDC },
+    gross: { verified: true, type: "units", value: "20050125", token: USDC },
+    fee: { verified: true, type: "units", value: "50125", token: USDC },
     token: { verified: true, type: "token", value: USDC },
   };
 
@@ -732,7 +740,7 @@ describe("confirm route: outputs written once, returned only for their own trans
     const h1 = hash();
     await confirm(quoteId, h1);
     // The same built transaction signed again lands as a separate, real settlement.
-    mine(final, [paymentForwarded({ id: 78n }), feeCollected({ id: 78n })]);
+    mine(final, [pf({ id: 78n }), fc({ id: 78n })]);
     const h2 = hash();
     const second = await confirm(quoteId, h2);
     expect(second.json).toMatchObject({ ok: true, recorded: 1, outputs: null, outputsStatus: "already_recorded_for_another_tx" });
@@ -771,7 +779,7 @@ describe("confirm route: outputs written once, returned only for their own trans
 
   it("B. settled for history but not strictly verifiable: history unchanged, outputs null, nothing stored", async () => {
     const { quoteId, final } = await prepared();
-    mine(final, [paymentForwarded()]); // no FeeCollected
+    mine(final, [pf()]); // no FeeCollected
     const h = hash();
     const c = await confirm(quoteId, h);
     expect(c.json).toMatchObject({ ok: true, success: true, recorded: 1, outputs: null, outputsStatus: "unverified" });
@@ -780,7 +788,7 @@ describe("confirm route: outputs written once, returned only for their own trans
 
   it("an unverified settlement (existing semantics) returns no outputs and stores nothing", async () => {
     const { quoteId, final } = await prepared();
-    mine(final, [paymentForwarded({ recipient: OTHER }), feeCollected()]);
+    mine(final, [pf({ recipient: OTHER }), fc()]);
     const h = hash();
     const c = await confirm(quoteId, h);
     expect(c.json).toMatchObject({ ok: false, verified: false });
@@ -836,7 +844,8 @@ describe("5C-2e — sdk-build records live for the plan's lifetime; confirm refu
   }
   function mine(final: { tx: { to: string; data: string; value: string } }, o: { from?: string; input?: string } = {}) {
     chain.tx = { from: o.from ?? WALLET, to: final.tx.to, input: o.input ?? final.tx.data, value: BigInt(final.tx.value) };
-    chain.receipt = { status: "success", from: o.from ?? WALLET, logs: [paymentForwarded(), feeCollected()] };
+    // A 20 USDC transfer with the fee on top: gross 20.050125, fee 0.050125.
+    chain.receipt = { status: "success", from: o.from ?? WALLET, logs: [paymentForwarded({ amount: 20_050125n }), feeCollected({ fee: 50125n })] };
   }
   async function confirm(quoteId: string, txHash: string, extra: Record<string, unknown> = {}) {
     const { POST } = await import("@/app/api/ask/action/confirm/route");

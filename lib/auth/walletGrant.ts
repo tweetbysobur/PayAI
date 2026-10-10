@@ -78,13 +78,20 @@ export function walletGrantCookieOpts(host?: string | null, maxAgeSeconds = Math
   };
 }
 
+/** The one expiry window a grant may request. Kept as a single function so the
+ *  route can name this failure separately from a bad signature, without a
+ *  second copy of the bounds. */
+export function grantExpiryInWindow(expiresAt: number, now = Date.now()): boolean {
+  if (!Number.isFinite(expiresAt)) return false;
+  if (expiresAt < now - 30_000) return false;
+  if (expiresAt > now + WALLET_GRANT_TTL_MS + 60_000) return false;
+  return true;
+}
+
 /** Confirms the signature was made by `address` over a bounded expiry. */
 export async function verifyWalletGrantSignature(address: string, expiresAt: number, signature: string): Promise<boolean> {
   if (!ADDR_RE.test(address) || !signature) return false;
-  if (!Number.isFinite(expiresAt)) return false;
-  const now = Date.now();
-  if (expiresAt < now - 30_000) return false;
-  if (expiresAt > now + WALLET_GRANT_TTL_MS + 60_000) return false;
+  if (!grantExpiryInWindow(expiresAt)) return false;
   return verifyMessage({
     address: address as `0x${string}`,
     message: walletGrantMessage(address, expiresAt),

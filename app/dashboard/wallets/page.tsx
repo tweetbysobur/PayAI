@@ -1,5 +1,6 @@
 "use client";
 
+import { FundingSourcePicker } from "@/components/dashboard/FundingSourcePicker";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint, Copy, Check, ExternalLink, LogOut } from "lucide-react";
@@ -119,22 +120,27 @@ export default function Wallets() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Wallets</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Your connected wallet and live on-chain intelligence.</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Your wallets, balances and on-chain activity.</p>
         </div>
         {wallet.address && (
-          <div className="flex items-center gap-2">
-            <Button onClick={() => setReceiveOpen(true)} className="flex items-center gap-1.5 text-xs">
-              <ArrowDownLeft size={13} /> Deposit / Receive
-            </Button>
-            <Link href="/dashboard/payments" className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-panel px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary/40 hover:bg-input/40">
-              <ArrowUpRight size={13} /> Withdraw
+          // One row at every width: two equal actions and a square refresh —
+          // never a lone button wrapped onto a second line.
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2 sm:flex sm:items-center">
+            <button type="button" onClick={() => setReceiveOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ArrowDownLeft size={14} aria-hidden /> Receive
+            </button>
+            <Link href="/dashboard/payments"
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <ArrowUpRight size={14} aria-hidden /> Send
             </Link>
-            <Button variant="secondary" onClick={loadIntel} disabled={loading} className="flex items-center gap-1.5 text-xs">
-              <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Refresh
-            </Button>
+            <button type="button" onClick={loadIntel} disabled={loading} aria-label="Refresh" title="Refresh"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} aria-hidden />
+            </button>
           </div>
         )}
       </div>
@@ -170,7 +176,7 @@ export default function Wallets() {
                       {wallet.kind === "embedded" ? "PayAI Wallet" : "External wallet"}
                     </span>
                   </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <button
                       onClick={() => copy(wallet.address!, "Address copied")}
                       className="inline-flex items-center gap-1 font-mono transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
@@ -179,14 +185,12 @@ export default function Wallets() {
                       {short(wallet.address)}
                       {copied === wallet.address ? <Check size={11} className="text-success" /> : <Copy size={11} />}
                     </button>
-                    <span className="text-border">·</span>
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 whitespace-nowrap">
                       <MonadMark size={11} /> {wallet.chainId === MONAD_CHAIN_ID ? MONAD_CHAIN_NAME : `Chain ${wallet.chainId ?? "—"}`}
                     </span>
-                    <span className="text-border">·</span>
                     <a
                       href={`${MONAD_EXPLORER}/address/${wallet.address}`} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-primary-ink hover:underline"
+                      className="inline-flex items-center gap-1 whitespace-nowrap text-primary-ink hover:underline"
                     >
                       Explorer <ExternalLink size={10} />
                     </a>
@@ -195,8 +199,8 @@ export default function Wallets() {
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-border bg-background/40 px-5 py-3 sm:px-6">
-                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <ShieldCheck size={11} className="shrink-0 text-primary-ink" /> Non-custodial — you hold this wallet&apos;s keys.
+                <p className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground" title="Non-custodial: PayAI never holds your keys">
+                  <ShieldCheck size={11} className="shrink-0 text-primary-ink" /> You hold this wallet&apos;s keys
                 </p>
                 <button
                   onClick={wallet.disconnect}
@@ -222,6 +226,17 @@ export default function Wallets() {
       {wallet.readAddress && (
         <div className="mb-4">
           <PortfolioCard address={wallet.readAddress} locked={wallet.isLocked} />
+        </div>
+      )}
+
+      {/* With an account AND a connected wallet, where funds come from is a
+          choice the person makes here, explicitly — not whichever happened
+          to connect last. */}
+      {wallet.accountAddress && wallet.externalAddress && (
+        <div className="mb-4">
+          <Card>
+            <FundingSourcePicker />
+          </Card>
         </div>
       )}
 
@@ -454,7 +469,7 @@ export default function Wallets() {
                   <tbody className="text-foreground">
                     {intel.events.map((e, i) => (
                       <motion.tr key={`${e.txHash}-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }} className="border-t border-border">
-                        <td className="py-1.5 pr-3"><Badge tone={e.direction === "sent" ? "warning" : "success"}>{e.direction === "sent" ? "Sent" : "Received"}</Badge></td>
+                        <td className="py-1.5 pr-3"><Badge tone={e.direction === "sent" ? "neutral" : "success"}>{e.direction === "sent" ? "Sent" : "Received"}</Badge></td>
                         <td className="pr-3 font-mono text-xs">{short(e.counterparty)}</td>
                         <td className="pr-3">{e.amount.toFixed(2)} {e.token}</td>
                         <td className="pr-3 font-mono text-xs text-muted-foreground">{e.blockNumber || "—"}</td>

@@ -63,8 +63,8 @@ const mem = (g.__veripaySchedules ??= new Map());
  *  that doesn't exist in the target month into the following month (e.g. Jan
  *  31 + 1 month lands on Mar 3, not Feb 28) — which for a monthly automation
  *  due on the 29th/30th/31st would silently skip or shift months forever. */
-function addUTCMonths(d: Date, months: number): void {
-  const day = d.getUTCDate();
+function addUTCMonths(d: Date, months: number, anchorDay?: number | null): void {
+  const day = anchorDay && anchorDay >= 1 && anchorDay <= 31 ? anchorDay : d.getUTCDate();
   d.setUTCDate(1); // park on a day valid in every month while the month itself shifts
   d.setUTCMonth(d.getUTCMonth() + months);
   const lastDayOfTargetMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
@@ -101,12 +101,14 @@ export function advanceRunPast(
   cadence: ScheduleCadence,
   interval: { count?: number; unit?: AutomationIntervalUnit } | undefined,
   now: number = Date.now(),
+  timeZone?: string | null,
+  anchorDay?: number | null,
 ): { next: number | null; skipped: number } {
-  let next = advanceRun(from, cadence, interval);
+  let next = advanceRun(from, cadence, interval, timeZone, anchorDay);
   if (next == null) return { next: null, skipped: 0 }; // one-off: completes, never repeats
   let skipped = 0;
   for (let i = 0; i < MAX_CATCHUP_ITERATIONS && next <= now; i++) {
-    const following = advanceRun(next, cadence, interval);
+    const following = advanceRun(next, cadence, interval, timeZone, anchorDay);
     // Defensive: advanceRun always moves forward for a recurring cadence, so
     // this can't normally fire — but never spin if that ever stops holding.
     if (following == null || following <= next) break;
@@ -116,17 +118,76 @@ export function advanceRunPast(
   return { next, skipped };
 }
 
-/** Advance a recurring automation's next run; null for a fired one-off (it completes). */
-export function advanceRun(from: number, cadence: ScheduleCadence, interval?: { count?: number; unit?: AutomationIntervalUnit }): number | null {
+/** The wall-clock parts of an instant in an IANA timezone, or null when the
+ *  zone isn't one this runtime knows. */
+function zonedParts(ms: number, timeZone: string): { y: number; mo: number; d: number; h: number; mi: number; s: number } | null {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric",
+    }).formatToParts(new Date(ms));
+  } catch {
+    return null;
+  }
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const out = { y: n("year"), mo: n("month"), d: n("day"), h: n("hour") % 24, mi: n("minute"), s: n("second") };
+  return Object.values(out).every(Number.isFinite) ? out : null;
+}
+
+/** The instant whose wall clock in `timeZone` reads y-mo-d h:mi:s. In a
+ *  spring-forward gap (a time that doesn't exist that day) it lands just
+ *  after the gap; in a fall-back overlap, on the first of the two. */
+function zonedToUtc(y: number, mo: number, d: number, h: number, mi: number, s: number, timeZone: string): number {
+  const wall = Date.UTC(y, mo - 1, d, h, mi, s);
+  const offsetAt = (ms: number) => {
+    const p = zonedParts(ms, timeZone)!;
+    return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - ms;
+  };
+  let guess = wall - offsetAt(wall);
+  const second = wall - offsetAt(guess);
+  if (second !== guess) guess = Math.min(guess, second);
+  return guess;
+}
+
+/** The day of the month (1–31) a monthly automation is anchored to: its run
+ *  date's day in its timezone (UTC when the zone is unknown). Undefined for
+ *  cadences that don't step by months. Exported for tests. */
+export function monthlyAnchorDay(nextRun: number, cadence: ScheduleCadence, unit: AutomationIntervalUnit | undefined, timeZone?: string | null): number | undefined {
+  if (!(cadence === "monthly" || (cadence === "custom" && unit === "months"))) return undefined;
+  const p = timeZone ? zonedParts(nextRun, timeZone) : null;
+  return p ? p.d : new Date(nextRun).getUTCDate();
+}
+
+/**
+ * The automation's next run, keeping its LOCAL time of day in `timeZone`
+ * across daylight-saving changes: a weekly run at 9:00 in New York stays at
+ * 9:00 New York time after the clocks change, rather than drifting to 8:00
+ * or 10:00 as a fixed 7×24h step in UTC would. Without a usable timezone it
+ * falls back to UTC arithmetic (the behaviour before timezones were stored).
+ */
+export function advanceRun(
+  from: number, cadence: ScheduleCadence, interval?: { count?: number; unit?: AutomationIntervalUnit }, timeZone?: string | null,
+  anchorDay?: number | null,
+): number | null {
+  const local = timeZone ? zonedParts(from, timeZone) : null;
+  if (local && timeZone) {
+    // Step the CALENDAR date (as if it were UTC — only the date matters here),
+    // then put the original wall-clock time back on it in the zone.
+    const cal = new Date(Date.UTC(local.y, local.mo - 1, local.d));
+    const next = advanceRun(cal.getTime(), cadence, interval, null, anchorDay);
+    if (next == null) return null;
+    const c = new Date(next);
+    return zonedToUtc(c.getUTCFullYear(), c.getUTCMonth() + 1, c.getUTCDate(), local.h, local.mi, local.s, timeZone);
+  }
   const d = new Date(from);
   const count = Math.max(1, Math.floor(interval?.count ?? 1));
   switch (cadence) {
     case "daily": d.setUTCDate(d.getUTCDate() + 1); return d.getTime();
     case "weekly": d.setUTCDate(d.getUTCDate() + 7); return d.getTime();
-    case "monthly": addUTCMonths(d, 1); return d.getTime();
+    case "monthly": addUTCMonths(d, 1, anchorDay); return d.getTime();
     case "custom":
       if (interval?.unit === "weeks") d.setUTCDate(d.getUTCDate() + count * 7);
-      else if (interval?.unit === "months") addUTCMonths(d, count);
+      else if (interval?.unit === "months") addUTCMonths(d, count, anchorDay);
       else d.setUTCDate(d.getUTCDate() + count);
       return d.getTime();
     case "once": return null;
@@ -151,6 +212,7 @@ export async function createSchedule(
      *  automation — see PaymentAutomation.executorAddress/vaultAddress. */
     executorAddress?: string | null;
     vaultAddress?: string | null;
+    feeOnTop?: boolean;
     templateId?: string | null; templateCategory?: string | null;
     recipients?: import("./types").BulkRecipient[];
     distributionMethod?: import("./types").DistributionMethod;
@@ -171,6 +233,7 @@ export async function createSchedule(
     intervalCount: input.cadence === "custom" ? Math.max(1, Math.floor(input.intervalCount ?? 1)) : undefined,
     intervalUnit: input.cadence === "custom" ? input.intervalUnit ?? "days" : undefined,
     timezone: input.timezone ?? "Africa/Lagos",
+    anchorDay: monthlyAnchorDay(input.nextRun, input.cadence, input.cadence === "custom" ? input.intervalUnit ?? "days" : undefined, input.timezone ?? "Africa/Lagos"),
     purpose: input.purpose?.trim() || input.memo?.trim() || "Other",
     nextRun: input.nextRun,
     status: "active",
@@ -195,6 +258,7 @@ export async function createSchedule(
     distributionMethod: input.distributionMethod,
     executorAddress: input.executorAddress ?? null,
     vaultAddress: input.vaultAddress ?? null,
+    ...(input.feeOnTop ? { feeOnTop: true } : {}),
   };
   await persist(row);
   await recordAutomationEvent({
@@ -232,6 +296,10 @@ export async function updateSchedule(
   const sender = opts?.sender?.trim().toLowerCase();
   if (sender && (row.sender ?? "").toLowerCase() !== sender) return null;
   Object.assign(row, patch);
+  // A new first run, cadence or timezone sets the monthly anchor afresh.
+  if (patch.nextRun != null || patch.cadence != null || patch.intervalUnit != null || patch.timezone != null) {
+    row.anchorDay = monthlyAnchorDay(row.nextRun, row.cadence, row.intervalUnit, row.timezone);
+  }
   await persist(row);
   await recordAutomationEvent({
     merchantId, automationId: row.id, sender: row.sender, type: "updated",
@@ -556,7 +624,7 @@ export async function recordRun(
     // behind during a scheduler outage stays due and re-fires on every tick
     // until it catches up. See advanceRunPast().
     const { next: nextByCadence, skipped: missedOccurrences } = advanceRunPast(
-      row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit },
+      row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit }, Date.now(), row.timezone, row.anchorDay,
     );
     const endedByCount = endCondition.type === "after_count" && row.runsCompleted >= endCondition.totalRuns;
     const endedByDate = endCondition.type === "until_date" && nextByCadence != null && nextByCadence > endCondition.untilMs;
@@ -690,7 +758,7 @@ export async function skipNextRun(merchantId: string, id: string, opts?: { sende
   // Past `now` for the same reason recordRun() does it: landing on a still-due
   // time would have the cron execute the very occurrence the owner just
   // skipped, on its next tick.
-  const { next: nextByCadence } = advanceRunPast(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit });
+  const { next: nextByCadence } = advanceRunPast(row.nextRun, row.cadence, { count: row.intervalCount, unit: row.intervalUnit }, Date.now(), row.timezone, row.anchorDay);
   const endedByCount = endCondition.type === "after_count" && row.runsCompleted >= endCondition.totalRuns;
   const endedByDate = endCondition.type === "until_date" && nextByCadence != null && nextByCadence > endCondition.untilMs;
   const skippedRun = { at: Date.now(), decision: "skipped", detail: "Skipped by the owner — no payment was sent for this occurrence." };

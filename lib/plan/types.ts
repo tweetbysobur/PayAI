@@ -26,9 +26,18 @@ import type { Address, Hex } from "viem";
 export const INTENT_IR_VERSION = 1 as const;
 /** The Intent Engine runs on Monad mainnet only. Not a cross-chain system. */
 export const INTENT_CHAIN_ID = 143 as const;
-/** Bounded on purpose: every node is at least one separately signed
- *  transaction, and the plan has to stay readable on one confirmation card. */
-export const MAX_INTENT_NODES = 4;
+/**
+ * A RESOURCE ceiling, not a product rule: a plan may hold as many actions as
+ * the request legitimately contains, up to the size the system can handle
+ * safely. Every node is one more stored record per plan load, one more
+ * validation pass and at least one separately signed transaction, so the
+ * bound is set by those costs (see MAX_INTENT_SOURCE_CHARS and the store's
+ * serialized-plan cap), never by what fits on a card.
+ */
+export const MAX_INTENT_NODES = 500;
+/** The longest request text a plan can carry (the deterministic adapter's
+ *  input bound as well): ~500 simple transfers to 0x addresses. */
+export const MAX_INTENT_SOURCE_CHARS = 40_000;
 
 export interface ActionRef {
   protocolId: string;

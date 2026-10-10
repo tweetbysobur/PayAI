@@ -5,12 +5,14 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
   ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
-  ReceiptText, Copy, Check, Share2, Fingerprint,
+  Copy, Check, Share2, Fingerprint,
 } from "lucide-react";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
+import { PageHeader } from "@/components/dashboard/primitives";
+import { AskEntry } from "@/components/dashboard/AskEntry";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useCopy } from "@/lib/hooks/useCopy";
@@ -143,8 +145,27 @@ export default function Payments() {
 
   return (
     <div className="mx-auto max-w-5xl">
-      <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">Send Payment</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Pay any wallet address or .nads domain on Monad.</p>
+      <PageHeader title="Send" description="Tell PayAI who should receive what, and when. You review the plan before anything is sent." />
+
+      {/* Intent first: the request goes to Ask PayAI, which plans it and asks
+          for approval. The direct form below is the existing, working
+          single-transfer path, kept as the alternative — not the default. */}
+      {composing && (
+        <section className="mb-10 max-w-3xl">
+          <AskEntry
+            id="send-intent"
+            label="Send with intent"
+            placeholder="For example: send 50 USDC to alice.nad on Friday"
+          />
+        </section>
+      )}
+
+      {composing && (
+        <div className="mb-4 border-t border-border pt-8">
+          <h2 className="text-sm font-semibold text-foreground">Or send directly</h2>
+          <p className="mt-1 text-sm text-muted-foreground">One transfer to an address or .nad name, signed in your wallet.</p>
+        </div>
+      )}
 
       {composing ? (
         <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
@@ -160,7 +181,7 @@ export default function Payments() {
                   <span>No wallet connected</span>
                 )}
               </div>
-              <Badge tone={wallet.address ? "success" : "neutral"}>{wallet.isWrongNetwork ? "Wrong network" : "Monad"}</Badge>
+              <Badge tone={!wallet.address ? "neutral" : wallet.isWrongNetwork ? "danger" : "success"}>{wallet.isWrongNetwork ? "Wrong network" : "Monad"}</Badge>
             </div>
 
             {wallet.isWrongNetwork && (
@@ -240,15 +261,12 @@ export default function Payments() {
 
           {/* RIGHT — idle state: nothing in flight yet */}
           <div className="space-y-4">
-            <Card className="flex min-h-[18rem] flex-col items-center justify-center p-6 text-center">
-              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-input text-muted-foreground">
-                <ReceiptText size={22} />
-              </div>
-              <p className="text-sm font-medium text-foreground">Your receipt appears here</p>
-              <p className="mt-1 max-w-xs text-xs text-muted-foreground">
-                Enter an amount and recipient, then send. Your receipt and explorer link land here.
+            <div className="rounded-lg border border-dashed border-border px-5 py-8 text-center">
+              <p className="text-sm text-foreground">The receipt appears here</p>
+              <p className="mx-auto mt-1 max-w-xs text-xs text-muted-foreground">
+                After you sign, you&apos;ll see the confirmation and the explorer link.
               </p>
-            </Card>
+            </div>
 
             {c.history.length > 0 && (
               <Card title="Recent">
@@ -280,9 +298,9 @@ export default function Payments() {
               NEVER a failed payment, so it gets its own reassuring banner instead
               of the red error card. Recovery is automatic; Retry is just a nudge. */}
           {c.pendingRecovery && (
-            <Card className="border-warning/30 bg-warning/5">
+            <Card>
               <div className="flex items-start gap-3">
-                <Loader2 size={16} className={`mt-0.5 shrink-0 text-warning ${c.recovering ? "animate-spin" : ""}`} />
+                <Loader2 size={16} className={`mt-0.5 shrink-0 text-muted-foreground ${c.recovering ? "animate-spin" : ""}`} />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-foreground">Confirming your payment…</p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -304,9 +322,9 @@ export default function Payments() {
           {/* AI CONFIRMATION — the pipeline approved this payment, but no wallet
               signature has been requested yet. Nothing signs until Confirm. */}
           {c.pendingConfirm && (
-            <Card className="border-2 border-primary/40 bg-gradient-to-b from-primary/[0.05] to-transparent">
+            <Card className="border-primary/40">
               <div className="mb-3 flex items-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-input text-muted-foreground"><Clock3 size={17} /></span>
                 <div>
                   <p className="text-sm font-semibold text-foreground">Confirm this payment</p>
                   <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
@@ -414,7 +432,7 @@ export default function Payments() {
                     return (
                       <div className="mt-4 border-t border-border pt-4 text-left">
                         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>
-                        <div className="space-y-1.5 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-3 text-xs">
+                        <div className="space-y-1.5 rounded-lg border border-border bg-input/30 p-3 text-xs">
                           <div className="flex items-center justify-between"><span className="text-muted-foreground">Payment amount</span><span className="font-medium text-foreground">{receipt.paymentAmount} {receipt.token}</span></div>
                           <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary-ink" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
                           {receipt.gasFee && <div className="flex items-center justify-between"><span className="text-muted-foreground">Gas fee</span><span className="font-medium text-foreground">{receipt.gasFee} MON</span></div>}

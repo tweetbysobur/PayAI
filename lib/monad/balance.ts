@@ -7,9 +7,10 @@
  * Server-only.
  */
 import "server-only";
-import { formatEther } from "viem";
+import { formatEther, parseEther } from "viem";
 import { getPublicClient } from "./wallet";
 import { getStablecoin } from "./config";
+import { fromUnits, maxNetFor } from "@/lib/payment/feeOnTop";
 
 const ERC20_BALANCE_ABI = [
   { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "o", type: "address" }], outputs: [{ type: "uint256" }] },
@@ -83,6 +84,52 @@ export async function insufficientBalanceReason(
   } catch {
     // Can't verify — don't block the payment on an RPC hiccup; the wallet
     // and on-chain contract will still correctly reject if funds are short.
+    return null;
+  }
+}
+
+/**
+ * The balance check for a payment whose PayAI fee is charged ON TOP
+ * (lib/payment/feeOnTop.ts): the wallet must hold the amount PLUS the fee
+ * (plus the gas reserve in MON). Exact, in base units. When it can't, the
+ * reason says so plainly — including when only the fee is what doesn't fit —
+ * and names the most that can be sent instead. Null when sufficient, or when
+ * the balance can't be read (the wallet and contract still refuse a short
+ * payment; an RPC hiccup must not block one).
+ */
+export async function insufficientWithFeeReason(
+  address: `0x${string}`,
+  token: { symbol: string; address: `0x${string}`; decimals: number; isNative: boolean },
+  units: { net: bigint; fee: bigint; gross: bigint },
+  feeBps: number,
+): Promise<string | null> {
+  try {
+    const pub = getPublicClient();
+    const gasReserve = parseEther(String(GAS_RESERVE_MON));
+    const [mon, tokenBal] = await Promise.all([
+      pub.getBalance({ address }),
+      token.isNative
+        ? Promise.resolve(null)
+        : (pub.readContract({ address: token.address, abi: ERC20_BALANCE_ABI, functionName: "balanceOf", args: [address] }) as Promise<bigint>),
+    ]);
+    const have = token.isNative ? mon : (tokenBal as bigint);
+    const usable = token.isNative ? (have > gasReserve ? have - gasReserve : 0n) : have;
+    const f = (u: bigint) => `${fromUnits(u, token.decimals)} ${token.symbol}`;
+    if (usable < units.gross) {
+      const max = maxNetFor(usable, feeBps);
+      const feeNote = units.fee > 0n ? ` plus the ${f(units.fee)} PayAI fee` : "";
+      const gasNote = token.isNative ? ` and ~${GAS_RESERVE_MON} MON for gas` : "";
+      const only = usable >= units.net && units.fee > 0n
+        ? ` Your balance covers the ${f(units.net)} but not the fee on top.`
+        : "";
+      const instead = max > 0n ? ` You can send up to ${f(max)}.` : "";
+      return `Not enough ${token.symbol}. You have ${fromUnits(have, token.decimals)} ${token.symbol}; this needs ${f(units.net)}${feeNote}${gasNote}.${only}${instead}`;
+    }
+    if (!token.isNative && mon < gasReserve) {
+      return `Insufficient MON for gas. You need a small amount of MON (~${GAS_RESERVE_MON}) to pay network fees.`;
+    }
+    return null;
+  } catch {
     return null;
   }
 }

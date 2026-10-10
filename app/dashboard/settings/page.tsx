@@ -2,79 +2,102 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { Wallet, ShieldCheck, LifeBuoy, ArrowRight } from "lucide-react";
-import { Card, Badge } from "@/components/ui";
+import { ArrowRight } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { MonadMark } from "@/components/MonadMark";
 import { ExportWalletCard } from "@/components/dashboard/ExportWalletCard";
 import { UsernameCard } from "@/components/dashboard/UsernameCard";
 import { GoogleLinkCard } from "@/components/dashboard/GoogleLinkCard";
+import { PageHeader, StatusIndicator } from "@/components/dashboard/primitives";
 
 /** Settings is wallet-only, matching the rest of the product — there is no
- *  separate account/API-key system to sign into. Everything here reflects
- *  the connected wallet's own identity and network. */
+ *  separate account/API-key system to sign into. It is grouped only by the
+ *  categories that have real settings behind them today: Account, Sign-in,
+ *  Wallet and Security. (There are no notification or display preferences
+ *  to configure yet, so there is no empty section pretending otherwise.)
+ *  Linked-wallet management is the Wallets tab next to this one. */
 export default function Settings() {
   const wallet = useWallet();
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-1 text-2xl font-semibold tracking-tight text-foreground">Settings</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Your account is your wallet. A passkey is enough — Google is optional.</p>
+      <PageHeader title="General" description="Your account is your wallet. A passkey is enough — Google is optional." />
 
-      <Card title="Account" className="mb-4">
-        {wallet.address ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><Wallet size={18} /></div>
-              <div>
-                <p className="font-mono text-sm text-foreground">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {wallet.kind === "embedded" ? "PayAI Wallet — secured by your passkey" : "Connected wallet"}
-                </p>
-              </div>
-            </div>
-            <Badge tone="success">Active</Badge>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">Connect a wallet to see your account here.</p>
-        )}
-      </Card>
+      <SettingsSection id="account" title="Account">
+        <Row
+          label="Wallet"
+          value={wallet.address
+            ? <span className="font-mono">{wallet.address.slice(0, 6)}…{wallet.address.slice(-4)}</span>
+            : <span className="text-muted-foreground">Connect a wallet to see your account here.</span>}
+          detail={wallet.address ? (wallet.kind === "embedded" ? "PayAI Wallet — secured by your passkey" : "Connected wallet") : undefined}
+          right={wallet.address ? <StatusIndicator tone="success" label="Active" /> : null}
+        />
+        <UsernameCard />
+      </SettingsSection>
 
-      <Suspense fallback={null}>
-        <GoogleLinkCard />
-      </Suspense>
+      <SettingsSection id="sign-in" title="Sign-in">
+        <Suspense fallback={null}>
+          <GoogleLinkCard />
+        </Suspense>
+      </SettingsSection>
 
-      <UsernameCard />
-
-      <Card title="Network">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><MonadMark size={18} /></div>
-          <div>
-            <p className="text-sm text-foreground">Monad Mainnet</p>
-            <p className="text-xs text-muted-foreground">All payments and automations settle here.</p>
-          </div>
-        </div>
-      </Card>
-
-      <ExportWalletCard />
-
-      <div className="mt-4 flex items-start gap-2 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent p-4 text-xs text-muted-foreground">
-        <ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" />
-        <p>PayAI never asks for your seed phrase or private key. Your data — payments, automations, activity — is scoped to your connected wallet address only.</p>
-      </div>
-
-      <Card title="Support" className="mt-4">
-        <Link href="/dashboard/help?tab=support" className="flex items-center justify-between gap-3 rounded-lg transition-colors hover:bg-input/40">
-          <div className="flex items-center gap-3 p-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/12 text-primary-ink"><LifeBuoy size={18} /></div>
-            <div>
-              <p className="text-sm text-foreground">Report a problem or ask a question</p>
-              <p className="text-xs text-muted-foreground">Failed automations, missing refunds, payments, or your wallet.</p>
-            </div>
-          </div>
-          <ArrowRight size={15} className="mr-1 shrink-0 text-muted-foreground" />
+      <SettingsSection id="wallet" title="Wallet">
+        <Row
+          label="Network"
+          value={<span className="flex items-center gap-2"><MonadMark size={14} /> Monad Mainnet</span>}
+          detail="All payments and automations settle here."
+        />
+        <Link href="/dashboard/wallets" className="group flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span>
+            <span className="block text-foreground">Linked wallets</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Add, switch and recover the wallets on your account.</span>
+          </span>
+          <ArrowRight size={15} aria-hidden className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
         </Link>
-      </Card>
+      </SettingsSection>
+
+      <SettingsSection id="security" title="Security">
+        <ExportWalletCard />
+        <p className="text-sm text-muted-foreground">
+          PayAI never asks for your seed phrase or private key. Your payments, automations and activity are scoped to your connected wallet address only.{" "}
+          <Link href="/security" className="rounded-sm text-foreground underline decoration-border underline-offset-4 hover:decoration-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">How PayAI keeps your wallet safe</Link>
+        </p>
+      </SettingsSection>
+
+      <SettingsSection id="support" title="Support">
+        <Link href="/dashboard/help?tab=support" className="group flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span>
+            <span className="block text-foreground">Report a problem or ask a question</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">Failed automations, missing refunds, payments, or your wallet.</span>
+          </span>
+          <ArrowRight size={15} aria-hidden className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      </SettingsSection>
+    </div>
+  );
+}
+
+function SettingsSection({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section aria-labelledby={`settings-${id}`} className="border-t border-border py-6 first-of-type:border-t-0 first-of-type:pt-0 [&:has(>div:empty)]:hidden">
+      <h2 id={`settings-${id}`} className="mb-4 text-sm font-semibold text-foreground">{title}</h2>
+      {/* The existing cards carry their own bottom margin; the last one's is
+          absorbed here. A section whose only card renders nothing for this
+          wallet (Google sign-in, for an external wallet) hides itself. */}
+      <div className="space-y-4 [&>*:last-child]:mb-0">{children}</div>
+    </section>
+  );
+}
+
+function Row({ label, value, detail, right }: { label: string; value: React.ReactNode; detail?: string; right?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5">
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <div className="mt-0.5 text-sm text-foreground">{value}</div>
+        {detail && <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>}
+      </div>
+      {right}
     </div>
   );
 }

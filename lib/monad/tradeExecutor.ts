@@ -33,6 +33,7 @@ import { quoteBestUniswapTier, minOutWei, estimatePriceImpact, ERC20_ABI, type U
 import { quoteKuruForExecutor } from "./kuruSwap";
 import { nadFunQuote } from "./nadfun";
 import { normalizeDecimalString } from "./verify";
+import { feeOnTop } from "@/lib/payment/feeOnTop";
 
 const NATIVE = "0x0000000000000000000000000000000000000000" as Address;
 /** Trade deadline for the Uniswap/Nad.Fun adapters (the executor requires now <= deadline). */
@@ -147,13 +148,25 @@ export async function isNadFunRouterAllowed(execAddr: Address, router: Address):
   return (await pub.readContract({ address: execAddr, abi: TRADE_EXECUTOR_ABI, functionName: "allowedNadFunRouter", args: [router] })) as boolean;
 }
 
+/**
+ * PayAI's trade fee is ON TOP of the amount swapped (lib/payment/feeOnTop.ts):
+ * the gross handed to the executor is the smallest whose net — the
+ * executor's own floor fee taken out — is exactly `net`. Checked against
+ * applyExecutorFee, the on-chain math, so the two can never disagree.
+ */
+export function executorGross(net: bigint, feeBps: number): { gross: bigint; fee: bigint } {
+  const { gross, fee } = feeOnTop(net, feeBps);
+  if (applyExecutorFee(gross, feeBps).netWei !== net) throw new Error("PayAI's trade fee couldn't be applied to this amount.");
+  return { gross, fee };
+}
+
 export interface ExecutorPlan {
   steps: UnsignedStep[];
   /** Human, NET (post-fee) expected output — what the executor will actually deliver. */
   amountOut: string;
   priceImpact: string | null;
   feeBps: number;
-  /** Human, fee amount in INPUT-token units. */
+  /** Human, fee amount in INPUT-token units — on top of the amount swapped. */
   feeAmount: string;
 }
 
@@ -172,9 +185,12 @@ export async function buildUniswapExecutorPlan(
   const wmon = getWrappedNative();
   if ((tokenInIsNative || tokenOutIsNative) && !wmon) throw new Error("WMON isn't configured for native-MON trades right now.");
 
-  const grossWei = parseUnits(normalizeDecimalString(amount, tokenInDecimals), tokenInDecimals);
+  // `amount` is what gets SWAPPED; PayAI's fee is on top (feeOnTop), so the
+  // executor is handed the gross whose net is exactly that amount.
+  const netWei = parseUnits(normalizeDecimalString(amount, tokenInDecimals), tokenInDecimals);
   const feeBps = await getExecutorFeeBps(execAddr);
-  const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
+  const { gross: grossWei, fee: feeWei } = executorGross(netWei, feeBps);
+  const grossLabel = formatUnits(grossWei, tokenInDecimals);
 
   const quoteIn = (tokenInIsNative ? wmon! : tokenIn);
   const quoteOut = (tokenOutIsNative ? wmon! : tokenOut);
@@ -192,7 +208,7 @@ export async function buildUniswapExecutorPlan(
     if (allowance < grossWei) {
       steps.push({
         kind: "approve",
-        label: `Approve ${amount} ${tokenInSymbol} for the trade`,
+        label: `Approve ${grossLabel} ${tokenInSymbol} for the trade`,
         tx: { to: tokenIn, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
       });
     }
@@ -232,10 +248,11 @@ export async function buildKuruExecutorPlan(
   fromSymbol: string, toSymbol: string, inputDecimals: number,
   amount: string, slippage: number, wallet: Address,
 ): Promise<ExecutorPlan | null> {
-  const grossWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
+  const netWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
   const feeBps = await getExecutorFeeBps(execAddr);
-  const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
+  const { gross: grossWei, fee: feeWei } = executorGross(netWei, feeBps);
   const netHuman = Number(formatUnits(netWei, inputDecimals));
+  const grossLabel = formatUnits(grossWei, inputDecimals);
 
   const kq = await quoteKuruForExecutor(fromSymbol, toSymbol, netHuman, slippage);
   if (!kq) return null;
@@ -251,7 +268,7 @@ export async function buildKuruExecutorPlan(
     if (allowance < grossWei) {
       steps.push({
         kind: "approve",
-        label: `Approve ${amount} ${fromSymbol} for the trade`,
+        label: `Approve ${grossLabel} ${fromSymbol} for the trade`,
         tx: { to: kq.debitAddress, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
       });
     }
@@ -300,10 +317,11 @@ export async function buildNadFunExecutorPlan(
 ): Promise<ExecutorPlan | null> {
   const inputDecimals = isBuy ? 18 : tokenDecimals; // spending MON to buy, or spending the token to sell
   const outputDecimals = isBuy ? tokenDecimals : 18;
-  const grossWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
+  const netWei = parseUnits(normalizeDecimalString(amount, inputDecimals), inputDecimals);
   const feeBps = await getExecutorFeeBps(execAddr);
-  const { feeWei, netWei } = applyExecutorFee(grossWei, feeBps);
+  const { gross: grossWei, fee: feeWei } = executorGross(netWei, feeBps);
   const netHuman = formatUnits(netWei, inputDecimals);
+  const grossLabel = formatUnits(grossWei, inputDecimals);
 
   const q = await nadFunQuote(token, tokenDecimals, netHuman, isBuy);
   if (!q) return null;
@@ -320,7 +338,7 @@ export async function buildNadFunExecutorPlan(
     if (allowance < grossWei) {
       steps.push({
         kind: "approve",
-        label: `Approve ${amount} ${tokenSymbol} for the trade`,
+        label: `Approve ${grossLabel} ${tokenSymbol} for the trade`,
         tx: { to: token, data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [execAddr, grossWei] }), value: "0x0" },
       });
     }

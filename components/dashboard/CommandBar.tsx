@@ -232,9 +232,10 @@ export function CommandBar() {
                         // otherwise show a button that silently does nothing.
                         onRetryOperation={m.operation && retryTextFor(m.operation) ? chat.retryOperation : undefined}
                         progressLabel={m.operation ? chat.progress[m.operation.id] : undefined}
+                        onEditPlan={chat.editRequest}
                       />
                     ))}
-                    {chat.thinking && <ThinkingRow label={chat.thinkingLabel} />}
+                    {chat.thinking && <ThinkingRow label={chat.thinkingLabel} hint={chat.thinkingHint} startedAt={chat.thinkingStartedAt} onRetry={chat.retryThinking} />}
                   </div>
                 )}
               </div>

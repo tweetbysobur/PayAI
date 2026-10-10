@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sidebar } from "@/components/dashboard/Sidebar";
+import { usePathname } from "next/navigation";
+import { Sidebar, PAYMENTS_AREA, SETTINGS_AREA } from "@/components/dashboard/Sidebar";
+import { AreaTabs, isNavActive } from "@/components/dashboard/primitives";
 import { Topbar } from "@/components/dashboard/Topbar";
 import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { TourOverlay } from "@/components/onboarding/TourOverlay";
 import { DepositAlert } from "@/components/dashboard/DepositAlert";
+import { AccountReturnBanner } from "@/components/dashboard/AccountReturnBanner";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import { SyncProvider } from "@/lib/hooks/useSync";
 import { AskPageChatProvider } from "@/lib/ask/AskPageChatContext";
@@ -28,6 +31,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </AskPageChatProvider>
     </SyncProvider>
   );
+}
+
+/** The second-level tabs for the area the current page belongs to. Pages keep
+ *  their own URLs; the tabs are what groups them under one primary entry. */
+function AreaNav() {
+  const pathname = usePathname();
+  const inArea = (tabs: readonly { href: string }[]) => tabs.some((t) => isNavActive(pathname, t));
+  if (inArea(PAYMENTS_AREA)) return <AreaTabs label="Payments & Automations" tabs={PAYMENTS_AREA} />;
+  if (inArea(SETTINGS_AREA)) return <AreaTabs label="Settings" tabs={SETTINGS_AREA} />;
+  return null;
 }
 
 function DashboardChrome({ children }: { children: React.ReactNode }) {
@@ -64,7 +77,11 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
           whatever any child's own content happens to need. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar health={health} notifications={notifications} onOpenNotifications={markSeen} onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <AccountReturnBanner />
+          <AreaNav />
+          {children}
+        </main>
       </div>
       <CommandBar />
       <OnboardingFlow />

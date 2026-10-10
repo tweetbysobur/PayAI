@@ -32,6 +32,7 @@ import { recipientKey } from "./resolve";
 import { planExpiry } from "./state";
 import type { LoadedPlan } from "./store";
 import type { ActionRef, InputValue } from "./types";
+import { MAX_ESCROW_FEE_BPS } from "@/lib/rooms/escrowChain";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const UNITS_RE = /^[1-9][0-9]*$/;
@@ -114,6 +115,28 @@ export type ReviewStep =
       recipient: ReviewRecipient;
       fee: ReviewFee;
     })
+  | (ReviewStepBase & {
+      /** A PayAI Room escrow action (payai-rooms@1.0.0). Funds move only to
+       *  or from the escrow contract; the live quote shows its exact state. */
+      action: "room_escrow";
+      op: "create" | "contribute" | "claim" | "refund" | "cancel";
+      token: ReviewToken;
+      /** On-chain room id; null for create. */
+      roomId: string | null;
+      /** contribute: what you pay into escrow; create: the room's target. */
+      amount: ReviewAmount | null;
+      create: null | {
+        roomKind: "fixed" | "target";
+        share: ReviewAmount | null;
+        slots: number | null;
+        minContribution: ReviewAmount | null;
+        /** Unix seconds. */
+        deadline: number;
+        beneficiary: ReviewRecipient;
+      };
+      /** The escrow's fee: taken once from the payout on a successful claim; never on contributions or refunds. */
+      fee: { rule: "escrow_claim_fee"; maxBps: number };
+    })
   | (ReviewStepBase & { action: "unsupported" });
 
 export interface PlanReview {
@@ -137,6 +160,10 @@ export interface PlanReview {
 
 const SWAP_REF: ActionRef = { protocolId: "payai", actionId: "swap", version: "1.0.0" };
 const TRANSFER_REF: ActionRef = { protocolId: "payai", actionId: "transfer", version: "1.0.0" };
+const ROOM_OPS: Readonly<Record<string, "create" | "contribute" | "claim" | "refund" | "cancel">> = {
+  create_room: "create", contribute: "contribute", claim: "claim", refund: "refund", cancel_room: "cancel",
+};
+const ROOM_ID_RE = /^(0|[1-9][0-9]{0,30})$/;
 const sameRef = (a: ActionRef, b: ActionRef) => a.protocolId === b.protocolId && a.actionId === b.actionId && a.version === b.version;
 
 /** A step that can't be described: the whole plan is then not reviewable. */
@@ -218,6 +245,42 @@ export function reviewOf(l: LoadedPlan, config: ReviewConfig, now: number): Plan
           amount: amount(own(s.inputs, "amount"), tk),
           recipient: recipient(own(s.inputs, "recipient")),
           fee: { rule: "deducted_from_amount", maxBps: config.maxPlatformFeeBps },
+        };
+      }
+      if (s.ref.protocolId === "payai-rooms" && s.ref.version === "1.0.0" && Object.prototype.hasOwnProperty.call(ROOM_OPS, s.ref.actionId)) {
+        const op = ROOM_OPS[s.ref.actionId];
+        const tk = token(own(s.inputs, "token"));
+        const exact = (v: InputValue | undefined) => {
+          if (v === undefined) return null;
+          const a = amount(v, tk);
+          return a.kind === "exact" ? a : unsupported();
+        };
+        const lit = (k: string) => { const v = own(s.inputs, k); return v?.kind === "literal" ? v.value : v === undefined ? undefined : unsupported(); };
+        // The Rooms platform fee (0.5%), NOT the forwarder's payment-fee cap.
+        const fee = { rule: "escrow_claim_fee" as const, maxBps: MAX_ESCROW_FEE_BPS };
+        if (op === "create") {
+          onlyKeys(s.inputs, ["kind", "token", "beneficiary", "share", "slots", "goal", "minContribution", "deadline", "termsHash"]);
+          const kind = lit("kind");
+          if (kind !== "fixed" && kind !== "target") return unsupported();
+          const deadline = Number(lit("deadline"));
+          const slots = lit("slots");
+          if (!Number.isSafeInteger(deadline) || deadline <= 0) return unsupported();
+          if (slots !== undefined && !/^[1-9][0-9]{0,3}$/.test(slots)) return unsupported();
+          return {
+            ...base, action: "room_escrow", op, token: tk.t, roomId: null, amount: exact(own(s.inputs, "goal") ?? unsupported()),
+            create: {
+              roomKind: kind, share: exact(own(s.inputs, "share")), slots: slots === undefined ? null : Number(slots),
+              minContribution: exact(own(s.inputs, "minContribution")), deadline, beneficiary: recipient(own(s.inputs, "beneficiary")),
+            },
+            fee,
+          };
+        }
+        onlyKeys(s.inputs, op === "contribute" ? ["roomId", "amount", "token"] : ["roomId", "token"]);
+        const roomId = lit("roomId");
+        if (roomId === undefined || !ROOM_ID_RE.test(roomId)) return unsupported();
+        return {
+          ...base, action: "room_escrow", op, token: tk.t, roomId,
+          amount: op === "contribute" ? exact(own(s.inputs, "amount") ?? unsupported()) : null, create: null, fee,
         };
       }
       return unsupported();

@@ -2,21 +2,20 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion } from "motion/react";
-import { Search, ArrowUpRight, Receipt, CheckCircle2, ExternalLink, Wallet, Activity as ActivityIcon, BarChart3, ShieldCheck } from "lucide-react";
-import { Badge, Card, Input, SkeletonRows } from "@/components/ui";
+import { Search, ArrowUpRight, ArrowLeftRight } from "lucide-react";
+import { Input, SkeletonRows } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
-import { TokenLogo, VolumeStack } from "@/components/TokenLogo";
 import { SyncButton } from "@/components/dashboard/SyncButton";
+import { ActivityRow, EmptyState, PageHeader } from "@/components/dashboard/primitives";
 import { ActivityTabContent } from "@/components/dashboard/ActivityTabContent";
 import { AnalyticsTabContent } from "@/components/dashboard/AnalyticsTabContent";
 import { ComplianceTabContent } from "@/components/dashboard/ComplianceTabContent";
 
-interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
+interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
-  executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "neutral",
+  executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "danger",
 };
 const DECISION_LABEL: Record<string, string> = {
   executed: "Settled", needs_review: "In review", blocked: "Blocked", refused: "Declined", error: "Failed",
@@ -34,10 +33,10 @@ function ago(ms: number): string {
 }
 
 const TABS = [
-  { key: "transactions", label: "Transactions", icon: Receipt, blurb: "Every payment you've made through PayAI, settled on Monad Mainnet." },
-  { key: "activity", label: "Activity", icon: ActivityIcon, blurb: "Every payment, automation, swap and wallet event in one feed." },
-  { key: "analytics", label: "Analytics", icon: BarChart3, blurb: "Payment volume, settlement activity, and revenue trends." },
-  { key: "compliance", label: "Compliance", icon: ShieldCheck, blurb: "The risk checks every payment goes through, and a manual address check." },
+  { key: "transactions", label: "Transactions", blurb: "What PayAI has executed for you, and whether it settled." },
+  { key: "activity", label: "All activity", blurb: "Transactions, automation runs, swaps and wallet events in one feed." },
+  { key: "analytics", label: "Analytics", blurb: "Volume and settlement totals for your wallet." },
+  { key: "compliance", label: "Checks", blurb: "The checks every transaction goes through, and a manual address check." },
 ] as const;
 type TabKey = typeof TABS[number]["key"];
 function parseTab(v: string | null): TabKey {
@@ -71,31 +70,23 @@ function TransactionsPageInner() {
 
   return (
     <div className={`mx-auto ${TAB_WIDTH[tab]}`}>
-      <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Transactions</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{active.blurb}</p>
-        </div>
-        <SyncButton className="shrink-0 pt-1" />
-      </motion.div>
+      <PageHeader title="History" description={active.blurb} actions={<SyncButton />} />
 
-      {/* Segmented tab control — everything that used to be four separate
-          pages (Transactions, Activity, Analytics, Compliance) lives here
-          now, one click apart instead of a full navigation away. */}
-      <div className="mb-5 inline-flex flex-wrap gap-1 rounded-xl border border-border bg-input/40 p-1">
+      {/* Views of the same history — quiet text tabs, not a second nav bar. */}
+      <div role="tablist" aria-label="History views" className="-mt-1 mb-6 flex gap-5 overflow-x-auto border-b border-border [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map((t) => {
-          const Icon = t.icon;
           const isActive = tab === t.key;
           return (
             <button
               key={t.key}
+              role="tab"
+              aria-selected={isActive}
               onClick={() => selectTab(t.key)}
-              aria-current={isActive ? "page" : undefined}
-              className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                isActive ? "bg-primary text-primary-foreground shadow-sm shadow-primary/20" : "text-muted-foreground hover:text-foreground"
+              className={`-mb-px shrink-0 border-b-2 py-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                isActive ? "border-foreground font-medium text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              <Icon size={14} /> {t.label}
+              {t.label}
             </button>
           );
         })}
@@ -133,19 +124,6 @@ function TransactionsTabContent() {
       .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).finally(() => setLoading(false));
   }, [wallet.address]);
 
-  // Headline stats — computed from the user's own settled payments.
-  const stats = useMemo(() => {
-    const settled = history.filter((h) => h.decision === "executed");
-    const volumeByToken: Record<string, number> = {};
-    for (const h of settled) if (h.amount != null) volumeByToken[h.token] = (volumeByToken[h.token] ?? 0) + h.amount;
-    const considered = history.filter((h) => ["executed", "blocked", "refused", "error"].includes(h.decision)).length;
-    return {
-      settled: settled.length,
-      volumeByToken,
-      successRate: considered ? Math.round((settled.length / considered) * 100) : 100,
-    };
-  }, [history]);
-
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return history.filter((h) => {
@@ -160,25 +138,6 @@ function TransactionsTabContent() {
 
   return (
     <div>
-      {/* Headline stats */}
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          { label: "Payments settled", value: <span className="[font-variant-numeric:tabular-nums]">{stats.settled.toLocaleString()}</span>, icon: CheckCircle2, tone: "bg-success/12 text-success" },
-          // Stacked, not inline: three columns at the sm breakpoint leave each
-          // card ~200px, which two currencies on one line overrun.
-          { label: "Volume", value: <VolumeStack byToken={stats.volumeByToken} size={15} valueClassName="text-xl font-semibold" />, icon: ArrowUpRight, tone: "bg-primary/12 text-primary-ink" },
-          { label: "Success rate", value: <span className="[font-variant-numeric:tabular-nums]">{stats.successRate}%</span>, icon: Receipt, tone: "bg-primary/12 text-primary-ink" },
-        ].map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}>
-            <Card className="p-4">
-              <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-lg ${s.tone}`}><s.icon size={16} /></div>
-              <div className="text-xl font-semibold text-foreground">{s.value}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{s.label}</div>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
       {!loading && history.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div className="relative flex-1 sm:max-w-xs">
@@ -190,8 +149,9 @@ function TransactionsTabContent() {
               <button
                 key={s}
                 onClick={() => { setStatus(s); setPage(1); }}
-                className={`rounded-full border px-3 py-1.5 text-xs font-medium capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  status === s ? "border-primary/40 bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:text-foreground"
+                aria-pressed={status === s}
+                className={`h-8 rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  status === s ? "border-foreground/40 bg-input text-foreground" : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {s === "all" ? "All" : DECISION_LABEL[s] ?? s.replace("_", " ")}
@@ -201,79 +161,45 @@ function TransactionsTabContent() {
         </div>
       )}
 
-      <Card className="!p-0 overflow-hidden">
+      <div className="rounded-lg border border-border bg-panel px-4">
         {loading ? (
-          <SkeletonRows rows={4} className="p-6" />
+          <div className="py-4"><SkeletonRows rows={5} /></div>
         ) : !wallet.address ? (
-          <EmptyState icon={Wallet} title="Connect your wallet" hint="Your transactions are private to your wallet. Connect it from the top bar to see your history." />
+          <EmptyState title="Connect your wallet" hint="Your history is private to your wallet. Connect it to see what PayAI has executed for you." />
         ) : history.length === 0 ? (
-          <EmptyState icon={Receipt} title="No transactions yet" hint="Send your first payment with Ask PayAI (⌘K). It settles on Monad in seconds and appears here." />
+          <EmptyState title="No activity yet." hint="What PayAI executes for you shows up here once it settles on Monad." action={{ label: "Tell PayAI what you want done", href: "/dashboard" }} />
         ) : filtered.length === 0 ? (
-          <EmptyState icon={Search} title="No matches" hint="No transactions match your search or filter." />
+          <EmptyState title="No matches" hint="Nothing matches your search or filter." />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-border bg-panel/40 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-5 py-3 font-medium">When</th>
-                    <th className="px-3 py-3 font-medium">Recipient</th>
-                    <th className="px-3 py-3 font-medium">Asset</th>
-                    <th className="px-3 py-3 text-right font-medium">Amount</th>
-                    <th className="px-3 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 text-right font-medium">Proof</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageRows.map((h, i) => (
-                    <motion.tr
-                      key={i}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                      className="border-b border-border/60 transition-colors last:border-none hover:bg-panel/40"
-                    >
-                      <td className="px-5 py-3 text-xs text-muted-foreground" title={new Date(h.at).toLocaleString()}>{ago(h.at)}</td>
-                      <td className="px-3 py-3">
-                        {h.domain ? <span className="text-xs font-medium text-primary-ink">{h.domain}</span> : <span className="font-mono text-xs text-foreground">{short(h.recipient)}</span>}
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="inline-flex items-center gap-1.5 text-xs text-foreground"><TokenLogo token={h.token} size={15} /> {h.token}</span>
-                      </td>
-                      <td className="px-3 py-3 text-right font-mono text-xs text-foreground [font-variant-numeric:tabular-nums]">{h.amount ?? "—"}</td>
-                      <td className="px-3 py-3"><Badge tone={DECISION_TONE[h.decision] ?? "neutral"}>{DECISION_LABEL[h.decision] ?? h.decision}</Badge></td>
-                      <td className="px-5 py-3 text-right">
-                        {h.txHash && h.explorerUrl ? (
-                          <a href={h.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-xs text-primary-ink hover:underline">
-                            {short(h.txHash)} <ExternalLink size={11} />
-                          </a>
-                        ) : <span className="text-xs text-muted-foreground">—</span>}
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ul className="divide-y divide-border">
+              {pageRows.map((h, i) => {
+                const swap = h.feature === "swap" || h.feature === "trade" || h.action === "swap";
+                return (
+                  <ActivityRow
+                    key={`${h.at}-${i}`}
+                    icon={swap ? ArrowLeftRight : ArrowUpRight}
+                    title={swap ? (h.summary || "Swap") : <>To {h.domain ?? <span className="font-mono">{short(h.recipient)}</span>}</>}
+                    status={{ tone: DECISION_TONE[h.decision] ?? "neutral", label: DECISION_LABEL[h.decision] ?? h.decision }}
+                    meta={<span title={new Date(h.at).toLocaleString()}>{ago(h.at)} · Monad</span>}
+                    amount={h.amount != null ? <>{h.amount} <span className="text-xs font-normal text-muted-foreground">{h.token}</span></> : "—"}
+                    receipt={h.txHash && h.explorerUrl ? { href: h.explorerUrl, label: short(h.txHash) } : null}
+                  />
+                );
+              })}
+            </ul>
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border px-5 py-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border py-3 text-xs text-muted-foreground">
                 <span>Page {page} of {totalPages} · {filtered.length} results</span>
                 <div className="flex gap-2">
-                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="rounded-md border border-border px-3 py-1.5 transition hover:bg-panel disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Previous</button>
-                  <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="rounded-md border border-border px-3 py-1.5 transition hover:bg-panel disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Next</button>
+                  <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="h-8 rounded-md border border-border px-3 transition-colors hover:bg-input disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Previous</button>
+                  <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="h-8 rounded-md border border-border px-3 transition-colors hover:bg-input disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Next</button>
                 </div>
               </div>
             )}
           </>
         )}
-      </Card>
-    </div>
-  );
-}
-
-function EmptyState({ icon: Icon, title, hint }: { icon: typeof Receipt; title: string; hint: string }) {
-  return (
-    <div className="flex flex-col items-center px-6 py-16 text-center">
-      <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-input text-muted-foreground"><Icon size={22} /></span>
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      <p className="mt-1 max-w-sm text-xs text-muted-foreground">{hint}</p>
+      </div>
     </div>
   );
 }

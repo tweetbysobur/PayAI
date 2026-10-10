@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Search } from "lucide-react";
-import { motion } from "motion/react";
+import { Search } from "lucide-react";
+import { PageHeader, StatusIndicator } from "@/components/dashboard/primitives";
 import { Badge, Button, Card, Input } from "@/components/ui";
 import { amountError, isValidAmount, addressError, isValidAddress } from "@/lib/validation";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -24,25 +24,12 @@ const COMING_SOON = true;
 
 function InvoicesComingSoon() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col items-center justify-center rounded-2xl border border-border bg-panel/40 px-4 py-16 text-center">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}
-        className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/12 text-primary-ink"
-      >
-        <FileText size={26} />
-      </motion.div>
-      <motion.h1
-        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05, duration: 0.35 }}
-        className="mt-4 text-2xl font-semibold tracking-tight text-foreground"
-      >
-        Invoices — coming soon
-      </motion.h1>
-      <motion.p
-        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.35 }}
-        className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground"
-      >
-        Shareable payment links and on-chain payment requests are being reworked. We&apos;ll have this back soon.
-      </motion.p>
+    <div className="mx-auto max-w-3xl">
+      <PageHeader title="Invoices" description="Payment requests you can share, settled onchain." actions={<StatusIndicator tone="neutral" label="Not available yet" />} />
+      <div className="rounded-lg border border-border bg-panel px-5 py-6">
+        <p className="text-sm text-foreground">Invoices are being reworked and aren&apos;t available right now.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Shareable payment links and onchain payment requests will be back here when they&apos;re ready.</p>
+      </div>
     </div>
   );
 }
@@ -206,7 +193,7 @@ function InvoicesWorkspace() {
                             <td className="py-1.5 pr-3 text-muted-foreground">{rq.id}</td>
                             <td className="pr-3 font-mono text-xs">{short(rq.merchant)}</td>
                             <td className="pr-3">{rq.amount} USDC</td>
-                            <td className="pr-3"><Badge tone={rq.paid ? "success" : "warning"}>{rq.paid ? `paid #${rq.paymentId}` : "open"}</Badge></td>
+                            <td className="pr-3"><Badge tone={rq.paid ? "success" : "neutral"}>{rq.paid ? `paid #${rq.paymentId}` : "open"}</Badge></td>
                             <td className="text-right">
                               {!rq.paid && (
                                 <Button variant="secondary" disabled={invBusy} onClick={() => onchainAction({ action: "pay_request", requestId: rq.id }, `Paid invoice #${rq.id}`)} className="px-2 py-1 text-xs">

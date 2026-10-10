@@ -8,11 +8,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   decodeWalletGrant,
   encodeWalletGrant,
+  grantExpiryInWindow,
   verifyWalletGrantSignature,
   WALLET_GRANT_COOKIE,
   walletGrantCookieOpts,
 } from "@/lib/auth/walletGrant";
 import { rateLimited } from "@/lib/platform/ratelimit";
+
+const ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 
 export async function GET(req: NextRequest) {
   const grant = decodeWalletGrant(req.cookies.get(WALLET_GRANT_COOKIE)?.value);
@@ -27,17 +30,35 @@ export async function POST(req: NextRequest) {
   const address = typeof body?.address === "string" ? body.address.trim() : "";
   const expiresAt = Number(body?.expiresAt);
   const signature = typeof body?.signature === "string" ? body.signature.trim() : "";
+  // Same refusal and same bounds as before; the code only lets the browser say
+  // "your clock is off" instead of "your signature is wrong".
+  if (ADDRESS_SHAPE.test(address) && !grantExpiryInWindow(expiresAt)) {
+    return NextResponse.json(
+      { error: "Wallet confirmation could not be verified.", code: "grant_expiry_invalid" },
+      { status: 401 },
+    );
+  }
   if (!(await verifyWalletGrantSignature(address, expiresAt, signature))) {
-    return NextResponse.json({ error: "Wallet confirmation could not be verified." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Wallet confirmation could not be verified.", code: "grant_signature_invalid" },
+      { status: 401 },
+    );
   }
 
   const maxAge = Math.max(1, Math.floor((expiresAt - Date.now()) / 1000));
+  // Issuing needs AUTH_SESSION_SECRET. Without it no grant is issued; the
+  // refusal is a controlled 503, not an unhandled 500.
+  let value: string;
+  try {
+    value = encodeWalletGrant(address, expiresAt);
+  } catch {
+    return NextResponse.json(
+      { error: "Wallet access is unavailable right now.", code: "grant_unavailable" },
+      { status: 503 },
+    );
+  }
   const res = NextResponse.json({ address: address.toLowerCase() });
-  res.cookies.set(
-    WALLET_GRANT_COOKIE,
-    encodeWalletGrant(address, expiresAt),
-    walletGrantCookieOpts(req.headers.get("host"), maxAge),
-  );
+  res.cookies.set(WALLET_GRANT_COOKIE, value, walletGrantCookieOpts(req.headers.get("host"), maxAge));
   return res;
 }
 

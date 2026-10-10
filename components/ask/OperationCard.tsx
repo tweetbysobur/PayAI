@@ -38,6 +38,21 @@ function fmtDate(iso: string): string {
   }
 }
 
+/** A scheduled run, stated in the timezone it is actually scheduled in (UTC)
+ *  and then in the viewer's own — so "Fri, Oct 16 · 09:00 UTC" is never read
+ *  as 9 AM local. Exported for tests. */
+export function fmtRunTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const utc = d.toLocaleString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const hhmm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+  let local = "";
+  try {
+    local = d.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  } catch { /* no Intl timezone support — UTC alone is still exact */ }
+  return local && !/\bUTC\b/.test(local) ? `${utc} · ${hhmm} (${local} your time)` : `${utc} · ${hhmm}`;
+}
+
 /** "Updated Xs/Xm ago" for a market-data snapshot — makes a short-lived
  *  cache hit honest rather than implying every render just hit the chain. */
 function agoLabel(at: number): string {
@@ -97,10 +112,10 @@ const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
   // success state here: the card only ever reaches it with a confirmed
   // on-chain transaction hash, which is the verification.
   confirming: { label: "Executing", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
-  // "Submitted" is amber/in-progress, NOT the red failure treatment: the
+  // "Submitted" is neutral/in-progress, NOT the red failure treatment: the
   // transaction is on-chain (real txHash) and awaiting confirmation — never
   // a claim that it succeeded, never a claim that it failed.
-  submitted: { label: "Submitted", tone: "border-warning/30 bg-warning/10 text-warning" },
+  submitted: { label: "Submitted", tone: "border-border bg-input/40 text-muted-foreground" },
   success: { label: "Verified", tone: "border-success/30 bg-success/10 text-success" },
   error: { label: "Failed", tone: "border-danger/30 bg-danger/10 text-danger" },
 };
@@ -211,14 +226,14 @@ export function OperationCard({
   const chip = operation.automation && status === "success"
     ? { label: "Active", tone: "border-success/30 bg-success/10 text-success" }
     : intent.kind === "trade_preview" && isInfo
-    ? { label: "Pre-execution", tone: "border-warning/30 bg-warning/10 text-warning" }
+    ? { label: "Pre-execution", tone: "border-border bg-input/40 text-muted-foreground" }
     : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.25, ease: "easeOut" }}
-      className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-panel shadow-sm"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
+      className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-panel"
     >
       <div className="flex items-center gap-2.5 border-b border-border/70 px-4 py-3">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center text-primary">
@@ -281,9 +296,15 @@ function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; on
                 <span className="font-mono">{short(intent.recipient)}</span>
               )}
             </Row>
-            {intent.kind === "scheduled_payment" && <Row label="Runs on">{fmtDate(intent.startDate)}</Row>}
+            {intent.kind === "scheduled_payment" && <Row label="Runs on">{fmtRunTime(intent.startDate)}</Row>}
             <Row label="Network">{NETWORK_LABEL[intent.network]}</Row>
             {intent.estimatedFee && <Row label="Estimated network fee">{intent.estimatedFee}</Row>}
+            {intent.kind === "payment" && intent.platformFee && (
+              <>
+                <Row label="Recipient receives">{`${intent.amount} ${intent.token}`}</Row>
+                <Row label="You pay">{`${intent.platformFee.total} ${intent.platformFee.token}`}</Row>
+              </>
+            )}
           </div>
         </>
       );
@@ -301,7 +322,7 @@ function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; on
               {intent.recipientDomain ? <span className="text-primary-ink">{intent.recipientDomain}</span> : <span className="font-mono">{short(intent.recipient)}</span>}
             </Row>
             <Row label="Frequency">{FREQUENCY_LABEL[intent.frequency]}</Row>
-            <Row label="Starts">{fmtDate(intent.startDate)}</Row>
+            <Row label="Starts">{fmtRunTime(intent.startDate)}</Row>
             <Row label="Ends">{intent.endDate ? fmtDate(intent.endDate) : "Until cancelled"}</Row>
             <Row label="Network">{NETWORK_LABEL[intent.network]}</Row>
           </div>
@@ -413,7 +434,7 @@ function ProtocolActionBody({ intent }: { intent: Extract<Operation["intent"], {
 
 const TX_STATUS_META: Record<WalletTransactionView["status"], { icon: typeof CheckCircle2; tone: string; label: string }> = {
   success: { icon: CheckCircle2, tone: "bg-success/12 text-success", label: "Success" },
-  pending: { icon: Loader2, tone: "bg-warning/12 text-warning", label: "Pending" },
+  pending: { icon: Loader2, tone: "bg-input text-muted-foreground", label: "Pending" },
   failed: { icon: XCircle, tone: "bg-danger/12 text-danger", label: "Failed" },
 };
 
@@ -817,6 +838,7 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
         <Row label="DEX">{d.route.provider}</Row>
         <Row label="Slippage">{d.slippage}</Row>
         <Row label="Network">{d.network}</Row>
+        {d.fee?.total && <Row label="You pay">{`${d.fee.total} ${d.fee.token}`}</Row>}
       </div>
 
       {!intent.execution && (
@@ -1055,7 +1077,7 @@ function SubmittedBody({
   return (
     <div>
       <div className="mb-3 flex items-center gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning/12 text-warning"><Clock3 size={17} /></span>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-input text-muted-foreground"><Clock3 size={17} /></span>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">{headline}</p>
           <p className="text-xs text-muted-foreground">{subline}</p>
@@ -1072,13 +1094,13 @@ function SubmittedBody({
         </div>
       )}
 
-      <div className="rounded-lg border border-warning/25 bg-warning/[0.06] p-3">
+      <div className="rounded-lg border border-border bg-input/40 p-3">
         <p className="mb-1 text-[11px] text-muted-foreground">{approvalPending ? "Approval transaction" : `${noun} transaction`}</p>
-        <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-warning hover:underline">
+        <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-foreground hover:underline">
           {submitted.txHash}
         </a>
       </div>
-      <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-warning hover:underline">
+      <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline">
         View on Monad Explorer <ExternalLink size={11} />
       </a>
       <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">

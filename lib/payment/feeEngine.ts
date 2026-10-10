@@ -97,6 +97,9 @@ export function buildReceipt(input: {
   status: string;
   txHash?: string;
   explorerUrl?: string;
+  /** The fee actually collected on-chain, when known — it wins over the
+   *  configured rate. */
+  actualFee?: number;
 }): Receipt {
   return buildReceiptFromConfig(FEE_CONFIG[input.feature], input);
 }

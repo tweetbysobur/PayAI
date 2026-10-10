@@ -63,6 +63,7 @@ describe("zero fees during beta", () => {
     const f = calculateFee("send_payment", 200);
     expect(f.isFree).toBe(false);
     expect(f.fee).toBeCloseTo(2, 10);
-    expect(f.net).toBeCloseTo(198, 10);
+    // The fee is charged on top: the recipient still receives the full 200.
+    expect(f.net).toBe(200);
   });
 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unreadableTiming, unreadableTimingReply } from "@/lib/agent/scheduleTiming";
 import { agentConfig, checkGuardrails, detectQueryIntent, detectSwapIntent, MAX_INPUT_LENGTH, parseIntent, parseScheduleIntent, sanitizeInput } from "@/lib/agent/brain";
 import type { AgentResult, TraceEntry } from "@/lib/agent/types";
 import { assessRisk, execute, runValidation } from "@/lib/payment/engine";
@@ -112,6 +113,15 @@ export async function POST(req: NextRequest) {
     } catch {
       return NextResponse.json({ decision: "info", query: "show_balance", error: "Couldn't reach Monad to read your balance. Try again.", success: false }, { status: 502 });
     }
+  }
+
+  // 0-bis. Timing the schedule engine can't honour (a time of day, a
+  // timezone, "every 2 weeks", "October 20", "tonight"…) is refused here too,
+  // not just in Ask: otherwise it was replaced by 09:00 UTC, or the request
+  // fell through to an immediate send (lib/agent/scheduleTiming.ts).
+  const timing = unreadableTiming(text);
+  if (timing) {
+    return NextResponse.json({ decision: "schedule_error", error: unreadableTimingReply(timing), success: false }, { status: 400 });
   }
 
   // 0a. Token swap ("swap 1 MON to USDC") — a DEX action, not a payment, so it
@@ -384,11 +394,42 @@ export async function POST(req: NextRequest) {
     // unsigned tx for the wallet to sign. Only applies to direct sends to a
     // resolved address (link/invoice creation has nothing for a wallet to sign).
     if (walletAddress && intent.action === "send_payment" && intent.recipient && isAddress(intent.recipient) && intent.amount) {
-      const { insufficientBalanceReason } = await import("@/lib/monad/balance");
-      const reason = await insufficientBalanceReason(walletAddress as `0x${string}`, intent.token, intent.amount);
-      if (reason) {
+      const { forwarderPaymentsEnabled, getPayAIForwarder } = await import("@/lib/monad/config");
+      const forwarderOn = forwarderPaymentsEnabled();
+      const refuse = (reason: string) => {
         trace.push({ step: "execution", status: "blocked", detail: reason });
         return respond(base("refused", { guardrail: { allowed: false, violations: [reason] }, compliance, risk, riskScore: risk.score }), { status: 422 });
+      };
+      // PayAI's fee is charged ON TOP (lib/payment/feeOnTop.ts): the recipient
+      // receives exactly intent.amount, and the forwarder is handed the gross
+      // whose net is that amount, at the forwarder's LIVE rate. The direct
+      // (forwarder-off) path has no PayAI fee at all.
+      let fee: { units: { net: bigint; fee: bigint; gross: bigint }; bps: number; decimals: number; symbol: string } | null = null;
+      if (forwarderOn) {
+        const { readPlatformFeeTerms } = await import("@/lib/sdk/fees");
+        const { feeOnTop, toUnits } = await import("@/lib/payment/feeOnTop");
+        const { toParseableAmount: tpa } = await import("@/lib/monad/verify");
+        const { getStablecoin: stable } = await import("@/lib/monad/config");
+        let bps: number;
+        try {
+          bps = (await readPlatformFeeTerms()).feeBps;
+        } catch (e) {
+          return refuse(e instanceof Error ? e.message : "PayAI's fee couldn't be read, so this payment wasn't prepared.");
+        }
+        const decimals = intent.token === "MON" ? 18 : stable().decimals;
+        const net = toUnits(tpa(intent.amount, decimals), decimals);
+        if (net === null || net <= 0n) return refuse("That amount can't be sent.");
+        fee = { units: feeOnTop(net, bps), bps, decimals, symbol: intent.token === "MON" ? "MON" : stable().symbol };
+        const { insufficientWithFeeReason } = await import("@/lib/monad/balance");
+        const token = intent.token === "MON"
+          ? { symbol: "MON", address: "0x0000000000000000000000000000000000000000" as `0x${string}`, decimals: 18, isNative: true }
+          : { symbol: stable().symbol, address: stable().address, decimals, isNative: false };
+        const reason = await insufficientWithFeeReason(walletAddress as `0x${string}`, token, fee.units, bps);
+        if (reason) return refuse(reason);
+      } else {
+        const { insufficientBalanceReason } = await import("@/lib/monad/balance");
+        const reason = await insufficientBalanceReason(walletAddress as `0x${string}`, intent.token, intent.amount);
+        if (reason) return refuse(reason);
       }
       // Native MON and ERC-20 USDC are settled with fundamentally different
       // transactions: MON is a plain value transfer to the recipient (no
@@ -406,8 +447,6 @@ export async function POST(req: NextRequest) {
       // returns an exact-amount approval pre-step when (and only when) the
       // user's current allowance to the forwarder is below the amount — signed
       // first, in the SAME payment operation (see executeSendPayment).
-      const { forwarderPaymentsEnabled, getPayAIForwarder } = await import("@/lib/monad/config");
-      const forwarderOn = forwarderPaymentsEnabled();
       let unsignedTx: { to: string; data: string; value: string; from: string };
       // Optional exact-amount approval pre-step (ERC-20-through-forwarder only).
       let approvalTx: { to: string; data: string; value: string; from: string } | null = null;
@@ -415,9 +454,9 @@ export async function POST(req: NextRequest) {
       if (intent.token === "MON") {
         if (forwarderOn) {
           const forwarder = getPayAIForwarder()!;
-          const { buildForwardNativeTx } = await import("@/lib/monad/forwarder");
-          unsignedTx = buildForwardNativeTx(
-            forwarder, walletAddress as `0x${string}`, intent.recipient as `0x${string}`, intent.amount, requestId,
+          const { buildForwardNativeTxUnits } = await import("@/lib/monad/forwarder");
+          unsignedTx = buildForwardNativeTxUnits(
+            forwarder, walletAddress as `0x${string}`, intent.recipient as `0x${string}`, fee!.units.gross, requestId,
           );
         } else {
           unsignedTx = {
@@ -435,16 +474,19 @@ export async function POST(req: NextRequest) {
         const usdc = getStablecoin();
         if (forwarderOn) {
           const forwarder = getPayAIForwarder()!;
-          const { buildForwardErc20Tx, buildApproveForwarderTx, forwardAmountUnits, ERC20_ALLOWANCE_APPROVE_ABI } = await import("@/lib/monad/forwarder");
-          unsignedTx = buildForwardErc20Tx(
-            forwarder, walletAddress as `0x${string}`, usdc.address, intent.recipient as `0x${string}`,
-            intent.amount, usdc.decimals, requestId,
+          const { buildForwardErc20TxUnits, buildApproveForwarderTxUnits, ERC20_ALLOWANCE_APPROVE_ABI } = await import("@/lib/monad/forwarder");
+          const { fromUnits } = await import("@/lib/payment/feeOnTop");
+          // The forward pulls the GROSS (amount + fee on top), so the exact
+          // approval covers the gross — never MAX_UINT256.
+          const needed = fee!.units.gross;
+          unsignedTx = buildForwardErc20TxUnits(
+            forwarder, walletAddress as `0x${string}`, usdc.address, intent.recipient as `0x${string}`, needed, requestId,
           );
+          const label = `Approve ${fromUnits(needed, usdc.decimals)} ${usdc.symbol} for PayAI`;
           // Only request an approval when the CURRENT on-chain allowance is
           // short — an existing sufficient allowance means the user signs just
           // the forward. The spender is ALWAYS the forwarder (never client-
           // supplied) and the amount is EXACT (never MAX_UINT256).
-          const needed = forwardAmountUnits(intent.amount, usdc.decimals);
           try {
             const { getPublicClient } = await import("@/lib/monad/wallet");
             const current = (await getPublicClient().readContract({
@@ -452,16 +494,16 @@ export async function POST(req: NextRequest) {
               args: [walletAddress as `0x${string}`, forwarder],
             })) as bigint;
             if (current < needed) {
-              approvalTx = buildApproveForwarderTx(usdc.address, walletAddress as `0x${string}`, forwarder, intent.amount, usdc.decimals);
-              approvalLabel = `Approve ${intent.amount} ${usdc.symbol} for PayAI`;
+              approvalTx = buildApproveForwarderTxUnits(usdc.address, walletAddress as `0x${string}`, forwarder, needed);
+              approvalLabel = label;
             }
           } catch {
             // Couldn't read allowance (RPC hiccup) — fail safe by requesting the
             // exact approval rather than risking a forward that reverts for a
             // missing allowance. A redundant approval is harmless (exact amount);
             // a missing one wastes the user a reverted tx.
-            approvalTx = buildApproveForwarderTx(usdc.address, walletAddress as `0x${string}`, forwarder, intent.amount, usdc.decimals);
-            approvalLabel = `Approve ${intent.amount} ${usdc.symbol} for PayAI`;
+            approvalTx = buildApproveForwarderTxUnits(usdc.address, walletAddress as `0x${string}`, forwarder, needed);
+            approvalLabel = label;
           }
         } else {
           const data = encodeFunctionData({
@@ -479,6 +521,17 @@ export async function POST(req: NextRequest) {
         unsignedTx,
         approvalTx,
         approvalLabel,
+        // The PayAI fee, ON TOP of the amount (null when the payment pays no
+        // PayAI fee). Exact base-unit math, formatted once here.
+        platformFee: fee ? await (async () => {
+          const { fromUnits, bpsPercent } = await import("@/lib/payment/feeOnTop");
+          return {
+            amount: fromUnits(fee.units.fee, fee.decimals),
+            total: fromUnits(fee.units.gross, fee.decimals),
+            token: fee.symbol,
+            percent: bpsPercent(fee.bps),
+          };
+        })() : null,
         confirmRawText: text,
         requestId,
         success: false,

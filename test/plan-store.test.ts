@@ -946,7 +946,8 @@ describe("integration with Stage 1 and no execution", () => {
 
   it("the store and state modules import nothing that signs, broadcasts, executes, builds calldata or calls an LLM", () => {
     const allowed: Record<string, string[]> = {
-      "lib/plan/store.ts": ["server-only", "node:crypto", "viem", "@/lib/platform/kv", "@/lib/sdk/settlement", "@/lib/sdk/types", "./errors", "./planner", "./resolve", "./state", "./types", "./validate"],
+      // @/lib/sdk/registry: registryGeneration only (the validated-plan memo key) — a read.
+      "lib/plan/store.ts": ["server-only", "node:crypto", "viem", "@/lib/platform/kv", "@/lib/sdk/registry", "@/lib/sdk/settlement", "@/lib/sdk/types", "./errors", "./planner", "./resolve", "./state", "./types", "./validate"],
       "lib/plan/state.ts": ["@/lib/sdk/types", "./types"],
     };
     for (const [f, ok] of Object.entries(allowed)) {

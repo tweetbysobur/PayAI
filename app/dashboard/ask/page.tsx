@@ -75,8 +75,8 @@ function AskComingSoon() {
 
 function AskPayAIChat() {
   const {
-    wallet, messages, input, setInput, thinking, thinkingLabel, progress,
-    send, advanceOperation, retryOperation, cancelOperation, newConversation,
+    wallet, messages, input, setInput, thinking, thinkingLabel, thinkingHint, thinkingStartedAt, progress,
+    send, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
     // P1.3 — conversation history. The rail below is purely a view over
     // these; every action just calls straight through to the hook, which
@@ -170,9 +170,10 @@ function AskPayAIChat() {
                     // otherwise show a button that silently does nothing.
                     onRetryOperation={m.operation && retryTextFor(m.operation) ? retryOperation : undefined}
                     progressLabel={m.operation ? progress[m.operation.id] : undefined}
+                    onEditPlan={editRequest}
                   />
                 ))}
-                {thinking && <ThinkingRow label={thinkingLabel} />}
+                {thinking && <ThinkingRow label={thinkingLabel} hint={thinkingHint} startedAt={thinkingStartedAt} onRetry={retryThinking} />}
               </div>
             )}
           </div>

@@ -11,7 +11,8 @@ import type { WalletState } from "@/lib/wallet/useWallet";
 import { useTokenBalance } from "@/lib/hooks/useTokenBalance";
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelector";
-import { calculateFeeFromConfig, ZERO_FEE_CONFIG, type FeeConfigResponse } from "@/lib/payment/feeMath";
+import { feeOnTop, fromUnits, toUnits } from "@/lib/payment/feeOnTop";
+import { toParseableAmount } from "@/lib/monad/verify";
 
 const NATIVE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000000000";
 import {
@@ -124,7 +125,7 @@ interface ResolvedRow {
   error?: string;
 }
 
-type OnchainConfig = { chainId: number; executor: string | null; usdc: { address: string; decimals: number }; wmon: string | null; walletModeAvailable: boolean };
+type OnchainConfig = { chainId: number; executor: string | null; usdc: { address: string; decimals: number }; wmon: string | null; walletModeAvailable: boolean; executorFeeBps?: number | null };
 
 const STEPS = ["Recipients", "Distribution", "Schedule", "Execution Mode", "Review"];
 
@@ -161,9 +162,6 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Africa/Lagos");
   const [purpose, setPurpose] = useState("Business");
   const [config, setConfig] = useState<OnchainConfig | null>(null);
-  // The real, current fee rate — see AutomationCreator.tsx's identical field
-  // for why this can't just be imported and computed locally.
-  const [feeConfig, setFeeConfig] = useState<FeeConfigResponse>(ZERO_FEE_CONFIG);
   const [resolvedRows, setResolvedRows] = useState<ResolvedRow[] | null>(null);
   const [resolving, setResolving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -190,7 +188,6 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
 
   function loadConfig() {
     fetch("/api/automation-config").then((r) => r.json()).then(setConfig).catch(() => {});
-    fetch("/api/fees").then((r) => r.json()).then(setFeeConfig).catch(() => {});
   }
 
   const reset = useCallback(() => {
@@ -315,7 +312,26 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
   const totalToPay = resolvedRows?.reduce((s, r) => s + r.amount, 0) ?? distribution.total;
   const { balance } = useTokenBalance(tokenInfo?.address ?? null, tokenInfo?.decimals ?? null, wallet.address);
   const insufficientBalance = balance != null && totalToPay > Number(balance);
-  const platformFee = calculateFeeFromConfig(feeConfig.wallet_automation, "wallet_automation", totalToPay || 0);
+  // PayAI's fee is charged ON TOP of every pull (lib/payment/feeOnTop.ts):
+  // each recipient gets their amount in full; each run needs Σ(amount + fee)
+  // from the approval, at the executor's live rate. Exact base-unit math;
+  // null while the rate (or an amount) can't be read.
+  const feeBps = config?.executorFeeBps ?? null;
+  const runCost = useMemo(() => {
+    if (!tokenInfo || !resolvedRows || feeBps == null) return null;
+    let fee = 0n;
+    let gross = 0n;
+    for (const r of resolvedRows) {
+      const net = toUnits(toParseableAmount(r.amount, tokenInfo.decimals), tokenInfo.decimals);
+      if (net === null || net <= 0n) return null;
+      const f = feeOnTop(net, feeBps);
+      fee += f.fee;
+      gross += f.gross;
+    }
+    return { fee, gross, feeText: fromUnits(fee, tokenInfo.decimals), grossText: fromUnits(gross, tokenInfo.decimals) };
+  }, [tokenInfo, resolvedRows, feeBps]);
+  // Covers the amounts but not the fee on top — said separately, before signing.
+  const feeNotCovered = balance != null && !insufficientBalance && runCost != null && Number(runCost.grossText) > Number(balance);
   const estimateGas = `~${(0.002 * Math.max(1, resolvedRows?.length ?? drafts.length)).toFixed(4)} MON`;
 
   const endUntilMs = new Date(`${endDate}T23:59:59`).getTime();
@@ -331,12 +347,9 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
       const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
-      const decimals = tokenInfo.decimals;
-      const totalWei = (() => {
-        try {
-          return BigInt(Math.round(totalToPay * 10 ** decimals));
-        } catch { return 0n; }
-      })();
+      if (!runCost) throw new Error("PayAI's fee rate couldn't be read, so nothing was approved. Try again in a moment.");
+      // Every recipient's amount plus PayAI's fee on top of each pull.
+      const totalWei = runCost.gross;
 
       // This message MUST byte-for-byte match bulkSignatureMessage() in
       // app/api/automations/route.ts — the server independently recomputes
@@ -665,7 +678,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                         { label: "Total Recipients", value: String(resolvedRows.length) },
                         { label: "Total Amount", value: `${totalToPay.toLocaleString()} ${tokenInfo?.symbol ?? ""}` },
                         { label: "Estimated Network Fees", value: estimateGas },
-                        { label: "Platform Fee", value: platformFee.label },
+                        { label: "Total from your wallet per run", value: runCost ? `${runCost.grossText} ${tokenInfo?.symbol ?? ""}` : "—" },
                         { label: "Distribution Method", value: method },
                         { label: "Execution Mode", value: "Wallet Automation" },
                         { label: "Execution Time", value: new Date(startAt).toLocaleString() },
@@ -678,6 +691,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                       ))}
                     </div>
                     {insufficientBalance && <p className="mt-3 flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={12} /> Total exceeds your {tokenInfo?.symbol} balance ({balance}).</p>}
+                    {feeNotCovered && <p className="mt-3 flex items-center gap-1.5 text-xs text-danger"><AlertTriangle size={12} /> Your {tokenInfo?.symbol} balance ({balance}) covers the payments but not PayAI&apos;s fee on top ({runCost?.grossText} {tokenInfo?.symbol} in total).</p>}
                     <div className="mt-4 max-h-48 overflow-y-auto rounded-lg border border-border">
                       {resolvedRows.map((r, i) => (
                         <div key={i} className="flex items-center gap-2 border-b border-border/60 px-3 py-1.5 text-xs last:border-b-0">
@@ -688,7 +702,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
                     </div>
                     <div className="mt-5 flex justify-between">
                       <Button variant="secondary" onClick={() => setStep(4)} disabled={saving}>Back</Button>
-                      <Button disabled={saving || insufficientBalance || !tokenInfo} onClick={activate}>{saving ? (savingStep ?? "Activating…") : "Activate Bulk Payment"}</Button>
+                      <Button disabled={saving || insufficientBalance || feeNotCovered || !runCost || !tokenInfo} onClick={activate}>{saving ? (savingStep ?? "Activating…") : "Activate Bulk Payment"}</Button>
                     </div>
                   </div>
                 )}

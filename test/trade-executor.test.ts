@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, encodeEventTopics, decodeFunctionData, parseUnits } from "viem";
+import { grossForNet } from "@/lib/payment/feeOnTop";
 
 /**
  * lib/monad/tradeExecutor.ts — the PayAITradeExecutor plan builder + event
@@ -93,6 +94,13 @@ afterEach(() => {
   nadFunQuoteImpl = async (_t, _d, amountIn, isBuy) => ({ provider: "Nad.Fun", router: NADROUTER, amountOut: isBuy ? "500" : "0.02", isBuy });
 });
 
+/** The gross the executor is handed for `amount` (18 decimals) at the mocked
+ *  25 bps — the amount swapped in full plus PayAI's fee on top. */
+const gross18 = (amount: string) => grossForNet(parseUnits(amount, 18), 25);
+const ERC20_APPROVE_TEST_ABI = [
+  { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "s", type: "address" }, { name: "a", type: "uint256" }], outputs: [{ type: "bool" }] },
+] as const;
+
 describe("selectExecutor (Gate 7 dispatch)", () => {
   it("flag off everywhere: no executor for any venue", async () => {
     v1Enabled = false;
@@ -134,12 +142,27 @@ describe("applyExecutorFee", () => {
   });
 });
 
+describe("executorGross (fee on top)", () => {
+  it("the executor's own fee on the gross leaves exactly the amount to swap; the gross is the smallest that does", async () => {
+    const { executorGross, applyExecutorFee } = await import("@/lib/monad/tradeExecutor");
+    expect(executorGross(100_000000n, 25)).toEqual({ gross: 100_250626n, fee: 250626n });
+    for (const net of [1n, 3n, 999n, 100_000000n, 10n ** 18n, 123456789012345678n]) {
+      for (const bps of [0, 1, 25, 100]) {
+        const { gross, fee } = executorGross(net, bps);
+        expect(applyExecutorFee(gross, bps)).toEqual({ feeWei: fee, netWei: net });
+        if (gross > 0n) expect(applyExecutorFee(gross - 1n, bps).netWei).toBeLessThan(net);
+      }
+    }
+  });
+});
+
 describe("buildUniswapExecutorPlan", () => {
   it("ERC-20 in: approves the given executor (not the router) for the GROSS, and the swap targets it", async () => {
     const { buildUniswapExecutorPlan, TRADE_EXECUTOR_ABI } = await import("@/lib/monad/tradeExecutor");
     const plan = await buildUniswapExecutorPlan(V1 as `0x${string}`, USDC, "USDC", 6, false, WMON, "WMON", 18, false, "100", 0.01, WALLET);
     expect(plan.feeBps).toBe(25);
-    expect(plan.feeAmount).toBe("0.25");
+    // Fee on top: 100 USDC is swapped in full; 0.250626 USDC is added.
+    expect(plan.feeAmount).toBe("0.250626");
     expect(plan.steps).toHaveLength(2);
     expect(plan.steps[0].kind).toBe("approve");
     expect(plan.steps[0].tx.to.toLowerCase()).toBe(USDC.toLowerCase());
@@ -149,7 +172,9 @@ describe("buildUniswapExecutorPlan", () => {
     expect(swap.tx.value).toBe("0x0");
     const decoded = decodeFunctionData({ abi: TRADE_EXECUTOR_ABI, data: swap.tx.data as `0x${string}` });
     expect(decoded.functionName).toBe("tradeUniswapExactInput");
-    expect(decoded.args[3]).toBe(parseUnits("100", 6));
+    expect(decoded.args[3]).toBe(100_250626n); // gross = 100 + fee on top
+    const approved = decodeFunctionData({ abi: ERC20_APPROVE_TEST_ABI, data: plan.steps[0].tx.data as `0x${string}` });
+    expect(approved.args[1]).toBe(100_250626n); // the approval covers exactly the gross
   });
 
   it("native MON in: no approve step, attaches the gross as msg.value, and passes address(0) as tokenIn", async () => {
@@ -157,7 +182,7 @@ describe("buildUniswapExecutorPlan", () => {
     const plan = await buildUniswapExecutorPlan(V1 as `0x${string}`, WMON, "MON", 18, true, USDC, "USDC", 6, false, "1", 0.01, WALLET);
     expect(plan.steps).toHaveLength(1);
     const swap = plan.steps[0];
-    expect(BigInt(swap.tx.value)).toBe(parseUnits("1", 18));
+    expect(BigInt(swap.tx.value)).toBe(gross18("1"));
     const decoded = decodeFunctionData({ abi: TRADE_EXECUTOR_ABI, data: swap.tx.data as `0x${string}` });
     expect((decoded.args[0] as string).toLowerCase()).toBe(ZERO);
   });
@@ -184,10 +209,10 @@ describe("buildKuruExecutorPlan", () => {
     expect(plan).not.toBeNull();
     const swap = plan!.steps[plan!.steps.length - 1];
     expect(swap.tx.to.toLowerCase()).toBe(V1.toLowerCase());
-    expect(BigInt(swap.tx.value)).toBe(parseUnits("1", 18));
+    expect(BigInt(swap.tx.value)).toBe(gross18("1"));
     const decoded = decodeFunctionData({ abi: TRADE_EXECUTOR_ABI, data: swap.tx.data as `0x${string}` });
     expect(decoded.functionName).toBe("tradeKuruExactInput");
-    expect(decoded.args[5]).toBe(parseUnits("1", 18));
+    expect(decoded.args[5]).toBe(gross18("1"));
   });
 
   it("market NOT on the given executor's allowlist: returns null so the caller falls back to the direct path", async () => {
@@ -212,13 +237,13 @@ describe("buildNadFunExecutorPlan (Gate 7)", () => {
     expect(plan!.steps).toHaveLength(1); // native in, no approval
     const swap = plan!.steps[0];
     expect(swap.tx.to.toLowerCase()).toBe(V2_ADDR.toLowerCase());
-    expect(BigInt(swap.tx.value)).toBe(parseUnits("1", 18)); // gross MON attached
+    expect(BigInt(swap.tx.value)).toBe(gross18("1")); // gross MON (1 + fee on top) attached
     const decoded = decodeFunctionData({ abi: TRADE_EXECUTOR_ABI, data: swap.tx.data as `0x${string}` });
     expect(decoded.functionName).toBe("tradeNadFunExactInput");
     expect((decoded.args[0] as string).toLowerCase()).toBe(NADROUTER.toLowerCase()); // router from the Lens quote
     expect(decoded.args[1]).toBe(true); // isBuy
     expect((decoded.args[2] as string).toLowerCase()).toBe(NADTOKEN.toLowerCase());
-    expect(decoded.args[3]).toBe(parseUnits("1", 18)); // grossAmountIn
+    expect(decoded.args[3]).toBe(gross18("1")); // grossAmountIn
   });
 
   it("SELL: approves the executor for the token GROSS, no native value attached", async () => {
@@ -232,7 +257,7 @@ describe("buildNadFunExecutorPlan (Gate 7)", () => {
     expect(swap.tx.value).toBe("0x0");
     const decoded = decodeFunctionData({ abi: TRADE_EXECUTOR_ABI, data: swap.tx.data as `0x${string}` });
     expect(decoded.args[1]).toBe(false); // isBuy
-    expect(decoded.args[3]).toBe(parseUnits("10", 18)); // grossAmountIn
+    expect(decoded.args[3]).toBe(gross18("10")); // grossAmountIn
   });
 
   it("Nad.Fun doesn't serve this token/direction: returns null (direct fallback)", async () => {

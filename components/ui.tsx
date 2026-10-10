@@ -45,14 +45,14 @@ export function Card({
   const reduceMotion = useReducedMotion();
   return (
     <motion.div
-      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      initial={reduceMotion ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: "easeOut" }}
-      className={`rounded-xl border border-border bg-panel p-6 ${className}`}
+      transition={{ duration: 0.2, ease: "easeOut" }}
+      className={`rounded-lg border border-border bg-panel p-5 ${className}`}
     >
       {(title || right) && (
         <div className="mb-4 flex items-center justify-between">
-          {title && <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h3>}
+          {title && <h3 className="text-sm font-semibold text-foreground">{title}</h3>}
           {right}
         </div>
       )}
@@ -84,10 +84,10 @@ export function Button({
   className = "",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "ghost" }) {
-  const base = "inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
+  const base = "inline-flex min-h-10 items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40";
   const variants = {
-    primary: "bg-primary text-primary-foreground shadow-sm shadow-primary/25 hover:bg-primary/90",
-    secondary: "border border-border bg-transparent text-foreground hover:border-muted-foreground/30 hover:bg-input",
+    primary: "bg-primary text-primary-foreground hover:bg-primary/90",
+    secondary: "border border-border bg-transparent text-foreground hover:bg-input",
     ghost: "text-muted-foreground hover:bg-input hover:text-foreground",
   };
   return (

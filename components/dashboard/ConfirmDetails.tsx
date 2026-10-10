@@ -26,6 +26,11 @@ export function ConfirmDetails({
   const rows: [string, string][] = [
     ["Token", pending.token],
     ["Amount", pending.amount != null ? `${pending.amount} ${pending.token}` : "—"],
+    ...(pending.platformFee
+      ? ([
+          ["You pay", `${pending.platformFee.total} ${pending.platformFee.token}`],
+        ] as [string, string][])
+      : []),
     ["Schedule", "Once — immediately"],
     [
       "Execution Mode",
@@ -34,7 +39,7 @@ export function ConfirmDetails({
         : "Non-custodial — signed from your wallet",
     ],
     [
-      "Estimated Fees",
+      "Network fee",
       embedded
         ? "Network fee in MON, from this wallet"
         : "Shown by your wallet at signing",

@@ -15,6 +15,8 @@ import type { Understanding } from "@/lib/ask/intent/types";
  * step: understanding a message moves no funds and needs no signer.
  */
 export async function POST(req: NextRequest) {
+  const { createTiming } = await import("@/lib/platform/timing");
+  const timing = createTiming("ask.understand");
   const { rateLimited } = await import("@/lib/platform/ratelimit");
   const limited = await rateLimited(req, "agent");
   if (limited) return limited;
@@ -41,5 +43,6 @@ export async function POST(req: NextRequest) {
     : [];
 
   const understanding = await understand(text, history, body.pending ?? null);
-  return NextResponse.json(understanding);
+  timing.mark("understand");
+  return timing.finish(NextResponse.json(understanding), { kind: understanding.kind });
 }

@@ -27,8 +27,8 @@ export default function PaymentsPage() {
       <DocsSection id="what" index="01" title="What a payment is">
         <p>
           Interactive payments route payer → PayAIForwarder → recipient. You sign. PayAI does not
-          hold the funds in between. A platform fee is taken on-chain from the gross amount when
-          the feature charges one — see <Link href="/docs/fees">Fees</Link>.
+          hold the funds in between. A platform fee, when the feature charges one, is collected
+          on-chain and added on top — the recipient receives exactly the amount you set — see <Link href="/docs/fees">Fees</Link>.
         </p>
         <DocsCallout tone="danger" title="Final">
           Once the transaction confirms, it cannot be reversed. Wrong address is a lost payment.

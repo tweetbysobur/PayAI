@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeAbiParameters, encodeFunctionData, maxUint256, parseUnits, toEventSelector } from "viem";
 import type { Action, ActionInputs } from "@/lib/sdk/types";
+import { grossForNet } from "@/lib/payment/feeOnTop";
 
 /**
  * Phase 2D — payai/swap@1.0.0: PayAI's existing MON ⇄ USDC trade as an SDK
@@ -66,7 +67,7 @@ const engine = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/monad/tradeQuote", async () => {
   const { encodeFunctionData: enc, parseUnits: pu } = await import("viem");
-  const { TRADE_EXECUTOR_ABI } = await import("@/lib/monad/tradeExecutor");
+  const { TRADE_EXECUTOR_ABI, executorGross } = await import("@/lib/monad/tradeExecutor");
   const ERC20 = [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }] as const;
   const ZERO = "0x0000000000000000000000000000000000000000";
   const preview = (req: { action: string; inputToken: string; outputToken: string; amount: string; slippage: string }) => {
@@ -79,13 +80,15 @@ vi.mock("@/lib/monad/tradeQuote", async () => {
       rate: "x", minimumReceived: `${engine.receive} ${outSym}`, priceImpact: "0.10%", highPriceImpact: false,
       route: { provider: engine.provider, path: engine.multiHop ? [inSym, "MON", outSym] : [inSym, outSym] },
       slippage: `${Number(req.slippage).toFixed(2)}%`, network: "Monad" as const, quotedAt: Date.now(),
-      fee: engine.withFee ? { percent: "0.25%", amount: "0.025", token: inSym } : null,
+      fee: engine.withFee ? { percent: "0.25%", amount: "0.025062656641604010", token: inSym, total: "10.025062656641604010" } : null,
     };
   };
-  /** The executor plan the real builders produce: [exact approve] + trade. */
+  /** The executor plan the real builders produce: [exact approve] + trade,
+   *  for the GROSS — the amount swapped plus PayAI's fee on top, at the live
+   *  rate (onchain.feeBps, read at build like the real builders). */
   const executorSteps = (req: { inputToken: string; outputToken: string; amount: string }): Step[] => {
     const native = req.inputToken === "MON";
-    const gross = pu(req.amount, native ? 18 : 6);
+    const gross = executorGross(pu(req.amount, native ? 18 : 6), Number(onchain.feeBps)).gross;
     const steps: Step[] = [];
     if (!native) {
       steps.push({ kind: "approve", label: "Approve", tx: { to: req.inputToken, data: enc({ abi: ERC20, functionName: "approve", args: ["0xF17a916280321Ddb657c8EDd26B2a729F6E63b69", gross] }), value: "0x0" } });
@@ -245,7 +248,10 @@ describe("inputs", () => {
     expect(engine.previewCalls[0]).toEqual({ action: "sell", inputToken: "MON", outputToken: expect.stringMatching(new RegExp(`^${USDC}$`, "i")), amount: "10", amountType: "exact_input", slippage: "0.5", walletAddress: null });
     expect(q.terms).toEqual({ executor: EXECUTOR.toLowerCase(), feeBps: "25", tokenIn: NATIVE, tokenOut: USDC, amountIn: MON_IN.amountIn, slippageBps: "50" });
     expect(q.snapshot).toEqual({ receiveAmount: "4.2", provider: "Uniswap v3" });
-    expect(q.details).toMatchObject({ "you pay": "10 MON", "you receive (est.)": "4.2 USDC", "platform fee": "0.025 MON (0.25%)", route: "Uniswap v3" });
+    expect(q.details).toMatchObject({
+      "you swap": "10 MON", "you receive (est.)": "4.2 USDC",
+      "PayAI fee": "0.025062656641604010 MON (0.25%, on top)", "total from your balance": "10.025062656641604010 MON", route: "Uniswap v3",
+    });
   });
   it("USDC → MON: an exact-input buy", async () => {
     const a = await swap();
@@ -303,7 +309,8 @@ describe("executor-only", () => {
     kind: "approve", label: "Approve",
     tx: { to: token, value: "0x0", data: encodeFunctionData({ abi: [{ type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }], outputs: [{ type: "bool" }] }], functionName: "approve", args: [spender as `0x${string}`, amount] }) },
   });
-  const gross = BigInt(USDC_IN.amountIn as string);
+  // 35 USDC swapped in full; the executor is handed it plus the fee on top.
+  const gross = grossForNet(BigInt(USDC_IN.amountIn as string), 25);
 
   it("an executor plan is returned as validated SDK steps: exact approve(executor, gross) + the trade", async () => {
     const steps = await quoteAndBuild(USDC_IN);
@@ -318,7 +325,7 @@ describe("executor-only", () => {
   it("native MON in: one trade step carrying the exact value — no approval", async () => {
     const steps = await quoteAndBuild(MON_IN);
     expect(steps).toHaveLength(1);
-    expect(steps[0]).toMatchObject({ kind: "action", tx: { to: EXECUTOR, value: MON_IN.amountIn } });
+    expect(steps[0]).toMatchObject({ kind: "action", tx: { to: EXECUTOR, value: MON_IN_GROSS.toString() } }); // 10 MON + fee on top
   });
   it("a Kuru executor trade is accepted", async () => {
     const data = await encTrade("tradeKuruExactInput", [ROUTER, true, USDC, NATIVE, 1n, gross, 1n]);
@@ -341,7 +348,7 @@ describe("executor-only", () => {
       engine.steps = () => [approve(EXECUTOR, gross), { kind: "swap", label: "Trade", tx: { to, value: "0x0", data } }];
       expect(await err(quoteAndBuild(USDC_IN))).toMatch(/trade executor/);
     }
-    const g = BigInt(MON_IN.amountIn as string);
+    const g = MON_IN_GROSS;
     const monData = await encTrade("tradeUniswapExactInput", [NATIVE, USDC, 3000, g, 1n, 1n]);
     engine.steps = () => [{ kind: "swap", label: "Trade", tx: { to: ROUTER, value: `0x${g.toString(16)}`, data: monData } }];
     expect(await err(quoteAndBuild(MON_IN))).toMatch(/trade executor/);
@@ -368,7 +375,7 @@ describe("executor-only", () => {
     }
   });
   it("native MON in: an approval step, or a value other than the exact amount, is refused", async () => {
-    const g = BigInt(MON_IN.amountIn as string);
+    const g = MON_IN_GROSS;
     const data = await encTrade("tradeUniswapExactInput", [NATIVE, USDC, 3000, g, 1n, 1n]);
     engine.steps = () => [approve(EXECUTOR, g), { kind: "swap", label: "T", tx: { to: EXECUTOR, value: `0x${g.toString(16)}`, data } }];
     expect(await err(quoteAndBuild(MON_IN))).toMatch(/trade executor/);
@@ -518,8 +525,11 @@ describe("drift: the engine's guard runs against the SIGNED snapshot", () => {
 /* ── Confirmation ──────────────────────────────────────────────────────── */
 
 const TE_SIG = toEventSelector("TradeExecuted(uint256,address,uint8,address,address,uint256,uint256,uint256)");
+/** The gross the executor is handed for MON_IN's 10 MON at 25 bps: 10 MON
+ *  swapped in full plus PayAI's fee on top (floor(gross·25/10000) leaves 10). */
+const MON_IN_GROSS = 10_025062656641604010n;
 function tradeLog(o: { emitter?: string; user?: string; venue?: number; tokenIn?: string; tokenOut?: string; amountIn?: bigint; amountOut?: bigint; fee?: bigint } = {}) {
-  const gross = o.amountIn ?? BigInt(MON_IN.amountIn as string);
+  const gross = o.amountIn ?? MON_IN_GROSS;
   return {
     address: o.emitter ?? EXECUTOR,
     topics: [TE_SIG, encodeAbiParameters([{ type: "uint256" }], [7n]), encodeAbiParameters([{ type: "address" }], [(o.user ?? WALLET) as `0x${string}`])],
@@ -554,7 +564,7 @@ describe("confirmation: only the build's executor's TradeExecuted, checked again
     mine(final, [tradeLog()]);
     const r = await confirm(quoteId, TX, WALLET, { amountOut: 999 }); // a client amount is simply ignored
     expect(r.json).toMatchObject({ ok: true, success: true, recorded: 1 });
-    expect(r.json.details).toMatchObject({ "you paid": "10 MON", "you received": "4.19 USDC", "platform fee": "0.025 MON", route: "Uniswap v3" });
+    expect(r.json.details).toMatchObject({ "you paid": "10.02506265664160401 MON", "you received": "4.19 USDC", "platform fee": "0.02506265664160401 MON", route: "Uniswap v3" });
     const rows = await history();
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -576,7 +586,8 @@ describe("confirmation: only the build's executor's TradeExecuted, checked again
     ["another wallet's trade", { user: OTHER }],
     ["a different tokenIn", { tokenIn: USDC }],
     ["a different tokenOut", { tokenOut: WMON }],
-    ["a different gross input", { amountIn: BigInt(MON_IN.amountIn as string) - 1n, fee: ((BigInt(MON_IN.amountIn as string) - 1n) * 25n) / 10_000n }],
+    ["a different gross input", { amountIn: MON_IN_GROSS - 1n, fee: ((MON_IN_GROSS - 1n) * 25n) / 10_000n }],
+    ["the amount itself as the gross (fee taken out, not on top)", { amountIn: BigInt(MON_IN.amountIn as string), fee: (BigInt(MON_IN.amountIn as string) * 25n) / 10_000n }],
     ["a different fee", { fee: 1n }],
     ["zero output", { amountOut: 0n }],
     ["an unknown venue", { venue: 2 }],
@@ -610,7 +621,7 @@ describe("confirmation: only the build's executor's TradeExecuted, checked again
     expect(r.json.outputs).toEqual({
       amountOut: { verified: true, type: "units", value: "4123456", token: USDC }, // not the 4.2 preview, not 999
       tokenOut: { verified: true, type: "token", value: USDC },
-      fee: { verified: true, type: "units", value: "25000000000000000", token: NATIVE },
+      fee: { verified: true, type: "units", value: "25062656641604010", token: NATIVE },
     });
     const { readOutputRecord } = await import("@/lib/sdk/settlement");
     expect(await readOutputRecord({ quoteId, txHash: TX, wallet: WALLET, ...ID })).toMatchObject({ status: "recorded", record: { outputs: r.json.outputs } });
@@ -652,8 +663,8 @@ describe("fee: verified against the BUILD-TIME rate", () => {
   it("a live fee change after the build → the trade (at the new rate) is unverified; no history", async () => {
     const { quoteId, final } = await built();
     onchain.feeBps = 30n; // the Safe changed it before mining
-    const gross = BigInt(MON_IN.amountIn as string);
-    mine(final, [tradeLog({ fee: (gross * 30n) / 10_000n })]);
+    // At 30 bps the trade would carry a different gross and fee than the build's.
+    mine(final, [tradeLog({ amountIn: 10_030090270812437311n, fee: 30_090270812437311n })]);
     expect((await confirm(quoteId, TX)).json).toMatchObject({ ok: false, verified: false });
     expect(await history()).toHaveLength(0);
   });
@@ -674,7 +685,7 @@ describe("outputs", () => {
     const a = await swap();
     const q = await a.quote(MON_IN);
     const t = await a.settledTrade!(receipt([tradeLog()]), { terms: q.terms, wallet: WALLET });
-    expect(t).toMatchObject({ amountIn: 10n ** 19n, amountOut: 4_190_000n, fee: 25_000_000_000_000_000n, tokenOut: expect.stringMatching(/^0x754704/i), tokenIn: NATIVE, provider: "Uniswap v3" });
+    expect(t).toMatchObject({ amountIn: MON_IN_GROSS, amountOut: 4_190_000n, fee: 25_062656641604010n, tokenOut: expect.stringMatching(/^0x754704/i), tokenIn: NATIVE, provider: "Uniswap v3" });
     expect(await a.settledTrade!(receipt([tradeLog()]), { terms: q.terms })).toBeNull(); // no build wallet → never verified
     expect(await a.settledTrade!(receipt([tradeLog()]), { wallet: WALLET })).toBeNull(); // no build terms → never verified
   });

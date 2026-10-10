@@ -359,8 +359,10 @@ export class PlanRunnerConfigError extends Error {
 export const SETTLE_POLL_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000, 40_000, 60_000];
 /** The whole confirm/settle phase of one step never starts new work past this. */
 export const SETTLE_POLL_CAP_MS = 600_000;
-/** More iterations than any plan can have steps (the IR allows 4). */
+/** The base no-progress bound; the loop scales it to the plan's size. */
 const MAX_ITERATIONS = 16;
+/** Extra loop iterations allowed per step of the plan (see the loop). */
+const ITERATIONS_PER_STEP = 2;
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -1010,7 +1012,11 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
     };
 
     const loop = async (): Promise<RunOutcome> => {
-      for (let i = 0; i < MAX_ITERATIONS; i++) {
+      // The no-progress guard scales with the plan: every iteration either
+      // returns or ends with a step confirmed (or a submitted step settled),
+      // so a plan of N steps needs at most ~2N of them. Still a hard bound.
+      let limit = MAX_ITERATIONS;
+      for (let i = 0; i < limit; i++) {
         if (aborted()) return outcome("aborted");
         const id = await identity();
         if ("kind" in id) return id;
@@ -1030,6 +1036,7 @@ export function createPlanRunner(deps: PlanRunnerDeps): PlanRunner {
         if (!entries) return outcome("journal_unavailable", { message: "This browser's record of sent transactions is unreadable, so nothing was signed. Check your wallet's activity before continuing." });
 
         let plan = await fetchPlan();
+        if (!("kind" in plan)) limit = Math.max(limit, plan.nodes.length * ITERATIONS_PER_STEP + MAX_ITERATIONS);
         if ("kind" in plan) {
           // Stage 5C-2f: a plan that can no longer be read must not hide a
           // transaction this browser already sent. Surface the saved entry

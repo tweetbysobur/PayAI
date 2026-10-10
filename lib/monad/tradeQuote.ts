@@ -53,6 +53,7 @@ import {
 import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 import { toParseableAmount } from "./verify";
+import { bpsPercent, feeOnTop, fromUnits, maxNetFor, toUnits } from "@/lib/payment/feeOnTop";
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -98,11 +99,11 @@ export interface TradePreviewOk {
   slippage: string;
   network: "Monad";
   quotedAt: number;
-  /** The PayAI platform fee for this trade — present only when it will route
-   *  through PayAITradeExecutor (Uniswap/Kuru with the flag on). null when the
-   *  trade uses a direct path (Nad.Fun, or the flag off) and pays no PayAI fee.
-   *  When present, `receive`/`minimumReceived` are already NET of this fee. */
-  fee: { percent: string; amount: string; token: string } | null;
+  /** The PayAI platform fee for this trade, charged ON TOP of `spend` —
+   *  present only when it routes through PayAITradeExecutor (Uniswap/Kuru/
+   *  Nad.Fun-allowlisted, flag on); null for direct paths, which pay none.
+   *  `spend` is swapped in full; `total` (spend + fee) leaves the balance. */
+  fee: { percent: string; amount: string; token: string; total: string } | null;
 }
 
 export interface TradePreviewErr {
@@ -466,46 +467,71 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
   // and it leaves every normal-sized amount's display untouched.
   const rawAmountStr = String(amountResult.amount);
   const amountStr = /e/i.test(rawAmountStr) ? toParseableAmount(amountResult.amount, inputSide.decimals) : rawAmountStr;
-  const route = await getTradeRoute(inputSide, outputSide, amountStr, req.action);
+  let route = await getTradeRoute(inputSide, outputSide, amountStr, req.action);
   if (!route) {
     const nadFunHint = await nadFunCounterAssetHint(inputSide, outputSide);
     return { ok: false, message: nadFunHint ?? `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
   }
   const multiHop = isMultiHopProvider(route.provider);
 
-  const grossOut = Number(route.amountOut);
-  // When this trade will route through PayAITradeExecutor (Uniswap/Kuru, flag
-  // on), the executor takes its fee off the input and swaps only the net, so
-  // the honest "you receive" is net of that fee. Nad.Fun and the flag-off path
-  // pay no PayAI fee, so their numbers are unchanged. The net figure here is an
-  // estimate (gross scaled by the fee); prepareTradeExecution re-quotes the net
-  // exactly and sets the real on-chain minOut. A multi-hop route never gets a
-  // single blended fee line here — venueForProvider would otherwise mismatch a
-  // composite "Uniswap v3 + Nad.Fun" string against a single venue (see
-  // isMultiHopProvider's own doc); each leg's real fee, if any, is disclosed
-  // honestly per-leg at build time instead (buildNadFunMultiHopSteps).
+  // PayAI's trade fee is ON TOP (lib/payment/feeOnTop.ts): when this trade
+  // routes through PayAITradeExecutor, the amount shown as "spend" is swapped
+  // IN FULL and the fee is debited from the balance in addition, so "you
+  // receive" is the route's own output for that amount. Nad.Fun-direct and
+  // the flag-off path pay no PayAI fee. A multi-hop route never gets a single
+  // blended fee line (see isMultiHopProvider's own doc); its legs are direct.
   let fee: TradePreviewOk["fee"] = null;
-  let effOut = grossOut;
-  let effReceiveStr = route.amountOut;
+  let spendStr = amountStr;
+  let spendNum = amountResult.amount;
   if (!multiHop) {
     const previewVenue = venueForProvider(route.provider);
     const previewExec = previewVenue ? selectExecutor(previewVenue) : null;
     if (previewExec) {
       const feeBps = await getExecutorFeeBps(previewExec);
-      effOut = grossOut * (1 - feeBps / 10000);
-      effReceiveStr = fmt(effOut);
-      fee = { percent: `${(feeBps / 100).toFixed(2)}%`, amount: fmt(amountResult.amount * (feeBps / 10000)), token: inputSide.symbol };
+      const dec = inputSide.decimals;
+      let netUnits = toUnits(toParseableAmount(amountResult.amount, dec), dec);
+      if (netUnits === null || netUnits <= 0n) return { ok: false, message: "That amount can't be traded exactly — use fewer digits." };
+      if (req.amountType === "percentage" || req.amountType === "balance_all") {
+        // The computed amount is everything the user chose to use: what fits
+        // with the fee on top is swapped, the fee comes out of the same total.
+        netUnits = maxNetFor(netUnits, feeBps);
+        if (netUnits <= 0n) return { ok: false, message: `You don't have enough ${inputSide.symbol} to cover the trade and PayAI's fee.` };
+        spendStr = fromUnits(netUnits, dec);
+        spendNum = Number(spendStr);
+        const requoted = await getTradeRoute(inputSide, outputSide, spendStr, req.action);
+        if (!requoted || requoted.provider !== route.provider) return { ok: false, message: `No usable trading route found for ${inputSide.symbol} → ${outputSide.symbol} right now.` };
+        route = requoted;
+      }
+      const f = feeOnTop(netUnits, feeBps);
+      fee = { percent: bpsPercent(feeBps), amount: fromUnits(f.fee, dec), token: inputSide.symbol, total: fromUnits(f.gross, dec) };
+      if (req.amountType === "exact_input" || req.amountType === "usd") {
+        const bal = await checkSufficientBalance(inputSide, Number(fee.total), req.walletAddress ?? null);
+        if (!bal.ok) {
+          const available = bal.available.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+          const max = toUnits(toParseableAmount(bal.available, dec), dec);
+          const fits = max !== null ? fromUnits(maxNetFor(max, feeBps), dec) : null;
+          const coversAmount = bal.available >= spendNum;
+          return {
+            ok: false,
+            message: `You have ${available} ${inputSide.symbol}. This trade needs ${spendStr} ${inputSide.symbol} plus the ${fee.amount} ${inputSide.symbol} PayAI fee (${fee.total} in total).` +
+              (coversAmount ? " Your balance covers the amount but not the fee on top." : "") +
+              (fits && Number(fits) > 0 ? ` You can trade up to ${fits} ${inputSide.symbol}.` : ""),
+          };
+        }
+      }
     }
   }
+  const effOut = Number(route.amountOut);
+  const effReceiveStr = route.amountOut;
 
-  const rate = amountResult.amount > 0 ? effOut / amountResult.amount : 0;
+  const rate = spendNum > 0 ? effOut / spendNum : 0;
   const minReceived = effOut * (1 - slippageResult.slippage);
   const impactFraction = route.priceImpact ? parseFloat(route.priceImpact) / 100 : null;
 
   return {
     ok: true,
     action: req.action,
-    spend: { amount: amountStr, token: inputSide.symbol },
+    spend: { amount: spendStr, token: inputSide.symbol },
     receive: { amount: effReceiveStr, token: outputSide.symbol },
     rate: `1 ${inputSide.symbol} ≈ ${fmt(rate)} ${outputSide.symbol}`,
     minimumReceived: `${fmt(minReceived)} ${outputSide.symbol}`,

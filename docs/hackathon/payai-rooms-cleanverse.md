@@ -1,9 +1,10 @@
 # PayAI Rooms + Cleanverse
 
-> **Status:** Specification, v0.1 — **no implementation yet.** This is the
-> source-of-truth architecture document for PayAI Rooms and its Cleanverse
-> integration. Update it before (not after) any code changes that diverge
-> from it.
+> **Status:** Specification v0.1, with an **implementation (v0.2) of the
+> verification-independent core** — see [§16](#16-implementation-v02--what-is-built-and-what-is-still-blocked).
+> This is the source-of-truth architecture document for PayAI Rooms and its
+> Cleanverse integration. Update it before (not after) any code changes that
+> diverge from it.
 >
 > **Date:** 2026-09-29 · **Repo baseline:** `claude/bitv-s3ctfc` @ `e648d7f`
 
@@ -682,3 +683,103 @@ from search summaries):
 Third-party hackathon repositories that reportedly integrated Cleanverse on
 testnet exist but are **not** authoritative and were not used as a source for
 any interface in this document.
+
+---
+
+## 16. Implementation v0.2 — what is built, and what is still blocked
+
+**Date:** 2026-10-09 · branch `claude/bitv-s3ctfc` (uncommitted working tree).
+Written before the code it describes, as §0 requires.
+
+Nothing in §7/§8's Cleanverse questions has been answered, so the **verified
+A-USDC room** this spec describes **cannot be built honestly yet**: there is
+no confirmed eligibility API (V1–V7), no confirmed A-USDC address (V5), and
+no confirmed transfer function (Q-T3/Q-T6/Q-T7). v0.2 therefore builds
+everything that does **not** depend on those answers, and refuses the rest
+explicitly rather than faking it.
+
+### 16.1 Built
+
+| Spec item | v0.2 | Where |
+|---|---|---|
+| Room model, immutable terms, forward-only status (§6) | Built. Status is **derived** on read (open → completed / expired / cancelled), so concurrent writers can't race it. | `lib/rooms/terms.ts`, `lib/rooms/store.ts` |
+| Fixed split, exact at token decimals (§5, Q-P2) | Built. A total that doesn't divide exactly is refused with the nearest exact alternatives. | `lib/rooms/terms.ts` |
+| Natural-language creation (§5) | Built as a **deterministic** parser on the Rooms page (no LLM): one amount + token, one participant count, optional recipient and expiry. Unsupported modes (weighted, streaming, escrow, refunds) are refused by name. Not yet wired into Ask PayAI's chat. | `lib/rooms/terms.ts` `parseRoomRequest` |
+| Wallet ownership (§4 step 4, §11.4) | Built **with the existing wallet grant** (a signed challenge already proving the session controls the address — `lib/auth/walletGrant.ts`, unchanged). No second signature scheme. | `app/api/rooms/**` |
+| Join, capacity, duplicate participation (§6) | Built. A join is an atomic set-if-absent per address; capacity is enforced with an atomic counter. The recipient can't join (a share paid to oneself). | `lib/rooms/store.ts` |
+| Pay share (§4 steps 7–8, §11.6) | Built on the **existing plan path**: the server writes the transfer request from the room's own terms (`send <share> <token> to <recipient>`), creates a plan through the existing intake, and the participant reviews, approves and signs it in the existing plan card — the existing runner, journal, cross-tab lock and quote review. **No new signing path or runner.** | `lib/rooms/service.ts` `startContribution` |
+| Contribution confirmation bound to the participant (§11.5) | Built. Only the plan the room recorded for that participant counts; it must be `completed`, one `payai/transfer` node, with **verified** outputs equal to the share and token. In Monad mode the receipt is re-read independently: one `PaymentForwarded` from the configured forwarder, `payer` = participant, `recipient` = room recipient, `token` = room token, net (gross − `FeeCollected`) = share. Each tx hash counts once, globally (`SET NX`). | `lib/rooms/service.ts` `confirmContribution` |
+| Privacy (§11.11, Q-P4) | Built with the spec's default: nobody sees other participants' addresses or tx hashes — slots show "Participant N" and a status; each person sees their own. | `lib/rooms/service.ts` `viewOf` |
+| Abuse controls (§11.13) | Built: IP + per-wallet rate limits on every route; one contribution plan per participant at a time. | `app/api/rooms/**` |
+| No fabricated data (§11.12) | Empty states say so; nothing is invented. | `app/dashboard/rooms/**` |
+
+### 16.2 Deliberate divergences — **product decisions to confirm**
+
+1. **Open rooms in USDC and MON (no verification gate).** The spec's MVP is
+   A-USDC-only with a mandatory Cleanverse gate. Because that gate can't be
+   built yet, v0.2 adds **open rooms** in PayAI's configured stablecoin
+   (USDC on mainnet) and MON, for groups that don't need verified
+   participants. They are labelled as unverified everywhere. **A-USDC rooms
+   are not weakened**: creating one is refused with the reason (§16.3), so the
+   hard gate is never bypassed — it simply isn't offered until it exists.
+2. **PayAI's normal platform fee applies to a share — fee-free shares are
+   not possible on the current architecture (investigated 2026-10-09).**
+   The intended policy is fee-free room contributions. It can't be met safely
+   today:
+   - A share is paid through `payai/transfer@1.0.0`, whose only allowed
+     target is `PayAIForwarderV2`. The forwarder applies its Safe-set
+     `feeBps` to **every** payment (`_split`, no per-payment, per-caller or
+     per-reference exemption) — by design, "no payer or recipient can
+     influence the fee for their own payment" (`PayAIForwarderV2.sol`).
+   - The only fee-free transfer in the app is the legacy direct
+     `transfer(recipient, amount)` in `/api/agent`, used only when forwarder
+     payments are switched off. It is not an SDK action, so the plan path
+     (review, approval, quote, journal, lock, verified settlement) can't use it.
+   - Routing shares through it, adding a parallel action for it, or lowering
+     the forwarder's global `feeBps` would each be a second transaction path
+     or a fee change for every PayAI payment — out of bounds without a
+     decision.
+   **So shares keep the forwarder's fee, added on top**: the recipient
+   receives exactly the share, the participant's quote review shows the fee
+   before they sign, and the room page says so. Options to reach fee-free
+   shares, each needing an explicit decision:
+   (a) a new reviewed SDK action `payai/room-share` that sends USDC with a
+   direct ERC-20 `transfer` (target = the token contract, which can be
+   allowlisted; MON shares would still need a contract, since a native send's
+   target is the recipient); (b) a forwarder upgrade with a Safe-managed,
+   reference-scoped fee exemption, audited and deployed; (c) setting the
+   forwarder's `feeBps` to 0 for everyone.
+3. **The creator doesn't count as a participant automatically** (Q-P1, as
+   proposed), and **the recipient can't join** (a self-payment would only
+   cost the fee).
+
+### 16.3 Still blocked — and refused, not faked
+
+| Item | Why | Behaviour in v0.2 |
+|---|---|---|
+| Verified (A-USDC) rooms + Cleanverse A-Pass gate | V1–V10, Q-T1–Q-T10 unanswered | Creating an A-USDC room is refused: "Verified rooms need Cleanverse, which isn't connected yet." |
+| Escrow / pooled funds, all-or-nothing release, refunds (Arch. C) | Needs a new audited contract; out of scope (§8, §9) | **None exists.** Each share goes directly from the participant to the recipient when paid. The UI says so plainly: PayAI never holds room funds, cancellation or expiry refunds nothing already paid. |
+| Streaming / weighted splits | §12 | Refused by name at creation. |
+| Room creation from Ask PayAI's chat | Not wired yet | Rooms are created on the Rooms page. |
+
+### 16.4 Settlement and safety model (as built)
+
+- **Who holds funds:** nobody but the participants and the recipient. A
+  share moves participant → PayAI forwarder → recipient in one transaction
+  the participant signs; the forwarder never retains it.
+- **Who can authorise a payment:** only the participant's own wallet.
+- **A participant who never pays:** the room stays open until it expires,
+  then reads **expired** with the count that was paid. Nothing is clawed back.
+- **Cancellation:** creator only, and only while nothing is confirmed and no
+  share's plan could still move money (approved, or a transaction or
+  signature under way). Share plans that were never approved are
+  **abandoned** as part of cancelling, which blocks their approval and every
+  quote — so nothing can be paid into a cancelled room through PayAI. A
+  payment that lands after a room expired is recorded as "paid late" — never
+  hidden.
+- **Partial failure:** a failed or reverted share leaves that participant
+  unpaid; they can start a new payment. A plan with a transaction possibly
+  in flight blocks a second one until it settles.
+- **Reconciliation:** a share is "paid" only from the plan's verified
+  on-chain outputs plus the independent receipt check; never from the client.
+

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "motion/react";
 import {
-  AlertTriangle, BarChart3, CalendarClock, CheckCircle2, Copy, ExternalLink,
-  Pause, Play, Plus, ReceiptText, Repeat, ShieldCheck, Trash2, X, Eye, Pencil,
-  Lock, Wallet, Zap, SkipForward, Search, Users, Vault, LifeBuoy,
+  AlertTriangle, CalendarClock, CheckCircle2, ExternalLink,
+  Plus, ShieldCheck, X, Search, Users, Vault, LifeBuoy,
 } from "lucide-react";
 import { encodeFunctionData, type Hex } from "viem";
-import { Badge, Button, Card, Input, Skeleton, SkeletonRows } from "@/components/ui";
-import { TokenLogo, VolumeStack } from "@/components/TokenLogo";
+import { Badge, Button, Input, SkeletonRows } from "@/components/ui";
+import { TokenLogo } from "@/components/TokenLogo";
+import { PageHeader, SectionHeader, EmptyState as PEmptyState } from "@/components/dashboard/primitives";
+import { AskEntry } from "@/components/dashboard/AskEntry";
 import { useToast } from "@/components/Toast";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import type { WalletState } from "@/lib/wallet/useWallet";
@@ -23,6 +24,7 @@ import { ReservationRecovery } from "@/components/dashboard/ReservationRecovery"
 import { TemplatePicker } from "@/components/dashboard/TemplatePicker";
 import { TEMPLATE_CATEGORIES, findTemplate, canLaunchWorkflow, type AutomationTemplate, type TemplateCategory } from "@/lib/automation/templates";
 import { AutomationCreator } from "@/components/dashboard/AutomationCreator";
+import { AutomationCard, bulkStats, displayStatus } from "@/components/dashboard/AutomationCard";
 // Automation types, helpers, and the creation wizard were extracted verbatim
 // into automationShared / AutomationCreator so Ask PayAI can mount the same
 // creator. This page imports them back and uses them exactly as before —
@@ -31,58 +33,10 @@ import {
   NATIVE_TOKEN_ADDRESS, ERC20_APPROVE_ABI,
   autoId32, confirmTx, readPendingReservations, forgetPendingReservation,
   short, money, cadenceLabel,
-  Info, ReviewGrid,
+  ReviewGrid,
   type FundingMode, type OnchainConfig, type Status, type Automation, type AutomationSeed,
 } from "@/components/dashboard/automationShared";
 
-/** Real per-recipient totals across every run this automation has fired,
- *  computed only from recorded recipientResults — never fabricated. */
-function bulkStats(a: Automation) {
-  const allResults = a.runs.flatMap((r) => r.recipientResults ?? []);
-  const successful = allResults.filter((r) => r.decision === "executed");
-  const failed = allResults.filter((r) => r.decision !== "executed");
-  const totalDistributed = successful.reduce((s, r) => s + r.amount, 0);
-  const recipientCount = a.recipients?.length ?? 0;
-  // "Remaining" only makes sense for a bounded (once / after_count / until_date)
-  // schedule — an ongoing bulk payment has no fixed total to count down from.
-  const remaining = a.cadence === "once" ? Math.max(0, recipientCount - successful.length) : null;
-  return { recipientCount, successful: successful.length, failed: failed.length, totalDistributed, remaining };
-}
-
-const STATUS_TONE: Record<Status, "neutral" | "success" | "warning" | "danger" | "primary"> = {
-  active: "success", scheduled: "primary", executing: "warning", paused: "neutral", completed: "success", cancelled: "neutral", failed: "danger",
-};
-
-/**
- * A finer-grained status LABEL layered on top of the real persisted `status`
- * field, purely for display — never changes any gating logic elsewhere
- * (button visibility, execution eligibility, etc. all still key off the real
- * `status`). "Retrying" and "Waiting" are both derived from fields that
- * already exist and are real (failureCount, nextRun) — never a fabricated
- * state with no backing.
- *
- * "Refunding" / "Refunded" (Mini Sprint Part 1) are the same kind of derived
- * label, specific to Reserved Funds, driven by the EXPLICIT
- * reserveRefundStatus rather than just checking whether a tx hash is
- * present — "nothing owed" (the reservation was fully spent through
- * legitimate runs) and "something is owed and the refund hasn't landed" both
- * look identical if you only check for an empty txHash, and showing
- * "refunding" for the former would be a false alarm. reserveRefundStatus is
- * absent only on rows created before this field existed (never shown as
- * "refunding" — same "absence means predates this concept" rule as every
- * other optional field added after existing data).
- */
-function displayStatus(a: Automation): { label: string; tone: "neutral" | "success" | "warning" | "danger" | "primary" } {
-  if (a.status === "active" && a.failureCount > 0) return { label: "retrying", tone: "warning" };
-  if ((a.status === "active" || a.status === "scheduled") && a.nextRun > Date.now()) return { label: "waiting", tone: "primary" };
-  const isTerminal = a.status === "cancelled" || a.status === "failed" || a.status === "completed";
-  if (a.fundingMode === "reserved" && isTerminal && a.reserveRefundStatus) {
-    if (a.reserveRefundStatus === "refunded") return { label: "refunded", tone: "success" };
-    if (a.reserveRefundStatus === "pending") return { label: "refunding", tone: "warning" };
-    // "none" — nothing was ever owed back, fall through to the plain status label.
-  }
-  return { label: a.status, tone: STATUS_TONE[a.status] };
-}
 /** Per-automation analytics, computed only from its own real recorded runs
  *  (on-chain txHash/gasFee when settled) — never a fabricated number. */
 function automationMetrics(a: Automation) {
@@ -93,7 +47,10 @@ function automationMetrics(a: Automation) {
   const target = a.endCondition?.type === "after_count" ? a.endCondition.totalRuns : null;
   return {
     totalExecutions: executed.length,
-    successRate: attempted.length ? Math.round((executed.length / attempted.length) * 100) : 100,
+    // Null until something has actually been attempted — an automation that
+    // has never run has no success rate, and "100%" would claim a history
+    // that doesn't exist.
+    successRate: attempted.length ? Math.round((executed.length / attempted.length) * 100) : null,
     totalVolume: executed.length * a.amount,
     totalGas,
     avgGas: executed.length ? totalGas / executed.length : 0,
@@ -487,50 +444,30 @@ export default function AutomationsPage() {
   const active = visibleAutomations.filter((a) => a.status === "active" || a.status === "scheduled" || a.status === "executing");
   const upcoming = active.slice().sort((a, b) => a.nextRun - b.nextRun).slice(0, 5);
   const runs = visibleAutomations.flatMap((a) => a.runs.map((run) => ({ ...run, automation: a }))).sort((a, b) => b.at - a.at);
-  // Never blend MON and USDC into one number — same convention as
-  // components/TokenLogo.tsx's VolumeStack (which this now reuses). A
-  // single summed "totalVolume" across tokens was previously meaningless
-  // (1 MON + 1 USDC read as "2") and, on mobile, the resulting long/odd
-  // number was the actual cause of the perceived "lag" — the tile reflowed
-  // once the real (much longer) formatted string rendered post-hydration.
-  const volumeByToken = visibleAutomations.reduce<Record<string, number>>((acc, a) => {
-    const executed = a.runs.filter((r) => r.decision === "executed").length;
-    if (executed > 0) acc[a.token] = (acc[a.token] ?? 0) + executed * a.amount;
-    return acc;
-  }, {});
-  const totalRuns = runs.length;
-  const successRuns = runs.filter((r) => r.decision === "executed").length;
-  const successRate = totalRuns ? Math.round((successRuns / totalRuns) * 100) : 0;
-  const totalGas = runs.reduce((sum, r) => sum + (r.gasFee ?? 0), 0);
-
-  // Automation Health — every figure derived from the same already-loaded
-  // automations/runs, nothing separately fetched or fabricated.
-  const executingNow = visibleAutomations.filter((a) => a.status === "executing").length;
-  const todayEnd = useMemo(() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); }, []);
-  const upcomingToday = active.filter((a) => a.nextRun >= Date.now() && a.nextRun <= todayEnd).length;
-  const startOfToday = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); }, []);
-  const failedToday = runs.filter((r) => r.at >= startOfToday && r.decision !== "executed" && r.decision !== "partial").length;
-  const soonest = active.slice().sort((a, b) => a.nextRun - b.nextRun)[0] ?? null;
+  const others = visibleAutomations.filter((a) => !(a.status === "active" || a.status === "scheduled" || a.status === "executing"));
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Payment Automations</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Create reliable MON and USDC automations with wallet confirmation, verified recipients, and execution history on Monad Mainnet.
-          </p>
+    <div className="mx-auto max-w-6xl space-y-8">
+      <div>
+        <PageHeader
+          title="Automations"
+          description="Manage what PayAI has scheduled: what runs, when, who it affects, and what happened."
+          actions={wallet.address ? (
+            <>
+              <Button variant="secondary" onClick={() => setBulkOpen(true)} className="inline-flex items-center gap-2 text-sm">
+                <Users size={15} /> Bulk payment
+              </Button>
+              <Button variant="secondary" onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-2 text-sm">
+                <Plus size={15} /> From a template
+              </Button>
+            </>
+          ) : undefined}
+        />
+        {/* Intent first: describe it, Ask PayAI plans it and opens the same
+            automation creator this page uses — no second automation system. */}
+        <div className="max-w-3xl">
+          <AskEntry id="automate-intent" label="Automate with intent" placeholder="Describe an automation, e.g. send 20 USDC to bob.nad every Friday" />
         </div>
-        {wallet.address && (
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setBulkOpen(true)} className="inline-flex items-center gap-2">
-              <Users size={16} /> Bulk Payment
-            </Button>
-            <Button onClick={() => setPickerOpen(true)} className="inline-flex items-center gap-2">
-              <Plus size={16} /> Create Automation
-            </Button>
-          </div>
-        )}
       </div>
 
       {automations.length > 0 && (
@@ -596,10 +533,10 @@ export default function AutomationsPage() {
       {Object.keys(reserved).length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-          className="rounded-xl border border-exec-scheduled/35 bg-exec-scheduled/[0.07] p-5"
+          className="rounded-lg border border-border bg-panel p-5"
         >
           <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-exec-scheduled/15 text-exec-scheduled">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground">
               <Vault size={17} />
             </span>
             <div className="min-w-0 flex-1">
@@ -662,78 +599,49 @@ export default function AutomationsPage() {
         <ReservationRecovery vault={vaultConfig.vault} explorerBase={MONAD_EXPLORER} />
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric title="Active Automations" value={active.length.toString()} icon={Repeat} />
-        <Metric title="Success Rate" value={`${successRate}%`} icon={ShieldCheck} />
-        <Metric title="Total Volume" icon={BarChart3} value={<VolumeMetricValue byToken={volumeByToken} />} />
-        <Metric title="Gas Spent" value={`${totalGas.toFixed(4)} MON`} icon={ReceiptText} />
-      </section>
-
-      {automations.length > 0 && (
-        <Card title="Automation Health">
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-7">
-            <AnalyticsTile label="Total Active" value={active.length.toString()} />
-            <AnalyticsTile label="Executing Right Now" value={executingNow.toString()} />
-            <AnalyticsTile label="Upcoming Today" value={upcomingToday.toString()} />
-            <AnalyticsTile label="Success Rate" value={`${successRate}%`} />
-            <AnalyticsTile label="Failed Today" value={failedToday.toString()} />
-            <AnalyticsTile label="Total Automated Volume" value={<VolumeMetricValue byToken={volumeByToken} />} />
-            <AnalyticsTile
-              label="Estimated Next Payment"
-              value={soonest ? `${money(soonest.amount, soonest.token)} · ${new Date(soonest.nextRun).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "None scheduled"}
-            />
-          </div>
-          {runs.length > 0 && <ExecutionTrendChart runs={runs} />}
-        </Card>
-      )}
-
       {!wallet.address ? (
-        <Card className="text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><ShieldCheck size={20} /></div>
-          <p className="text-sm font-medium text-foreground">Connect your wallet</p>
-          <p className="mx-auto mt-1.5 max-w-md text-sm text-muted-foreground">Automations are scoped to your wallet. Connect to create and manage yours.</p>
-        </Card>
+        <div className="rounded-lg border border-border bg-panel px-4">
+          <PEmptyState title="Connect your wallet" hint="Automations belong to your wallet. Connect it to see and manage yours." action={{ label: "Connect", href: "/auth" }} />
+        </div>
       ) : loading ? (
-        <section className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-          <Card title="Active Automations">
-            <div className="grid gap-3 lg:grid-cols-2">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <div key={i} className="rounded-xl border border-border p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <Skeleton className="h-4 w-2/3" />
-                      <Skeleton className="h-3 w-1/2" />
-                    </div>
-                    <Skeleton className="h-5 w-16 shrink-0 rounded-md" />
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    {Array.from({ length: 4 }).map((__, j) => (
-                      <div key={j} className="space-y-1.5"><Skeleton className="h-2.5 w-16" /><Skeleton className="h-3 w-20" /></div>
-                    ))}
-                  </div>
-                  <div className="mt-5 border-t border-border/60 pt-4"><Skeleton className="h-7 w-full rounded-lg" /></div>
-                </div>
-              ))}
-            </div>
-          </Card>
-          <Card title="Upcoming Executions"><SkeletonRows rows={4} /></Card>
-        </section>
+        <div className="rounded-lg border border-border bg-panel px-4 py-4"><SkeletonRows rows={4} /></div>
       ) : (
         <>
-          <section className="grid gap-4 xl:grid-cols-[1.5fr_1fr]">
-            <Card title="Active Automations" right={<span className="text-xs text-muted-foreground">{active.length} live</span>}>
-              {active.length === 0 ? <EmptyState title="No active automations" detail="Create an automation when you want PayAI to execute a payment on a future cadence." /> : (
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {active.map((a) => (
+          {/* What is scheduled to happen. */}
+          <section aria-labelledby="coming-up">
+            <SectionHeader id="coming-up" title="Coming up" />
+            <div className="rounded-lg border border-border bg-panel px-4">
+              {upcoming.length === 0 ? (
+                <PEmptyState compact title="No upcoming actions." hint="Scheduled and recurring runs show up here." />
+              ) : (
+                <ul className="divide-y divide-border">
+                  {upcoming.map((a) => (
+                    <li key={a.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
+                      <p className="min-w-0 truncate text-sm text-foreground">{a.purpose ?? a.memo ?? "Automation"} <span className="text-muted-foreground">· {money(a.amount, a.token)}</span></p>
+                      <p className="shrink-0 text-xs tabular-nums text-muted-foreground">{new Date(a.nextRun).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </section>
+
+          {/* Everything PayAI runs on a schedule for this wallet. */}
+          <section aria-labelledby="running">
+            <SectionHeader id="running" title="Running" right={<span className="text-xs text-muted-foreground">{active.length}</span>} />
+            {active.length === 0 ? (
+              <div className="rounded-lg border border-border bg-panel px-4">
+                <PEmptyState title="No automations yet." hint="Describe one above and PayAI will set it up for your approval." />
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {active.map((a) => (
+                  <li key={a.id}>
                     <AutomationCard
-                      key={a.id} automation={a} busy={busy === a.id} onAction={action}
+                      automation={a} busy={busy === a.id} onAction={action}
                       onView={() => setViewing(a)}
                       onEdit={() => setEditing(a)}
                       onDuplicate={() => {
-                        // Preserve which template this came from (if any) —
-                        // spreading `a` directly doesn't typecheck since its
-                        // templateId/templateCategory can be `null` (as
-                        // stored) where the seed type wants `undefined`.
                         setDuplicateSeed({
                           ...a,
                           templateId: a.templateId ?? undefined,
@@ -742,29 +650,49 @@ export default function AutomationsPage() {
                         setCreatorOpen(true);
                       }}
                     />
-                  ))}
-                </div>
-              )}
-            </Card>
-            <Card title="Upcoming Executions">
-              <Timeline items={upcoming.map((a) => ({ id: a.id, title: `${a.purpose ?? "Automation"} - ${money(a.amount, a.token)}`, detail: `${new Date(a.nextRun).toLocaleString()} - ${a.timezone ?? "Africa/Lagos"}`, status: a.status, href: null }))} empty="No upcoming executions." />
-            </Card>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
 
-          <Card title="Activity" right={runs.length > 0 ? <span className="text-xs text-muted-foreground">{runs.length} event{runs.length === 1 ? "" : "s"}</span> : undefined}>
-            {runs.length === 0
-              ? <EmptyState title="No activity yet" detail="Every execution — sent, blocked, or failed — appears here with its on-chain receipt once your automations start running." />
-              : <ActivityFeed runs={runs} />}
-          </Card>
+          {/* Paused, failed and finished automations — previously not listed
+              anywhere on the page, so a paused one could only be found by
+              filtering. Same card, same actions. */}
+          {others.length > 0 && (
+            <section aria-labelledby="stopped">
+              <SectionHeader id="stopped" title="Paused and finished" right={<span className="text-xs text-muted-foreground">{others.length}</span>} />
+              <ul className="space-y-2">
+                {others.map((a) => (
+                  <li key={a.id}>
+                    <AutomationCard
+                      automation={a} busy={busy === a.id} onAction={action}
+                      onView={() => setViewing(a)}
+                      onEdit={() => setEditing(a)}
+                      onDuplicate={() => {
+                        setDuplicateSeed({
+                          ...a,
+                          templateId: a.templateId ?? undefined,
+                          templateCategory: (a.templateCategory as TemplateCategory | null) ?? undefined,
+                        });
+                        setCreatorOpen(true);
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-          <Card title="Analytics">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <AnalyticsTile label="Total Executions" value={totalRuns.toString()} />
-              <AnalyticsTile label="Total Gas Spent" value={`${totalGas.toFixed(4)} MON`} />
-              <AnalyticsTile label="Average Gas" value={`${(totalRuns ? totalGas / totalRuns : 0).toFixed(4)} MON`} />
-              <AnalyticsTile label="Completion" value={`${visibleAutomations.length ? Math.round((visibleAutomations.filter((a) => a.status === "completed").length / visibleAutomations.length) * 100) : 0}%`} />
+          {/* What happened. */}
+          <section aria-labelledby="automation-activity">
+            <SectionHeader id="automation-activity" title="What happened" right={runs.length > 0 ? <span className="text-xs text-muted-foreground">{runs.length} run{runs.length === 1 ? "" : "s"}</span> : undefined} />
+            <div className="rounded-lg border border-border bg-panel px-4 py-1">
+              {runs.length === 0
+                ? <PEmptyState compact title="No activity yet." hint="Every run — sent, blocked or failed — appears here with its onchain receipt." />
+                : <div className="py-3"><ActivityFeed runs={runs} /></div>}
             </div>
-          </Card>
+          </section>
         </>
       )}
 
@@ -784,106 +712,6 @@ export default function AutomationsPage() {
       />
     </div>
   );
-}
-
-function Metric({ title, value, icon: Icon }: { title: string; value: ReactNode; icon: typeof Repeat }) {
-  return (
-    <Card className="!p-4 bg-gradient-to-b from-primary/[0.06] to-transparent">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-        <Icon size={16} className="text-primary-ink" />
-      </div>
-      {/* A plain div, not <p> — some values (VolumeMetricValue) render block
-          children, and nesting a block element inside <p> is invalid HTML
-          that browsers silently "fix" by closing the tag early, which was
-          a real source of the mobile reflow/glitch this replaces. */}
-      <div className="mt-2 min-w-0 text-2xl font-semibold tracking-tight text-foreground">{value}</div>
-    </Card>
-  );
-}
-
-/** Real per-token totals only — never blended into one meaningless number
- *  across MON and USDC. One row per token, from the shared VolumeStack, so
- *  every volume metric in the product shrinks the same way instead of each
- *  surface re-deriving it (and one of them getting it wrong). */
-function VolumeMetricValue({ byToken }: { byToken: Record<string, number> }) {
-  return <VolumeStack byToken={byToken} size={15} valueClassName="text-xl font-semibold" />;
-}
-
-/** Daily executions (last 14 days), stacked executed/failed — real counts
- *  from the same `runs` already loaded for the page, nothing separately
- *  fetched. One axis (count); success rate is direct-labeled per bar via
- *  hover rather than a second y-scale, so this never becomes a dual-axis
- *  chart. Executed/failed reuse the same primary/danger tokens the rest of
- *  the dashboard already uses for those two states (Badge/STATUS_TONE), so
- *  color still follows a fixed, existing meaning rather than a new scale. */
-function ExecutionTrendChart({ runs }: { runs: { at: number; decision: string }[] }) {
-  const DAYS = 14;
-  const days = useMemo(() => {
-    const buckets: { key: string; label: string; executed: number; failed: number; other: number }[] = [];
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    for (let i = DAYS - 1; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
-      buckets.push({ key: d.toDateString(), label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }), executed: 0, failed: 0, other: 0 });
-    }
-    const byKey = new Map(buckets.map((b) => [b.key, b]));
-    for (const r of runs) {
-      const b = byKey.get(new Date(r.at).toDateString());
-      if (!b) continue; // outside the 14-day window
-      if (r.decision === "executed" || r.decision === "partial") b.executed += 1;
-      else if (r.decision === "error" || r.decision === "failed") b.failed += 1;
-      else b.other += 1;
-    }
-    return buckets;
-  }, [runs]);
-
-  const max = Math.max(1, ...days.map((d) => d.executed + d.failed + d.other));
-  const H = 96;
-
-  return (
-    <div className="mt-5 border-t border-border/60 pt-4">
-      <div className="mb-2.5 flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Executions — last {DAYS} days</p>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" /> Executed</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-danger" /> Failed</span>
-        </div>
-      </div>
-      <div className="flex items-end gap-[3px]" style={{ height: H }}>
-        {days.map((d) => {
-          const total = d.executed + d.failed + d.other;
-          const executedH = (d.executed / max) * H;
-          const failedH = (d.failed / max) * H;
-          const otherH = (d.other / max) * H;
-          const rate = total ? Math.round((d.executed / total) * 100) : null;
-          return (
-            <div key={d.key} className="group relative flex-1" style={{ height: H }}>
-              <div className="absolute bottom-0 flex w-full flex-col-reverse overflow-hidden rounded-t-sm">
-                {failedH > 0 && <div className="w-full bg-danger" style={{ height: failedH }} />}
-                {otherH > 0 && <div className="w-full bg-muted-foreground/40" style={{ height: otherH }} />}
-                {executedH > 0 && <div className="w-full bg-primary" style={{ height: executedH }} />}
-                {total === 0 && <div className="w-full bg-border/50" style={{ height: 2 }} />}
-              </div>
-              <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[11px] shadow-lg group-hover:block">
-                <p className="font-medium text-foreground">{d.label}</p>
-                <p className="text-muted-foreground">{total} execution{total === 1 ? "" : "s"}{rate != null ? ` · ${rate}% success` : ""}</p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-1.5 flex justify-between text-[10px] text-muted-foreground">
-        <span>{days[0].label}</span>
-        <span>{days[days.length - 1].label}</span>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState({ title, detail }: { title: string; detail: string }) {
-  return <div className="rounded-lg border border-dashed border-border p-6 text-center"><p className="text-sm font-medium text-foreground">{title}</p><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">{detail}</p></div>;
 }
 
 /**
@@ -929,99 +757,10 @@ function AutomationTimeline({ a }: { a: Automation }) {
   );
 }
 
-function Timeline({ items, empty }: { items: { id: string; title: string; detail: string; status: string; href: string | null }[]; empty: string }) {
-  if (items.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
-  return <div className="space-y-3">{items.map((item) => <div key={item.id} className="flex gap-3"><span className="mt-1 h-2.5 w-2.5 rounded-full bg-primary" /><div className="min-w-0 flex-1 border-b border-border pb-3 last:border-b-0"><div className="flex items-center justify-between gap-2"><p className="truncate text-sm font-medium text-foreground">{item.title}</p>{item.href && <a href={item.href} target="_blank" rel="noreferrer" className="text-primary-ink"><ExternalLink size={13} /></a>}</div><p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p></div></div>)}</div>;
-}
-
-function AutomationCard({ automation, busy, onAction, onView, onEdit, onDuplicate }: {
-  automation: Automation; busy: boolean;
-  onAction: (id: string, action: "pause" | "resume" | "cancel" | "delete" | "skip_next" | "execute_now") => void;
-  onView: () => void; onEdit: () => void; onDuplicate: () => void;
-}) {
-  const m = automationMetrics(automation);
-  const template = automation.templateId ? findTemplate(automation.templateId) : undefined;
-  const isBulk = !!automation.recipients?.length;
-  const bulk = isBulk ? bulkStats(automation) : null;
-  return (
-    <motion.div className="group rounded-xl border border-border bg-gradient-to-br from-primary/[0.07] via-panel/40 to-transparent p-5 transition-all duration-200 hover:border-primary/35 hover:from-primary/[0.11]" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-base font-semibold tracking-tight text-foreground">
-            {isBulk && <Users size={13} className="mr-1 inline text-primary-ink" />}
-            {automation.purpose ?? automation.memo ?? "Automation"}
-          </p>
-          {template && (
-            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground/70">
-              <template.icon size={11} /> Created from {template.name}
-            </p>
-          )}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5 font-medium text-foreground"><TokenLogo token={automation.token} size={14} /> {money(automation.amount, automation.token)}{isBulk && ` total`}</span>
-            <span className="text-muted-foreground/50">·</span>
-            <span>{cadenceLabel(automation)}</span>
-          </div>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <Badge tone={displayStatus(automation).tone}>{displayStatus(automation).label}</Badge>
-          {automation.fundingMode && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              {automation.fundingMode === "reserved" ? <><Lock size={9} /> Reserved</> : <><Wallet size={9} /> Non-custodial</>}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        {isBulk && bulk ? (
-          <>
-            <Info label="Recipients" value={String(bulk.recipientCount)} />
-            <Info label="Successful / Failed" value={`${bulk.successful} / ${bulk.failed}`} />
-            <Info label="Total Distributed" value={money(bulk.totalDistributed, automation.token)} />
-            <Info label="Remaining" value={bulk.remaining != null ? String(bulk.remaining) : "Ongoing"} />
-          </>
-        ) : (
-          <Info label="Recipient" value={automation.domain ?? short(automation.recipient)} mono />
-        )}
-        <Info label="Next Execution" value={new Date(automation.nextRun).toLocaleDateString()} />
-        <Info label="Time" value={new Date(automation.nextRun).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
-        <Info label="Success Rate" value={`${m.successRate}%`} />
-      </div>
-      <div className="mt-5 flex items-center gap-2 border-t border-border/60 pt-4">
-        <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onView} disabled={busy}><Eye size={13} /> View</Button>
-        {!isBulk && <Button variant="secondary" className="!px-3 !py-1.5 text-xs" onClick={onEdit} disabled={busy}><Pencil size={13} /> Edit</Button>}
-        <div className="ml-auto flex items-center gap-0.5">
-          {automation.status === "paused" || automation.status === "failed" ? (
-            <IconAction label="Resume" onClick={() => onAction(automation.id, "resume")} disabled={busy}><Play size={14} /></IconAction>
-          ) : (
-            <IconAction label="Pause" onClick={() => onAction(automation.id, "pause")} disabled={busy}><Pause size={14} /></IconAction>
-          )}
-          {(automation.status === "active" || automation.status === "scheduled") && (
-            <>
-              <IconAction label="Execute Now" onClick={() => onAction(automation.id, "execute_now")} disabled={busy}><Zap size={14} /></IconAction>
-              <IconAction label="Skip Next" onClick={() => onAction(automation.id, "skip_next")} disabled={busy}><SkipForward size={14} /></IconAction>
-            </>
-          )}
-          <IconAction label={isBulk ? "Duplicate (not supported for bulk payments yet)" : "Duplicate"} onClick={onDuplicate} disabled={busy || isBulk}><Copy size={14} /></IconAction>
-          <IconAction label="Cancel" onClick={() => onAction(automation.id, "cancel")} disabled={busy}><X size={14} /></IconAction>
-          <IconAction label="Delete" danger onClick={() => onAction(automation.id, "delete")} disabled={busy}><Trash2 size={14} /></IconAction>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-function IconAction({ label, onClick, disabled, danger, children }: { label: string; onClick: () => void; disabled?: boolean; danger?: boolean; children: ReactNode }) {
-  return (
-    <button type="button" title={label} aria-label={label} onClick={onClick} disabled={disabled}
-      className={`rounded-lg p-2 transition-colors disabled:opacity-40 ${danger ? "text-muted-foreground hover:bg-danger/10 hover:text-danger" : "text-muted-foreground hover:bg-input hover:text-foreground"}`}>
-      {children}
-    </button>
-  );
-}
 
 
 function AnalyticsTile({ label, value }: { label: string; value: ReactNode }) {
-  return <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-4 transition-colors hover:border-primary/25"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
+  return <div className="rounded-lg border border-border bg-panel p-4"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
 /** One unified, chronological activity feed — every run across every
@@ -1159,7 +898,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
               <AutomationTimeline a={a} />
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
-              <AnalyticsTile label="Success Rate" value={`${m.successRate}%`} />
+              <AnalyticsTile label="Success Rate" value={m.successRate == null ? "Not run yet" : `${m.successRate}%`} />
               <AnalyticsTile label="Total Executions" value={m.totalExecutions.toString()} />
               <AnalyticsTile label="Total Volume" value={money(m.totalVolume, a.token)} />
               <AnalyticsTile label="Total Gas Spent" value={`${m.totalGas.toFixed(4)} MON`} />

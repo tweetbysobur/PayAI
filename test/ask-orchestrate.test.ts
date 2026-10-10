@@ -260,15 +260,17 @@ describe("respondToUnderstanding — schedule/recurring hand off to the real Aut
     } finally { restore(); }
   });
 
-  it("recurring_payment uses the every-<frequency> canonical phrasing", async () => {
+  it("recurring_payment sends the schedule it was given, in words the engine reads (never \"every weekly\")", async () => {
     const { calls, restore } = mockFetch(() => ({
       decision: "automation_prefill",
       prefill: { amount: 10, token: "USDC", recipient: ADDR, domain: null, cadence: "weekly", nextRun: Date.UTC(2026, 7, 21, 9) },
     }));
     try {
-      const u: Understanding = { kind: "recurring_payment", outcome: "complete", slots: { amount: "10", asset: "USDC", recipient: ADDR, frequency: "weekly" } };
+      const u: Understanding = { kind: "recurring_payment", outcome: "complete", slots: { amount: "10", asset: "USDC", recipient: ADDR, frequency: "weekly", when: "Friday" } };
       const r = await respondToUnderstanding(u, WALLET);
-      expect(calls[0].body.intent).toBe(`Schedule 10 USDC to ${ADDR} every weekly`);
+      // "every weekly" dropped the day and isn't a phrase the engine knows —
+      // it came back as "When should it run?". The day is carried instead.
+      expect(calls[0].body.intent).toBe(`Schedule 10 USDC to ${ADDR} every friday`);
       expect(r.message.operation?.intent.kind).toBe("recurring_payment");
     } finally { restore(); }
   });

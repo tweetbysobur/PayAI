@@ -37,6 +37,9 @@ import { getAction, getCurrentActionVersion } from "@/lib/sdk/registry";
 import { getChain, getStablecoin } from "@/lib/monad/config";
 import { recipientAppearsIn } from "@/lib/payees/directory";
 import { detectSplit } from "./split";
+import { detectCompoundRequest } from "./compound";
+import { detectRoomRequest } from "./roomIntent";
+import { unreadableTiming, unreadableTimingReply } from "@/lib/agent/scheduleTiming";
 
 export interface ConversationTurn {
   role: "user" | "assistant";
@@ -50,7 +53,7 @@ export interface ConversationTurn {
 // action, or version on its own. Everything else in ASK_INTENT_KINDS is
 // fair game for the model.
 const CLASSIFY_KINDS = [
-  ...ASK_INTENT_KINDS.filter((k) => k !== "protocol_action"),
+  ...ASK_INTENT_KINDS.filter((k) => k !== "protocol_action").filter((k) => k !== "room"),
   "unsupported", "unclear", "chat",
 ] as const;
 
@@ -83,7 +86,23 @@ export const REQUIRED_SLOTS: Record<AskIntentKind, (keyof AskSlots)[]> = {
   // completeness only. protocolId/actionId identify the registered action;
   // amount is WMON's single input.
   protocol_action: ["protocolId", "actionId", "amount"],
+  // Only ever produced complete by detectRoomRequest (never by the model).
+  room: ["roomAction"],
 };
+
+/**
+ * What an understanding still needs before it can be acted on: the kind's
+ * REQUIRED_SLOTS, plus one schedule rule the slot list alone can't express —
+ * a WEEKLY recurring payment also needs its day. Without it the schedule
+ * engine has nothing to anchor "every week" to, and the request would only
+ * fail later with a generic "When should it run?". Asking for the day here
+ * means asking for exactly the one thing that is actually missing.
+ */
+export function missingSlots(kind: AskIntentKind, slots: AskSlots): (keyof AskSlots)[] {
+  const missing = REQUIRED_SLOTS[kind].filter((k) => !slots[k]);
+  if (kind === "recurring_payment" && slots.frequency === "weekly" && !slots.when) missing.push("when");
+  return missing;
+}
 
 const SYSTEM_PROMPT = `You are the natural-language understanding layer for Ask PayAI, a non-custodial crypto payments product on Monad. Users type however they naturally would — casual language, slang, typos, incomplete thoughts, corrections. Your only job is to figure out what they're trying to do and extract exactly the information they've actually given. You never execute anything; you only describe intent for a separate, already-secure system to validate and act on.
 
@@ -271,7 +290,7 @@ function naturalMissingSlotQuestion(kind: AskIntentKind, key: keyof AskSlots): s
     case "recipient":
       return "Who should receive it?";
     case "when":
-      return "When should this run?";
+      return kind === "recurring_payment" ? "Which day should it run each week?" : "When should this run?";
     case "frequency":
       return "How often should this repeat?";
     case "recipientCount":
@@ -313,11 +332,15 @@ function coerce(raw: Record<string, unknown>, contextTokenAddress: string | null
   // what keeps the LLM from ever introducing an SDK action (or a split
   // recipient).
   if (kind !== "protocol_action" && (ASK_INTENT_KINDS as readonly string[]).includes(kind) && (outcome === "incomplete" || outcome === "complete")) {
-    const missing = REQUIRED_SLOTS[kind as AskIntentKind].filter((k) => !slots[k]);
+    const missing = missingSlots(kind as AskIntentKind, slots);
     if (outcome === "complete" && missing.length === 0) {
       return { kind: kind as AskIntentKind, outcome: "complete", slots };
     }
-    const question = typeof raw.question === "string" && raw.question.trim() ? raw.question.trim() : "Could you tell me a bit more about that?";
+    // The model's own question when it asked one; when it claimed "complete"
+    // but a required slot is in fact missing, ask for exactly that slot.
+    const question = outcome === "incomplete" && typeof raw.question === "string" && raw.question.trim() ? raw.question.trim()
+      : missing.length > 0 ? naturalMissingSlotQuestion(kind as AskIntentKind, missing[0])
+      : "Could you tell me a bit more about that?";
     return { kind: kind as AskIntentKind, outcome: "incomplete", slots, question };
   }
   if (outcome === "unsupported") {
@@ -580,7 +603,7 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
   }
 
   if (pending && pending.outcome === "incomplete") {
-    const missing = REQUIRED_SLOTS[pending.kind].filter((k) => !pending.slots[k]);
+    const missing = missingSlots(pending.kind, pending.slots);
     // Trailing punctuation ("50.", "yes!") shouldn't block recognizing the
     // answer underneath it — the value stored is always the stripped form.
     const stripped = text.trim().replace(/[.!]+$/, "");
@@ -608,7 +631,7 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
     const filledKeys = Object.keys(candidates) as (keyof AskSlots)[];
     if (filledKeys.length === 1) {
       const filled: AskSlots = { ...pending.slots, ...candidates };
-      const stillMissing = REQUIRED_SLOTS[pending.kind].filter((k) => !filled[k]);
+      const stillMissing = missingSlots(pending.kind, filled);
       return stillMissing.length === 0
         ? { kind: pending.kind, outcome: "complete", slots: filled }
         : { kind: pending.kind, outcome: "incomplete", slots: filled, question: naturalMissingSlotQuestion(pending.kind, stillMissing[0]) };
@@ -749,15 +772,17 @@ async function classifyFresh(text: string, pending: Understanding | null = null)
     const slots: AskSlots = {
       ...emptySlots(),
       amount: sched.amount != null ? String(sched.amount) : null,
-      asset: sched.token,
+      // Only a token the person actually named — the engine's own default
+      // (USDC) is not something they said, so it's asked for instead.
+      asset: /\b(MON|USDC)\b/i.test(text) ? sched.token : null,
       recipient: sched.recipient,
       when: sched.nextRun != null ? new Date(sched.nextRun).toISOString() : null,
       frequency: sched.cadence === "once" ? null : sched.cadence,
     };
-    const missing = REQUIRED_SLOTS[kind].filter((k) => !slots[k]);
+    const missing = missingSlots(kind, slots);
     return missing.length === 0
       ? { kind, outcome: "complete", slots }
-      : { kind, outcome: "incomplete", slots, question: missing[0] === "recipient" ? "Who should this pay?" : missing[0] === "amount" ? "How much should it send?" : "When should it run?" };
+      : { kind, outcome: "incomplete", slots, question: naturalMissingSlotQuestion(kind, missing[0]) };
   }
 
   // Best-effort keyword heuristics for transaction status/details — the
@@ -896,6 +921,8 @@ const EVM_ADDRESS_RE = /0x[a-fA-F0-9]{40}/;
  *  to 0x..." must never be hijacked into a token lookup. "trade" is a whole
  *  word match (\b...\b), so it does NOT match inside "tradable" — "Is this
  *  token tradable? 0x..." correctly stays a lookup. */
+/** A question about past activity ("what did I pay…"), not a new request. */
+const QUESTION_START_RE = /^\s*(what|when|who|how|did|show|list|where|which)\b/i;
 const MONEY_ACTION_VERBS_RE = /\b(send|pay|swap|convert|exchange|trade|schedule|recurring|automate|distribute|split)\b/i;
 
 /**
@@ -1090,8 +1117,33 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // split or a specific clarification — never a pending-intent merge, never
   // the single-recipient send detector (which would read "send 50 USDC split
   // between A, B and C" as a send of everything to A), and never Anthropic.
+  // A room request is answered by the Rooms API through the room card, never
+  // by the model (lib/ask/intent/roomIntent.ts). Checked before split/compound:
+  // "a room for 100 USDC for 5 people" is one room, not a split.
+  const room = detectRoomRequest(text);
+  if (room) return { route: "actionable_operation", anthropic: false, understanding: room, fallback: room };
+
   const split = await detectSplit(text);
   if (split) return { route: "actionable_operation", anthropic: false, understanding: split, fallback: split };
+
+  // More than one action (or more than one recipient for one action) can't be
+  // held by this path's single operation. Say so and prepare nothing, rather
+  // than keep one action and silently drop the rest (lib/ask/intent/compound.ts).
+  // Several exactly-written actions are the plan path's (lib/ask/planTurn.ts).
+  const compound = detectCompoundRequest(text);
+  if (compound) return { route: "actionable_operation", anthropic: false, understanding: compound, fallback: compound };
+
+  // A money-moving request with timing the schedule engine can't honour (a
+  // time of day, a timezone, "every 2 weeks", "October 20", "tonight"…) is
+  // clarified, never prepared: otherwise the time was silently replaced by
+  // 09:00 UTC, or the request became an immediate send (lib/agent/scheduleTiming.ts).
+  if (MONEY_ACTION_VERBS_RE.test(text) && !QUESTION_START_RE.test(text)) {
+    const timing = unreadableTiming(text);
+    if (timing) {
+      const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "schedule_timing", reply: unreadableTimingReply(timing) };
+      return { route: "actionable_operation", anthropic: false, understanding: u, fallback: u };
+    }
+  }
 
   // A pending send_payment/swap/schedule already waiting on a specific slot
   // (most importantly `recipient`) gets first crack at the message — "To
@@ -1184,8 +1236,45 @@ export async function understand(
 
   if (!process.env.ANTHROPIC_API_KEY) return routed.fallback;
   try {
-    return await understandWithLLM(text, history, pending);
+    return reconcileSchedule(await understandWithLLM(text, history, pending), routed.fallback);
   } catch {
     return routed.fallback;
   }
+}
+
+const SCHEDULE_KINDS = new Set<AskIntentKind>(["schedule_payment", "recurring_payment"]);
+
+/**
+ * The model reads the request; it does not get to silently discard a
+ * schedule the deterministic parser found in the same words.
+ *
+ * When the deterministic pass recognised a schedule (a day, a date, a
+ * cadence), that timing is authoritative: the model's reading is kept for
+ * amount, token and recipient, but its kind and timing can't drop or replace
+ * the parsed schedule — including the dangerous case of reading "send 1 USDC
+ * to bob.nad every Friday" as an immediate send. Anything the model resolved
+ * that the parser didn't still fills the gaps, and what is still missing is
+ * asked for, one slot at a time. Exported for tests.
+ */
+export function reconcileSchedule(model: Understanding, deterministic: Understanding): Understanding {
+  if (!SCHEDULE_KINDS.has(deterministic.kind as AskIntentKind)) return model;
+  if (deterministic.outcome !== "complete" && deterministic.outcome !== "incomplete") return model;
+  if (model.outcome !== "complete" && model.outcome !== "incomplete") return model;
+  if (model.kind !== "send_payment" && !SCHEDULE_KINDS.has(model.kind)) return model;
+
+  const kind = deterministic.kind as AskIntentKind;
+  const d = deterministic.slots;
+  const m = model.slots;
+  const slots: AskSlots = {
+    ...m,
+    amount: m.amount ?? d.amount,
+    asset: m.asset ?? d.asset,
+    recipient: m.recipient ?? d.recipient,
+    when: d.when ?? m.when,
+    frequency: kind === "recurring_payment" ? d.frequency ?? m.frequency : null,
+  };
+  const missing = missingSlots(kind, slots);
+  return missing.length === 0
+    ? { kind, outcome: "complete", slots }
+    : { kind, outcome: "incomplete", slots, question: naturalMissingSlotQuestion(kind, missing[0]) };
 }

@@ -22,7 +22,7 @@
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
-import type { AskMessage, Operation, OperationError, PaymentIntent, TransactionResult } from "@/lib/ask/types";
+import type { AskMessage, Operation, OperationError, PaymentIntent, PlatformFeeView, TransactionResult } from "@/lib/ask/types";
 import { extractSendPaymentCandidate, looksLikeSendPayment } from "./parse";
 import { validateSendPaymentCandidate } from "./validate";
 
@@ -69,6 +69,11 @@ export interface SendPaymentWallet {
  * a `ready_to_sign` Operation card — advancing past that is executeSendPayment's
  * job alone, triggered only by an explicit user click in the UI.
  */
+function isFeeView(v: unknown): v is PlatformFeeView {
+  const f = v as PlatformFeeView | null;
+  return !!f && [f.amount, f.total, f.token, f.percent].every((x) => typeof x === "string" && x.length > 0 && x.length < 64);
+}
+
 export async function respondToSendPayment(rawText: string, walletAddress: string | null): Promise<AskMessage | null> {
   if (!looksLikeSendPayment(rawText)) return null;
 
@@ -115,7 +120,7 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
   ) {
     // approvalTx/approvalLabel are only present for a forwarder-routed ERC-20
     // payment needing an allowance top-up — read them off the loose response.
-    const extra = json as { approvalTx?: { to: string; data: string; value?: string; from: string } | null; approvalLabel?: string | null };
+    const extra = json as { approvalTx?: { to: string; data: string; value?: string; from: string } | null; approvalLabel?: string | null; platformFee?: PlatformFeeView | null };
     const intent: PaymentIntent = {
       kind: "payment",
       network: "monad",
@@ -126,6 +131,7 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
       // Never fabricated — PayAI has no pre-signature fee estimate for a
       // plain wallet-signed transfer; the wallet itself shows gas at signing.
       estimatedFee: null,
+      platformFee: isFeeView(extra.platformFee) ? extra.platformFee : null,
       execution: {
         unsignedTx: json.unsignedTx,
         // Optional exact-amount approval pre-step for an ERC-20 payment routed

@@ -69,9 +69,10 @@ export default function TermsPage() {
       <DocsSection id="fees" index="05" title="Fees">
         <p>
           PayAI currently charges a <strong>0.25% platform fee</strong> (25 basis points) on
-          send-payment, Wallet Automation, and Reserved Funds executions, taken on-chain from the
-          gross amount, with the remainder delivered to the recipient. Swaps currently have no
-          platform fee. Monad network gas is always paid by the signer.
+          send-payment, Wallet Automation, and Reserved Funds executions, and on swaps and trades routed
+          through PayAI&apos;s trade executor, collected on-chain and added on top of the amount, so the
+          recipient receives — and a swap swaps — the full amount you set. Swaps and trades routed directly
+          to a DEX carry no PayAI fee. Monad network gas is always paid by the signer.
         </p>
         <p>
           The on-chain fee cannot exceed 1.00%. Live rates are at{" "}

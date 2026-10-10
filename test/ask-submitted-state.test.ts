@@ -267,13 +267,15 @@ describe("Scenario 6 & 7 — the amber state is genuinely useful: real hash, rea
   });
 });
 
-describe("Scenario 8 — the UI renders the submitted state as a clickable, honest amber card", () => {
+describe("Scenario 8 — the UI renders the submitted state as a clickable, honest in-progress card", () => {
   const src = readFileSync(new URL("../components/ask/OperationCard.tsx", import.meta.url), "utf8");
 
-  it("declares a 'submitted' status chip in amber (warning) tones, not red", () => {
+  it("declares a 'submitted' status chip in neutral, in-progress tones — never the red problem/failure treatment", () => {
+    // Warning and danger are both red now (app/globals.css): either would make
+    // a payment that is merely confirming look failed, inviting a retry.
     const chip = src.slice(src.indexOf("submitted:"), src.indexOf("submitted:") + 120);
-    expect(chip).toMatch(/warning/);
-    expect(chip).not.toMatch(/destructive|text-error\b/);
+    expect(chip).toMatch(/text-muted-foreground/);
+    expect(chip).not.toMatch(/warning|danger|destructive|text-error\b/);
   });
 
   it("renders a dedicated SubmittedBody with a clickable explorer link built from submitted.explorerUrl", () => {

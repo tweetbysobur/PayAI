@@ -3,221 +3,182 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import {
-  Sparkles, ShieldCheck, Lock, Repeat, LayoutDashboard,
-  ArrowRight, CheckCircle2, Clock3, PlusCircle, Eye, Send,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useIdentity } from "@/lib/hooks/useIdentity";
-import { MonadMark } from "@/components/MonadMark";
-import { AskMark } from "@/components/AskMark";
 import { useOnboarding } from "@/lib/hooks/useOnboarding";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
+import { LogoMark } from "@/components/Logo";
 import { startGuidedTour } from "@/components/onboarding/TourOverlay";
 
-const TOTAL_STEPS = 5;
+/**
+ * First-run onboarding — shown once per account after its first connection,
+ * never again after it's finished or skipped. Reopened on demand from the
+ * sidebar's "Getting Started" link (see reopenOnboarding()).
+ *
+ * Two short steps. It teaches one idea — tell PayAI what you want, review
+ * what it understood, approve — and ends on the Dashboard's intent box. It
+ * never teaches how to operate a wallet.
+ *
+ * Design: PayAI's own colours and nothing else. A purple brand rail (logo,
+ * the four steps, where you are) beside a black content pane; on a phone the
+ * rail collapses to a purple header. No illustrations, sparkles or icon
+ * grids — numbered steps and plain sentences, the way a payments product
+ * explains itself.
+ */
 
-/** First-run onboarding — shown once per wallet after its first connection,
- *  never again after completion (or after picking a first action, which
- *  completes it implicitly). Reopened on demand via the sidebar's
- *  "Getting Started" link (see reopenOnboarding()). */
+const STEPS = ["How PayAI works", "Your wallet"] as const;
+
 export function OnboardingFlow() {
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
   const router = useRouter();
-  // Keyed on the ACCOUNT, not whichever wallet is currently acting. Onboarding
-  // introduces PayAI to a person, and they only need that once — keying it on
-  // the active address replayed the whole first-run tour the moment someone
-  // attached a second wallet, which is precisely when they have proven they
-  // already know their way around.
+  // Keyed on the ACCOUNT, not whichever wallet is currently acting: attaching
+  // a second wallet must not replay the introduction.
   const { open, complete } = useOnboarding(wallet.accountAddress ?? wallet.address);
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(0);
 
   if (!wallet.address) return null;
 
-  function goTo(path: string) {
-    complete();
-    router.push(path);
+  function close() { complete(); setStep(0); }
+  /** Finish on the Dashboard with the intent box focused — the one thing
+   *  onboarding teaches is "tell PayAI what you want". */
+  function start() {
+    close();
+    router.push("/dashboard");
+    window.setTimeout(() => document.getElementById("intent")?.focus(), 300);
   }
-
-  function finish() {
-    complete();
-    setStep(1);
-  }
+  const last = step === STEPS.length - 1;
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm"
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-2 sm:items-center sm:p-6"
         >
           <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl"
+            role="dialog" aria-modal="true" aria-labelledby="onboarding-title"
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="grid max-h-[94dvh] w-full max-w-3xl overflow-hidden rounded-xl border border-primary/40 bg-black md:grid-cols-[15rem_minmax(0,1fr)]"
           >
-            {/* Progress */}
-            <div className="flex items-center gap-1.5 px-8 pt-6">
-              {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-                <span key={i} className={`h-1 flex-1 rounded-full transition-colors duration-300 ${i < step ? "bg-primary" : "bg-border"}`} />
-              ))}
-            </div>
-
-            <AnimatePresence mode="wait">
-              {step === 1 && (
-                <motion.div key="s1" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
-                  <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center text-primary"><Sparkles size={34} /></div>
-                  </div>
-                  <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Welcome to PayAI</h1>
-                  <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    PayAI is your payments, trading, and DeFi wallet on Monad — send, automate, swap, and trade
-                    DeFi tokens with Ask PayAI, all from your own wallet.
-                  </p>
-                  <div className="mt-6 grid grid-cols-2 gap-2.5">
-                    {[
-                      { icon: Send, label: "Send instantly" },
-                      { icon: AskMark, label: "Trade with Ask PayAI" },
-                      { icon: Repeat, label: "Automate payments" },
-                      { icon: ShieldCheck, label: "Stay in control" },
-                    ].map((f) => (
-                      <div key={f.label} className="flex items-center gap-2 rounded-lg border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-3 py-2.5 text-xs font-medium text-foreground">
-                        <f.icon size={14} className="shrink-0 text-primary-ink" /> {f.label}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-5 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-                    <Clock3 size={12} /> About 1 minute to get set up
-                  </div>
-                  <button onClick={() => setStep(2)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                    Get started <ArrowRight size={15} />
-                  </button>
-                </motion.div>
-              )}
-
-              {step === 2 && (
-                <motion.div key="s2" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
-                  <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center text-primary"><ShieldCheck size={34} /></div>
-                  </div>
-                  <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Wallet & security</h1>
-                  <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    Here&apos;s what&apos;s connected, and how PayAI protects you.
-                  </p>
-
-                  <div className="mt-6 flex items-center gap-3 rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-4 py-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-success/12 text-success"><CheckCircle2 size={18} /></span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-mono text-sm font-medium text-foreground">{identity.display}</p>
-                      <p className="text-xs text-muted-foreground">Wallet connected</p>
-                    </div>
-                  </div>
-                  <div className="mt-2.5 flex items-center gap-3 rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-4 py-3">
-                    <span className={`flex h-9 w-9 items-center justify-center rounded-full ${wallet.isWrongNetwork ? "bg-warning/12 text-warning" : "bg-success/12 text-success"}`}>
-                      <MonadMark size={16} />
+            {/* Brand rail — purple. */}
+            <aside className="flex flex-col bg-primary px-4 py-3 text-white md:p-6">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-black md:h-9 md:w-9"><LogoMark size={16} className="text-primary-ink" /></span>
+                  <span className="text-sm font-semibold">PayAI</span>
+                </span>
+                <button type="button" onClick={close} className="rounded-md px-2 py-1 text-xs font-medium text-white/80 transition-colors hover:bg-black/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:hidden">
+                  Skip
+                </button>
+              </div>
+              {/* Phone: a progress bar. Desktop: the step list. */}
+              <div className="mt-3 flex gap-1.5 md:hidden" aria-hidden>
+                {STEPS.map((s, i) => <span key={s} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-white" : "bg-black/30"}`} />)}
+              </div>
+              <ol className="mt-10 hidden space-y-1 md:block">
+                {STEPS.map((s, i) => (
+                  <li key={s} aria-current={i === step ? "step" : undefined} className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm ${i === step ? "bg-black/25 font-medium text-white" : i < step ? "text-white/80" : "text-white/55"}`}>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < step ? "bg-white text-primary" : i === step ? "bg-black text-white" : "border border-white/40"}`}>
+                      {i < step ? <Check size={12} strokeWidth={3} /> : i + 1}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground">{wallet.isWrongNetwork ? "Switch to " + MONAD_CHAIN_NAME : MONAD_CHAIN_NAME}</p>
-                      <p className="text-xs text-muted-foreground">{wallet.isWrongNetwork ? "You'll be prompted after onboarding" : "Network confirmed"}</p>
-                    </div>
-                  </div>
+                    {s}
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-auto hidden pt-10 text-xs leading-relaxed text-white/70 md:block">Turn intent into onchain execution in seconds.</p>
+            </aside>
 
-                  <div className="mt-4 space-y-2.5 text-xs text-foreground">
-                    <div className="flex items-start gap-2.5"><Lock size={14} className="mt-0.5 shrink-0 text-primary-ink" /><span>PayAI never asks for, or stores, your private key or seed phrase.</span></div>
-                    <div className="flex items-start gap-2.5"><ShieldCheck size={14} className="mt-0.5 shrink-0 text-primary-ink" /><span>Every payment needs your approval in your wallet, unless you&apos;ve set up an automation with limits you chose in advance.</span></div>
-                  </div>
-
-                  <button onClick={() => setStep(3)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                    Continue <ArrowRight size={15} />
-                  </button>
-                </motion.div>
-              )}
-
-              {step === 3 && (
-                <motion.div key="s3" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
-                  <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">Choose your first action</h1>
-                  <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    Jump straight in, or explore first. Either way, PayAI is ready.
-                  </p>
-                  <div className="mt-6 grid grid-cols-2 gap-3">
-                    {[
-                      { icon: Send, title: "Send Payment", body: "Pay any wallet or name", href: "/dashboard/payments" },
-                      { icon: Repeat, title: "Create Automation", body: "Recurring or scheduled", href: "/dashboard/automations" },
-                      { icon: AskMark, title: "Ask PayAI", body: "Trade, swap DeFi tokens, or pay by chat", href: "/dashboard/ask" },
-                      { icon: LayoutDashboard, title: "Explore Dashboard", body: "Look around first", href: "/dashboard" },
-                    ].map((a) => (
-                      <button key={a.title} onClick={() => goTo(a.href)}
-                        className="group flex flex-col items-start rounded-xl border border-border p-4 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                        <span className="mb-2.5 flex h-9 w-9 items-center justify-center text-primary"><a.icon size={19} /></span>
-                        <span className="text-sm font-semibold text-foreground">{a.title}</span>
-                        <span className="mt-0.5 text-xs text-muted-foreground">{a.body}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <button onClick={() => setStep(4)} className="mt-5 flex w-full items-center justify-center gap-1.5 text-xs font-medium text-muted-foreground transition hover:text-primary-ink">
-                    Show me how automations work first <ArrowRight size={12} />
-                  </button>
-                </motion.div>
-              )}
-
-              {step === 4 && (
-                <motion.div key="s4" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.22 }} className="p-8">
-                  <div className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center text-primary"><Repeat size={32} /></div>
-                  </div>
-                  <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">How automation works</h1>
-                  <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    Every automation follows the same simple lifecycle.
-                  </p>
-
-                  <div className="relative mt-8 grid grid-cols-4 gap-2">
-                    <div className="absolute left-[12.5%] right-[12.5%] top-5 h-px bg-border" />
-                    {[
-                      { icon: PlusCircle, label: "Create" },
-                      { icon: Eye, label: "Monitor" },
-                      { icon: Sparkles, label: "Execute" },
-                      { icon: CheckCircle2, label: "Confirm" },
-                    ].map((s, i) => (
-                      <motion.div key={s.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08, duration: 0.3 }} className="relative z-10 flex flex-col items-center text-center">
-                        <span className="mb-2 flex h-10 w-10 items-center justify-center rounded-full border border-primary/40 bg-panel text-primary-ink"><s.icon size={16} /></span>
-                        <span className="text-[11px] font-medium text-foreground">{s.label}</span>
-                      </motion.div>
-                    ))}
-                  </div>
-                  <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
-                    You set the amount, recipient, and schedule once. PayAI watches for the right moment, executes on time, and confirms it on-chain, every time.
-                  </p>
-                  <button onClick={() => setStep(5)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                    Continue <ArrowRight size={15} />
-                  </button>
-                </motion.div>
-              )}
-
-              {step === 5 && (
-                <motion.div key="s5" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.22 }} className="p-8">
-                  <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 260, damping: 18 }} className="mb-5 flex items-center justify-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-success/12 text-success"><CheckCircle2 size={30} /></div>
+            {/* Content — black. */}
+            <div className="flex min-h-0 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:p-8">
+                <p className="text-xs font-medium text-primary-ink">Step {step + 1} of {STEPS.length}</p>
+                <AnimatePresence mode="wait">
+                  <motion.div key={step} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+                    {step === 0 && (
+                      <>
+                        <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-white sm:mt-2 sm:text-3xl">Welcome to PayAI</h1>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Turn intent into onchain execution in seconds.</p>
+                        <Numbered items={[
+                          ["Tell PayAI what you want", "Describe the outcome in plain English."],
+                          ["Review what PayAI understood", "See the exact actions, amounts and order before anything happens."],
+                          ["Approve and execute", "Your wallet signs. PayAI handles the execution."],
+                        ]} />
+                      </>
+                    )}
+                    {step === 1 && (
+                      <>
+                        <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-white sm:mt-2 sm:text-3xl">Your wallet stays in control</h1>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">PayAI prepares the action. Only your wallet can approve it.</p>
+                        <dl className="mt-4 divide-y divide-border rounded-lg border border-border">
+                          <div className="flex items-center justify-between gap-4 px-4 py-3">
+                            <dt className="text-xs text-muted-foreground">Wallet</dt>
+                            <dd className="truncate font-mono text-sm text-white">{identity.display}</dd>
+                          </div>
+                          <div className="flex items-center justify-between gap-4 px-4 py-3">
+                            <dt className="text-xs text-muted-foreground">Network</dt>
+                            <dd className={`text-sm ${wallet.isWrongNetwork ? "text-danger" : "text-white"}`}>
+                              {wallet.isWrongNetwork ? `Wrong network — switch to ${MONAD_CHAIN_NAME}` : MONAD_CHAIN_NAME}
+                            </dd>
+                          </div>
+                        </dl>
+                        <Numbered items={[
+                          ["Your keys stay yours", "PayAI never asks for, or stores, your private key or seed phrase."],
+                          ["Nothing runs without approval", "Every action waits for you — except automations, within limits you approve in advance."],
+                        ]} />
+                        {/* Desktop only: the tour spotlights the sidebar, which a phone doesn't show. */}
+                        <button type="button" onClick={() => { close(); startGuidedTour(); }} className="mt-5 hidden rounded-sm text-xs font-medium text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline">
+                          Take a quick tour of the sidebar instead
+                        </button>
+                      </>
+                    )}
                   </motion.div>
-                  <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">You&apos;re ready</h1>
-                  <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                    That&apos;s everything you need to know. Your dashboard is set up and waiting.
-                  </p>
-                  <button onClick={finish} className="mt-7 flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                    Open Dashboard <ArrowRight size={15} />
+                </AnimatePresence>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3 sm:px-8 sm:py-4">
+                {step > 0 ? (
+                  <button type="button" onClick={() => setStep(step - 1)} className="inline-flex h-10 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-input hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <ArrowLeft size={14} aria-hidden /> Back
                   </button>
-                  <button
-                    onClick={() => { finish(); startGuidedTour(); }}
-                    className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-medium text-muted-foreground transition hover:text-primary-ink"
-                  >
-                    Or take the full guided tour of the sidebar <ArrowRight size={12} />
+                ) : (
+                  <button type="button" onClick={close} className="hidden h-10 items-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-input hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex">
+                    Skip
                   </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                )}
+                {!last ? (
+                  <button type="button" onClick={() => setStep(step + 1)} className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-black">
+                    Continue <ArrowRight size={14} aria-hidden />
+                  </button>
+                ) : (
+                  <button type="button" onClick={start} className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-black">
+                    Start <ArrowRight size={14} aria-hidden />
+                  </button>
+                )}
+              </div>
+            </div>
           </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function Numbered({ items }: { items: [string, string][] }) {
+  return (
+    <ol className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
+      {items.map(([title, body], i) => (
+        <li key={title} className="flex gap-4">
+          <span className="w-6 shrink-0 pt-0.5 font-mono text-xs font-medium text-primary-ink">{String(i + 1).padStart(2, "0")}</span>
+          <div className="min-w-0 pt-0.5">
+            <p className="text-sm font-medium text-white">{title}</p>
+            <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground sm:text-sm sm:leading-relaxed">{body}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

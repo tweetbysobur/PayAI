@@ -13,7 +13,7 @@ import { TokenSelector, type TokenInfo } from "@/components/dashboard/TokenSelec
 import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { toParseableAmount } from "@/lib/monad/verify";
-import { calculateFeeFromConfig, ZERO_FEE_CONFIG, type FeeConfigResponse } from "@/lib/payment/feeMath";
+import { feeOnTop, fromUnits, toUnits } from "@/lib/payment/feeOnTop";
 import type { TemplateCategory } from "@/lib/automation/templates";
 import {
   NATIVE_TOKEN_ADDRESS, ERC20_APPROVE_ABI, PURPOSES,
@@ -33,6 +33,17 @@ import {
  * validation and error handling. Nothing about the creation logic changed in
  * the move — only its file home, so it can be mounted in two places.
  */
+/** yyyy-mm-dd and hh:mm of an instant on the viewer's own calendar, for
+ *  <input type="date"> / <input type="time">. Exported for tests. */
+export function localDateInput(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+export function localTimeInput(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 export function AutomationCreator({ open, seed, onClose, onCreated }: { open: boolean; seed?: AutomationSeed | null; onClose: () => void; onCreated: (created?: { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null }) => void }) {
   const wallet = useWallet();
   const { toast } = useToast();
@@ -63,11 +74,6 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   const [savingStep, setSavingStep] = useState<string | null>(null);
   const [fundingMode, setFundingMode] = useState<FundingMode>("wallet");
   const [config, setConfig] = useState<OnchainConfig | null>(null);
-  // The real, current fee rate — fetched from the server (see GET /api/fees;
-  // lib/payment/feeEngine.ts, which knows this, reads process.env and is
-  // server-only, so it cannot be imported here). Defaults to the honest
-  // all-zero config until the fetch resolves, never a guessed non-zero rate.
-  const [feeConfig, setFeeConfig] = useState<FeeConfigResponse>(ZERO_FEE_CONFIG);
   /** Set only when this creation started from an Automation Template — carried
    *  through to the create() call so the record stores what it came from.
    *  Never set for a duplicate or an AI-parsed draft. */
@@ -80,8 +86,6 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   const invalidAmount = !Number.isFinite(amountNum) || amountNum <= 0 || (balanceNum != null && amountNum > balanceNum);
   const finalPurpose = purpose === "Other" ? customPurpose.trim() : purpose;
   const estimateGas = tokenInfo?.address === NATIVE_TOKEN_ADDRESS ? "0.002 MON" : "0.004 MON";
-  const feeFeature = fundingMode === "reserved" ? "reserved_funds" : "wallet_automation";
-  const platformFee = calculateFeeFromConfig(feeConfig[feeFeature], feeFeature, amountNum || 0);
 
   useEffect(() => {
     if (!open) return;
@@ -114,9 +118,12 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
       if (seed.intervalCount != null) setIntervalCount(String(seed.intervalCount));
       if (seed.intervalUnit) setIntervalUnit(seed.intervalUnit);
       if (seed.nextRun) {
-        const d = new Date(seed.nextRun);
-        setDate(d.toISOString().slice(0, 10));
-        setTime(d.toTimeString().slice(0, 5));
+        // Both from the LOCAL calendar — the inputs below are local. Taking
+        // the date from UTC and the time from local put the first run a whole
+        // day off wherever the two calendars disagree (e.g. 09:00 UTC is the
+        // previous evening west of UTC−9).
+        setDate(localDateInput(seed.nextRun));
+        setTime(localTimeInput(seed.nextRun));
       }
       const seedPurpose = seed.purpose ?? seed.memo;
       setPurpose(seedPurpose && PURPOSES.includes(seedPurpose) ? seedPurpose : "Other");
@@ -152,15 +159,6 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
     return () => { cancelled = true; };
   }, [open]);
 
-  // Load the current fee rate — see feeConfig's own comment for why this
-  // can't just be imported and computed locally.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    fetch("/api/fees").then((r) => r.json()).then((c: FeeConfigResponse) => { if (!cancelled) setFeeConfig(c); }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [open]);
-
   // Wallet Automation needs an ERC-20 allowance: any non-native token works
   // directly; native MON only works if WMON is configured. When unavailable
   // for the chosen token, the choice collapses to Reserved Funds so we never
@@ -181,8 +179,24 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   }), [startAt, cadence, intervalCount, intervalUnit, endMode, endCount, endUntilMs]);
 
   const perPayment = amountNum || 0;
-  // Total the schedule will move over its whole (bounded) life. null = open-ended.
-  const totalScheduled = occurrences != null ? perPayment * occurrences : null;
+  // PayAI's fee is charged ON TOP of every payment (lib/payment/feeOnTop.ts):
+  // the recipient gets `amount` in full, and each run needs amount + fee from
+  // the approval / reservation — at the live rate of the contract that run
+  // calls. Exact base-unit math; null while the rate is unknown.
+  const contractFeeBps = fundingMode === "wallet" ? config?.executorFeeBps : config?.vaultFeeBps;
+  const perPaymentFee = useMemo(() => {
+    if (!tokenInfo || !(perPayment > 0) || contractFeeBps == null) return null;
+    const net = toUnits(toParseableAmount(perPayment, tokenInfo.decimals), tokenInfo.decimals);
+    if (net === null || net <= 0n) return null;
+    const f = feeOnTop(net, contractFeeBps);
+    return { ...f, feeText: fromUnits(f.fee, tokenInfo.decimals), grossNum: Number(fromUnits(f.gross, tokenInfo.decimals)) };
+  }, [tokenInfo, perPayment, contractFeeBps]);
+  const perPaymentGross = perPaymentFee ? perPaymentFee.grossNum : perPayment;
+  // The balance covers the payment but not PayAI's fee on top — said plainly,
+  // before anything is approved, reserved or signed.
+  const feeNotCovered = !invalidAmount && balanceNum != null && perPaymentFee != null && perPaymentFee.grossNum > balanceNum;
+  // Total the schedule will move over its whole (bounded) life, fee included. null = open-ended.
+  const totalScheduled = occurrences != null ? perPaymentGross * occurrences : null;
 
   // Wallet Automation only grants an ALLOWANCE (no funds move until each run):
   // a bounded schedule approves its exact total; an open-ended one approves ~a
@@ -191,8 +205,8 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   // an open-ended one reserves only the next payment (can't lock infinity).
   const walletBudgetAmount = totalScheduled != null
     ? totalScheduled
-    : annualVolume({ amount: perPayment, token: tokenInfo?.symbol ?? "", cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
-  const reservedBudgetAmount = totalScheduled != null ? totalScheduled : perPayment;
+    : annualVolume({ amount: perPaymentGross, token: tokenInfo?.symbol ?? "", cadence, intervalCount: Number(intervalCount), intervalUnit } as Automation);
+  const reservedBudgetAmount = totalScheduled != null ? totalScheduled : perPaymentGross;
   // What the Review screen shows depends on the chosen mode.
   const budgetAmount = fundingMode === "wallet" ? walletBudgetAmount : reservedBudgetAmount;
 
@@ -204,13 +218,18 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
 
   async function create() {
     if (!wallet.address || !resolved || invalidAmount || !finalPurpose || !config || !tokenInfo) return;
+    if (!perPaymentFee) {
+      toast("PayAI's fee rate couldn't be read, so nothing was approved or reserved. Try again in a moment.", "error");
+      return;
+    }
     const isNative = tokenInfo.address === NATIVE_TOKEN_ADDRESS;
     const decimals = tokenInfo.decimals;
-    // toParseableAmount, not String() — a sub-1-unit amount below the
-    // token's own precision floor stringifies to exponential notation,
-    // which parseUnits rejects outright.
-    const budget = parseUnits(toParseableAmount(walletBudgetAmount, decimals), decimals);
-    const reservedBudget = parseUnits(toParseableAmount(reservedBudgetAmount, decimals), decimals);
+    // Exact for a bounded schedule: (amount + fee) × runs, in base units.
+    // toParseableAmount, not String(), for the open-ended estimate — a
+    // sub-1-unit amount stringifies to exponential notation otherwise.
+    const exactTotal = occurrences != null ? perPaymentFee.gross * BigInt(occurrences) : null;
+    const budget = exactTotal ?? parseUnits(toParseableAmount(walletBudgetAmount, decimals), decimals);
+    const reservedBudget = exactTotal ?? perPaymentFee.gross;
     setSaving(true);
     try {
       if (wallet.isWrongNetwork) await wallet.switchNetwork();
@@ -295,7 +314,7 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
     }
   }
 
-  const canNext = step === 1 ? !!resolved : step === 2 ? !!tokenInfo && !invalidAmount : step === 3 ? cadence !== "custom" || Number(intervalCount) > 0 : step === 4 ? Number.isFinite(startAt) && startAt > Date.now() - 60_000 : step === 5 ? !!finalPurpose : true;
+  const canNext = step === 1 ? !!resolved : step === 2 ? !!tokenInfo && !invalidAmount && !feeNotCovered : step === 3 ? cadence !== "custom" || Number(intervalCount) > 0 : step === 4 ? Number.isFinite(startAt) && startAt > Date.now() - 60_000 : step === 5 ? !!finalPurpose : true;
 
   // No AnimatePresence — see the note in components/dashboard/TemplatePicker.tsx.
   return (
@@ -316,7 +335,7 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
                   <p className="mt-1.5 min-h-[1.15rem] text-xs tabular-nums text-muted-foreground">
                     {amountUsd ? `≈ ${amountUsd}` : ""}
                   </p>
-                </div><div className="mt-1 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? `${money(Number(balance), tokenInfo?.symbol ?? "")}${balanceUsd ? ` · ≈ ${balanceUsd}` : ""}` : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}</Step>}
+                </div><div className="mt-1 grid gap-2 sm:grid-cols-2"><Info label="Wallet Balance" value={balanceLoading ? "Loading..." : balance ? `${money(Number(balance), tokenInfo?.symbol ?? "")}${balanceUsd ? ` · ≈ ${balanceUsd}` : ""}` : "-"} /><Info label="Estimated Gas" value={estimateGas} /></div>{invalidAmount && amount && <p className="mt-2 text-sm text-danger">Enter a valid amount within your wallet balance.</p>}{feeNotCovered && perPaymentFee && <p className="mt-2 text-sm text-danger">{`Your balance covers ${amount} ${tokenInfo?.symbol ?? ""} but not PayAI's ${perPaymentFee.feeText} ${tokenInfo?.symbol ?? ""} fee on top.`}</p>}</Step>}
               {step === 3 && <Step title="Automation" detail="Choose the cadence. Custom stays simple in v1: every X days, weeks, or months."><div className="grid gap-2 sm:grid-cols-3">{(["once", "daily", "weekly", "monthly", "custom"] as Cadence[]).map((c) => <button key={c} onClick={() => setCadence(c)} className={choiceClass(cadence === c, "px-3 py-3 text-left capitalize")}>{c === "once" ? "One Time" : c}</button>)}</div>{cadence === "custom" && <div className="mt-4 flex items-center gap-2"><span className="text-sm text-muted-foreground">Every</span><Input value={intervalCount} onChange={(e) => setIntervalCount(e.target.value.replace(/[^0-9]/g, ""))} className="w-20" /><select value={intervalUnit} onChange={(e) => setIntervalUnit(e.target.value as IntervalUnit)} className="rounded-md border border-border bg-input px-3 py-2 text-base text-foreground sm:text-sm"><option value="days">days</option><option value="weeks">weeks</option><option value="months">months</option></select></div>}</Step>}
               {step === 4 && <Step title="Execution Time" detail="Set the first execution date and time, then choose when it ends.">
                 <div className="grid gap-3 sm:grid-cols-3">
@@ -373,14 +392,13 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
                   { label: "Recipient", value: recipientInput, accent: true },
                   { label: "Resolved Address", value: resolved?.recipient ?? "-", mono: true },
                   { label: "Asset", value: tokenInfo?.symbol ?? "-", accent: true },
-                  { label: "Amount per payment", value: money(amountNum || 0, tokenInfo?.symbol ?? ""), accent: true },
+                  { label: "Recipient receives per payment", value: money(amountNum || 0, tokenInfo?.symbol ?? ""), accent: true },
                   { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing", accent: true },
                   { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, tokenInfo?.symbol ?? "") : "Up to ~1 year", accent: true },
                   { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }), accent: true },
                   { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`, accent: true },
                   { label: "Execution Time", value: new Date(startAt).toLocaleString() },
                   { label: "Purpose", value: finalPurpose || "-", accent: true },
-                  { label: "Platform Fee", value: platformFee.label },
                   { label: "Estimated Gas", value: estimateGas },
                   { label: "Network", value: "Monad Mainnet" },
                   { label: "Wallet", value: short(wallet.address), mono: true },

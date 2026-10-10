@@ -221,9 +221,13 @@ describe("future examples", () => {
 
 describe("graph structure", () => {
   it("zero nodes", async () => { await expectError(graph([], SEND_TEXT), "NODE_COUNT"); });
-  it("more than 4 nodes", async () => {
+  it("more than MAX_INTENT_NODES nodes (a resource ceiling, not 4)", async () => {
+    const { MAX_INTENT_NODES } = await import("@/lib/plan/types");
     const wrap = (id: string) => node(id, ["wmon", "wrap", "1.0.0"], { amount: lit("1") });
-    await expectError(graph(["a1", "a2", "a3", "a4", "a5"].map(wrap), "wrap"), "NODE_COUNT");
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `a${i + 1}`);
+    await expectError(graph(ids(MAX_INTENT_NODES + 1).map(wrap), "wrap"), "NODE_COUNT");
+    expect((await validate(graph(ids(5).map(wrap), "wrap"))).ok).toBe(true);
+    expect((await validate(graph(ids(MAX_INTENT_NODES).map(wrap), "wrap"))).ok).toBe(true);
   });
   it("duplicate node ids", async () => { await expectError(graph([sendNode(), sendNode()], SEND_TEXT), "DUPLICATE_NODE_ID"); });
   it("missing dependency", async () => {

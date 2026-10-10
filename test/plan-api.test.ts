@@ -338,13 +338,13 @@ describe("input validation at the boundary", () => {
     const planId = await approvedPlan();
     const { POST } = await single();
     const { POST: createPost } = await collection();
-    for (const raw of ["{nope", "[1,2]", "\"str\"", "null", "x".repeat(70_000)]) {
+    for (const raw of ["{nope", "[1,2]", "\"str\"", "null", "x".repeat(600_000)]) {
       const r = await send(POST(await request("POST", `/api/plans/${planId}`, undefined, { raw }), ctx(planId)));
       expect(r, raw.slice(0, 10)).toMatchObject({ status: 400, cache: "no-store", json: { ok: false, code: "INVALID_INPUT" } });
     }
     expect((await send(createPost(await request("POST", "/api/plans", undefined, { raw: "{}" })))).json.code).toBe("INVALID_INPUT");
     // A VALID JSON body over the size cap is refused for its size alone.
-    const big = await send(POST(await request("POST", `/api/plans/${planId}`, undefined, { raw: JSON.stringify({ op: "next", pad: "x".repeat(70_000) }) }), ctx(planId)));
+    const big = await send(POST(await request("POST", `/api/plans/${planId}`, undefined, { raw: JSON.stringify({ op: "next", pad: "x".repeat(600_000) }) }), ctx(planId)));
     expect(big).toMatchObject({ status: 400, json: { code: "INVALID_INPUT", message: "Request body is too large." } });
     for (const body of [{}, { op: "delete" }, { op: "__proto__" }, { op: "quote" }, { op: "quote", nodeId: 7 }, { op: "bind", nodeId: "n1" },
       { op: "bind", nodeId: "n1", quoteToken: "x".repeat(4097) }, { op: "tx", nodeId: "n1", quoteId: "a".repeat(32) }, { op: "settle" }]) {

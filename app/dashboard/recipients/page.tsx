@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import { Badge, Button, Card, Input } from "@/components/ui";
+import { Input } from "@/components/ui";
+import { PageHeader, SectionHeader, StatusIndicator, EmptyState as PEmptyState } from "@/components/dashboard/primitives";
 import { recipientError, isValidRecipient, addressError, isValidAddress } from "@/lib/validation";
 
 interface OnchainMerchant { wallet: string; name: string; active: boolean; volume: number; paymentCount: number }
@@ -75,95 +76,114 @@ export default function Recipients() {
     }
   }
 
+  const field = "h-10 rounded-md border border-border bg-background px-3 text-base text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm";
+
   return (
-    <div className="mx-auto max-w-6xl">
-      <h1 className="mb-1 text-2xl font-semibold text-foreground">Recipients</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Saved contacts and registered merchants on-chain.</p>
+    <div className="mx-auto max-w-4xl space-y-10">
+      <PageHeader
+        title="Recipients"
+        description="Addresses you've saved, so the people you pay often are easy to find. Saved in this browser."
+      />
 
-      <Card title="Add recipient" className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Label (e.g. Savings)" className="w-40" />
-          <Input value={newAddr} onChange={(e) => setNewAddr(e.target.value)} placeholder="0x address or .nad domain" className="w-56" />
-          <Button onClick={addRecipient} disabled={!newAddr || !newName}>Save</Button>
-        </div>
-        {addrTouched && newAddrErr && <p className="mt-2 text-xs text-danger">{newAddrErr}</p>}
-      </Card>
-
-      <Card title="Saved recipients" className="mb-4">
-        {savedLocal.length === 0 ? <p className="text-sm text-muted-foreground">No saved recipients yet.</p> : (
-          <ul className="divide-y divide-border text-sm">
-            {savedLocal.map((p, i) => (
-              <li key={i} className="flex items-center justify-between py-2">
-                <span className="text-foreground">{p.name}</span>
-                <span className="font-mono text-xs text-muted-foreground">{p.address}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title="Register merchant" className="mb-4">
-        <div className="flex flex-wrap gap-2">
-          <Input value={merchWallet} onChange={(e) => setMerchWallet(e.target.value)} placeholder="0x merchant wallet" className="w-56" />
-          <Input value={merchName} onChange={(e) => setMerchName(e.target.value)} placeholder="name" className="w-32" />
-          <Button onClick={registerMerchant} disabled={!merchWallet || !merchName || merchBusy}>{merchBusy ? "Registering…" : "Register"}</Button>
-        </div>
-        {merchTouched && merchWalletErr && <p className="mt-2 text-xs text-danger">{merchWalletErr}</p>}
-        {merchMsg && <p className="mt-2 text-xs text-muted-foreground">{merchMsg}</p>}
-      </Card>
-
-      <Card title="Registered on-chain merchants">
-        {!onchain?.configured ? (
-          <p className="text-sm text-muted-foreground">On-chain registry not configured.</p>
-        ) : onchain.merchants.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No merchants registered yet.</p>
-        ) : (
-          <>
-            {onchain.merchants.length > PAGE_SIZE && (
-              <div className="relative mb-3 max-w-xs">
-                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={merchQuery}
-                  onChange={(e) => { setMerchQuery(e.target.value); setMerchPage(1); }}
-                  placeholder="Search wallet or name"
-                  className="w-full pl-9"
-                />
-              </div>
+      <section aria-labelledby="saved-title">
+        <SectionHeader id="saved-title" title="Saved" right={savedLocal.length > 0 ? <span className="text-xs text-muted-foreground">{savedLocal.length}</span> : undefined} />
+        <div className="rounded-lg border border-border bg-panel">
+          <form
+            onSubmit={(e) => { e.preventDefault(); addRecipient(); }}
+            className="flex flex-col gap-2 border-b border-border p-3 sm:flex-row"
+          >
+            <label className="sr-only" htmlFor="recipient-name">Name</label>
+            <input id="recipient-name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name" className={`${field} w-full sm:w-44`} />
+            <label className="sr-only" htmlFor="recipient-address">Address or .nad name</label>
+            <input id="recipient-address" value={newAddr} onChange={(e) => setNewAddr(e.target.value)} placeholder="0x address or .nad name" className={`${field} w-full min-w-0 sm:flex-1`} />
+            <button type="submit" disabled={!newAddr || !newName} className="h-10 shrink-0 rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-input disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Save</button>
+          </form>
+          {addrTouched && newAddrErr && <p className="px-4 pt-2 text-xs text-danger">{newAddrErr}</p>}
+          <div className="px-4">
+            {savedLocal.length === 0 ? (
+              <PEmptyState compact title="No recipients yet." hint="Save an address with a name you'll recognise." />
+            ) : (
+              <ul className="divide-y divide-border">
+                {savedLocal.map((p, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-3">
+                    <span className="text-sm text-foreground">{p.name}</span>
+                    <span className="min-w-0 break-all font-mono text-xs text-muted-foreground">{p.address}</span>
+                  </li>
+                ))}
+              </ul>
             )}
-            {filteredMerchants.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No merchants match your search.</p>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="merchants-title">
+        <SectionHeader id="merchants-title" title="Registered merchants" />
+        <p className="-mt-1 mb-3 text-sm text-muted-foreground">Wallets registered in PayAI&apos;s onchain merchant registry on Monad.</p>
+        <div className="rounded-lg border border-border bg-panel">
+          <form
+            onSubmit={(e) => { e.preventDefault(); registerMerchant(); }}
+            className="flex flex-col gap-2 border-b border-border p-3 sm:flex-row"
+          >
+            <label className="sr-only" htmlFor="merchant-name">Merchant name</label>
+            <input id="merchant-name" value={merchName} onChange={(e) => setMerchName(e.target.value)} placeholder="Name" className={`${field} w-full sm:w-44`} />
+            <label className="sr-only" htmlFor="merchant-wallet">Merchant wallet</label>
+            <input id="merchant-wallet" value={merchWallet} onChange={(e) => setMerchWallet(e.target.value)} placeholder="0x merchant wallet" className={`${field} w-full min-w-0 sm:flex-1`} />
+            <button type="submit" disabled={!merchWallet || !merchName || merchBusy} className="h-10 shrink-0 rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-input disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{merchBusy ? "Registering…" : "Register"}</button>
+          </form>
+          {merchTouched && merchWalletErr && <p className="px-4 pt-2 text-xs text-danger">{merchWalletErr}</p>}
+          {merchMsg && <p className="px-4 pt-2 text-xs text-muted-foreground">{merchMsg}</p>}
+          <div className="px-4">
+            {!onchain?.configured ? (
+              <PEmptyState compact title="The onchain registry isn't configured here." />
+            ) : onchain.merchants.length === 0 ? (
+              <PEmptyState compact title="No merchants registered yet." />
             ) : (
               <>
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr><th className="py-1.5 pr-3">Wallet</th><th className="pr-3">Name</th><th className="pr-3">Status</th><th className="pr-3">Volume</th><th>Payments</th></tr>
-                  </thead>
-                  <tbody className="text-foreground">
-                    {merchPageRows.map((m) => (
-                      <tr key={m.wallet} className="border-t border-border">
-                        <td className="py-1.5 pr-3 font-mono text-xs">{short(m.wallet)}</td>
-                        <td className="pr-3">{m.name || "—"}</td>
-                        <td className="pr-3"><Badge tone={m.active ? "success" : "neutral"}>{m.active ? "Active" : "Inactive"}</Badge></td>
-                        <td className="pr-3">{m.volume}</td>
-                        <td>{m.paymentCount}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {merchTotalPages > 1 && (
-                  <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>Page {merchPage} of {merchTotalPages} ({filteredMerchants.length} results)</span>
-                    <div className="flex gap-2">
-                      <button onClick={() => setMerchPage((p) => Math.max(1, p - 1))} disabled={merchPage === 1} className="rounded-md border border-border px-3 py-1.5 disabled:opacity-40">Previous</button>
-                      <button onClick={() => setMerchPage((p) => Math.min(merchTotalPages, p + 1))} disabled={merchPage === merchTotalPages} className="rounded-md border border-border px-3 py-1.5 disabled:opacity-40">Next</button>
-                    </div>
+                {onchain.merchants.length > PAGE_SIZE && (
+                  <div className="relative mt-3 max-w-xs">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={merchQuery}
+                      onChange={(e) => { setMerchQuery(e.target.value); setMerchPage(1); }}
+                      placeholder="Search wallet or name"
+                      className="w-full pl-9"
+                    />
                   </div>
+                )}
+                {filteredMerchants.length === 0 ? (
+                  <PEmptyState compact title="No merchants match your search." />
+                ) : (
+                  <>
+                    <ul className="divide-y divide-border">
+                      {merchPageRows.map((m) => (
+                        <li key={m.wallet} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
+                          <div className="min-w-0">
+                            <p className="text-sm text-foreground">{m.name || "—"}</p>
+                            <p className="font-mono text-xs text-muted-foreground">{short(m.wallet)}</p>
+                          </div>
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span className="tabular-nums">{m.paymentCount} payment{m.paymentCount === 1 ? "" : "s"}</span>
+                            <StatusIndicator tone={m.active ? "success" : "neutral"} label={m.active ? "Active" : "Inactive"} />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    {merchTotalPages > 1 && (
+                      <div className="flex items-center justify-between border-t border-border py-3 text-xs text-muted-foreground">
+                        <span>Page {merchPage} of {merchTotalPages} ({filteredMerchants.length} results)</span>
+                        <div className="flex gap-2">
+                          <button onClick={() => setMerchPage((p) => Math.max(1, p - 1))} disabled={merchPage === 1} className="h-8 rounded-md border border-border px-3 disabled:opacity-40">Previous</button>
+                          <button onClick={() => setMerchPage((p) => Math.min(merchTotalPages, p + 1))} disabled={merchPage === merchTotalPages} className="h-8 rounded-md border border-border px-3 disabled:opacity-40">Next</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
-          </>
-        )}
-      </Card>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { parseIntent } from "@/lib/plan-adapter/grammar";
+import { parseScheduleIntent } from "@/lib/agent/brain";
 
 /**
  * The marketing pages make claims about what PayAI can do, and they have to
@@ -22,10 +24,9 @@ const howItWorks = read("../app/how-it-works/page.tsx");
 const overview = read("../components/landing/PlatformOverview.tsx");
 
 describe("the landing page stays the pitch", () => {
-  it("carries the six-product overview and nothing deeper", () => {
-    expect(page).toMatch(/<ProductOverviewSection \/>/);
+  it("renders none of the depth sections — no product-card grid, no capability deep-dives", () => {
     for (const deep of [
-      "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
+      "ProductOverviewSection", "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
       "EmbeddedWalletSection", "TradingSection", "AnalyticsSection", "SecuritySection",
     ]) {
       expect(page, `${deep} belongs on a depth page, not the landing page`).not.toContain(deep);
@@ -119,43 +120,51 @@ describe("nothing offers a route that leads nowhere", () => {
   });
 });
 
-describe("the hero states the platform, not one feature", () => {
-  it("leads with the headline", () => {
-    // No subheadline paragraph under the H1 — removed on request. The
-    // breadth claim — six products, not one — lives in the chip row below
-    // the CTAs instead (covered by the next test). Several prior headlines
-    // ("Automate Every Payment on Monad", "Payments, Trading & DeFi...",
-    // "Turn Natural Language Intent Into On-Chain Actions.") were replaced
-    // on request with this shorter one — the long version wrapped badly
-    // (4 ragged lines, one splitting a hyphenated compound word) at hero
-    // width and read as unpolished; this is set in font-montserrat at a
-    // smaller size specifically so it renders as a clean 1-2 line display
-    // headline instead.
-    // "On-Chain" is wrapped in a whitespace-nowrap span, so the headline is
-    // not one contiguous string in the source — a hyphen is a legal line-break
-    // opportunity and an earlier, shorter version of this headline was
-    // splitting it as "...On-" / "Chain Execution." at phone widths. Match
-    // around the span rather than collapsing it away, so removing the guard
-    // fails this test too.
-    expect(page).toMatch(
-      /Turn Natural Language Intent to\s*<span className="whitespace-nowrap">On-Chain<\/span>\s*Execution\./,
-    );
+describe("the hero states the product: intent → onchain execution", () => {
+  const code = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  const hero = code.slice(code.indexOf("{/* Hero */}") >= 0 ? code.indexOf("{/* Hero */}") : 0, code.indexOf("<Section id=\"how\">"));
+
+  it("uses the approved headline and supporting line, word for word", () => {
+    // The headline is animated word by word, so the exact string lives in one
+    // constant, rendered as the h1's accessible name and split for display.
+    expect(page).toContain('const HEADLINE = "Turn your intent into onchain execution.";');
+    expect(page).toMatch(/<h1 aria-label=\{HEADLINE\}/);
+    expect(page).toMatch(/HEADLINE\.split\(" "\)/);
+    expect(page).toContain('const SUBLINE = "Describe what you want in plain language. PayAI turns it into a plan you can review, approve, and execute with your wallet.";');
+    expect(page).toMatch(/\{SUBLINE\}/);
   });
 
-  it("names all six capabilities in the hero, matching the cards below", () => {
-    // These are the hero chip labels AND the ProductOverviewSection card
-    // titles — deliberately the same strings. They drifted apart once (the
-    // cards were repositioned to Payments/Trading/DeFi while the chips still
-    // said "Smart Swaps"/"Bulk Distribution"), which reads as two different
-    // product lists on one page. Asserting both surfaces against one list is
-    // what catches that.
-    const overviewFile = read("../components/landing/PlatformOverview.tsx");
-    for (const p of [
-      "Ask PayAI", "Payments", "Trading",
-      "DeFi", "PayAI Wallet", "Activity",
-    ]) {
-      expect(page, `hero is missing "${p}"`).toContain(p);
-      expect(overviewFile, `the overview cards are missing "${p}"`).toContain(p);
+  it("the hero shows no example transaction, mock chat or fake approval", () => {
+    const heroSrc = page.slice(page.indexOf("function Hero()"), page.indexOf("function Section("));
+    expect(heroSrc).not.toMatch(/\b\d+(\.\d+)?\s*(USDC|MON)\b|\.nad\b|Approve<\/|IntentExample|Example/);
+    expect(hero.length).toBeGreaterThan(0);
+  });
+
+  it("teaches the three steps", () => {
+    for (const s of ["Describe your intent", "Review the plan", "Approve and execute"]) expect(page, s).toContain(s);
+  });
+
+  it("does not claim DeFi protocol support, guarantees, or zero risk", () => {
+    expect(code).not.toMatch(/\bDeFi\b|100% secure|zero risk|guarantee/i);
+  });
+
+  it("states the non-custodial nuance: automations use a capped agent wallet", () => {
+    expect(page).toMatch(/capped agent wallet/);
+  });
+
+  it("enters the product through the existing /auth route, relative so each host routes it", () => {
+    expect(page).toMatch(/const LAUNCH = "\/auth";/);
+  });
+
+  it("every capability example is a request the product accepts as written", () => {
+    const tokens = { monDecimals: 18, stable: { symbol: "USDC", decimals: 6 } };
+    for (const ex of ["Send 50 USDC to alice.nad", "Swap 100 USDC to MON"]) {
+      expect(page, ex).toContain(ex);
+      expect(parseIntent(ex, tokens).ok, ex).toBe(true);
+    }
+    for (const ex of ["Send 20 USDC to bob.nad every Friday", "Send 200 USDC to john.nad tomorrow"]) {
+      expect(page, ex).toContain(ex);
+      expect(parseScheduleIntent(ex), ex).toMatchObject({ needsTime: false });
     }
   });
 });

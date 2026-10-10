@@ -198,6 +198,19 @@ export function forwarderPaymentsEnabled(): boolean {
 }
 
 /**
+ * PayAIRoomEscrow (contracts/contracts/PayAIRoomEscrow.sol) — holds escrow
+ * Room contributions. Mainnet only, and two gates, BOTH required (fail-closed,
+ * like the forwarder): MONAD_MAINNET_ROOM_ESCROW must hold the address of a
+ * REVIEWED, deployed and source-verified escrow, AND PAYAI_ROOM_ESCROW_ENABLED
+ * must be "true". Either missing → escrow Rooms are unavailable everywhere in
+ * the app (they are never simulated). As of 2026-10-09 no escrow is deployed.
+ */
+export function getRoomEscrow(): `0x${string}` | null {
+  if (getNetwork() !== "mainnet" || process.env.PAYAI_ROOM_ESCROW_ENABLED !== "true") return null;
+  return pickAddr(process.env.MONAD_MAINNET_ROOM_ESCROW);
+}
+
+/**
  * PayAITradeExecutor — the on-chain footprint for INTERACTIVE, user-signed
  * TRADES on Uniswap V3 and Kuru (deployed + canaried in Gate 4). Same
  * fail-closed contract as getPayAIForwarder(): an unset env var must NEVER

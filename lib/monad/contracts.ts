@@ -12,6 +12,7 @@ import { explorerTx, getAutomationVault, getMerchantRegistry, getPaymentExecutor
 import { getAgentAccount, getPublicClient, getWalletClient } from "./wallet";
 import { AUTOMATION_VAULT_ABI, MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI } from "./abi";
 import { toBaseUnits } from "./verify";
+import { grossForNet, MAX_FEE_BPS } from "@/lib/payment/feeOnTop";
 
 export { MERCHANT_REGISTRY_ABI, PAYMENT_EXECUTOR_ABI };
 
@@ -230,7 +231,7 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
  * pass a wrapped-native (WMON) token address for MON automations.
  */
 export async function executePaymentFromViaExecutor(
-  input: ExecuteInput & { from: `0x${string}`; token: `0x${string}`; tokenDecimals?: number },
+  input: ExecuteInput & { from: `0x${string}`; token: `0x${string}`; tokenDecimals?: number; feeOnTop?: boolean },
 ): Promise<ExecuteResult> {
   const executor = input.executorAddress ?? getPaymentExecutor();
   const account = getAgentAccount();
@@ -246,7 +247,10 @@ export async function executePaymentFromViaExecutor(
   // decimals count here would pull a wildly wrong amount (too little for a
   // higher-decimal token, too much for a lower-decimal one).
   const decimals = input.tokenDecimals ?? getStablecoin().decimals;
-  const value = toBaseUnits(input.amount, decimals);
+  // With the fee on top, the executor pulls the gross so the merchant
+  // receives `amount` in full (the executor's fee comes out of the gross).
+  const net = toBaseUnits(input.amount, decimals);
+  const value = input.feeOnTop ? await grossWithFeeOnTop(executor, net) : net;
 
   const already = (await pub.readContract({
     address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "isRequestProcessed", args: [reqIdBytes],
@@ -279,6 +283,31 @@ export async function executePaymentFromViaExecutor(
   };
 }
 
+/* ── PayAI fee on top (automations) ─────────────────────────────────────── */
+
+const FEE_BPS_ABI = [{ type: "function", name: "feeBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint16" }] }] as const;
+
+/** The live fee rate of a PayAI fee contract (PaymentExecutorV2 /
+ *  AutomationVaultV2). Fails closed: an unreadable or out-of-range rate
+ *  throws — a run never proceeds on a guessed fee. */
+export async function contractFeeBps(address: `0x${string}`): Promise<number> {
+  let raw: unknown;
+  try {
+    raw = await getPublicClient().readContract({ address, abi: FEE_BPS_ABI, functionName: "feeBps" });
+  } catch {
+    throw new Error("FEE_UNAVAILABLE: PayAI's fee rate couldn't be read, so nothing was sent.");
+  }
+  const bps = Number(raw);
+  if (!Number.isInteger(bps) || bps < 0 || bps > MAX_FEE_BPS) throw new Error("FEE_UNAVAILABLE: PayAI's fee rate is out of range, so nothing was sent.");
+  return bps;
+}
+
+/** What `contract` must be handed so the recipient receives exactly `net`
+ *  with PayAI's fee on top (lib/payment/feeOnTop.ts). */
+export async function grossWithFeeOnTop(contract: `0x${string}`, net: bigint): Promise<bigint> {
+  return grossForNet(net, await contractFeeBps(contract));
+}
+
 /* ── Reserved Funds: release from the AutomationVault ────────────────────── */
 
 /**
@@ -288,7 +317,12 @@ export async function executePaymentFromViaExecutor(
  * agent can neither exceed the reservation nor redirect it.
  */
 export async function releaseFromVault(
-  input: { automationId: string; amount: number; tokenDecimals: number; requestId: string; vaultAddress?: string | null },
+  input: {
+    automationId: string; amount: number; tokenDecimals: number; requestId: string; vaultAddress?: string | null;
+    /** The recipient receives `amount` in full; the vault's fee comes out of
+     *  the reservation on top (automations created with the fee on top). */
+    feeOnTop?: boolean;
+  },
 ): Promise<ExecuteResult> {
   // Use the exact vault this automation reserved into — see ExecuteInput's
   // executorAddress doc comment for why: a later AutomationVault redeploy
@@ -303,7 +337,8 @@ export async function releaseFromVault(
   const wallet = getWalletClient();
   const autoIdBytes = requestId32(input.automationId);
   const reqIdBytes = requestId32(input.requestId);
-  const value = toBaseUnits(input.amount, input.tokenDecimals);
+  const net = toBaseUnits(input.amount, input.tokenDecimals);
+  const value = input.feeOnTop ? await grossWithFeeOnTop(vault, net) : net;
 
   const already = (await pub.readContract({
     address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "isReleaseProcessed", args: [reqIdBytes],
@@ -313,7 +348,9 @@ export async function releaseFromVault(
   const reserved = (await pub.readContract({
     address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [autoIdBytes],
   })) as bigint;
-  if (reserved < value) throw new Error("INSUFFICIENT_RESERVED_FUNDS: reserved balance is below this payment.");
+  if (reserved < value) throw new Error(input.feeOnTop && reserved >= net
+    ? "INSUFFICIENT_RESERVED_FUNDS: the reserved balance covers this payment but not PayAI's fee on top."
+    : "INSUFFICIENT_RESERVED_FUNDS: reserved balance is below this payment.");
 
   const { request } = await pub.simulateContract({
     account, address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "release",

@@ -98,7 +98,12 @@ export function assembleIntentGraph(parsed: ParsedIntent, ctx: AssemblyContext, 
     const step = parsed.steps[i];
     const nodeId = `n${i + 1}`;
     const inputs: Record<string, InputValue> = {};
-    const dependsOn: string[] = [];
+    // Actions run in the order the user wrote them: each one depends on the
+    // one before it. The Plan Service then never quotes this action until that
+    // one has confirmed, and a failure there skips everything after it — so a
+    // multi-action plan stops at the first failed action instead of running
+    // on past it, and a completed action is never run again.
+    const dependsOn: string[] = i > 0 ? [`n${i}`] : [];
 
     if (step.kind === "swap") {
       const out = tokenLiteral(step.tokenOut);
@@ -124,7 +129,7 @@ export function assembleIntentGraph(parsed: ParsedIntent, ctx: AssemblyContext, 
       } else {
         const producer = `n${step.amount.step + 1}`;
         inputs.amount = { kind: "output", node: producer, output: step.amount.output };
-        dependsOn.push(producer);
+        if (!dependsOn.includes(producer)) dependsOn.push(producer);
       }
     }
     nodes.push({ nodeId, ref: { ...PINNED_ACTIONS[step.kind] }, inputs, dependsOn, ...PENDING() });

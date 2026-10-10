@@ -30,9 +30,29 @@ import {
 } from "@/lib/ask/persistChat";
 import { useSync } from "@/lib/hooks/useSync";
 import { warmPortfolioDiscovery } from "@/lib/hooks/usePortfolio";
+import { matchPlanRequest, planFoundText, PLAN_THINKING_LABEL, type PlanRequestKind } from "@/lib/ask/planFastPath";
+import { createPlanForTurn } from "@/lib/ask/planTurn";
+import { attachTiming, primePlan } from "@/lib/ask/planCards";
+import { startAskTiming } from "@/lib/ask/timing";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
+
+/** Everything one Ask turn needs, fixed when the user sends it — so a retry
+ *  replays exactly the same turn. */
+interface TurnInput {
+  text: string;
+  history: ConversationTurn[];
+  pending: Understanding | null;
+  readyOp: Operation | null;
+  startContext: { wallet: string | null; conversationId: string | null };
+  planKind: PlanRequestKind | null;
+  /** ms since epoch, when the user sent it. */
+  startedAt: number;
+}
+
+/** The normal Ask path's own input bound (lib/agent/brain.ts MAX_INPUT_LENGTH). */
+const ASK_INPUT_LIMIT = 500;
 
 let idSeq = 0;
 function nextId(prefix: string): string {
@@ -259,6 +279,17 @@ export function useAskChat(options?: { persist?: boolean }) {
   // anything at all — never a guessed VALUE, just which kind of lookup is
   // in flight. Null (the generic dots, unchanged) for everything else.
   const [thinkingLabel, setThinkingLabel] = useState<string | null>(null);
+  // When the in-flight turn started, and the step it is still on — the
+  // thinking row shows the step after 3 s and a Retry at 5 s.
+  const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
+  const [thinkingHint, setThinkingHint] = useState<string | null>(null);
+  // The in-flight turn: its id (a retried or superseded attempt never lands),
+  // its abort, and how to run it again.
+  const turnSeq = useRef(0);
+  const activeTurn = useRef<{ id: number; abort: AbortController; retry: () => void } | null>(null);
+  // The wallet whose Plan API create came back 401 this session: its sends
+  // skip the plan fast path rather than pay for a refused round trip.
+  const planPathOffFor = useRef<string | null>(null);
   // The in-flight, not-yet-complete (or just-completed) intent — carried
   // into the next turn so "20", "MON", or "actually make it 30" is
   // understood as continuing/correcting THIS request rather than starting
@@ -660,27 +691,104 @@ export function useAskChat(options?: { persist?: boolean }) {
 
     const startContext = captureContext();
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
+    // Optimistic: the user's message is on screen before anything is sent.
     setMessages((m) => [...m, userMsg]);
     setInput("");
-    setThinkingLabel(guessThinkingLabel(trimmed));
+    const history: ConversationTurn[] = [...messages, userMsg]
+      .slice(-8)
+      .map((m) => ({ role: m.role, content: m.content }));
+    // Plan fast path: an exactly-phrased transfer / swap goes straight to the
+    // Plan API's deterministic intake — no model call, one round trip. Only
+    // with a wallet (plans belong to one), and not after this wallet's grant
+    // was refused this session (the normal path serves it instead).
+    // Longer than the normal path accepts: only a plan can serve it, so the
+    // Plan API is asked (and explains a refusal) even without a hint.
+    const planKind = wallet.address && planPathOffFor.current !== wallet.address.toLowerCase()
+      ? matchPlanRequest(trimmed) ?? (trimmed.length > ASK_INPUT_LIMIT ? "multi" : null)
+      : null;
+    await runTurn({ text: trimmed, history, pending, readyOp: readyOp ?? null, startContext, planKind, startedAt: Date.now() }, false);
+  }
+
+  /** One Ask turn after the user's message is on screen: the plan fast path
+   *  when it applies, else (or when the Plan API can't serve it) the normal
+   *  understand → respond path. Re-entered by retryThinking with retry=true
+   *  — the user message is never added twice, and a retried plan turn never
+   *  leaves two plans (see lib/ask/planTurn.ts). */
+  async function runTurn(t: TurnInput, retry: boolean) {
+    const id = ++turnSeq.current;
+    const ac = new AbortController();
+    activeTurn.current?.abort.abort();
+    activeTurn.current = { id, abort: ac, retry: () => void runTurn(t, true) };
+    const current = () => activeTurn.current?.id === id && !isStaleContext(t.startContext);
+    setThinkingStartedAt(Date.now());
     setThinking(true);
     try {
-      const history: ConversationTurn[] = [...messages, userMsg]
-        .slice(-8)
-        .map((m) => ({ role: m.role, content: m.content }));
-      const understanding = await classifyMessage(trimmed, history, pending);
+      if (t.planKind) {
+        setThinkingLabel(PLAN_THINKING_LABEL[t.planKind]);
+        setThinkingHint(t.planKind === "transfer" ? "Still checking the recipient and amount" : t.planKind === "multi" ? "Still checking each action" : "Still checking the tokens and amount");
+        const timing = startAskTiming("plan");
+        timing.mark("intent_detected");
+        const r = await createPlanForTurn(t.text, { signal: ac.signal, since: t.startedAt, retry });
+        if (!current()) return;
+        if (r.data) {
+          timing.mark("plan_created");
+          primePlan(r.data);
+          attachTiming(r.data.plan.planId, timing);
+          setPending(null);
+          setMessages((m) => [...m, {
+            id: nextId("a"), role: "assistant", content: planFoundText(t.planKind!, r.data!.review.steps.length), createdAt: Date.now(),
+            plan: { planId: r.data!.plan.planId, kind: t.planKind! },
+          }]);
+          return;
+        }
+        if (r.status === 401 && wallet.address) planPathOffFor.current = wallet.address.toLowerCase();
+        timing.mark("fallback");
+        // A request longer than the normal path accepts (MAX_INPUT_LENGTH)
+        // can only be a plan: say exactly why the plan was refused instead of
+        // handing it to a path that would reject its length. Nothing planned.
+        // The same for several actions in one request: only a plan can hold
+        // them, and the single-intent path would keep one and drop the rest.
+        if (t.text.length > ASK_INPUT_LIMIT || t.planKind === "multi" || t.planKind === "swap_send") {
+          setPending(null);
+          setMessages((m) => [...m, {
+            id: nextId("a"), role: "assistant", createdAt: Date.now(),
+            content: r.refusal
+              ? `Nothing was planned. ${r.refusal.message}`
+              : r.status === 401
+                ? "Nothing was planned. Unlock your wallet so PayAI can prepare a plan for this request."
+                : "Nothing was planned — PayAI couldn't prepare that request just now. Try again in a moment.",
+          }]);
+          return;
+        }
+        // The Plan API has answered for this request; a retry from here on
+        // repeats only the understanding step.
+        if (activeTurn.current?.id === id) activeTurn.current.retry = () => void runTurn({ ...t, planKind: null }, true);
+      }
+
+      setThinkingLabel(guessThinkingLabel(t.text) ?? "Reading your request");
+      setThinkingHint("Still checking the request");
+      const timing = startAskTiming("understand");
+      const understanding = await classifyMessage(t.text, t.history, t.pending, ac.signal);
+      if (!current()) return;
+      timing.mark("intent_detected");
+      if (understanding.outcome === "complete") {
+        setThinkingLabel("Preparing the preview");
+        setThinkingHint("Still checking the details with the network");
+      }
       const { message, nextPending } = await respondToUnderstanding(understanding, wallet.address);
       // The wallet or active conversation may have changed while this was
       // in flight — never let a response resolved for the OLD context land
       // in whatever's now showing for a different one. See isStaleContext's
-      // own doc.
-      if (isStaleContext(startContext)) return;
+      // own doc. A retried turn also drops the attempt it replaced.
+      if (!current()) return;
+      if (message.operation?.status === "ready") timing.mark("quote_ready");
 
       // A freshly-built ready card (e.g. from "actually make it 75", or a
       // corrected swap amount/token) supersedes any earlier one still
       // awaiting confirmation — the old card's unsigned transaction reflects
       // details the user just changed, so it must never stay clickable once
       // a corrected preview exists.
+      const readyOp = t.readyOp;
       if (
         readyOp && readyOp.id !== message.operation?.id &&
         message.operation?.status === "ready" && CONFIRMABLE_KINDS.has(message.operation.intent.kind)
@@ -696,9 +804,26 @@ export function useAskChat(options?: { persist?: boolean }) {
 
       setPending(nextPending);
       setMessages((m) => [...m, message]);
+      requestAnimationFrame(() => timing.mark("response_rendered"));
     } finally {
-      setThinking(false);
+      if (activeTurn.current?.id === id) {
+        activeTurn.current = null;
+        setThinking(false);
+        setThinkingStartedAt(null);
+        setThinkingHint(null);
+      }
     }
+  }
+
+  /** The stalled-turn Retry: abandons the in-flight attempt and runs the
+   *  same turn again (see runTurn). A no-op when nothing is in flight. */
+  function retryThinking() {
+    activeTurn.current?.retry();
+  }
+
+  /** Edit on a plan card: the request goes back in the composer. */
+  function editRequest(text: string) {
+    setInput(text);
   }
 
   /** Advances a card exactly one step per click, dispatching by what kind of
@@ -940,8 +1065,8 @@ export function useAskChat(options?: { persist?: boolean }) {
   }
 
   return {
-    wallet, messages, input, setInput, thinking, thinkingLabel, progress,
-    send, advanceOperation, retryOperation, cancelOperation, newConversation,
+    wallet, messages, input, setInput, thinking, thinkingLabel, thinkingHint, thinkingStartedAt, progress,
+    send, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
     // P1.3 — conversation history (only meaningful when persist: true; for
     // CommandBar's non-persisted instance this stays an empty, inert list).

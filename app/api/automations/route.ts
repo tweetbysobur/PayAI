@@ -310,7 +310,11 @@ async function handleBulkCreate(
   if (!isNative && executor) {
     try {
       const { getPublicClient } = await import("@/lib/monad/wallet");
-      const need = toBaseUnits(totalAmount, resolvedToken.decimals);
+      // Every recipient's amount plus PayAI's fee on top of each pull.
+      const { grossWithFeeOnTop } = await import("@/lib/monad/contracts");
+      const units = resolvedRows.map((r) => toBaseUnits(r.amount, resolvedToken.decimals));
+      const grosses = await Promise.all(units.map((u) => grossWithFeeOnTop(executor, u)));
+      const need = grosses.reduce((a, b) => a + b, 0n);
       const allowance = (await getPublicClient().readContract({
         address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
         functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
@@ -347,6 +351,9 @@ async function handleBulkCreate(
     // Same per-automation contract pinning as the single-recipient path.
     executorAddress: executor ?? null,
     vaultAddress: (await import("@/lib/monad/config")).getAutomationVault() ?? null,
+    // Created after PayAI's fee moved on top: each run delivers `amount` in
+    // full and its funding was sized for amount + fee.
+    feeOnTop: true,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });
@@ -486,7 +493,9 @@ export async function POST(req: NextRequest) {
       const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
       const vault = getAutomationVault();
       if (!vault) return NextResponse.json({ error: "Reserved Funds is not available right now.", code: "VAULT_UNAVAILABLE" }, { status: 503 });
-      const need = toBaseUnits(amount, resolvedToken.decimals);
+      // One payment plus PayAI's fee on top (lib/payment/feeOnTop.ts).
+      const { grossWithFeeOnTop } = await import("@/lib/monad/contracts");
+      const need = await grossWithFeeOnTop(vault, toBaseUnits(amount, resolvedToken.decimals));
       const reserved = (await getPublicClient().readContract({
         address: vault, abi: AUTOMATION_VAULT_ABI, functionName: "reservedBalance", args: [requestId32(clientId)],
       })) as bigint;
@@ -512,7 +521,8 @@ export async function POST(req: NextRequest) {
     if (!isNative && executor) {
       try {
         const { getPublicClient } = await import("@/lib/monad/wallet");
-        const need = toBaseUnits(amount, resolvedToken.decimals);
+        const { grossWithFeeOnTop } = await import("@/lib/monad/contracts");
+        const need = await grossWithFeeOnTop(executor, toBaseUnits(amount, resolvedToken.decimals));
         const allowance = (await getPublicClient().readContract({
           address: resolvedToken.address as `0x${string}`, abi: [{ type: "function", name: "allowance", stateMutability: "view", inputs: [{ name: "o", type: "address" }, { name: "s", type: "address" }], outputs: [{ type: "uint256" }] }],
           functionName: "allowance", args: [walletAddress as `0x${string}`, executor],
@@ -555,6 +565,9 @@ export async function POST(req: NextRequest) {
     // executing/releasing against the exact address recorded here forever.
     executorAddress: (await import("@/lib/monad/config")).getPaymentExecutor() ?? null,
     vaultAddress: (await import("@/lib/monad/config")).getAutomationVault() ?? null,
+    // Created after PayAI's fee moved on top: each run delivers `amount` in
+    // full and its funding was sized for amount + fee.
+    feeOnTop: true,
   });
   await completeRequest(createKey, { automationId: row.id });
   return NextResponse.json({ automation: row, schedule: row, success: true });

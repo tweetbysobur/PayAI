@@ -135,33 +135,38 @@ describe("registration", () => {
 
 /* ── Fee, quote, build ─────────────────────────────────────────────────── */
 
-describe("fee: the forwarder's own mechanism — floor(gross * 25 / 10000), out of the amount sent", () => {
-  it("quote: 20 USDC sent → 0.05 USDC fee → 19.95 USDC received; terms bound", async () => {
+describe("fee: ON TOP — the forwarder is handed the gross whose floor(gross * 25 / 10000) leaves exactly the amount", () => {
+  it("quote: 20 USDC received in full; 0.050125 USDC fee on top; 20.050125 USDC total; terms bound", async () => {
     const a = await transfer();
     const q = await a.quote(inputs(RECIPIENT, usdc("20"), USDC));
-    expect(q.details["you send"]).toBe("20 USDC");
-    expect(q.details["platform fee"]).toBe("0.05 USDC");
-    expect(q.details["recipient receives"]).toBe("19.95 USDC");
-    expect(q.terms).toMatchObject({ feeBps: "25", treasury: TREASURY.toLowerCase(), feeSource: FORWARDER.toLowerCase(), gross: "20000000", fee: "50000", net: "19950000" });
+    expect(q.details["recipient receives"]).toBe("20 USDC");
+    expect(q.details["PayAI fee"]).toBe("0.050125 USDC");
+    expect(q.details["total from your balance"]).toBe("20.050125 USDC");
+    expect(q.terms).toMatchObject({ feeBps: "25", treasury: TREASURY.toLowerCase(), feeSource: FORWARDER.toLowerCase(), gross: "20050125", fee: "50125", net: "20000000" });
+    // The forwarder's own math on that gross gives back exactly 20 USDC — and one unit less wouldn't.
+    expect(20050125n - (20050125n * 25n) / 10000n).toBe(20000000n);
+    expect(20050124n - (20050124n * 25n) / 10000n).toBe(19999999n);
   });
-  it("native: 1 MON → 0.0025 MON fee; tiny amounts floor the fee to 0", async () => {
+  it("native: 1 MON received in full, fee on top; tiny amounts floor the fee to 0", async () => {
     const a = await transfer();
-    expect((await a.quote(inputs(RECIPIENT, parseEther("1")))).terms).toMatchObject({ fee: parseEther("0.0025").toString() });
-    expect((await a.quote(inputs(RECIPIENT, 399n))).terms).toMatchObject({ fee: "0", net: "399" });
+    expect((await a.quote(inputs(RECIPIENT, parseEther("1")))).terms).toMatchObject({
+      gross: "1002506265664160401", fee: "2506265664160401", net: parseEther("1").toString(),
+    });
+    expect((await a.quote(inputs(RECIPIENT, 399n))).terms).toMatchObject({ gross: "399", fee: "0", net: "399" });
   });
 });
 
 describe("build", () => {
-  it("native MON: ONE step to the forwarder, forwardPaymentNative(recipient, gross), value == gross", async () => {
+  it("native MON: ONE step to the forwarder, forwardPaymentNative(recipient, gross), value == gross (amount + fee on top)", async () => {
     const steps = await buildOf(inputs(RECIPIENT, parseEther("1")));
     expect(steps).toHaveLength(1);
     expect(steps[0].tx.to.toLowerCase()).toBe(FORWARDER.toLowerCase());
-    expect(steps[0].tx.value).toBe(parseEther("1").toString());
+    expect(steps[0].tx.value).toBe("1002506265664160401");
     const d = decodeFunctionData({ abi: FWD_ABI, data: steps[0].tx.data });
     expect(d.functionName).toBe("forwardPaymentNative");
     const [recipient, amount] = d.args as [string, bigint, string];
     expect(recipient.toLowerCase()).toBe(RECIPIENT);
-    expect(amount).toBe(parseEther("1"));
+    expect(amount).toBe(1002506265664160401n);
   });
   it("ERC-20: EXACT approve(forwarder, gross) then forwardPayment(token, recipient, gross); passes Layer B", async () => {
     const a = await transfer();
@@ -169,27 +174,27 @@ describe("build", () => {
     expect(steps.map((s) => s.kind)).toEqual(["approve", "action"]);
     const [spender, approved] = decodeFunctionData({ abi: APPROVE_ABI, data: steps[0].tx.data }).args as [string, bigint];
     expect(spender.toLowerCase()).toBe(FORWARDER.toLowerCase());
-    expect(approved).toBe(usdc("20"));
-    expect(steps[0].approval).toEqual({ token: expect.stringMatching(/0x754704bc/i), spender: expect.stringMatching(/0x8b2c7e8f/i), amount: "20000000" });
+    expect(approved).toBe(20050125n); // exactly the gross: 20 USDC + the fee on top
+    expect(steps[0].approval).toEqual({ token: expect.stringMatching(/0x754704bc/i), spender: expect.stringMatching(/0x8b2c7e8f/i), amount: "20050125" });
     const d = decodeFunctionData({ abi: FWD_ABI, data: steps[1].tx.data });
     expect(d.functionName).toBe("forwardPayment");
     const [token, recipient, amount] = d.args as [string, string, bigint, string];
-    expect([token.toLowerCase(), recipient.toLowerCase(), amount]).toEqual([USDC, RECIPIENT, usdc("20")]);
+    expect([token.toLowerCase(), recipient.toLowerCase(), amount]).toEqual([USDC, RECIPIENT, 20050125n]);
     expect(steps[1].tx.value).toBe("0");
     const { validateSteps } = await import("@/lib/sdk/validate");
     const { getProtocol } = await import("@/lib/sdk/registry");
     expect(validateSteps(steps, a, getProtocol("payai")!).ok).toBe(true);
   });
-  it("ERC-20: an existing allowance that already covers the amount skips the approval, like today's send", async () => {
-    onchain.allowance = usdc("20");
+  it("ERC-20: an existing allowance that already covers the gross skips the approval, like today's send", async () => {
+    onchain.allowance = 20050125n;
     const a = await transfer();
     const i = inputs(RECIPIENT, usdc("20"), USDC);
     // The build route passes the session wallet; with it, the allowance is checked.
     expect((await a.build(i, await a.quote(i), { wallet: WALLET })).map((s) => s.kind)).toEqual(["action"]);
     // Without a wallet the allowance can't be checked — approve exactly, never skip on a guess.
     expect((await a.build(i, await a.quote(i))).map((s) => s.kind)).toEqual(["approve", "action"]);
-    // An allowance one unit short still approves.
-    onchain.allowance = usdc("20") - 1n;
+    // An allowance covering the amount but not the fee on top still approves.
+    onchain.allowance = usdc("20");
     expect((await a.build(i, await a.quote(i), { wallet: WALLET })).map((s) => s.kind)).toEqual(["approve", "action"]);
   });
   it("build refuses without the quote's fee terms, or with terms that don't match", async () => {
@@ -355,12 +360,12 @@ describe("quote → build → sign → receipt → canonical result → history"
         encodeAbiParameters([{ type: "address" }], [WALLET as `0x${string}`]),
         encodeAbiParameters([{ type: "address" }], [(opts.recipient ?? RECIPIENT) as `0x${string}`]),
       ],
-      data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "bytes32" }], [USDC as `0x${string}`, opts.amount ?? usdc("20"), `0x${"0".repeat(64)}`]),
+      data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "bytes32" }], [USDC as `0x${string}`, opts.amount ?? 20050125n, `0x${"0".repeat(64)}`]),
     };
     const fc = {
       address: emitter,
       topics: [toEventSelector("FeeCollected(uint256,address,uint256,address)"), encodeAbiParameters([{ type: "uint256" }], [id])],
-      data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "address" }], [USDC as `0x${string}`, opts.fee ?? usdc("0.05"), TREASURY as `0x${string}`]),
+      data: encodeAbiParameters([{ type: "address" }, { type: "uint256" }, { type: "address" }], [USDC as `0x${string}`, opts.fee ?? 50125n, TREASURY as `0x${string}`]),
     };
     return [pf, fc];
   }
@@ -373,24 +378,24 @@ describe("quote → build → sign → receipt → canonical result → history"
     return (await listTx("demo", { sender: WALLET })).filter((t) => t.txHash === txHash);
   }
 
-  it("end to end: canonical result + ONE history row shaped like today's send (send_payment, gross amount) with the fee on the settlement", async () => {
+  it("end to end: canonical result + ONE history row shaped like today's send (send_payment, the amount the recipient got) with the fee on top on the settlement", async () => {
     const pj = await preview();
     expect(pj.ok).toBe(true);
-    expect(pj.details["recipient receives"]).toBe("19.95 USDC");
+    expect(pj.details["recipient receives"]).toBe("20 USDC");
     const b = await build(pj.quoteToken);
     expect(b.json.ok).toBe(true);
     mine(b.json.steps[b.json.steps.length - 1]);
     const hash = `0x${"1".repeat(64)}`;
     const c = await confirm(b.json.quoteId, hash);
     expect(c.json.ok).toBe(true);
-    expect(c.json.details).toMatchObject({ recipient: expect.stringMatching(/0x5e0d39b4/i), "you sent": "20 USDC", "platform fee": "0.05 USDC", "recipient received": "19.95 USDC", transaction: hash });
+    expect(c.json.details).toMatchObject({ recipient: expect.stringMatching(/0x5e0d39b4/i), "you sent": "20.050125 USDC", "platform fee": "0.050125 USDC", "recipient received": "20 USDC", transaction: hash });
     expect(c.json.details.treasury.toLowerCase()).toBe(TREASURY.toLowerCase());
 
     const rows = await historyFor(hash);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ action: "send_payment", feature: "payment", amount: 20, token: "USDC", decision: "executed" });
     expect(rows[0].recipient?.toLowerCase()).toBe(RECIPIENT);
-    expect(rows[0].settlement).toMatchObject({ recipientCount: 1, recipientTotal: "19950000", platformFee: "50000", grossPaid: "20000000" });
+    expect(rows[0].settlement).toMatchObject({ recipientCount: 1, recipientTotal: "20000000", platformFee: "50125", grossPaid: "20050125" });
   });
 
   it("duplicate execution: one build per quote; confirming the same tx twice records history once", async () => {

@@ -33,7 +33,7 @@ export function hostKind(host: string | null | undefined): HostKind {
   return "unsplit";
 }
 
-export const APP_PATH_PREFIXES = ["/dashboard", "/auth", "/connect", "/pay"] as const;
+export const APP_PATH_PREFIXES = ["/dashboard", "/auth", "/connect", "/pay", "/r", "/rooms"] as const;
 
 export function isAppPath(pathname: string): boolean {
   return APP_PATH_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

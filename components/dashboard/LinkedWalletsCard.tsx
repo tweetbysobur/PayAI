@@ -8,6 +8,7 @@ import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServic
 import { shortAddress } from "@/lib/platform/username";
 import { useToast } from "@/components/Toast";
 import dynamic from "next/dynamic";
+import { AddWalletModal } from "@/components/dashboard/AddWalletModal";
 
 const TopUpModal = dynamic(() => import("@/components/dashboard/TopUpModal").then((m) => m.TopUpModal), { ssr: false });
 
@@ -30,6 +31,7 @@ export function LinkedWalletsCard() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [topUpOpen, setTopUpOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   // Only an unlocked PayAI Wallet can sign the link, and only it has an
   // account for wallets to be linked *to*.
@@ -155,17 +157,21 @@ export function LinkedWalletsCard() {
           </button>
         </div>
       ) : !external ? (
-        <a
-          href="/connect"
-          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary-ink hover:underline"
+        // In place, never a link to /connect: leaving the page ended the
+        // passkey session and put the user in the external wallet instead.
+        <button
+          type="button"
+          onClick={() => setAddOpen(true)}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-sm text-xs font-medium text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Plus size={12} /> Connect a wallet to link
-        </a>
+        </button>
       ) : null}
 
       {error && <p className="mt-3 text-xs text-danger">{error}</p>}
 
       <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} />
+      <AddWalletModal open={addOpen} onClose={() => setAddOpen(false)} />
     </Card>
   );
 }

@@ -248,6 +248,12 @@ export interface PaymentAutomation {
   executorAddress?: string | null;
   /** Same per-automation pinning as executorAddress, for AutomationVault (Reserved Funds only). */
   vaultAddress?: string | null;
+  /** PayAI's fee is charged ON TOP of each payment: the recipient receives
+   *  `amount` in full and the reservation / approval was sized for amount +
+   *  fee (lib/payment/feeOnTop.ts). Absent on automations created before the
+   *  fee moved on top — those keep the fee taken out of `amount`, exactly as
+   *  they were funded. */
+  feeOnTop?: boolean;
   /** Resolved 0x address the payment settles to. */
   recipient: string;
   /** Original .nad/.nads domain, when the recipient was resolved from one. */
@@ -256,6 +262,12 @@ export interface PaymentAutomation {
   intervalCount?: number;
   intervalUnit?: AutomationIntervalUnit;
   timezone?: string;
+  /** Monthly cadences: the day of the month (1–31, in `timezone`) the
+   *  automation was set to run on. A month without that day runs on its last
+   *  day, and the next month returns to this day (Jan 31 → Feb 28 → Mar 31).
+   *  Absent on automations created before it existed: those keep stepping
+   *  from their current run date. */
+  anchorDay?: number;
   purpose: string;
   /** Unix ms of the next (or only) automation execution. */
   nextRun: number;

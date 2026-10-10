@@ -29,8 +29,14 @@ export interface FundingHealth {
  */
 export async function checkFundingHealth(s: ScheduledPayment): Promise<FundingHealth | null> {
   const decimals = s.tokenDecimals ?? 18;
-  const needed = s.amount;
-  const neededUnits = toBaseUnits(needed, decimals);
+  const netUnits = toBaseUnits(s.amount, decimals);
+  // With PayAI's fee on top, the next run needs the payment PLUS the fee —
+  // read from the exact contract that run will call.
+  const withFee = async (contract: `0x${string}` | null | undefined): Promise<bigint> => {
+    if (!s.feeOnTop || !contract) return netUnits;
+    const { grossWithFeeOnTop } = await import("@/lib/monad/contracts");
+    return grossWithFeeOnTop(contract, netUnits);
+  };
 
   if (s.fundingMode === "reserved") {
     // A reservation is only ever released/refunded against the vault it was
@@ -42,6 +48,8 @@ export async function checkFundingHealth(s: ScheduledPayment): Promise<FundingHe
     const { getAutomationVault } = await import("@/lib/monad/config");
     const vault = (s.vaultAddress as `0x${string}` | undefined) ?? getAutomationVault();
     if (!vault) return null;
+    const neededUnits = await withFee(vault);
+    const needed = Number(neededUnits) / 10 ** decimals;
     const { getPublicClient } = await import("@/lib/monad/wallet");
     const { requestId32 } = await import("@/lib/monad/contracts");
     const { AUTOMATION_VAULT_ABI } = await import("@/lib/monad/abi");
@@ -52,6 +60,9 @@ export async function checkFundingHealth(s: ScheduledPayment): Promise<FundingHe
   }
 
   if (s.fundingMode === "wallet" && s.sender) {
+    const { getPaymentExecutor } = await import("@/lib/monad/config");
+    const neededUnits = await withFee((s.executorAddress as `0x${string}` | null | undefined) ?? getPaymentExecutor());
+    const needed = Number(neededUnits) / 10 ** decimals;
     const { getPublicClient } = await import("@/lib/monad/wallet");
     const pub = getPublicClient();
     const tokenAddress = s.tokenAddress ?? NATIVE_TOKEN_ADDRESS;

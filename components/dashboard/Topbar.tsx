@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight, Plus } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -16,6 +16,7 @@ import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
 import { WalletSwitcher } from "@/components/dashboard/WalletSwitcher";
+import { AddWalletModal } from "@/components/dashboard/AddWalletModal";
 import { useToast } from "@/components/Toast";
 import dynamic from "next/dynamic";
 // Lazy-loaded: pulls in viem + qrcode.react, only needed once someone opens it.
@@ -37,10 +38,10 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   // payment outcomes above, so a glance at the icon says "this is about your
   // automation," not "this is a payment result."
   automation_created: { icon: Sparkles, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
-  automation_upcoming_execution: { icon: Clock3, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  automation_upcoming_execution: { icon: Clock3, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
   automation_executed: { icon: Repeat, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   automation_execution_failed: { icon: XCircle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
-  automation_paused: { icon: PauseCircle, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  automation_paused: { icon: PauseCircle, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
   automation_resumed: { icon: PlayCircle, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   automation_cancelled: { icon: Ban, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
   automation_low_balance: { icon: AlertTriangle, tone: "text-danger", accent: "bg-danger", chip: "bg-danger/12 text-danger" },
@@ -52,7 +53,7 @@ const NOTIF_ICON: Record<string, { icon: typeof CheckCircle2; tone: string; acce
   wallet_connected: { icon: WalletIcon, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   wallet_disconnected: { icon: WalletIcon, tone: "text-muted-foreground", accent: "bg-border", chip: "bg-input text-muted-foreground" },
   deposit_received: { icon: ArrowDownLeft, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
-  withdrawal_completed: { icon: ArrowDownLeft, tone: "text-warning", accent: "bg-warning", chip: "bg-warning/12 text-warning" },
+  withdrawal_completed: { icon: ArrowDownLeft, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   automation_signed: { icon: CheckCircle2, tone: "text-primary-ink", accent: "bg-primary", chip: "bg-primary/12 text-primary-ink" },
   refund_completed: { icon: CheckCircle2, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
   swap_completed: { icon: ArrowLeftRight, tone: "text-success", accent: "bg-success", chip: "bg-success/12 text-success" },
@@ -78,23 +79,21 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
   const [showWalletMenu, setShowWalletMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const [addWalletOpen, setAddWalletOpen] = useState(false);
   const unread = notifications.filter((n) => !n.read).length;
   const openNotif = (href: string) => { setShowNotifs(false); onOpenNotifications?.(); router.push(href); };
 
   return (
-    <header className="flex items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
+    <header className="flex min-h-[61px] items-center justify-between gap-3 border-b border-border bg-background px-4 py-3 sm:px-6">
       <div className="flex items-center gap-2">
         {onMenuClick && <MobileNavTrigger onClick={onMenuClick} />}
         <div
-          className="flex items-center gap-2 rounded-full border border-border bg-panel py-1.5 pl-2.5 pr-3 text-xs"
+          className="flex h-9 items-center gap-2 rounded-md border border-border px-2.5 text-xs"
           title={health?.payment.connected ? "Connected to Monad" : "Connecting to Monad…"}
         >
           <MonadMark size={15} />
           <span className="hidden font-medium text-foreground sm:inline">{health?.wallet?.network ?? "Monad"}</span>
           <span className="relative ml-0.5 flex h-1.5 w-1.5">
-            {health?.payment.connected && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
-            )}
             <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${health?.payment.connected ? "bg-success" : "bg-muted-foreground"}`} />
           </span>
         </div>
@@ -164,7 +163,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           <div className="relative">
             <button
               onClick={() => setShowWalletMenu((v) => !v)}
-              className="flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-foreground hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-9 items-center gap-2 rounded-md border border-border px-2.5 text-xs text-foreground transition-colors hover:bg-input/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               title={wallet.isLocked ? "Wallet menu — locked" : "Wallet menu"}
               aria-label="Open wallet menu"
               aria-expanded={showWalletMenu}
@@ -192,7 +191,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                   <motion.div
                     initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}
                     transition={{ duration: 0.16, ease: "easeOut" }}
-                    className="absolute right-0 top-11 z-20 w-64 overflow-hidden rounded-xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
+                    className="absolute right-0 top-11 z-20 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/40"
                   >
                     <div className="border-b border-border px-4 py-3">
                       <p className="font-mono text-sm text-foreground">{handle.hasUsername ? handle.display : identity.display}</p>
@@ -204,6 +203,16 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                     {/* Both wallets, always reachable — the account is never
                         more than one tap away once something else is active. */}
                     <WalletSwitcher onSwitched={() => setShowWalletMenu(false)} />
+                    {/* Adds an external wallet in place — the account stays
+                        signed in and acting (see AddWalletModal). */}
+                    {wallet.accountAddress && !wallet.externalAddress && (
+                      <button
+                        onClick={() => { setShowWalletMenu(false); setAddWalletOpen(true); }}
+                        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-xs text-foreground transition hover:bg-input/50"
+                      >
+                        <Plus size={13} className="text-muted-foreground" /> Add another wallet
+                      </button>
+                    )}
 
                     <button
                       onClick={() => {
@@ -277,7 +286,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
             onClick={() => setReceiveOpen(true)}
             title="Receive"
             aria-label="Receive"
-            className="rounded-full border border-border bg-panel p-2 text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-input/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowDownLeft size={16} />
           </button>
@@ -287,7 +296,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
           <button
             onClick={() => { const next = !showNotifs; setShowNotifs(next); if (!next) onOpenNotifications?.(); }}
             aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
-            className="relative rounded-full border border-border bg-panel p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="relative flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:bg-input/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Bell size={16} />
             {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-semibold text-white">{unread > 9 ? "9+" : unread}</span>}
@@ -297,9 +306,9 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
               <motion.div
                 initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.98 }}
                 transition={{ duration: 0.16, ease: "easeOut" }}
-                className="absolute right-0 top-11 z-20 w-[22rem] overflow-hidden rounded-xl border border-border bg-panel shadow-2xl ring-1 ring-primary/5"
+                className="absolute right-0 top-11 z-20 w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-panel shadow-xl shadow-black/40"
               >
-                <div className="flex items-center justify-between border-b border-border bg-gradient-to-b from-primary/[0.04] to-transparent px-4 py-3">
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-foreground">Notifications</p>
                     {unread > 0 && (
@@ -371,6 +380,7 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
       </div>
 
       <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
+      <AddWalletModal open={addWalletOpen} onClose={() => setAddWalletOpen(false)} />
     </header>
   );
 }

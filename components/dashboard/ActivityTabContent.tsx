@@ -176,7 +176,7 @@ export function ActivityTabContent() {
                 const tone =
                   item.status === "ok" ? "bg-success/12 text-success"
                     : item.status === "failed" ? "bg-danger/12 text-danger"
-                    : item.status === "pending" ? "bg-warning/12 text-warning"
+                    : item.status === "pending" ? "bg-input text-muted-foreground"
                     : "bg-input text-muted-foreground";
                 const StatusIcon =
                   item.status === "ok" ? CheckCircle2

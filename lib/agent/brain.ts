@@ -121,7 +121,11 @@ export function parseScheduleIntent(text: string): ScheduleParse | null {
   const isSchedule =
     /\b(schedule|automate|recurring|every\s+(day|week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/.test(t) ||
     /\b(daily|weekly|monthly)\b/.test(t) ||
-    /\b(tomorrow|next\s+(week|month)|on\s+\d{4}-\d{2}-\d{2}|in\s+\d+\s+(day|week|month)s?)\b/.test(t);
+    /\b(tomorrow|next\s+(week|month)|on\s+\d{4}-\d{2}-\d{2}|in\s+\d+\s+(day|week|month)s?)\b/.test(t) ||
+    // "on / this / next Friday" — a one-time run on the coming weekday (the
+    // review shows the exact date before anything is approved). Without
+    // this, such a request wasn't a schedule at all and became an immediate send.
+    /\b(on|this|next)\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(t);
   if (!isSchedule) return null;
 
   const base = parseIntentDeterministic(text);

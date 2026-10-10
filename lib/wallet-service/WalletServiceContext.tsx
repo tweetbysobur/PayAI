@@ -22,7 +22,13 @@ import { useWallet as useExternalWallet, type WalletState as ExternalWalletState
 import { MONAD_CHAIN_ID } from "@/lib/monad/public";
 import { getEmbeddedProvider } from "./registry";
 import { isWalletOpenError } from "./passkey-plan";
-import { clearWalletGrant, ensureWalletGrant } from "@/lib/auth/ensureWalletGrant";
+import {
+  clearWalletGrant,
+  currentGrantAddress,
+  ensureWalletGrant,
+  type WalletGrantFailure,
+  type WalletGrantResult,
+} from "@/lib/auth/ensureWalletGrant";
 import { linkGoogleMessage, openedWalletMatchesAccount, unlinkGoogleMessage } from "@/lib/auth/linkGoogleShared";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
 import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
@@ -103,6 +109,18 @@ export interface WalletServiceState extends ExternalWalletState {
    * is public, so nothing is exposed by remembering it.
    */
   readAddress: string | null;
+  /**
+   * Whether this browser holds a PayAI read grant for the acting wallet.
+   * "unknown" until an attempt has finished. A connected wallet can be
+   * "failed" here, which is why it is surfaced instead of hidden.
+   */
+  grantState: "unknown" | "granted" | "failed";
+  /** Why the last attempt failed, when `grantState` is "failed". */
+  grantFailure: WalletGrantFailure | null;
+  /** Tries the grant again for the acting wallet. An embedded wallet asks for
+   *  its passkey; an external wallet shows its usual sign-message prompt. It
+   *  never signs a transaction. Does nothing without a connected wallet. */
+  retryWalletGrant: () => Promise<WalletGrantResult | null>;
   /** Re-derives the raw private key for export. Always costs a fresh passkey
    *  check. The caller must show it and drop it — never persist it. */
   exportEmbeddedKey: () => Promise<`0x${string}`>;
@@ -694,10 +712,50 @@ function useWalletServiceState(): WalletServiceState {
   // An external wallet's private PayAI data is not readable from the address
   // alone. One confirmation in that wallet, then the httpOnly grant covers
   // this browser for 12 hours. Embedded unlock signs the same grant itself.
+  const [grantState, setGrantState] = useState<"unknown" | "granted" | "failed">("unknown");
+  const [grantFailure, setGrantFailure] = useState<WalletGrantFailure | null>(null);
+  const recordGrant = useCallback((r: WalletGrantResult) => {
+    setGrantState(r.ok ? "granted" : "failed");
+    setGrantFailure(r.ok ? null : r.reason);
+  }, []);
+
   useEffect(() => {
     if (usingEmbedded || !external.address) return;
-    void ensureWalletGrant(external.address, (message) => external.signMessage(message));
-  }, [usingEmbedded, external.address, external.signMessage]);
+    let live = true;
+    void ensureWalletGrant(external.address, (message) => external.signMessage(message)).then((r) => {
+      if (live) recordGrant(r);
+    });
+    return () => {
+      live = false;
+    };
+  }, [usingEmbedded, external.address, external.signMessage, recordGrant]);
+
+  // The passkey wallet signs its grant once, during unlock, with no prompt of
+  // its own. Read the result back (no signing) so a failed grant shows up as
+  // "failed" rather than as a wallet that looks fine.
+  useEffect(() => {
+    if (!usingEmbedded || !wallet) return;
+    let live = true;
+    void currentGrantAddress().then((a) => {
+      if (!live || a === undefined) return;
+      if (a === wallet.address.toLowerCase()) recordGrant({ ok: true, via: "existing" });
+      else recordGrant({ ok: false, reason: "missing" });
+    });
+    return () => {
+      live = false;
+    };
+  }, [usingEmbedded, wallet, recordGrant]);
+
+  const retryWalletGrant = useCallback(async (): Promise<WalletGrantResult | null> => {
+    const target = usingEmbedded ? wallet?.address : external.address;
+    if (!target) return null;
+    const sign = usingEmbedded && wallet
+      ? (message: string) => wallet.signMessage(message)
+      : (message: string) => external.signMessage(message);
+    const r = await ensureWalletGrant(target, sign);
+    recordGrant(r);
+    return r;
+  }, [usingEmbedded, wallet, external, recordGrant]);
 
   const address = usingEmbedded ? wallet?.address ?? null : external.address ?? wallet?.address ?? null;
   const providerId: WalletProviderId | null = usingEmbedded ? provider.id : external.address ? "injected" : wallet ? provider.id : null;
@@ -736,6 +794,9 @@ function useWalletServiceState(): WalletServiceState {
     // The address of whatever is acting; when nothing is, the account's last
     // known one so read-only surfaces keep working while it is locked.
     readAddress: address ?? (isLocked ? lastKnownAddress : null),
+    grantState,
+    grantFailure,
+    retryWalletGrant,
     activeKind,
     accountAddress,
     externalAddress: external.address ?? null,

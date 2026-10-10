@@ -35,6 +35,8 @@ async function executeOnePayment(input: {
   recipient: string; domain?: string | null;
   purpose?: string | null; memo?: string | null; fundingMode?: "wallet" | "reserved";
   executorAddress?: string | null; vaultAddress?: string | null;
+  /** PayAI's fee on top of `amount` (see PaymentRequest.feeOnTop). */
+  feeOnTop?: boolean;
   /** "automation" for a single-recipient run, "bulk" when this call is one
    *  recipient of a Bulk Payment occurrence — same pipeline either way, only
    *  the platform-metrics attribution differs. */
@@ -59,6 +61,7 @@ async function executeOnePayment(input: {
     automationId: input.automationId,
     executorAddress: input.executorAddress,
     vaultAddress: input.vaultAddress,
+    feeOnTop: input.feeOnTop === true,
   };
 
   const compliance = runValidation(request);
@@ -120,7 +123,7 @@ export async function executeScheduleNow(s: ScheduledPayment, requestId: string)
     amount: s.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
     recipient: s.recipient, domain: s.domain,
     purpose: s.purpose, memo: s.memo, fundingMode: s.fundingMode,
-    executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
+    executorAddress: s.executorAddress, vaultAddress: s.vaultAddress, feeOnTop: s.feeOnTop === true,
     feature: "automation",
   });
 }
@@ -157,7 +160,7 @@ export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId:
       amount: r.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
       recipient: r.address, domain: r.domain,
       purpose: s.purpose, memo: r.note ?? s.memo, fundingMode: s.fundingMode,
-      executorAddress: s.executorAddress, vaultAddress: s.vaultAddress,
+      executorAddress: s.executorAddress, vaultAddress: s.vaultAddress, feeOnTop: s.feeOnTop === true,
       feature: "bulk",
     });
     results.push({

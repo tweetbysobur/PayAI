@@ -316,12 +316,17 @@ describe("GET /api/plans/[planId] and approval", () => {
   });
 });
 
-describe("Ask is untouched", () => {
-  it("no Ask module references plan intake, the adapter or the Plan API", () => {
+describe("Ask reaches plans only through the browser Plan API client", () => {
+  // Ask runs plans in chat (its fast path creates one from text), but only
+  // through lib/plans-client: it never imports the server-side intake or
+  // adapter, and never calls a Plan API URL itself. Comments don't count.
+  it("no Ask module imports plan intake / the adapter or spells a Plan API URL", () => {
     const walk = (d: string): string[] => readdirSync(d).flatMap((e) => { const f = join(d, e); return statSync(f).isDirectory() ? walk(f) : [f]; });
-    for (const f of walk(join(process.cwd(), "lib", "ask"))) {
-      const src = readFileSync(f, "utf8");
-      expect(/plan-intake|plan-adapter|\/api\/plans/.test(src), f).toBe(false);
+    const files = [...walk(join(process.cwd(), "lib", "ask")), ...walk(join(process.cwd(), "components", "ask"))];
+    for (const f of files) {
+      const code = readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+      expect(/from\s+["'][^"']*(?:plan-intake|plan-adapter|lib\/plan\/)[^"']*["']|import\(\s*["'][^"']*(?:plan-intake|plan-adapter|lib\/plan\/)/.test(code), f).toBe(false);
+      expect(/["'`]\/api\/plans/.test(code), f).toBe(false);
     }
   });
 });

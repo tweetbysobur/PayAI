@@ -353,7 +353,10 @@ describe("determinism", () => {
     expect(await validationCode(graph([w("a", ["zz"])], text))).toBe("UNKNOWN_DEPENDENCY");
     expect(await validationCode(graph([w("a", []), w("b", ["a", "a"])], text))).toBe("MALFORMED");
     expect(await validationCode(graph([w("a", ["a"])], text))).toBe("SELF_DEPENDENCY");
-    expect(await validationCode(graph([w("a", []), w("b", []), w("c", []), w("d", []), w("e", [])], text))).toBe("NODE_COUNT");
+    // Five independent nodes are fine now; the node ceiling is a resource bound.
+    expect(await validationCode(graph([w("a", []), w("b", []), w("c", []), w("d", []), w("e", [])], text))).toBe("OK");
+    const { MAX_INTENT_NODES } = await import("@/lib/plan/types");
+    expect(await validationCode(graph(Array.from({ length: MAX_INTENT_NODES + 1 }, (_, i) => w(`x${i}`, [])), text))).toBe("NODE_COUNT");
     const { planIntent } = await lib();
     const forged = { ...(await validated(graph([w("a", []), w("b", ["a"])], text))), order: ["b", "a"] };
     expect(codeOf(() => planIntent(forged, { sessionWallet: WALLET }))).toBe("UNVALIDATED_GRAPH");

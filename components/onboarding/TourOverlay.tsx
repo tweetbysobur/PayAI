@@ -25,10 +25,10 @@ interface TourStep {
 }
 
 const STEPS: TourStep[] = [
-  { target: "ask", title: "Ask PayAI", body: "Trade, swap DeFi tokens, check balances, or send a payment — just describe what you want in plain English." },
-  { target: "payments", title: "Send Payment", body: "Pay any wallet address or .nad name directly, without going through Ask PayAI." },
-  { target: "automations", title: "Automations", body: "Set up a payment that runs on a schedule or a trigger, so you don't have to come back and send it manually." },
-  { target: "wallets", title: "Wallets", body: "Manage every wallet linked to your account, and switch which one is active." },
+  { target: "ask", title: "Ask PayAI", body: "Make an intent in plain English — a transfer, a swap, or several actions chained together. Review the plan and sign it in your wallet." },
+  { target: "rooms", title: "Rooms", body: "Shared payment rooms, where a group each pays a fixed share. Rooms isn't available yet; this is where it will live." },
+  { target: "payments", title: "Payments & Automations", body: "Transfers, swaps, scheduled and recurring execution, plus your full transaction history and saved recipients." },
+  { target: "settings", title: "Settings", body: "Your account, linked wallets, and wallet security." },
   { target: "help", title: "Help Center", body: "Come back here any time — FAQs, security details, and support live here." },
 ];
 
@@ -128,7 +128,7 @@ export function TourOverlay() {
           animate={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
           className="pointer-events-none absolute rounded-lg"
-          style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.6)" }}
+          style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.75), 0 0 0 2px hsl(var(--primary))" }}
         />
       </motion.div>
 
@@ -136,26 +136,26 @@ export function TourOverlay() {
         key={`tooltip-${stepIndex}`}
         initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="fixed z-[81] w-72 rounded-xl border border-border bg-panel p-4 shadow-2xl"
+        className="fixed z-[81] w-72 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl bg-primary p-4 text-white"
         style={{ top: tooltipTop, left: tooltipLeft }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-semibold text-foreground">{step.title}</p>
-          <button onClick={() => setOpen(false)} aria-label="Close tour" className="text-muted-foreground transition hover:text-foreground">
+          <p className="text-sm font-semibold">{step.title}</p>
+          <button onClick={() => setOpen(false)} aria-label="Close tour" className="rounded-sm text-white/70 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
             <X size={15} />
           </button>
         </div>
-        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{step.body}</p>
+        <p className="mt-1.5 text-xs leading-relaxed text-white/80">{step.body}</p>
         <div className="mt-3.5 flex items-center justify-between">
-          <span className="text-[11px] text-muted-foreground">{stepIndex + 1} of {STEPS.length}</span>
+          <span className="text-[11px] tabular-nums text-white/70">{stepIndex + 1} of {STEPS.length}</span>
           <div className="flex items-center gap-1.5">
             {stepIndex > 0 && (
-              <button onClick={back} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-input hover:text-foreground">
+              <button onClick={back} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-white/80 transition hover:bg-black/20 hover:text-white">
                 <ArrowLeft size={12} /> Back
               </button>
             )}
-            <button onClick={next} className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition hover:opacity-90">
+            <button onClick={next} className="flex items-center gap-1 rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white transition hover:bg-black/80">
               {stepIndex === STEPS.length - 1 ? "Done" : "Next"} <ArrowRight size={12} />
             </button>
           </div>

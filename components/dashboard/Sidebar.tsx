@@ -2,22 +2,63 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ComponentType } from "react";
 import {
-  LayoutDashboard, ArrowUpRight, Receipt, Users, FileText,
-  Wallet, Settings, Repeat,
-  GraduationCap, Rocket, BookOpen, Lock, HelpCircle, Compass,
+  LayoutDashboard, ArrowLeftRight, UsersRound, Settings,
+  Rocket, BookOpen, Lock, HelpCircle, Compass,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { AskMark } from "@/components/AskMark";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 import { startGuidedTour } from "@/components/onboarding/TourOverlay";
+import { NavigationItem, isNavActive, type NavigationEntry } from "@/components/dashboard/primitives";
 
-// "Contact Support" used to live here too, pointing at the exact same
-// /dashboard/support page the main nav's own "Support" item already covered.
-// Support itself is now a tab inside Help Center (see
-// app/dashboard/help/page.tsx) rather than a competing top-level entry, so
-// neither ever needs a separate line here again.
+/* ── Information architecture ─────────────────────────────────────────────
+ *
+ * Five primary destinations, nothing else competing with them:
+ *
+ *   Dashboard                what's happening, what's next, what needs you
+ *   Ask PayAI                describe it; PayAI plans it; your wallet signs
+ *   Rooms                    shared payment rooms (open rooms; verified rooms still blocked)
+ *   Payments & Automations   send, swap, automate, history, recipients
+ *   Settings                 account, wallets, security
+ *
+ * Every page that used to be its own sidebar row still exists at the same
+ * URL — it moved one level down, into its area's tabs (PAYMENTS_AREA and
+ * SETTINGS_AREA below, rendered by AreaTabs in app/dashboard/layout.tsx).
+ * Plans are not a destination: planning happens inside Ask PayAI. Help and
+ * the learning links sit in the sidebar's footer, out of the primary list.
+ */
+
+/** The second level of Payments & Automations. Swap has no form of its own —
+ *  swaps run through Ask PayAI — so its tab is a short page that hands off. */
+export const PAYMENTS_AREA: { href: string; label: string; soon?: boolean; match?: readonly string[] }[] = [
+  { href: "/dashboard/payments", label: "Send" },
+  { href: "/dashboard/swap", label: "Swap" },
+  { href: "/dashboard/automations", label: "Automations" },
+  { href: "/dashboard/transactions", label: "History" },
+  { href: "/dashboard/recipients", label: "Recipients" },
+  { href: "/dashboard/invoices", label: "Invoices", soon: true },
+];
+
+/** The second level of Settings. Wallets is its own page because it carries
+ *  real wallet management (linking, switching, recovery). */
+export const SETTINGS_AREA: { href: string; label: string; soon?: boolean; match?: readonly string[] }[] = [
+  { href: "/dashboard/settings", label: "General" },
+  { href: "/dashboard/wallets", label: "Wallets" },
+];
+
+export const NAV: NavigationEntry[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark },
+  { href: "/dashboard/rooms", label: "Rooms", icon: UsersRound },
+  { href: "/dashboard/payments", label: "Payments & Automations", icon: ArrowLeftRight, match: PAYMENTS_AREA.map((t) => t.href) },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings, match: SETTINGS_AREA.map((t) => t.href) },
+];
+
+/** Help and learning — the sidebar footer, not the primary list. Support is a
+ *  tab inside Help Center (app/dashboard/help/page.tsx). */
+export const HELP_LINK = { href: "/dashboard/help", label: "Help Center", icon: BookOpen } as const;
+
 export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: string; action?: "onboarding" | "tour"; external?: boolean }[] = [
   { label: "Getting Started", icon: Rocket, action: "onboarding" as const },
   { label: "Take a Tour", icon: Compass, action: "tour" as const },
@@ -25,120 +66,79 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
   { label: "FAQs", icon: HelpCircle, href: "/dashboard/help?category=faq" },
 ];
 
-// Activity, Analytics and Compliance used to be separate entries here, each
-// its own page. They're now tabs on Transactions (see
-// app/dashboard/transactions/page.tsx) — one destination for everything
-// related to what's happened with your payments, instead of four.
-/** Widened from `typeof LayoutDashboard` (lucide's own icon type) so an entry
- *  can carry a first-party mark as easily as a lucide glyph — Ask PayAI uses
- *  its own. Only `size` is ever passed, which both satisfy. */
-type NavIcon = ComponentType<{ size?: number; className?: string }>;
-
-// Grouped by capability rather than one flat "Payments" bucket, so the nav
-// reads as one operator with several capabilities — the same repositioning
-// the marketing surfaces got in Phase 1. Ask PayAI stays the primary entry
-// (section: null, pinned at the top): it is the natural-language doorway to
-// everything below, and the surface where Trading and DeFi actually happen —
-// neither has a dedicated page, so neither gets a nav row that would point at
-// a route that doesn't exist. Every href here is unchanged from before; only
-// the grouping and one label ("Send Payment" → "Payments") moved.
-export const NAV: { href: string; label: string; icon: NavIcon; section: string | null; soon?: boolean }[] = [
-  { href: "/dashboard", label: "Overview", icon: LayoutDashboard, section: null },
-  { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark, section: null },
-  { href: "/dashboard/payments", label: "Payments", icon: ArrowUpRight, section: "Payments" },
-  { href: "/dashboard/recipients", label: "Recipients", icon: Users, section: "Payments" },
-  { href: "/dashboard/invoices", label: "Invoices", icon: FileText, section: "Payments", soon: true },
-  { href: "/dashboard/automations", label: "Automations", icon: Repeat, section: "Automation" },
-  { href: "/dashboard/transactions", label: "Transactions", icon: Receipt, section: "Activity" },
-  { href: "/dashboard/wallets", label: "Wallets", icon: Wallet, section: "Wallet" },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings, section: "Account" },
-  { href: "/dashboard/help", label: "Help Center", icon: BookOpen, section: "Account" },
-] as const;
-
 /** Maps a NAV href to the `data-tour` id TourOverlay's steps target (see
- *  components/onboarding/TourOverlay.tsx). Only hrefs the guided tour
- *  actually spotlights need an entry — everything else renders with no
- *  `data-tour` attribute at all. */
-const TOUR_TARGETS: Record<string, string> = {
+ *  components/onboarding/TourOverlay.tsx). */
+export const TOUR_TARGETS: Record<string, string> = {
   "/dashboard/ask": "ask",
+  "/dashboard/rooms": "rooms",
   "/dashboard/payments": "payments",
-  "/dashboard/automations": "automations",
-  "/dashboard/wallets": "wallets",
+  "/dashboard/settings": "settings",
   "/dashboard/help": "help",
 };
 
-/** Real fintech-dashboard sidebar — grouped sections, active-route highlight. */
-export function Sidebar() {
+/** The footer list (help + learn), shared by the sidebar and mobile drawer.
+ *  The drawer leaves out "Take a Tour": the tour spotlights the desktop
+ *  sidebar, which isn't on screen at that width, so it would do nothing. */
+export function NavFooter({ onNavigate, withTour = true }: { onNavigate?: () => void; withTour?: boolean }) {
   const pathname = usePathname();
-
+  const cls = "flex min-h-9 w-full items-center gap-2.5 rounded-md px-3 text-left text-[13px] text-muted-foreground transition-colors hover:bg-input/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const helpActive = isNavActive(pathname, HELP_LINK);
   return (
-    <aside className="hidden h-screen w-60 flex-col border-r border-border bg-panel/60 lg:flex">
-      <Link href="/" title="Back to home" className="flex items-center gap-2 border-b border-border px-5 py-5 transition hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset">
-        <Logo size={32} />
-        <div>
-          <p className="text-sm font-semibold leading-none text-foreground">PayAI</p>
-        </div>
+    <div className="space-y-0.5">
+      <Link
+        href={HELP_LINK.href}
+        onClick={onNavigate}
+        data-tour={TOUR_TARGETS[HELP_LINK.href]}
+        aria-current={helpActive ? "page" : undefined}
+        className={`${cls} ${helpActive ? "bg-input text-foreground" : ""}`}
+      >
+        <HELP_LINK.icon size={15} /> {HELP_LINK.label}
+      </Link>
+      {LEARN_LINKS.filter((item) => withTour || item.action !== "tour").map((item) => {
+        const Icon = item.icon;
+        const content = <><Icon size={15} /> {item.label}</>;
+        if (item.action === "onboarding") {
+          return <button key={item.label} type="button" onClick={() => { onNavigate?.(); reopenOnboarding(); }} className={cls}>{content}</button>;
+        }
+        if (item.action === "tour") {
+          return <button key={item.label} type="button" onClick={() => { onNavigate?.(); startGuidedTour(); }} className={cls}>{content}</button>;
+        }
+        return item.external
+          ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" onClick={onNavigate} className={cls}>{content}</a>
+          : <Link key={item.label} href={item.href ?? "#"} onClick={onNavigate} className={cls}>{content}</Link>;
+      })}
+    </div>
+  );
+}
+
+/** The primary list, shared by the sidebar and mobile drawer. */
+export function NavList({ onNavigate }: { onNavigate?: () => void }) {
+  const pathname = usePathname();
+  return (
+    <ul className="space-y-0.5">
+      {NAV.map((entry) => (
+        <li key={entry.href}>
+          <NavigationItem entry={entry} active={isNavActive(pathname, entry)} onNavigate={onNavigate} tour={TOUR_TARGETS[entry.href]} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function Sidebar() {
+  return (
+    <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-background lg:flex">
+      <Link href="/" title="Back to home" className="flex h-[61px] items-center gap-2 border-b border-border px-5 transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+        <Logo size={28} />
+        <p className="text-sm font-semibold text-foreground">PayAI</p>
       </Link>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {NAV.map((item, idx) => {
-          const isFirstOverview = item.href === "/dashboard" && item.section === null;
-          // Derived from the previous entry rather than a running variable
-          // mutated mid-render: NAV is static, so "is this the first item of
-          // its section" is a pure function of the index.
-          const showSectionLabel = item.section !== null && item.section !== (NAV[idx - 1]?.section ?? null);
-          const active = pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <div key={item.href}>
-              {isFirstOverview && <div className="mb-1" />}
-              {showSectionLabel && (
-                <p className="mb-1.5 mt-4 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">{item.section}</p>
-              )}
-              <Link
-                href={item.href}
-                aria-disabled={item.soon}
-                aria-current={active ? "page" : undefined}
-                data-tour={TOUR_TARGETS[item.href]}
-                className={`relative mb-0.5 flex items-center justify-between rounded-md px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                  active ? "bg-primary/15 text-primary-ink" : "text-muted-foreground hover:bg-input hover:text-foreground"
-                } ${item.soon ? "pointer-events-none opacity-50" : ""}`}
-              >
-                {active && <span className="absolute left-0 top-1/2 h-4 w-1 -translate-y-1/2 rounded-r-full bg-primary" />}
-                <span className="flex items-center gap-2.5">
-                  <Icon size={16} />
-                  {item.label}
-                </span>
-                {item.soon && <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">Soon</span>}
-              </Link>
-            </div>
-          );
-        })}
+      <nav aria-label="Primary" className="flex-1 overflow-y-auto px-3 py-4">
+        <NavList />
       </nav>
 
       <div className="border-t border-border px-3 py-3">
-        <p className="mb-1 flex items-center gap-1.5 px-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/60">
-          <GraduationCap size={12} /> Learn PayAI
-        </p>
-        {LEARN_LINKS.map((item) => {
-          const Icon = item.icon;
-          const content = (
-            <span className="flex items-center gap-2.5">
-              <Icon size={15} />
-              {item.label}
-            </span>
-          );
-          const cls = "flex items-center rounded-md px-3 py-1.5 text-[13px] text-muted-foreground transition hover:bg-input hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-          if (item.action === "onboarding") {
-            return <button key={item.label} onClick={() => reopenOnboarding()} className={`w-full text-left ${cls}`}>{content}</button>;
-          }
-          if (item.action === "tour") {
-            return <button key={item.label} onClick={() => startGuidedTour()} className={`w-full text-left ${cls}`}>{content}</button>;
-          }
-          return item.external
-            ? <a key={item.label} href={item.href} target="_blank" rel="noreferrer" className={cls}>{content}</a>
-            : <Link key={item.label} href={item.href ?? "#"} className={cls}>{content}</Link>;
-        })}
+        <NavFooter />
       </div>
     </aside>
   );

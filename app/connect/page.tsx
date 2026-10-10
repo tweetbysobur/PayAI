@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
+import { safeReturnPath } from "@/lib/platform/returnPath";
 import {
   Wallet as WalletIcon, ShieldCheck, AlertTriangle, CheckCircle2, Loader2,
   ArrowRight, Smartphone, QrCode, ChevronDown, Lock, FileCheck2,
@@ -11,6 +12,7 @@ import { walletConnectAvailable } from "@/lib/wallet/walletconnect";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { useWallet } from "@/lib/wallet/useWallet";
+import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
 import { useDiscoveredWallets, type EIP6963ProviderDetail } from "@/lib/wallet/discovery";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
@@ -36,6 +38,12 @@ type Step = "consent" | "wallets" | "status";
 export default function ConnectPage() {
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
+  // A device that already has a PayAI Wallet (passkey) is ADDING a wallet to
+  // that account, not signing in as a new one — so it returns to the account
+  // (its Wallets page, where it chooses which wallet pays), not a fresh
+  // dashboard that would act as the external wallet.
+  const service = useWalletService();
+  const accountAddress = service.accountAddress;
   const detected = useDiscoveredWallets();
   const [pending, setPending] = useState<string | null>(null); // rdns or sentinel currently connecting
   const [switching, setSwitching] = useState(false);
@@ -357,6 +365,7 @@ export default function ConnectPage() {
                 ) : (
                   <ConnectedConfirmation
                     display={identity.display}
+                    accountAddress={accountAddress}
                     onDisconnect={() => { wallet.disconnect(); setStep("wallets"); }}
                   />
                 )}
@@ -428,11 +437,16 @@ function WalletSection({ title, items, findDetected, pending, onConnect }: {
 /** Real confirmation screen before the dashboard — not an instant redirect.
  *  Auto-advances after a short beat, but a manual button works immediately
  *  for anyone who doesn't want to wait. */
-function ConnectedConfirmation({ display, onDisconnect }: { display: string; onDisconnect: () => void }) {
+function ConnectedConfirmation({ display, accountAddress, onDisconnect }: { display: string; accountAddress: string | null; onDisconnect: () => void }) {
+  const next = accountAddress ? "/dashboard/wallets" : "/dashboard";
+  // A shared Room link sends people back to that room (safeReturnPath allows
+  // only PayAI's own pages).
+  const [returnTo] = useState(() => (typeof window === "undefined" ? null : safeReturnPath(new URLSearchParams(window.location.search).get("next"))));
+  const dest = returnTo ?? next;
   useEffect(() => {
-    const t = setTimeout(() => { window.location.href = "/dashboard"; }, 2200);
+    const t = setTimeout(() => { window.location.href = dest; }, 2200);
     return () => clearTimeout(t);
-  }, []);
+  }, [dest]);
   return (
     <>
       <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 260, damping: 18 }} className="mb-6 flex items-center justify-center">
@@ -440,8 +454,12 @@ function ConnectedConfirmation({ display, onDisconnect }: { display: string; onD
           <CheckCircle2 size={28} />
         </div>
       </motion.div>
-      <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">Wallet connected</h2>
-      <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">You&apos;re all set on {MONAD_CHAIN_NAME}.</p>
+      <h2 className="text-center text-xl font-semibold tracking-tight text-foreground">{accountAddress ? "Wallet added" : "Wallet connected"}</h2>
+      <p className="mt-2 text-center text-sm leading-relaxed text-muted-foreground">
+        {accountAddress
+          ? <>Your PayAI Wallet ({accountAddress.slice(0, 6)}…{accountAddress.slice(-4)}) is still your account. Next, choose which wallet pays.</>
+          : <>You&apos;re all set on {MONAD_CHAIN_NAME}.</>}
+      </p>
 
       <div className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-border bg-gradient-to-b from-primary/[0.05] to-transparent px-4 py-3">
         <MonadMark size={14} />
@@ -450,8 +468,8 @@ function ConnectedConfirmation({ display, onDisconnect }: { display: string; onD
       </div>
 
       <div className="mt-7 space-y-3">
-        <Link href="/dashboard" className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-          Continue to dashboard <ArrowRight size={15} />
+        <Link href={dest} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
+          {accountAddress ? "Back to my account" : "Continue to dashboard"} <ArrowRight size={15} />
         </Link>
         <button onClick={onDisconnect} className="w-full rounded-lg border border-border px-4 py-2.5 text-xs text-muted-foreground transition hover:border-danger/40 hover:text-danger">
           Disconnect and use a different wallet

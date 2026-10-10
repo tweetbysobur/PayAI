@@ -233,8 +233,8 @@ function TokenRow({ token, walletAddress, onSelect, isFavorite, onToggleFavorite
             nothing rather than "$0.00", which would read as worthless. */}
         {usd && <p className="text-[10px] tabular-nums text-muted-foreground">≈ {usd}</p>}
       </div>
-      <span onClick={(e) => onToggleFavorite(token.address, e)} className="shrink-0 text-muted-foreground transition hover:text-warning">
-        <Star size={14} fill={isFavorite ? "currentColor" : "none"} className={isFavorite ? "text-warning" : ""} />
+      <span onClick={(e) => onToggleFavorite(token.address, e)} className="shrink-0 text-muted-foreground transition hover:text-foreground">
+        <Star size={14} fill={isFavorite ? "currentColor" : "none"} className={isFavorite ? "text-primary-ink" : ""} />
       </span>
     </button>
   );

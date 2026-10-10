@@ -54,6 +54,12 @@ funds move — safe for local dev) or `monad` (real on-chain). Production runs
 > `GET /api/automation-config` on the running app (or have someone who can
 > reach it paste back the JSON) — see `contracts/LIVE_CONTRACTS.md`.
 
+> **Escrow Rooms are built but OFF.** `PayAIRoomEscrow.sol` is written and
+> Hardhat-tested but **not deployed or audited**; the app enables escrow Rooms
+> only when `MONAD_MAINNET_ROOM_ESCROW` + `PAYAI_ROOM_ESCROW_ENABLED=true` are
+> set. Never describe Rooms as escrow-backed in production until that happens —
+> see `docs/rooms/ESCROW_ROOMS.md` for semantics, fees and the switch-on list.
+
 ## Conventions & guardrails
 
 - **Non-custodial.** Interactive payments are signed by the user's wallet.

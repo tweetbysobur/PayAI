@@ -12,12 +12,15 @@
  *                existing allowance already covers it (as today's send does)
  *                forwarder.forwardPayment(token, recipient, gross, ref)
  *
- * Fee: the forwarder's own mechanism — fee = floor(gross * feeBps / 10000)
- * taken OUT of the amount sent; the recipient receives gross − fee. Same rate
- * (live feeBps), same treasury, same contract as every send; no second fee
- * path. The terms are read live (lib/sdk/fees.ts), shown in the quote, bound
- * into the quote token, and reproduced exactly at build — or the build is
- * refused. (Split differs on purpose: its fee is added on top.)
+ * Fee: charged ON TOP (lib/payment/feeOnTop.ts). `amount` is what the
+ * recipient receives, in full; the forwarder is handed the smallest gross
+ * whose net — its own fee = floor(gross * feeBps / 10000) taken out — is
+ * exactly that amount, so the fee comes from the sender's balance on top.
+ * Same rate (live feeBps), same treasury, same contract as every send; no
+ * second fee path. The terms are read live (lib/sdk/fees.ts), shown in the
+ * quote, bound into the quote token, and reproduced exactly at build — or the
+ * build is refused. Build also refuses, before any signature, when the
+ * wallet can't cover amount + fee.
  *
  * Security:
  *   - the ONLY transaction target is the configured forwarder (allowlisted);
@@ -44,6 +47,7 @@ import {
   ERC20_ALLOWANCE_APPROVE_ABI, decodeFeeCollected, decodePaymentForwarded, encodeForwardPayment, encodeForwardPaymentNative,
 } from "@/lib/monad/forwarder";
 import { platformFee, readPlatformFeeTerms, PlatformFeeUnavailableError, type PlatformFeeTerms } from "@/lib/sdk/fees";
+import { feeOnTop } from "@/lib/payment/feeOnTop";
 import { ActionInputError, inputString } from "@/lib/sdk/types";
 import type {
   Action, ActionBuildContext, ActionInputs, ActionOutflow, ActionQuoteResult, ActionReceipt, ActionResultContext, ProtocolAdapter,
@@ -77,7 +81,8 @@ function resolveTransferToken(raw: string): TokenCtx {
   return { isNative: false, address: getAddress(usdc.address), decimals: usdc.decimals, symbol: usdc.symbol };
 }
 
-interface Parsed { recipient: Address; gross: bigint; token: TokenCtx }
+/** `amount`: what the recipient receives (the fee is on top). */
+interface Parsed { recipient: Address; amount: bigint; token: TokenCtx }
 
 function parse(inputs: ActionInputs, forwarder: Address): Parsed {
   const r = inputString(inputs, "recipient").trim();
@@ -90,14 +95,16 @@ function parse(inputs: ActionInputs, forwarder: Address): Parsed {
   if (key === NATIVE) throw new TransferInputError("The recipient can't be the zero address.");
   if (key === forwarder.toLowerCase()) throw new TransferInputError("The recipient can't be the PayAI forwarder contract itself.");
   if (!token.isNative && key === token.address.toLowerCase()) throw new TransferInputError("The recipient can't be the token contract.");
-  return { recipient, gross: BigInt(a), token };
+  return { recipient, amount: BigInt(a), token };
 }
 
 interface Priced { gross: bigint; fee: bigint; net: bigint }
 
 function price(p: Parsed, fee: PlatformFeeTerms): Priced {
-  const f = platformFee(p.gross, fee.feeBps);
-  return { gross: p.gross, fee: f, net: p.gross - f };
+  const priced = feeOnTop(p.amount, fee.feeBps);
+  // The forwarder's own math on that gross must give back exactly the amount.
+  if (priced.gross - platformFee(priced.gross, fee.feeBps) !== p.amount) throw new PlatformFeeUnavailableError("PayAI's fee couldn't be applied to this amount.");
+  return priced;
 }
 
 function termsOf(p: Parsed, priced: Priced, fee: PlatformFeeTerms) {
@@ -198,14 +205,14 @@ function transferAction(forwarder: Address, chainId: number): Action {
       recipient: { type: "address", required: true, description: "Recipient address (resolved by PayAI)" },
       // Optional: absent/zero sentinel = native MON; otherwise PayAI's stablecoin.
       token: { type: "token", required: false, description: "Token to send (leave empty for native MON)" },
-      amount: { type: "units", required: true, description: "Amount to send, in the token's base units" },
+      amount: { type: "units", required: true, description: "Amount the recipient receives, in the token's base units (PayAI's fee is added on top)" },
     },
     // Confirmed outputs (from PaymentForwarded/FeeCollected), bindable by a
     // later node. No recipient output: an address only enters a node through
     // recipient provenance, never from another action.
     outputs: {
-      amount: { type: "units", description: "What the recipient received (sent minus the platform fee)", denominatedIn: { input: "token" } },
-      gross: { type: "units", description: "What the sender paid", denominatedIn: { input: "token" } },
+      amount: { type: "units", description: "What the recipient received", denominatedIn: { input: "token" } },
+      gross: { type: "units", description: "What the sender paid (amount plus the fee on top)", denominatedIn: { input: "token" } },
       fee: { type: "units", description: "The PayAI platform fee", denominatedIn: { input: "token" } },
       token: { type: "token", description: "The token sent" },
     },
@@ -219,13 +226,13 @@ function transferAction(forwarder: Address, chainId: number): Action {
       const priced = price(p, fee);
       const fmt = (u: bigint) => `${formatUnits(u, p.token.decimals)} ${p.token.symbol}`;
       return {
-        summary: `Send ${fmt(priced.gross)} to ${p.recipient} (they receive ${fmt(priced.net)} after the ${fee.feeBps / 100}% platform fee)`,
+        summary: `Send ${fmt(priced.net)} to ${p.recipient} (plus the ${fee.feeBps / 100}% PayAI fee: ${fmt(priced.gross)} in total)`,
         details: {
           recipient: p.recipient,
           token: p.token.isNative ? "MON (native)" : `${p.token.symbol} (${p.token.address})`,
-          "you send": fmt(priced.gross),
-          "platform fee": fmt(priced.fee),
           "recipient receives": fmt(priced.net),
+          "PayAI fee": fmt(priced.fee),
+          "total from your balance": fmt(priced.gross),
         },
         quotedAt: Date.now(),
         terms: termsOf(p, priced, fee),
@@ -246,43 +253,52 @@ function transferAction(forwarder: Address, chainId: number): Action {
       // THIS build.
       const ref = `0x${randomBytes(32).toString("hex")}` as `0x${string}`;
       const fmt = (u: bigint) => `${formatUnits(u, p.token.decimals)} ${p.token.symbol}`;
+      const gross = priced.gross;
+
+      // Before any step exists: can this wallet cover the amount AND the fee
+      // on top? Says so plainly when only the fee doesn't fit.
+      if (ctx?.wallet) {
+        const { insufficientWithFeeReason } = await import("@/lib/monad/balance");
+        const reason = await insufficientWithFeeReason(ctx.wallet, p.token, priced, fee.feeBps);
+        if (reason) throw new TransferInputError(reason);
+      }
 
       if (p.token.isNative) {
         return [{
           kind: "action",
-          label: `Send ${fmt(p.gross)} to ${p.recipient}`,
-          tx: { to: forwarder, data: encodeForwardPaymentNative(p.recipient, p.gross, ref), value: p.gross.toString() },
+          label: `Send ${fmt(p.amount)} to ${p.recipient} (${fmt(gross)} with the PayAI fee)`,
+          tx: { to: forwarder, data: encodeForwardPaymentNative(p.recipient, gross, ref), value: gross.toString() },
         }];
       }
 
       const steps: UnsignedActionStep[] = [];
-      if (!(await allowanceCovers(p.token.address, ctx?.wallet, forwarder, p.gross))) {
-        // EXACT approval to the forwarder for the gross amount the forward
-        // pulls (fee included — the forwarder takes it from this amount).
+      if (!(await allowanceCovers(p.token.address, ctx?.wallet, forwarder, gross))) {
+        // EXACT approval to the forwarder for the gross the forward pulls
+        // (the amount plus the fee on top).
         steps.push({
           kind: "approve",
-          label: `Approve ${fmt(p.gross)} for PayAI`,
+          label: `Approve ${fmt(gross)} for PayAI`,
           tx: {
             to: p.token.address,
-            data: encodeFunctionData({ abi: ERC20_ALLOWANCE_APPROVE_ABI, functionName: "approve", args: [forwarder, p.gross] }),
+            data: encodeFunctionData({ abi: ERC20_ALLOWANCE_APPROVE_ABI, functionName: "approve", args: [forwarder, gross] }),
             value: "0",
           },
-          approval: { token: p.token.address, spender: forwarder, amount: p.gross.toString() },
+          approval: { token: p.token.address, spender: forwarder, amount: gross.toString() },
         });
       }
       steps.push({
         kind: "action",
-        label: `Send ${fmt(p.gross)} to ${p.recipient}`,
-        tx: { to: forwarder, data: encodeForwardPayment(p.token.address, p.recipient, p.gross, ref), value: "0" },
+        label: `Send ${fmt(p.amount)} to ${p.recipient} (${fmt(gross)} with the PayAI fee)`,
+        tx: { to: forwarder, data: encodeForwardPayment(p.token.address, p.recipient, gross, ref), value: "0" },
       });
       return steps;
     },
 
     async outflows(inputs: ActionInputs): Promise<readonly ActionOutflow[]> {
-      // Screened on the gross amount — the same figure the existing send's
-      // compliance/risk checks run against.
+      // Screened on the amount the recipient receives — the same figure the
+      // existing send's compliance/risk checks run against (the user's amount).
       const p = parse(inputs, forwarder);
-      return [{ recipient: p.recipient, amountUnits: p.gross, token: p.token.address, symbol: p.token.symbol, decimals: p.token.decimals }];
+      return [{ recipient: p.recipient, amountUnits: p.amount, token: p.token.address, symbol: p.token.symbol, decimals: p.token.decimals }];
     },
 
     async parseResult(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<Readonly<Record<string, string>>> {
@@ -311,9 +327,10 @@ function transferAction(forwarder: Address, chainId: number): Action {
       const symbol = tok?.symbol ?? "tokens";
       const decimals = tok?.decimals ?? 0;
       return {
-        // History records the gross amount sent — exactly what the existing
-        // send's rows record — while amountUnits is what was delivered.
-        recipients: [{ recipient: getAddress(s.ev.recipient), amountUnits: s.net, recordedAmountUnits: s.ev.amount, token, symbol, decimals }],
+        // History records the amount the recipient received — the user's own
+        // amount, exactly what the existing send's rows record (the fee is on
+        // top, in `fee` and grossUnits).
+        recipients: [{ recipient: getAddress(s.ev.recipient), amountUnits: s.net, recordedAmountUnits: s.net, token, symbol, decimals }],
         fee: s.fee > 0n && s.treasury ? { amountUnits: s.fee, token, treasury: getAddress(s.treasury), symbol, decimals } : null,
         grossUnits: s.ev.amount,
       };

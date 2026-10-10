@@ -13,7 +13,20 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const { getPaymentExecutor, getAutomationVault, getWrappedNative, getStablecoin, getChain } = await import("@/lib/monad/config");
   const stable = getStablecoin();
+  // The live PayAI fee rates of the two automation contracts (public on-chain
+  // values). The creator sizes approvals/reservations as amount + this fee on
+  // top (lib/payment/feeOnTop.ts). Null when unreadable — the creator then
+  // refuses to size a budget rather than guess one.
+  const { contractFeeBps } = await import("@/lib/monad/contracts");
+  const executor = getPaymentExecutor();
+  const vault = getAutomationVault();
+  const [executorFeeBps, vaultFeeBps] = await Promise.all([
+    executor ? contractFeeBps(executor).catch(() => null) : Promise.resolve(null),
+    vault ? contractFeeBps(vault).catch(() => null) : Promise.resolve(null),
+  ]);
   return NextResponse.json({
+    executorFeeBps,
+    vaultFeeBps,
     chainId: getChain().id,
     executor: getPaymentExecutor(),
     vault: getAutomationVault(),

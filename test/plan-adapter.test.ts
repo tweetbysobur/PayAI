@@ -262,7 +262,12 @@ describe("G. injection / control attempts fail closed (nothing is partially pars
     ["send 10 MON to alice.nad\nsend 10 MON to mallory.nad", "UNSUPPORTED_REQUEST"],
     ["send 10 MON to alice.nad\u0000", "UNSUPPORTED_REQUEST"],
     ["please send 10 MON to alice.nad", "UNSUPPORTED_REQUEST"],
-    ["send 10 MON to alice.nad and send 10 MON to bob.nad", "UNSUPPORTED_REQUEST"],
+    // (Two transfers joined by "and" are a supported two-action plan since
+    // Phase 2 — see test/plan-multi-action.test.ts. A dangling or doubled
+    // connector still matches nothing.)
+    ["send 10 MON to alice.nad and", "UNSUPPORTED_REQUEST"],
+    ["and send 10 MON to alice.nad", "UNSUPPORTED_REQUEST"],
+    ["send 10 MON to alice.nad and and send 1 MON to bob.nad", "UNSUPPORTED_REQUEST"],
     ["swap 10 MON to USDC and send it to alice.nad and send it to bob.nad", "UNSUPPORTED_REQUEST"],
     ["swap 10 MON to USDC and swap it to MON", "UNSUPPORTED_REQUEST"],
     ["", "UNSUPPORTED_REQUEST"],
@@ -274,7 +279,8 @@ describe("G. injection / control attempts fail closed (nothing is partially pars
     });
   }
   it("over-long requests → TOO_LONG", async () => {
-    expect(await codeOf(`send 10 MON to alice.nad${" ".repeat(500)}`)).toBe("TOO_LONG");
+    const { MAX_REQUEST_LENGTH } = await import("@/lib/plan-adapter/grammar");
+    expect(await codeOf(`send 10 MON to alice.nad${" ".repeat(MAX_REQUEST_LENGTH)}`)).toBe("TOO_LONG");
   });
 });
 
@@ -312,7 +318,6 @@ describe("I. deferred semantics are refused, never guessed", () => {
     ["send the remaining USDC to alice.nad", "UNSUPPORTED_AMOUNT"],
     ["send the rest to alice.nad", "UNSUPPORTED_AMOUNT"],
     ["swap all my MON to USDC and send it to alice.nad", "UNSUPPORTED_AMOUNT"],
-    ["swap 10 MON to USDC and send 5 USDC to alice.nad", "UNSUPPORTED_AMOUNT"],
     ["swap 10 MON to USDC and send half to alice.nad", "UNSUPPORTED_AMOUNT"],
   ];
   for (const [text, code] of cases) {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { privateKeyToAccount } from "viem/accounts";
 import { GET, POST } from "@/app/api/auth/wallet-grant/route";
@@ -90,5 +90,60 @@ describe("wallet read grant", () => {
     ));
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ code: "wallet_grant_required", automations: [] });
+  });
+});
+
+describe("wallet grant issuer: failure codes and bounds", () => {
+  const post = (body: unknown) => POST(new NextRequest("https://app.usepayai.xyz/api/auth/wallet-grant", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }));
+  const signed = async (expiresAt: number) => ({
+    address: owner.address,
+    expiresAt,
+    signature: await owner.signMessage({ message: walletGrantMessage(owner.address, expiresAt) }),
+  });
+
+  it("a wrong signature names grant_signature_invalid", async () => {
+    const expiresAt = Date.now() + 60_000;
+    const res = await post({ address: owner.address, expiresAt, signature: await other.signMessage({ message: walletGrantMessage(owner.address, expiresAt) }) });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "grant_signature_invalid" });
+  });
+
+  it("a correctly signed grant whose expiry is beyond the window is refused as grant_expiry_invalid (a fast clock)", async () => {
+    const res = await post(await signed(Date.now() + WALLET_GRANT_TTL_MS + 5 * 60_000));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "grant_expiry_invalid" });
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("the window itself is unchanged: 12h + 30s of skew is still accepted, 12h + 2min is not", async () => {
+    expect((await post(await signed(Date.now() + WALLET_GRANT_TTL_MS + 30_000))).status).toBe(200);
+    expect((await post(await signed(Date.now() + WALLET_GRANT_TTL_MS + 120_000))).status).toBe(401);
+  });
+
+  it("an already-expired grant is refused", async () => {
+    expect((await post(await signed(Date.now() - 120_000))).status).toBe(401);
+  });
+
+  it("without AUTH_SESSION_SECRET in production no grant is issued: a controlled 503, no cookie", async () => {
+    const body = await signed(Date.now() + 60_000);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AUTH_SESSION_SECRET", "");
+    try {
+      const res = await post(body);
+      expect(res.status).toBe(503);
+      expect(await res.json()).toMatchObject({ code: "grant_unavailable" });
+      expect(res.headers.get("set-cookie")).toBeNull();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("garbage input is still just a 401", async () => {
+    expect((await post({})).status).toBe(401);
+    expect((await post({ address: "nope", expiresAt: "x", signature: 1 })).status).toBe(401);
   });
 });

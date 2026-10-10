@@ -81,6 +81,11 @@ export interface PaymentRequest {
   executorAddress?: string | null;
   /** The exact AutomationVault this automation was created against — see PaymentAutomation.vaultAddress. Absent falls back to the current global config. */
   vaultAddress?: string | null;
+  /** PayAI's fee is charged ON TOP: the recipient receives `amount` in full
+   *  and the contract is handed the gross (lib/payment/feeOnTop.ts). Set for
+   *  automations created after the fee moved on top; older ones keep the fee
+   *  taken out of the amount they were funded for. */
+  feeOnTop?: boolean;
 }
 
 /* ── Compliance ─────────────────────────────────────────────────────────── */

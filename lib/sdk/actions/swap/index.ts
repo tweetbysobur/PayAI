@@ -24,15 +24,17 @@
  *     against the allowlist ([executor]).
  *
  * The build is decoded, not trusted: the executor calldata must carry
- * exactly the quoted tokenIn/tokenOut and the user's exact gross amountIn
- * (base units), with the matching native value; the approval must be exactly
- * approve(executor, amountIn). Inputs are tokenIn / tokenOut / amountIn
+ * exactly the quoted tokenIn/tokenOut and the gross for the user's exact
+ * amountIn (base units), with the matching native value; the approval must be
+ * exactly approve(executor, gross). Inputs are tokenIn / tokenOut / amountIn
  * (base units) / slippageBps — nothing else (Layer A refuses unknown keys).
  *
- * Fee: the executor's own (floor(gross * feeBps / 10000), taken from the
- * input; the trade swaps the net). Read live via the existing
- * getExecutorFeeBps() and bound into the quote terms; the confirmation
- * requires the event's fee to equal the BUILD-TIME rate exactly.
+ * Fee: charged ON TOP (lib/payment/feeOnTop.ts). `amountIn` is swapped in
+ * full; the executor is handed gross = executorGross(amountIn, feeBps), and
+ * its own floor(gross * feeBps / 10000) leaves exactly amountIn to swap. The
+ * rate is read live via getExecutorFeeBps() and bound into the quote terms;
+ * the confirmation requires the event's gross and fee to match the
+ * BUILD-TIME rate exactly.
  *
  * Server-only. Never signs, broadcasts or holds a key.
  */
@@ -42,7 +44,7 @@ import { getChain, getNetwork, getStablecoin } from "@/lib/monad/config";
 import { DEFAULT_SLIPPAGE, ERC20_ABI, MAX_SLIPPAGE } from "@/lib/monad/swap";
 import { normalizeDecimalString } from "@/lib/monad/verify";
 import { prepareTradeExecution, previewTrade, type TradePreviewOk, type TradePreviewRequest } from "@/lib/monad/tradeQuote";
-import { TRADE_EXECUTOR_ABI, applyExecutorFee, getExecutorFeeBps, selectExecutor } from "@/lib/monad/tradeExecutor";
+import { TRADE_EXECUTOR_ABI, applyExecutorFee, executorGross, getExecutorFeeBps, selectExecutor } from "@/lib/monad/tradeExecutor";
 import { ActionInputError, ActionQuoteChangedError, inputString } from "@/lib/sdk/types";
 import type {
   Action, ActionBuildContext, ActionInputs, ActionQuoteResult, ActionReceipt, ActionResultContext, SettledTrade, UnsignedActionStep, VerifiedOutputs,
@@ -146,9 +148,11 @@ function termsOf(p: Parsed, executor: Address, feeBps: number) {
  *  or token, an approval to anyone but the executor — refuses the build. */
 function executorSteps(
   steps: readonly { kind: string; label: string; tx: { to: string; data: string; value: string } }[],
-  p: Parsed, executor: Address,
+  p: Parsed, executor: Address, feeBps: number,
 ): UnsignedActionStep[] {
   const ex = executor.toLowerCase();
+  // What the executor must be handed: amountIn plus the fee on top.
+  const want = executorGross(p.amountIn, feeBps).gross;
   // At most [exact approve, trade] for an ERC-20 input; exactly [trade] for MON.
   if (steps.length === 0 || steps.length > (p.tokenIn.isNative ? 1 : 2)) throw new SwapInputError(EXECUTOR_ONLY);
   const out: UnsignedActionStep[] = [];
@@ -175,11 +179,11 @@ function executorSteps(
         throw new SwapInputError(EXECUTOR_ONLY);
       }
       const [spender, amount] = (call.args ?? []) as unknown as [string, bigint];
-      if (call.functionName !== "approve" || spender.toLowerCase() !== ex || amount !== p.amountIn) throw new SwapInputError(EXECUTOR_ONLY);
+      if (call.functionName !== "approve" || spender.toLowerCase() !== ex || amount !== want) throw new SwapInputError(EXECUTOR_ONLY);
       out.push({
         kind: "approve", label: s.label,
         tx: { to: getAddress(s.tx.to), data: s.tx.data as `0x${string}`, value: "0" },
-        approval: { token: p.tokenIn.address, spender: executor, amount: p.amountIn.toString() },
+        approval: { token: p.tokenIn.address, spender: executor, amount: want.toString() },
       });
       return;
     }
@@ -200,10 +204,10 @@ function executorSteps(
     } else {
       throw new SwapInputError(EXECUTOR_ONLY);
     }
-    if (tokenIn.toLowerCase() !== p.tokenIn.address.toLowerCase() || tokenOut.toLowerCase() !== p.tokenOut.address.toLowerCase() || gross !== p.amountIn) {
+    if (tokenIn.toLowerCase() !== p.tokenIn.address.toLowerCase() || tokenOut.toLowerCase() !== p.tokenOut.address.toLowerCase() || gross !== want) {
       throw new SwapInputError("The prepared trade doesn't match your preview — request a fresh preview.");
     }
-    if (value !== (p.tokenIn.isNative ? p.amountIn : 0n)) throw new SwapInputError(EXECUTOR_ONLY);
+    if (value !== (p.tokenIn.isNative ? want : 0n)) throw new SwapInputError(EXECUTOR_ONLY);
     out.push({ kind: "action", label: s.label, tx: { to: executor, data: s.tx.data as `0x${string}`, value: value.toString() } });
   });
   if (out.length === 0 || out[out.length - 1].kind !== "action") throw new SwapInputError(EXECUTOR_ONLY);
@@ -218,7 +222,7 @@ function verifiedTrade(receipt: ActionReceipt, rctx?: ActionResultContext): Sett
   const wallet = rctx?.wallet?.toLowerCase();
   if (!t || !wallet || !t.executor || !t.tokenIn || !t.tokenOut || !UNITS_RE.test(t.amountIn ?? "")) return null;
   const feeBps = Number(t.feeBps);
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000) return null;
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 100) return null;
 
   const events: { user: string; venue: number; tokenIn: string; tokenOut: string; amountIn: bigint; amountOut: bigint; feeAmount: bigint }[] = [];
   for (const log of receipt.logs) {
@@ -236,8 +240,15 @@ function verifiedTrade(receipt: ActionReceipt, rctx?: ActionResultContext): Sett
   }
   if (events.length !== 1) return null;
   const e = events[0];
-  const gross = BigInt(t.amountIn);
-  const expectedFee = applyExecutorFee(gross, feeBps).feeWei; // BUILD-TIME rate, never re-read here
+  // BUILD-TIME rate, never re-read here: the gross for amountIn with the fee
+  // on top, and the executor's own fee on that gross.
+  let gross: bigint;
+  try {
+    gross = executorGross(BigInt(t.amountIn), feeBps).gross;
+  } catch {
+    return null;
+  }
+  const expectedFee = applyExecutorFee(gross, feeBps).feeWei;
   const provider = VENUES[e.venue];
   if (
     e.user.toLowerCase() !== wallet ||
@@ -269,7 +280,7 @@ function swapAction(executor: Address, chainId: number): Action {
       // Optional: absent/zero sentinel = native MON; otherwise PayAI's stablecoin.
       tokenIn: { type: "token", required: false, description: "Token to spend: MON (leave empty) or USDC" },
       tokenOut: { type: "token", required: true, description: "Token to receive: USDC, or MON (the zero address)" },
-      amountIn: { type: "units", required: true, description: "Exact amount to spend, in tokenIn's base units" },
+      amountIn: { type: "units", required: true, description: "Exact amount to swap, in tokenIn's base units (PayAI's fee is added on top)" },
       slippageBps: { type: "number", required: false, description: "Slippage tolerance in basis points (default: the engine's 0.5%)" },
     },
     // Confirmed outputs, from the executor's own TradeExecuted (settledTrade).
@@ -291,10 +302,11 @@ function swapAction(executor: Address, chainId: number): Action {
       return {
         summary: `Swap ${pv.spend.amount} ${p.tokenIn.symbol} for about ${pv.receive.amount} ${p.tokenOut.symbol}`,
         details: {
-          "you pay": `${pv.spend.amount} ${p.tokenIn.symbol}`,
+          "you swap": `${pv.spend.amount} ${p.tokenIn.symbol}`,
           "you receive (est.)": `${pv.receive.amount} ${p.tokenOut.symbol}`,
           "minimum received": pv.minimumReceived,
-          "platform fee": `${pv.fee!.amount} ${pv.fee!.token} (${pv.fee!.percent})`,
+          "PayAI fee": `${pv.fee!.amount} ${pv.fee!.token} (${pv.fee!.percent}, on top)`,
+          "total from your balance": `${pv.fee!.total} ${pv.fee!.token}`,
           route: pv.route.provider,
           slippage: pv.slippage,
           ...(pv.priceImpact ? { "price impact": `${pv.priceImpact}${pv.highPriceImpact ? " (high)" : ""}` } : {}),
@@ -325,7 +337,7 @@ function swapAction(executor: Address, chainId: number): Action {
         throw new ActionQuoteChangedError(`The price moved since your preview (now about ${r.preview.receive.amount} ${p.tokenOut.symbol}). Request a fresh preview.`);
       }
       requireExecutable(r.preview, p);
-      return executorSteps(r.steps, p, executor);
+      return executorSteps(r.steps, p, executor, feeBps);
     },
 
     async parseResult(receipt: ActionReceipt, rctx?: ActionResultContext): Promise<Readonly<Record<string, string>>> {

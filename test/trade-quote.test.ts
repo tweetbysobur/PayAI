@@ -926,7 +926,7 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
     expect(Number(p.receive.amount)).toBeCloseTo(1000, 6);
   });
 
-  it("flag ON + Uniswap: preview quotes NET and discloses the 0.25% PayAI fee", async () => {
+  it("flag ON + Uniswap: the full amount is quoted and the 0.25% PayAI fee is disclosed ON TOP", async () => {
     v1Enabled = true;
     bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
     const { previewTrade } = await import("@/lib/monad/tradeQuote");
@@ -936,8 +936,38 @@ describe("PayAITradeExecutor routing (Gate 5)", () => {
     expect(p.fee).not.toBeNull();
     expect(p.fee!.percent).toBe("0.25%");
     expect(p.fee!.token).toBe("USDC");
-    expect(Number(p.fee!.amount)).toBeCloseTo(0.25, 6);      // 100 * 0.25%
-    expect(Number(p.receive.amount)).toBeCloseTo(997.5, 3);  // 1000 net of 0.25%
+    expect(p.spend.amount).toBe("100");                      // swapped in full
+    expect(p.fee!.amount).toBe("0.250626");                  // on top: 100.250626 − floor(0.25%) = 100
+    expect(p.fee!.total).toBe("100.250626");                 // what leaves the balance
+    expect(Number(p.receive.amount)).toBeCloseTo(1000, 6);   // the route's output for the full 100
+  });
+
+  it("flag ON: a balance that covers the amount but not the fee on top is refused before building, and says so", async () => {
+    v1Enabled = true;
+    getTokenBalanceImpl = async () => 100.1; // covers 100 USDC, not 100.250626
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "100", amountType: "exact_input", walletAddress: WALLET });
+    expect(p.ok).toBe(false);
+    if (p.ok) return;
+    expect(p.message).toMatch(/100 USDC plus the 0\.250626 USDC PayAI fee \(100\.250626 in total\)/);
+    expect(p.message).toMatch(/covers the amount but not the fee on top/);
+    expect(p.message).toMatch(/You can trade up to 99\.84975 USDC\./); // 100100000 − floor(100100000 × 25 / 10000)
+  });
+
+  it("flag ON: \"trade all\" spends what fits with the fee on top — the total is the balance", async () => {
+    v1Enabled = true;
+    getTokenBalanceImpl = async () => 100;
+    bestQuoteImpl = async () => ({ provider: { name: "Uniswap v3" }, quote: { amountOut: 1000, priceImpact: 0.001 } });
+    const { previewTrade } = await import("@/lib/monad/tradeQuote");
+    const p = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: "MON", amount: "", amountType: "balance_all", walletAddress: WALLET });
+    expect(p.ok).toBe(true);
+    if (!p.ok) return;
+    expect(p.spend.amount).toBe("99.75");     // 100 − floor(100 × 0.25%)
+    // The smallest gross that swaps exactly 99.75 is one unit under the balance:
+    // 99999999 − floor(99999999 × 25 / 10000) = 99750000.
+    expect(p.fee!.amount).toBe("0.249999");
+    expect(p.fee!.total).toBe("99.999999");   // never more than the balance
   });
 
   it("flag ON + Uniswap: build routes through the executor plan, never the direct router", async () => {
@@ -1042,7 +1072,8 @@ describe("PayAITradeExecutor V2 dispatch — Nad.Fun via the executor (Gate 7)",
     expect(p.fee).not.toBeNull();
     expect(p.fee!.percent).toBe("0.25%");
     expect(p.fee!.token).toBe("MON");
-    expect(Number(p.receive.amount)).toBeCloseTo(9000 * 0.9975, 3); // net of the 0.25% fee
+    expect(Number(p.receive.amount)).toBeCloseTo(9000, 3); // the full 1 MON is swapped; the fee is on top
+    expect(Number(p.fee!.total)).toBeGreaterThan(1);
   });
 
   it("V2 configured: a Nad.Fun BUY builds through buildNadFunExecutorPlan (bonding-curve router), never the direct bonding-curve path", async () => {

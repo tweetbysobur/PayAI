@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { safeReturnPath } from "@/lib/platform/returnPath";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ShieldCheck, ArrowRight, Loader2, ChevronLeft, ChevronDown,
@@ -93,7 +94,7 @@ function AuthFlow() {
         setNewAddress(address);
         setStep("first-run");
       } else {
-        router.push("/dashboard");
+        router.push(safeReturnPath(params.get("next")) ?? "/dashboard");
       }
     } catch (e) {
       const code = e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code) : "";
@@ -157,7 +158,7 @@ function AuthFlow() {
     : WHY_POINTS_BASE;
 
   return (
-    <main className="relative flex min-h-screen flex-col overflow-hidden bg-background">
+    <main className="relative flex min-h-screen flex-col overflow-clip bg-background">
       <div aria-hidden className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[-12%] h-[460px] w-[720px] -translate-x-1/2 rounded-full bg-primary/25 blur-[130px]" />
         <div className="absolute bottom-[-8%] right-[-6%] h-72 w-72 rounded-full bg-secondary/15 blur-[110px]" />
@@ -201,10 +202,15 @@ function AuthFlow() {
                     <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">
                       {returning ? "Welcome back" : "Your PayAI Wallet"}
                     </h1>
-                    <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
+                    <p className="mx-auto mt-2 max-w-sm text-balance text-center text-sm leading-relaxed text-muted-foreground">
                       {returning
-                        ? "Unlock your wallet with your passkey to pick up where you left off. If you see more than one, pick the original — a newer passkey is a different wallet."
-                        : "If this device already has a PayAI passkey, that wallet opens. A new one is created only when it doesn't, so an old wallet is never replaced by an empty one."}
+                        ? "Unlock your wallet with your passkey to pick up where you left off."
+                        : "A wallet secured by your device's passkey — no seed phrase to write down."}
+                    </p>
+                    <p className="mx-auto mt-2 max-w-sm text-balance text-center text-xs leading-relaxed text-muted-foreground/80">
+                      {returning
+                        ? "See more than one passkey? Pick the original — a newer one is a different wallet."
+                        : "If this device already has a PayAI passkey, that wallet opens instead of a new one."}
                     </p>
 
                     {/* Item 2 — primary CTA */}
@@ -217,7 +223,7 @@ function AuthFlow() {
                         <Fingerprint size={18} className="shrink-0" />
                         <span className="flex-1">{returning ? "Unlock PayAI Wallet" : "Continue with PayAI Wallet"}</span>
                         {!returning && (
-                          <span className="shrink-0 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium">Recommended</span>
+                          <span className="hidden shrink-0 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium min-[400px]:inline">Recommended</span>
                         )}
                         <ArrowRight size={15} className="shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
                       </button>
@@ -404,19 +410,22 @@ function AuthFlow() {
               <motion.div
                 key="wallet" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="overflow-hidden rounded-2xl border border-border bg-panel p-8 text-center shadow-2xl"
+                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8"
               >
-                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <Fingerprint size={22} />
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Fingerprint size={20} />
                 </span>
-                <h1 className="mt-4 text-xl font-semibold tracking-tight text-foreground">Open your wallet</h1>
-                <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                  You are signed in. Next we use the PayAI passkey already on this device. A new wallet is created only if there is not one, and never if this sign-in already has a wallet.
+                <h1 className="mt-5 text-xl font-semibold tracking-tight text-foreground">Open your wallet</h1>
+                <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+                  You&apos;re signed in. Confirm with the passkey on this device to open your PayAI Wallet.
+                </p>
+                <p className="mt-3 text-pretty text-xs leading-relaxed text-muted-foreground/80">
+                  A new wallet is only created if you don&apos;t have one yet.
                 </p>
                 <button
                   onClick={() => { void openWallet(); }}
                   disabled={wallet.embeddedBusy || !wallet.embeddedSupported}
-                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {wallet.embeddedBusy ? <Loader2 size={15} className="animate-spin" /> : <>Continue <ArrowRight size={14} /></>}
                 </button>
@@ -424,11 +433,11 @@ function AuthFlow() {
                   type="button"
                   onClick={() => { void openWallet({ switchPasskey: true }); }}
                   disabled={wallet.embeddedBusy}
-                  className="mt-3 w-full text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40"
+                  className="mt-3 flex h-10 w-full items-center justify-center text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-40"
                 >
                   I have more than one passkey
                 </button>
-                {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+                {error && <p className="mt-3 text-sm text-danger">{error}</p>}
               </motion.div>
             )}
 
@@ -437,34 +446,46 @@ function AuthFlow() {
               <motion.div
                 key="choice" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="overflow-hidden rounded-2xl border border-border bg-panel p-8 shadow-2xl"
+                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8"
               >
-                <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">
-                  {blocked ? "This account already has a wallet" : "No PayAI passkey was used"}
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Fingerprint size={20} />
+                </span>
+                <h1 className="mt-5 text-balance text-xl font-semibold tracking-tight text-foreground">
+                  {blocked ? "This account already has a wallet" : "No passkey was selected"}
                 </h1>
-                <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-                  {blocked
-                    ? (error ?? "Unlock the passkey that already belongs to this sign-in. Creating another would be a different, empty wallet.")
-                    : "If you've used PayAI before, try again and choose that passkey — including one saved in iCloud or Google Password Manager. Creating a new passkey starts an empty wallet and does not move the old funds."}
-                </p>
+                {blocked ? (
+                  <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+                    {error ?? "Unlock the passkey that belongs to this sign-in. A new one would be a different, empty wallet."}
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-pretty text-sm leading-relaxed text-muted-foreground">
+                      Used PayAI before? Try again and pick that passkey — it may be saved in iCloud Keychain or Google Password Manager.
+                    </p>
+                    <p className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-pretty text-xs leading-relaxed text-muted-foreground">
+                      A new passkey creates a new, empty wallet. It doesn&apos;t move funds from an old one.
+                    </p>
+                  </>
+                )}
                 <button
                   onClick={() => { void openWallet({ switchPasskey: true }); }}
-                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground transition hover:opacity-95"
+                  className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-95"
                 >
                   <Fingerprint size={16} /> Use my existing passkey
                 </button>
                 {!blocked && (
                   <button
                     onClick={() => { void openWallet({ create: true }); }}
-                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-border px-4 py-3 text-sm font-medium text-foreground transition hover:border-primary/40"
+                    className="mt-2.5 flex h-12 w-full items-center justify-center rounded-xl border border-border px-4 text-sm font-medium text-foreground transition hover:border-primary/40"
                   >
-                    I have never used PayAI — create a new wallet
+                    I&apos;m new — create a wallet
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => { setError(null); setStep("start"); }}
-                  className="mt-4 flex w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  className="mt-3 flex h-10 w-full items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <ChevronLeft size={13} /> Back
                 </button>
@@ -489,8 +510,11 @@ function AuthFlow() {
                   </span>
                 </div>
                 <p className="text-base font-semibold text-foreground">Confirm on your device</p>
-                <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted-foreground">
-                  Use Face ID, Touch ID, or your device PIN. If you have more than one PayAI passkey, choose the original one. A new passkey is a different wallet.
+                <p className="mx-auto mt-1.5 max-w-xs text-balance text-sm leading-relaxed text-muted-foreground">
+                  Use Face ID, Touch ID or your device PIN.
+                </p>
+                <p className="mx-auto mt-2 max-w-xs text-balance text-xs leading-relaxed text-muted-foreground/80">
+                  Have more than one PayAI passkey? Choose the original.
                 </p>
               </motion.div>
             )}
@@ -500,7 +524,7 @@ function AuthFlow() {
               <FirstRunSteps
                 key="first-run"
                 address={newAddress}
-                onFinish={() => router.push("/dashboard")}
+                onFinish={() => router.push(safeReturnPath(params.get("next")) ?? "/dashboard")}
               />
             )}
           </AnimatePresence>

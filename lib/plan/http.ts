@@ -47,7 +47,11 @@ export type PlanRateOp = keyof typeof PLAN_RATE_LIMITS;
  *  budget so it never undercuts them, but bounded for unauthenticated noise. */
 export const PLAN_IP_LIMIT = { max: 120, windowSec: 60 } as const;
 
-const MAX_BODY_BYTES = 64 * 1024;
+/** Sized for a long plan's draft (≈500 bytes per action; the Intent IR
+ *  allows MAX_INTENT_NODES actions) and aligned with the store's
+ *  serialized-plan cap — a resource bound, read only after the IP and wallet
+ *  rate limits. */
+const MAX_BODY_BYTES = 512 * 1024;
 
 /** The approved PlanErrorCode → HTTP status mapping (every code listed). */
 export const PLAN_ERROR_STATUS: Readonly<Record<PlanErrorCode, number>> = {

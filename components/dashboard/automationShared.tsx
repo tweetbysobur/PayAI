@@ -19,6 +19,9 @@ export type FundingMode = "wallet" | "reserved";
 export type OnchainConfig = {
   chainId: number; executor: string | null; vault: string | null; wmon: string | null;
   usdc: { address: string; decimals: number }; walletModeAvailable: boolean; reservedModeAvailable: boolean;
+  /** Live PayAI fee rates (bps) of the executor / vault — charged ON TOP of
+   *  each payment. Null when unreadable. */
+  executorFeeBps?: number | null; vaultFeeBps?: number | null;
 };
 
 export const ERC20_APPROVE_ABI = [

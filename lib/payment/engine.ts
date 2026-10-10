@@ -335,7 +335,7 @@ const monadProvider: PaymentProvider = {
         const tokenDecimals = isNative ? 18 : (req.tokenDecimals ?? getStablecoin().decimals);
         const r = await releaseFromVault({
           automationId: req.automationId ?? "", amount, tokenDecimals,
-          requestId: req.requestId, vaultAddress: req.vaultAddress,
+          requestId: req.requestId, vaultAddress: req.vaultAddress, feeOnTop: req.feeOnTop === true,
         });
         return {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
@@ -373,6 +373,7 @@ const monadProvider: PaymentProvider = {
           amount, riskScore: req.riskScore ?? 0, decisionMeta,
           ref: req.invoiceRef ?? req.purpose ?? null, requestId: req.requestId,
           executorAddress: req.executorAddress as `0x${string}` | null | undefined,
+          feeOnTop: req.feeOnTop === true,
         });
         return {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,

@@ -171,6 +171,9 @@ export async function POST(req: NextRequest) {
   const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits, toParseableAmount } = await import("@/lib/monad/verify");
   const recipient = intent.recipient;
   let matched = false;
+  // The PayAI fee actually collected (FeeCollected), when routed through the
+  // forwarder — the receipt reports this, never a configured rate.
+  let platformFeeUnits: { fee: bigint; decimals: number } | null = null;
 
   // If this payment was routed through PayAIForwarder, the tx target is the
   // forwarder (not the recipient), so the raw to/value check below wouldn't
@@ -185,7 +188,7 @@ export async function POST(req: NextRequest) {
   const routedThroughForwarder =
     forwarderAddr != null && receipt.to != null && receipt.to.toLowerCase() === forwarderAddr.toLowerCase();
   if (routedThroughForwarder) {
-    const { decodePaymentForwarded, verifyPaymentForwarded } = await import("@/lib/monad/forwarder");
+    const { decodePaymentForwarded, decodeFeeCollected, verifyForwardedNet } = await import("@/lib/monad/forwarder");
     const ev = decodePaymentForwarded(receipt.logs, forwarderAddr);
     if (ev) {
       const wantAmount =
@@ -194,12 +197,19 @@ export async function POST(req: NextRequest) {
           : toBaseUnits(intent.amount, getStablecoin().decimals);
       const wantToken =
         intent.token === "MON" ? "0x0000000000000000000000000000000000000000" : getStablecoin().address;
-      matched = verifyPaymentForwarded(ev, {
+      // PayAI's fee is on top: the recipient's NET (gross − FeeCollected) must
+      // be exactly the approved amount. A payment built before the fee moved
+      // on top (gross == amount) is still the payment the user approved and
+      // signed, so it verifies too — never anything else.
+      const fc = decodeFeeCollected(receipt.logs, forwarderAddr, ev.id);
+      const verdict = verifyForwardedNet(ev, fc, {
         payer: walletAddress as `0x${string}`,
         recipient: recipient as `0x${string}`,
         token: wantToken as `0x${string}`,
         amountUnits: wantAmount,
       });
+      matched = verdict !== null;
+      if (verdict) platformFeeUnits = { fee: verdict.fee, decimals: intent.token === "MON" ? 18 : getStablecoin().decimals };
     }
     if (!matched) {
       await releaseRequest(confirmKey);
@@ -273,6 +283,7 @@ export async function POST(req: NextRequest) {
     ? buildReceipt({
         feature: "send_payment", amount: intent.amount, token: intent.token,
         gasFee: gasFee ?? undefined, status: "executed", txHash, explorerUrl,
+        ...(platformFeeUnits ? { actualFee: Number((await import("viem")).formatUnits(platformFeeUnits.fee, platformFeeUnits.decimals)) } : {}),
       })
     : undefined;
 

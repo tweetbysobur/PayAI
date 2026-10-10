@@ -33,7 +33,7 @@ import type { Action, ActionInputs, ActionInputValue, ListInputField, ScalarInpu
 import type { IntentError, IntentErrorCode, IntentValidationResult } from "./errors";
 import { canBind, normalizeToken, staticDenomination, staticErc20 } from "./outputs";
 import {
-  INTENT_CHAIN_ID, INTENT_IR_VERSION, MAX_INTENT_NODES,
+  INTENT_CHAIN_ID, INTENT_IR_VERSION, MAX_INTENT_NODES, MAX_INTENT_SOURCE_CHARS,
   type ActionNode, type BoundOutput, type InputValue, type IntentGraph, type PlanFeePolicy, type ValidatedIntentGraph,
 } from "./types";
 
@@ -140,7 +140,7 @@ function validate(raw: unknown, ctx: IntentValidationContext): ValidatedIntentGr
   if (!isPlainObject(g.source)) fail("MALFORMED", "Missing source.", "$.source");
   const src = g.source as Record<string, unknown>;
   checkKeys(src, ["text", "adapter", "adapterVersion"], "$.source");
-  const sourceText = str(src.text, "$.source.text", 1000);
+  const sourceText = str(src.text, "$.source.text", MAX_INTENT_SOURCE_CHARS);
   if (src.adapter !== "deterministic" && src.adapter !== "llm") fail("MALFORMED", "Unknown adapter.", "$.source.adapter");
   str(src.adapterVersion, "$.source.adapterVersion", 32);
 
@@ -172,16 +172,14 @@ function validate(raw: unknown, ctx: IntentValidationContext): ValidatedIntentGr
 
   // ── Each node: registry, inputs, bindings, recipients. ──
   const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+  const indexOf = new Map(nodes.map((n, i) => [n.nodeId, i]));
   const actions = new Map<string, Action>();
   for (const id of order) {
-    const n = byId.get(id)!;
-    const i = nodes.indexOf(n);
-    actions.set(id, resolveAction(n, i, session, ctx));
+    actions.set(id, resolveAction(byId.get(id)!, indexOf.get(id)!, session, ctx));
   }
   const bound: Bound = new Map();
   for (const id of order) {
-    const n = byId.get(id)!;
-    validateNodeInputs(n, nodes.indexOf(n), actions, byId, sourceText, bound);
+    validateNodeInputs(byId.get(id)!, indexOf.get(id)!, actions, byId, sourceText, bound);
   }
 
   // Fee policy comes from the resolved action's own metadata — never from
@@ -191,7 +189,7 @@ function validate(raw: unknown, ctx: IntentValidationContext): ValidatedIntentGr
     const policy = actions.get(id)!.feePolicy;
     if (policy === undefined) continue;
     if (!isPlainObject(policy) || policy.mode !== "on_top" || Object.keys(policy).length !== 1) {
-      fail("MALFORMED", "This action declares a fee policy PayAI doesn't support.", `$.nodes[${nodes.indexOf(byId.get(id)!)}].ref`, id);
+      fail("MALFORMED", "This action declares a fee policy PayAI doesn't support.", `$.nodes[${indexOf.get(id)!}].ref`, id);
     }
     feePolicies[id] = { mode: "on_top" };
   }
@@ -290,20 +288,54 @@ function checkNodeShape(raw: unknown, path: string): ActionNode {
 
 /* ── Graph order ────────────────────────────────────────────────────────── */
 
-/** Kahn's algorithm, ties broken by written order — deterministic. */
+/** Kahn's algorithm, ties broken by written order — deterministic.
+ *  Iterative and O((n + e) log n): a long chain (hundreds of actions, each
+ *  depending on the one before) costs no recursion depth and no quadratic
+ *  scan. Ready nodes wait in a min-heap keyed by written position. */
 function topologicalOrder(nodes: ActionNode[]): string[] {
-  const indegree = new Map(nodes.map((n) => [n.nodeId, n.dependsOn.length]));
-  const order: string[] = [];
-  const done = new Set<string>();
-  while (order.length < nodes.length) {
-    const next = nodes.find((n) => !done.has(n.nodeId) && indegree.get(n.nodeId) === 0);
-    if (!next) {
-      const stuck = nodes.find((n) => !done.has(n.nodeId))!;
-      fail("CYCLE", "The actions depend on each other in a cycle.", "$.nodes", stuck.nodeId);
+  const position = new Map(nodes.map((n, i) => [n.nodeId, i]));
+  const indegree = nodes.map((n) => n.dependsOn.length);
+  const dependents: number[][] = nodes.map(() => []);
+  nodes.forEach((n, i) => { for (const d of n.dependsOn) dependents[position.get(d)!].push(i); });
+
+  const heap: number[] = [];
+  const push = (v: number) => {
+    heap.push(v);
+    for (let c = heap.length - 1; c > 0;) {
+      const p = (c - 1) >> 1;
+      if (heap[p] <= heap[c]) break;
+      [heap[p], heap[c]] = [heap[c], heap[p]];
+      c = p;
     }
-    order.push(next!.nodeId);
-    done.add(next!.nodeId);
-    for (const n of nodes) if (n.dependsOn.includes(next!.nodeId)) indegree.set(n.nodeId, (indegree.get(n.nodeId) ?? 0) - 1);
+  };
+  const pop = (): number => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length > 0) {
+      heap[0] = last;
+      for (let p = 0; ;) {
+        const l = 2 * p + 1, r = l + 1;
+        let m = p;
+        if (l < heap.length && heap[l] < heap[m]) m = l;
+        if (r < heap.length && heap[r] < heap[m]) m = r;
+        if (m === p) break;
+        [heap[p], heap[m]] = [heap[m], heap[p]];
+        p = m;
+      }
+    }
+    return top;
+  };
+
+  indegree.forEach((d, i) => { if (d === 0) push(i); });
+  const order: string[] = [];
+  while (heap.length > 0) {
+    const i = pop();
+    order.push(nodes[i].nodeId);
+    for (const j of dependents[i]) if (--indegree[j] === 0) push(j);
+  }
+  if (order.length < nodes.length) {
+    const stuck = nodes.find((_, i) => indegree[i] > 0)!;
+    fail("CYCLE", "The actions depend on each other in a cycle.", "$.nodes", stuck.nodeId);
   }
   return order;
 }

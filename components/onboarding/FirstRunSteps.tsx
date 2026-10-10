@@ -91,8 +91,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
             </motion.div>
 
             <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Welcome to PayAI</h1>
-            <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-              Your embedded wallet has been created successfully. It&apos;s yours — PayAI can&apos;t move funds without you.
+            <p className="mx-auto mt-2 max-w-sm text-balance text-center text-sm leading-relaxed text-muted-foreground">
+              Your wallet is ready. It&apos;s yours — PayAI can&apos;t move funds without you.
             </p>
 
             <div className="mt-5 rounded-xl border border-border bg-input/30 px-3.5 py-3">
@@ -143,8 +143,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
               </span>
             </div>
             <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">Fund your wallet</h1>
-            <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-              Deposit MON or any supported Monad token to start sending and automating. You can always do this later.
+            <p className="mx-auto mt-2 max-w-sm text-balance text-center text-sm leading-relaxed text-muted-foreground">
+              Deposit MON or another supported Monad token to start. You can do this later.
             </p>
 
             <button
@@ -183,8 +183,8 @@ export function FirstRunSteps({ address, onFinish }: { address: string; onFinish
               </span>
             </div>
             <h1 className="text-center text-xl font-semibold tracking-tight text-foreground">What would you like to do first?</h1>
-            <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-muted-foreground">
-              Your wallet is funded and ready. Send a payment right now, or set up something recurring — either way takes under a minute.
+            <p className="mx-auto mt-2 max-w-sm text-balance text-center text-sm leading-relaxed text-muted-foreground">
+              Send a payment now, or set up something that repeats. Either takes under a minute.
             </p>
 
             <div className="mt-5 grid gap-2 sm:grid-cols-3">

@@ -2,15 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Rocket, ShieldCheck, ScrollText, ExternalLink, LifeBuoy, Lock,
-  BadgeCheck, Layers, Route, Mail, BookOpen,
-} from "lucide-react";
+import { BadgeCheck, Mail, ArrowUpRight } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { MonadMark } from "@/components/MonadMark";
 import { XMark } from "@/components/BrandIcons";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
-import pkg from "../../package.json";
 import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
 
 /**
@@ -42,20 +38,20 @@ const FOOTER_COLUMNS = [
     links: [
       // Onboarding is /auth now; /connect is the secondary external-wallet
       // path, so sending new visitors there skipped the primary experience.
-      { label: "Launch PayAI", href: `${APP_ORIGIN}/auth`, icon: Rocket, internal: true },
-      { label: "Product", href: "/product", icon: Layers, internal: true },
-      { label: "How it works", href: "/how-it-works", icon: Route, internal: true },
-      { label: "Security", href: "/security", icon: ShieldCheck, internal: true },
+      { label: "Launch PayAI", href: `${APP_ORIGIN}/auth`, internal: true },
+      { label: "Product", href: "/product", internal: true },
+      { label: "How it works", href: "/how-it-works", internal: true },
+      { label: "Security", href: "/security", internal: true },
     ],
   },
   {
     title: "Resources",
     links: [
-      { label: "Monad Explorer", href: MONAD_EXPLORER, icon: ExternalLink, internal: false },
-      { label: "Docs", href: DOCS_ORIGIN, icon: BookOpen, internal: true },
-      { label: "Support", href: `${APP_ORIGIN}/dashboard/help?tab=support`, icon: LifeBuoy, internal: true },
-      { label: "Privacy Policy", href: "/privacy", icon: Lock, internal: true },
-      { label: "Terms of Service", href: "/terms", icon: ScrollText, internal: true },
+      { label: "Monad Explorer", href: MONAD_EXPLORER, internal: false },
+      { label: "Docs", href: DOCS_ORIGIN, internal: true },
+      { label: "Support", href: `${APP_ORIGIN}/dashboard/help?tab=support`, internal: true },
+      { label: "Privacy Policy", href: "/privacy", internal: true },
+      { label: "Terms of Service", href: "/terms", internal: true },
     ],
   },
 ];
@@ -74,7 +70,7 @@ export function SiteFooter() {
 
   return (
     <footer className="border-t border-border bg-panel/40">
-      <div className="mx-auto max-w-6xl px-6 py-20 sm:py-24">
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-20">
         <div className="grid grid-cols-2 gap-10 sm:grid-cols-3 lg:grid-cols-5">
           <div className="col-span-2 sm:col-span-3 lg:col-span-2">
             <Link href="/" className="flex items-center gap-2">
@@ -82,17 +78,17 @@ export function SiteFooter() {
               <span className="text-base font-semibold text-foreground">PayAI</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              PayAI is an AI-native on-chain operator on Monad, operated by UsePayAI.
-              Turn natural-language intent into payments, trades, and DeFi actions from one interface.
+              PayAI turns intent into onchain execution on Monad. Tell it what you want done,
+              review the plan, approve. Operated by UsePayAI.
             </p>
-            <div className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/8 px-3 py-1.5 text-xs font-medium text-primary-ink">
+            <div className="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               <MonadMark size={12} /> Built on Monad Mainnet
             </div>
           </div>
 
           {FOOTER_COLUMNS.map((col) => (
             <div key={col.title}>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{col.title}</p>
+              <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">{col.title}</p>
               <ul className="mt-4 space-y-3">
                 {col.links.map((l) => {
                   const external = !l.internal;
@@ -102,10 +98,10 @@ export function SiteFooter() {
                       <Anchor
                         href={l.href}
                         {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
-                        className="group flex items-center gap-2 rounded-sm text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        className="inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       >
-                        <l.icon size={14} className="text-muted-foreground/60 transition-colors duration-150 group-hover:text-primary-ink" />
                         {l.label}
+                        {external && <ArrowUpRight size={13} aria-hidden className="text-muted-foreground/60" />}
                       </Anchor>
                     </li>
                   );
@@ -133,14 +129,13 @@ export function SiteFooter() {
         <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
           <p>© {new Date().getFullYear()} UsePayAI. All rights reserved.</p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-            <span className="font-mono">v{pkg.version}</span>
-            <span className="hidden h-3 w-px bg-border sm:inline" />
             <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
-            <span className="hidden h-3 w-px bg-border sm:inline" />
             {onchain?.configured && onchain.contracts && (onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer) ? (
               // One live-contract badge. Prefer the interactive-payment
               // forwarder (the contract users' own payments flow through);
               // fall back to the executor if the forwarder isn't configured.
+              <>
+              <span className="hidden h-3 w-px bg-border sm:inline" />
               <a
                 href={onchain.contracts.forwarderExplorer || onchain.contracts.executorExplorer}
                 target="_blank" rel="noreferrer"
@@ -148,11 +143,8 @@ export function SiteFooter() {
               >
                 <BadgeCheck size={13} /> PayAIForwarder Live on Monad
               </a>
-            ) : (
-              <span className="flex items-center gap-1.5 text-muted-foreground/60">
-                <BadgeCheck size={13} /> Contract status unavailable
-              </span>
-            )}
+              </>
+            ) : null /* Unknown status shows nothing, not a "status unavailable" label. */}
             {onchain?.configured && onchain.contracts?.tradeExecutorExplorer ? (
               // A second badge for the interactive-trade executor, shown only
               // once it's genuinely live (see /api/onchain's gating).

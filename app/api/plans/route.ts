@@ -37,13 +37,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const { authenticate, walletLimited, planJson, planErrorResponse, readBody, PlanInputError, noStore, PLAN_IP_LIMIT } = await import("@/lib/plan/http");
+  const { createTiming } = await import("@/lib/platform/timing");
+  const timing = createTiming("plans.create");
+  const done = (res: NextResponse) => timing.finish(res);
   try {
     const ip = await rateLimited(req, "plans-ip", PLAN_IP_LIMIT);
-    if (ip) return noStore(ip);
+    if (ip) return done(noStore(ip));
     const auth = authenticate(req);
-    if (auth instanceof NextResponse) return auth;
+    if (auth instanceof NextResponse) return done(auth);
     const limited = await walletLimited(req, auth, "create");
-    if (limited) return limited;
+    if (limited) return done(limited);
+    timing.mark("auth");
     const body = await readBody(req);
     const hasDraft = Object.prototype.hasOwnProperty.call(body, "draft");
     const hasText = Object.prototype.hasOwnProperty.call(body, "text");
@@ -52,13 +56,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       if (typeof body.text !== "string") throw new PlanInputError("\"text\" must be a string.");
       const { createPlanFromText } = await import("@/lib/plan-intake/intake");
       const r = await createPlanFromText(auth, body.text);
-      if (!r.ok) return planJson({ ok: false, code: r.code, message: r.message }, 422);
-      return planJson({ ok: true, plan: r.plan, review: r.review });
+      timing.mark("plan");
+      if (!r.ok) return done(planJson({ ok: false, code: r.code, message: r.message }, 422));
+      return done(planJson({ ok: true, plan: r.plan, review: r.review }));
     }
     const { createPlan, getPlanWithReview } = await import("@/lib/plan/service");
     const created = await createPlan(auth, body.draft);
-    return planJson({ ok: true, ...(await getPlanWithReview(auth, created.planId)) });
+    timing.mark("plan");
+    return done(planJson({ ok: true, ...(await getPlanWithReview(auth, created.planId)) }));
   } catch (e) {
-    return planErrorResponse(e);
+    return done(planErrorResponse(e));
   }
 }

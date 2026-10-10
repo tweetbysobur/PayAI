@@ -22,6 +22,14 @@ interface IntentBase {
   network: Network;
 }
 
+/** A PayAI fee charged on top, as the server formatted it. */
+export interface PlatformFeeView {
+  amount: string;
+  total: string;
+  token: string;
+  percent: string;
+}
+
 export interface PaymentIntent extends IntentBase {
   kind: "payment";
   token: string;
@@ -29,6 +37,10 @@ export interface PaymentIntent extends IntentBase {
   recipient: string;
   recipientDomain?: string | null;
   estimatedFee?: string | null;
+  /** PayAI's fee, charged ON TOP of `amount` (the recipient gets `amount` in
+   *  full; `total` leaves the wallet). From the server's build — exact, at
+   *  the live rate. Null/absent when the payment pays no PayAI fee. */
+  platformFee?: PlatformFeeView | null;
   purpose?: string | null;
   /**
    * Present only for a real (non-mock) payment produced by the live PayAI
@@ -316,11 +328,11 @@ export interface TradePreviewData {
    *  a stale price; see useAskChat's staleness handling for the existing
    *  swap card, which this mirrors. */
   quotedAt: number;
-  /** PayAI platform fee for this trade — present only when it routes through
-   *  PayAITradeExecutor (Uniswap/Kuru with the flag on); null for direct paths
-   *  (Nad.Fun, or the executor flag off). When present, `receive` and
-   *  `minimumReceived` are already NET of it. Mirrors tradeQuote's TradePreviewOk. */
-  fee: { percent: string; amount: string; token: string } | null;
+  /** PayAI platform fee for this trade, ON TOP of `spend` — present only when
+   *  it routes through PayAITradeExecutor; null for direct paths, which pay
+   *  none. `spend` is swapped in full; `total` leaves the balance. Older
+   *  stored cards may lack `total`. Mirrors tradeQuote's TradePreviewOk. */
+  fee: { percent: string; amount: string; token: string; total?: string } | null;
 }
 
 export interface TradePreviewIntent extends IntentBase {
@@ -523,6 +535,27 @@ export interface AskMessage {
   createdAt: number;
   /** Present when this assistant message carries a structured card. */
   operation?: Operation;
+  /** Present when this assistant message carries a plan (Ask's fast path to
+   *  the Plan API). Only a reference: the plan itself always comes from the
+   *  server (GET /api/plans/:id), so a reloaded conversation shows its real,
+   *  current state — never a stale copy. */
+  plan?: AskPlanRef;
+  /** Present when this assistant message carries a room card. Only the
+   *  request: the room itself always comes from the Rooms API. */
+  room?: AskRoomRef;
+}
+
+export interface AskRoomRef {
+  action: "create" | "list" | "status" | "join" | "contribute";
+  /** Only when the user wrote one. */
+  roomId: string | null;
+  /** create only: the request text the server reads. */
+  text: string | null;
+}
+
+export interface AskPlanRef {
+  planId: string;
+  kind: "transfer" | "swap" | "swap_send" | "multi";
 }
 
 export const NETWORK_LABEL: Record<Network, string> = {

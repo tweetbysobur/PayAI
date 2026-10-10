@@ -56,7 +56,7 @@ export function PortfolioCard({ address, locked }: { address: string | null; loc
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/12 text-primary-ink">
+            <span className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground">
               <Wallet size={14} />
             </span>
             Portfolio
@@ -68,9 +68,10 @@ export function PortfolioCard({ address, locked }: { address: string | null; loc
           </p>
         </div>
         <div className="text-right">
-          <p className="text-lg font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
-            {holdings.length === 0 && loading ? <Skeleton className="h-6 w-20" /> : formatUsd(totalUsd)}
-          </p>
+          {/* A div, not a p: the loading Skeleton is itself a div. */}
+          <div className="text-lg font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums]">
+            {holdings.length === 0 && loading ? <Skeleton className="ml-auto h-6 w-20" /> : formatUsd(totalUsd)}
+          </div>
           <p className="text-[11px] text-muted-foreground">Total value</p>
         </div>
       </div>

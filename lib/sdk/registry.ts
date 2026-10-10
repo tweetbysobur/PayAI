@@ -98,7 +98,15 @@ function assertValidAddressList(label: string, list: readonly string[]): void {
  *    (an action can only narrow the protocol ceiling, never widen it, and
  *    this is checked once here at registration in addition to per-request)
  */
+/** Bumped on every registry change, so anything derived from the registry
+ *  (e.g. the plan store's memo of validated plans) knows when to recompute. */
+let generation = 0;
+export function registryGeneration(): number {
+  return generation;
+}
+
 export function registerProtocol(adapter: ProtocolAdapter): void {
+  generation++;
   if (protocols.has(adapter.protocolId)) {
     throw new SdkRegistryError(`Protocol "${adapter.protocolId}" is already registered.`);
   }
@@ -226,6 +234,7 @@ export function listActionsForChain(chainId: ChainId): Action[] {
  *  Matches lib/monad/tokenIntelligence.ts's clearMarketDataCache() precedent.
  *  Not called anywhere in application code. */
 export function __resetRegistryForTests(): void {
+  generation++;
   protocols.clear();
   byChain.clear();
 }

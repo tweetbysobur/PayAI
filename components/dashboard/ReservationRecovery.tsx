@@ -202,7 +202,7 @@ export function ReservationRecovery({ vault, explorerBase }: { vault: string | n
           {error && <p className="mt-2.5 text-xs text-danger">{error}</p>}
 
           {found && (
-            <div className="mt-3 rounded-lg border border-exec-scheduled/35 bg-exec-scheduled/[0.07] p-3.5">
+            <div className="mt-3 rounded-lg border border-border bg-input/40 p-3.5">
               <p className="text-sm font-semibold text-foreground">
                 {Number(found.balance).toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
                 {found.token === "MON" ? "MON" : "tokens"} available to refund

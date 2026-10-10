@@ -47,6 +47,22 @@ export type ReviewStepDTO =
       amount: ReviewAmountDTO | ReviewOutputAmountDTO;
       recipient: { display: string; source: "address" | "nad" | "payee"; address: string };
     })
+  | (ReviewStepBaseDTO & {
+      action: "room_escrow";
+      op: "create" | "contribute" | "claim" | "refund" | "cancel";
+      token: { symbol: string; address: string | null };
+      roomId: string | null;
+      amount: ReviewAmountDTO | null;
+      create: null | {
+        roomKind: "fixed" | "target";
+        share: ReviewAmountDTO | null;
+        slots: number | null;
+        minContribution: ReviewAmountDTO | null;
+        deadline: number;
+        beneficiary: { display: string; source: "address" | "nad" | "payee"; address: string };
+      };
+      fee: { rule: "escrow_claim_fee"; maxBps: number };
+    })
   | (ReviewStepBaseDTO & { action: "unsupported" });
 
 export interface PlanReviewDTO {

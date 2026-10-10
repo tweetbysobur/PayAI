@@ -35,7 +35,8 @@ export interface FeeBreakdown {
   amount: number;
   /** Platform fee, same units as amount. Zero during beta. */
   fee: number;
-  /** amount - fee. Equals amount while fee is zero. */
+  /** What the recipient receives: the full amount — PayAI's fee is charged
+   *  ON TOP (lib/payment/feeOnTop.ts), so the total cost is amount + fee. */
   net: number;
   /** True while the configured fee for this feature is zero (the beta state). */
   isFree: boolean;
@@ -47,13 +48,13 @@ export function calculateFeeFromConfig(cfg: FeeConfig, feature: FeeFeature, amou
   const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
   const fee = cfg.value <= 0 ? 0
     : cfg.kind === "percentage" ? (safeAmount * cfg.value) / 10_000
-    : Math.min(cfg.value, safeAmount); // a flat fee can never exceed the payment itself
+    : cfg.value; // a flat fee, on top
   const isFree = fee <= 0;
   return {
     feature,
     amount: safeAmount,
     fee,
-    net: safeAmount - fee,
+    net: safeAmount,
     isFree,
     label: isFree ? "Free during Beta" : String(fee),
   };
@@ -83,8 +84,13 @@ export function buildReceiptFromConfig(cfg: FeeConfig, input: {
   status: string;
   txHash?: string;
   explorerUrl?: string;
+  /** The fee actually collected on-chain, when known — it wins over `cfg`. */
+  actualFee?: number;
 }): Receipt {
-  const platformFee = calculateFeeFromConfig(cfg, input.feature, input.amount);
+  const configured = calculateFeeFromConfig(cfg, input.feature, input.amount);
+  const platformFee = input.actualFee !== undefined && Number.isFinite(input.actualFee) && input.actualFee >= 0
+    ? { ...configured, fee: input.actualFee, net: configured.amount, isFree: input.actualFee <= 0, label: input.actualFee <= 0 ? "Free during Beta" : String(input.actualFee) }
+    : configured;
   // Gas is always paid in native MON, regardless of what the payment itself
   // moves — summing it into a single figure only makes sense when the
   // payment token IS MON. For USDC (or anything else), gas is a separate

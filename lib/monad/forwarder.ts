@@ -146,6 +146,23 @@ export function buildForwardErc20Tx(
   return { to: forwarder, data, value: "0x0", from: walletAddress };
 }
 
+/** buildForwardNativeTx, for an exact base-unit amount — the GROSS when
+ *  PayAI's fee is charged on top (lib/payment/feeOnTop.ts). */
+export function buildForwardNativeTxUnits(
+  forwarder: Address, walletAddress: Address, recipient: Address, amountWei: bigint, ref: string | null | undefined,
+): ForwarderUnsignedTx {
+  const data = encodeForwardPaymentNative(recipient, amountWei, toRef(ref));
+  return { to: forwarder, data, value: `0x${amountWei.toString(16)}`, from: walletAddress };
+}
+
+/** buildForwardErc20Tx, for an exact base-unit amount (see above). */
+export function buildForwardErc20TxUnits(
+  forwarder: Address, walletAddress: Address, token: Address, recipient: Address, amountUnits: bigint, ref: string | null | undefined,
+): ForwarderUnsignedTx {
+  const data = encodeForwardPayment(token, recipient, amountUnits, toRef(ref));
+  return { to: forwarder, data, value: "0x0", from: walletAddress };
+}
+
 /** ERC-20 allowance/approve — the minimal pair the forwarder ERC-20 flow needs.
  *  `allowance` is read (route-side) to decide whether an approval is required;
  *  `approve` is encoded here for the exact-amount pre-step. */
@@ -176,6 +193,13 @@ export function buildApproveForwarderTx(
     functionName: "approve",
     args: [forwarder, amountUnits],
   });
+  return { to: token, data, value: "0x0", from: walletAddress };
+}
+
+/** buildApproveForwarderTx, for an exact base-unit amount — the same units
+ *  the forward pulls, so the approval covers exactly the forward. */
+export function buildApproveForwarderTxUnits(token: Address, walletAddress: Address, forwarder: Address, amountUnits: bigint): ForwarderUnsignedTx {
+  const data = encodeFunctionData({ abi: ERC20_ALLOWANCE_APPROVE_ABI, functionName: "approve", args: [forwarder, amountUnits] });
   return { to: token, data, value: "0x0", from: walletAddress };
 }
 
@@ -286,3 +310,27 @@ export function decodeFeeCollected(
 }
 
 export type { Hash };
+
+/**
+ * Verifies a forwarded payment whose PayAI fee is charged ON TOP: payer,
+ * recipient and token as approved, and the recipient's NET (event gross −
+ * FeeCollected fee) exactly the approved amount. Also accepts a payment built
+ * before the fee moved on top, whose GROSS was the approved amount — that is
+ * exactly what the user approved and signed. The fee must be the forwarder's
+ * own FeeCollected for this payment and within the contracts' 1% cap.
+ * Returns the fee collected, or null when the event doesn't match.
+ */
+export function verifyForwardedNet(
+  ev: DecodedPaymentForwarded,
+  fc: DecodedFeeCollected | null,
+  expected: ExpectedForward,
+): { fee: bigint; feeOnTop: boolean } | null {
+  const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  if (!same(ev.payer, expected.payer) || !same(ev.recipient, expected.recipient) || !same(ev.token, expected.token)) return null;
+  const fee = fc ? fc.feeAmount : 0n;
+  if (fc && !same(fc.token, ev.token)) return null;
+  if (fee < 0n || fee > ev.amount || fee * 10000n > ev.amount * 100n) return null;
+  if (ev.amount - fee === expected.amountUnits) return { fee, feeOnTop: true };
+  if (ev.amount === expected.amountUnits) return { fee, feeOnTop: false }; // legacy: fee taken from the amount
+  return null;
+}

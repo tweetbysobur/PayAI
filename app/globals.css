@@ -34,7 +34,12 @@
      purple + white identity on dark: one accent, no green, no gold. Positive
      states read as on-brand confirmation rather than a stock green/gold tick. */
   --success: 258 90% 66%;          /* #8b5cf6 — brand violet (a touch lighter than primary) */
-  --warning: 27 96% 55%;           /* #fb8b1e — orange, reserved for real caution */
+  /* No orange anywhere. A problem the user has to act on — wrong network,
+     a failed run, a blocked payment, a risk flag — is red, whether it is
+     called a "warning" or an "error" in code. Something that is merely in
+     progress or waiting (submitted, confirming, scheduled) is NOT a problem
+     and uses the neutral text colours instead, never this token. */
+  --warning: 0 84% 60%;            /* #ef4444 — same red as --danger */
   --danger: 0 84% 60%;             /* #ef4444 */
 
   /* Execution-state colors — scoped to AUTOMATION EXECUTION STATUS ONLY:
@@ -47,7 +52,7 @@
      violet can't carry that. Purple stays dominant — these appear only on
      small status dots, badges and bars, never on surfaces, CTAs or type. */
   --exec-success: 152 58% 52%;     /* emerald — an execution that settled */
-  --exec-scheduled: 38 92% 58%;    /* amber — queued / waiting to run */
+  --exec-scheduled: 240 5% 65%;    /* neutral — queued / waiting to run is not a problem, so it is not coloured */
   --exec-failed: 0 84% 60%;        /* red — matches --danger deliberately */
   --info: 213 90% 64%;             /* blue — informational only, never a state of money */
 

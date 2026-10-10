@@ -48,6 +48,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { isAddress } from "viem";
 import { getRedis } from "@/lib/platform/kv";
+import { registryGeneration } from "@/lib/sdk/registry";
 import { isVerifiedOutputValue } from "@/lib/sdk/settlement";
 import type { VerifiedOutputValue } from "@/lib/sdk/types";
 import { PlanError, type PlanErrorCode } from "./errors";
@@ -185,6 +186,7 @@ async function backend(): Promise<Backend> {
 export function __resetPlanStoreForTests(): void {
   mem.kv.clear();
   mem.idx.clear();
+  rehydrated.clear();
 }
 /** Test-only: put a raw value at a key in the in-memory store (to exercise
  *  corrupt/conflicting data). Never used by application code. */
@@ -418,6 +420,9 @@ export async function createPlan(
     expiresAt: now + PLAN_TTL_MS,
   };
   if (!parsePlanCore(core)) fail("INVALID_PLAN", "This plan can't be stored.");
+  // Resource safety for long plans: the stored record (read on every load)
+  // stays well inside the KV store's request limit, whatever the action count.
+  if (JSON.stringify(core).length > MAX_PLAN_RECORD_BYTES) fail("INVALID_PLAN", "This plan is too large to store safely. Split the request into smaller plans.");
   const res = await writeOnce(planKeys.core(core.planId), core, PLAN_TTL_SECONDS + PLAN_RETENTION_GRACE_SECONDS, parsePlanCore, (a, b) => coreIdentity(a) === coreIdentity(b));
   if (res.record.expiresAt <= now) fail("EXPIRED", "This plan has expired.");
   // Best effort: the index is never the source of truth.
@@ -447,6 +452,30 @@ export async function readPlanCore(planId: string, ctx: Pick<StoreContext, "sess
  * Re-establish trust in a stored core: re-validate its draft, re-plan it,
  * and require every stored structural fact to match. Never mutates storage.
  */
+/**
+ * Memo of rehydratePlan, keyed by the EXACT stored record (its serialized
+ * form), the active chain and the SDK registry generation — every input the
+ * validation depends on (the clock only feeds intent-time freshness, which
+ * always passes here). A plan's record is write-once, so a long plan is
+ * validated once per process instead of on every API call (a 500-action plan:
+ * ~85 ms each time). Any difference in the record, chain or registry is a
+ * miss and is validated afresh; failures are never cached. Values are
+ * deep-frozen by the validator and planner.
+ */
+const REHYDRATED_CAP = 64;
+const rehydrated = new Map<string, { key: string; value: { graph: ValidatedIntentGraph; plan: ExecutionPlan } }>();
+
+function rehydrateMemo(core: PlanCore, ctx: Pick<StoreContext, "activeChainId" | "now">): { graph: ValidatedIntentGraph; plan: ExecutionPlan } {
+  const key = `${ctx.activeChainId}|${registryGeneration()}|${JSON.stringify(core)}`;
+  const hit = rehydrated.get(core.planId);
+  if (hit && hit.key === key) return hit.value;
+  const value = rehydratePlan(core, ctx);
+  rehydrated.delete(core.planId);
+  rehydrated.set(core.planId, { key, value });
+  if (rehydrated.size > REHYDRATED_CAP) rehydrated.delete(rehydrated.keys().next().value as string);
+  return value;
+}
+
 export function rehydratePlan(core: PlanCore, ctx: Pick<StoreContext, "activeChainId" | "now">): { graph: ValidatedIntentGraph; plan: ExecutionPlan } {
   const corrupt = (): never => fail("CORRUPT", "This plan's stored record is invalid.");
   const v = validateIntentGraph(core.draft, { sessionWallet: core.wallet, activeChainId: ctx.activeChainId, now: ctx.now });
@@ -484,7 +513,7 @@ export interface LoadedPlan {
 /** Load, rehydrate and read every fact of a plan this session owns. */
 export async function loadPlan(planId: string, ctx: StoreContext): Promise<LoadedPlan> {
   const core = await readPlanCore(planId, ctx);
-  const { graph, plan } = rehydratePlan(core, ctx);
+  const { graph, plan } = rehydrateMemo(core, ctx);
   const facts = await readFacts(core);
   const dependsOn: Record<string, string[]> = {};
   for (const s of plan.steps) dependsOn[s.nodeId] = [...s.dependsOn];
@@ -505,8 +534,12 @@ async function readFacts(core: PlanCore): Promise<PlanFacts> {
   if (approval && (approval.graphHash !== core.graphHash || approval.wallet !== core.wallet)) fail("CORRUPT", "A stored plan record is invalid.");
   const abandoned = await read(planKeys.abandoned(id), (r) => parseAbandon(r, id));
   if (abandoned && abandoned.wallet !== core.wallet) fail("CORRUPT", "A stored plan record is invalid.");
-  const nodes: Record<string, NodeFacts> = {};
-  for (const nodeId of core.stepOrder) {
+  // One node's facts, read and checked exactly as before. Nodes share no
+  // invariant here, so different nodes are read concurrently (bounded): a
+  // long plan costs ~nodes/READ_CONCURRENCY round-trips per load instead of
+  // 4+ sequential round-trips per node. Within a node the reads and checks
+  // keep their order.
+  const readNode = async (nodeId: string): Promise<NodeFacts> => {
     const quotes: QuoteFact[] = [];
     for (let n = 1; n <= MAX_QUOTE_ATTEMPTS; n++) {
       const q = await read(planKeys.quote(id, nodeId, n), (r) => parseQuote(r, id, nodeId, n), nodeId);
@@ -540,9 +573,35 @@ async function readFacts(core: PlanCore): Promise<PlanFacts> {
     // A later slot is only ever written once every earlier intent is resolved.
     const resolved = (i: SigningIntentFact) => (tx !== null && tx.quoteId === i.quoteId) || releases.some((r) => r.quoteId === i.quoteId);
     if (intents.slice(0, -1).some((i) => !resolved(i))) fail("CORRUPT", "A stored plan record is invalid.", nodeId);
-    nodes[nodeId] = { quotes, tx, result, intents, releases };
-  }
+    return { quotes, tx, result, intents, releases };
+  };
+  const read_ = await mapBounded(core.stepOrder, READ_CONCURRENCY, readNode);
+  // Rebuilt in step order, so the record's key order never depends on timing.
+  const nodes: Record<string, NodeFacts> = {};
+  core.stepOrder.forEach((nodeId, i) => { nodes[nodeId] = read_[i]; });
   return { approval, abandoned, nodes };
+}
+
+/** The largest plan record the store accepts, serialized (bytes ≈ chars:
+ *  the record is ASCII JSON). Half the KV store's 1 MB request limit. */
+export const MAX_PLAN_RECORD_BYTES = 512 * 1024;
+
+/** How many nodes' facts one plan load reads at once. */
+const READ_CONCURRENCY = 16;
+
+/** `fn` over `items` with at most `limit` in flight; results in input order.
+ *  The first rejection rejects the whole (as the sequential loop did). */
+export async function mapBounded<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
 }
 
 function stepOf(loaded: LoadedPlan, nodeId: string) {

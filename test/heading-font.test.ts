@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 /**
- * Both the landing page's final CTA and /product's render their closing
- * heading in Montserrat, uppercase, while the rest of the site keeps its
+ * /product's closing heading renders in Montserrat, uppercase. (The landing
+ * page's did too until the landing redesign moved the whole page to one
+ * typeface, Geist; that is checked at the bottom.) Originally both did, while the rest of the site keeps its
  * default Jakarta type. Per direct review feedback (a screenshot with the
  * heading circled), that styling applies regardless of the heading's own
  * copy — both have since been reworded independently ("Turn your intent into
@@ -36,9 +37,8 @@ describe("Montserrat is loaded and opt-in only", () => {
   });
 });
 
-describe("both closing-CTA headings use Montserrat, uppercase", () => {
+describe("/product's closing-CTA heading uses Montserrat, uppercase", () => {
   for (const [name, src, heading] of [
-    ["landing page", page, "Turn your intent into on-chain actions\\."],
     ["/product", product, "Describe it\\. Review it\\. Approve it\\."],
   ] as const) {
     it(`${name}: closing CTA heading is font-montserrat uppercase`, () => {
@@ -48,4 +48,15 @@ describe("both closing-CTA headings use Montserrat, uppercase", () => {
       expect(match![1]).toMatch(/\buppercase\b/);
     });
   }
+});
+
+describe("the landing page's closing heading follows the landing typeface", () => {
+  // The landing redesign sets one typeface (Geist) across the whole page, so
+  // its closing heading no longer opts into Montserrat.
+  it("is not Montserrat or uppercase, and the page sets Geist on <main>", () => {
+    const match = page.match(/<h2 className="([^"]*)">\s*Start with what you want done\./);
+    expect(match, "heading not found on the landing page").toBeTruthy();
+    expect(match![1]).not.toMatch(/\bfont-montserrat\b|\buppercase\b/);
+    expect(page).toMatch(/<main\s+className=\{`\$\{geist\.className\}/);
+  });
 });

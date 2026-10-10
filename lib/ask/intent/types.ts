@@ -48,6 +48,11 @@ export const ASK_INTENT_KINDS = [
   // re-validated against the reviewed registry + Phase 1 validators before
   // anything is quoted, built, or signed.
   "protocol_action",
+  // PayAI Rooms (lib/ask/intent/roomIntent.ts) — detected deterministically
+  // and, like protocol_action, never part of the model's schema. Every room
+  // action goes through the Rooms API behind an explicit button on the
+  // room card; paying a share is the existing plan card.
+  "room",
 ] as const;
 
 export type AskIntentKind = (typeof ASK_INTENT_KINDS)[number];
@@ -120,6 +125,11 @@ export interface AskSlots {
   /** Display-only: the name the user wrote (.nad domain or configured payee)
    *  for each resolved recipient address, keyed by lowercased address. */
   recipientLabels?: Record<string, string> | null;
+  /** "room" only: which room action, the room id ONLY when the user wrote
+   *  one, and (create only) the request text for the server to read. */
+  roomAction?: "create" | "list" | "status" | "join" | "contribute" | null;
+  roomId?: string | null;
+  roomText?: string | null;
 }
 
 /**

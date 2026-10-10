@@ -254,19 +254,26 @@ export async function listPlans(auth: PlanAuth): Promise<PlanSummary[]> {
   const ctx = await context(auth);
   if (typeof auth?.wallet !== "string") return [];
   const cores = await store.listPlansForWallet(auth.wallet);
-  const out: PlanSummary[] = [];
-  for (const c of cores) {
-    if (out.length >= LIST_PLANS_CAP) break;
+  const summarize = async (c: (typeof cores)[number]): Promise<PlanSummary | null> => {
     try {
       const l = await store.loadPlan(c.planId, ctx);
       const nodeStates = deriveNodeStates(l.shape, l.facts);
       const inFlight = l.core.stepOrder.some((id) => nodeStates[id] === "submitted" || unresolvedIntent(l.facts.nodes[id]) !== null);
-      out.push({
+      return {
         planId: l.core.planId, request: l.graph.source.text, state: derivePlanState(l.shape, l.facts), abandoned: l.facts.abandoned !== null, inFlight,
         currentStep: currentStep(l.shape, l.facts),
         steps: l.core.stepOrder.length, createdAt: l.core.createdAt, expiresAt: l.core.expiresAt,
-      });
-    } catch { /* skipped */ }
+      };
+    } catch {
+      return null; // skipped
+    }
+  };
+  // Newest first, at most LIST_PLANS_CAP that load cleanly — read a chunk at
+  // a time (bounded concurrency) instead of one plan after another.
+  const out: PlanSummary[] = [];
+  for (let i = 0; i < cores.length && out.length < LIST_PLANS_CAP; i += LIST_PLANS_CAP) {
+    const chunk = await store.mapBounded(cores.slice(i, i + LIST_PLANS_CAP), 4, summarize);
+    for (const s of chunk) if (s && out.length < LIST_PLANS_CAP) out.push(s);
   }
   return out;
 }

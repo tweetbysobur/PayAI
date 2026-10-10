@@ -40,6 +40,7 @@ import { createSplitSettlementProtocol } from "./actions/split-settlement";
 import { createAaveV3MonadProtocol } from "./actions/aave-v3-monad";
 import { createTransferProtocol } from "./actions/transfer";
 import { createSwapAction } from "./actions/swap";
+import { createRoomEscrowProtocol } from "./actions/room-escrow";
 import type { ProtocolAdapter } from "./types";
 
 let done = false;
@@ -61,6 +62,10 @@ export function ensureBuiltinsRegistered(): void {
   if (!getProtocol("payai")) {
     const payai = createPayAIProtocol();
     if (payai) registerProtocol(payai);
+  }
+  if (!getProtocol("payai-rooms")) {
+    const rooms = createRoomEscrowProtocol();
+    if (rooms) registerProtocol(rooms);
   }
   done = true;
 }

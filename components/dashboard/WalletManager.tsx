@@ -13,6 +13,7 @@ import { useToast } from "@/components/Toast";
 import { useCopy } from "@/lib/hooks/useCopy";
 import { MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 import dynamic from "next/dynamic";
+import { AddWalletModal } from "@/components/dashboard/AddWalletModal";
 
 const TopUpModal = dynamic(() => import("@/components/dashboard/TopUpModal").then((m) => m.TopUpModal), { ssr: false });
 
@@ -47,6 +48,7 @@ export function WalletManager() {
   const wallet = useWallet();
   const { toast } = useToast();
   const [busy, setBusy] = useState<Busy>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -287,11 +289,14 @@ export function WalletManager() {
       </ul>
 
       {!external && (
-        <a href="/connect" className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary-ink hover:underline">
+        // In place (AddWalletModal): a link to /connect ended the passkey
+        // session and dropped the user into the external wallet instead.
+        <button type="button" onClick={() => setAddOpen(true)} className="mt-3 inline-flex items-center gap-1.5 rounded-sm text-xs font-medium text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <Plus size={12} /> Connect another wallet
-        </a>
+        </button>
       )}
       {error && <p className="mt-3 text-xs text-danger">{error}</p>}
+      <AddWalletModal open={addOpen} onClose={() => setAddOpen(false)} />
 
       <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
         Defaults decide which wallet is proposed — never which one signs. Every

@@ -17,6 +17,8 @@
  */
 "use client";
 
+import { scheduleRequestText } from "./scheduleText";
+import { roomLead } from "./roomIntent";
 import { friendlyError, type AgentResult } from "@/lib/hooks/useAgentConsole";
 import { clearPendingSettlement, getPendingSettlement, savePendingSettlement } from "@/lib/hooks/pendingSettlement";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
@@ -86,12 +88,13 @@ type AgentApiResponse = Omit<AgentResult, "decision"> & {
 };
 
 /** Step 1 of every turn — ask the semantic layer what the message means. */
-export async function classifyMessage(text: string, history: ConversationTurn[], pending: Understanding | null): Promise<Understanding> {
+export async function classifyMessage(text: string, history: ConversationTurn[], pending: Understanding | null, signal?: AbortSignal): Promise<Understanding> {
   try {
     const r = await fetch("/api/ask/understand", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, history, pending }),
+      ...(signal ? { signal } : {}),
     });
     return (await r.json()) as Understanding;
   } catch {
@@ -150,6 +153,15 @@ export async function respondToUnderstanding(u: Understanding, walletAddress: st
     case "transaction_details": return { message: await dispatchTransactionDetails(u.slots, walletAddress), nextPending: null };
     case "automation_management": return { message: await dispatchAutomations(walletAddress), nextPending: null };
     case "distribution": return { message: dispatchDistribution(u.slots), nextPending: null };
+    case "room": {
+      // A card, not an action: everything it does goes through the Rooms API
+      // behind an explicit button (components/ask/RoomAskCard.tsx).
+      const action = u.slots.roomAction ?? "list";
+      return {
+        message: { id: nextId("msg"), role: "assistant", content: roomLead(action), createdAt: Date.now(), room: { action, roomId: u.slots.roomId ?? null, text: u.slots.roomText ?? null } },
+        nextPending: null,
+      };
+    }
     case "token_lookup": {
       const message = await dispatchTokenLookup(u.slots, walletAddress);
       // Unlike the other read-only kinds above, this one DOES carry forward
@@ -654,9 +666,9 @@ async function dispatchSchedule(
   walletAddress: string | null,
 ): Promise<AskMessage> {
   if (!walletAddress) return assistantText("Connect your wallet so I can look up your recipient and set this up.");
-  const canonical = kind === "recurring_payment"
-    ? `Schedule ${slots.amount} ${slots.asset} to ${slots.recipient} every ${slots.frequency}`
-    : `Schedule ${slots.amount} ${slots.asset} to ${slots.recipient} on ${slots.when}`;
+  // Carries the schedule the person gave (day/date/phrase) in words the
+  // engine reads — see scheduleText.ts for why "every weekly" was a bug.
+  const canonical = scheduleRequestText(kind, { amount: slots.amount ?? null, asset: slots.asset ?? null, recipient: slots.recipient ?? null, when: slots.when ?? null, frequency: slots.frequency ?? null });
   let json: AgentApiResponse | null = null;
   try {
     const r = await fetch("/api/agent", {

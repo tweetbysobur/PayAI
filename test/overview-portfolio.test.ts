@@ -2,41 +2,45 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 
 /**
- * The Overview dashboard needs to show the wallet's real total value across
- * every token it holds — a memecoin bought through Ask PayAI's trade flow, a
- * Nad.Fun launch, any swap output — not just a fixed pair.
+ * The Dashboard says one thing first: tell PayAI what you want done. Its
+ * hierarchy is welcome → intent box → capabilities → needs attention →
+ * recent activity → coming up → wallet. Balances support the page; they are
+ * not its identity.
  *
- * It reuses PortfolioCard/usePortfolio — the exact pair already proven on the
- * Wallets page, which discovers holdings from on-chain transfers (never a
- * maintained allowlist) and reports each token's real USD value or an honest
- * "—", never a fabricated number — rather than building a second, parallel
- * pricing/discovery path for Overview specifically.
- *
- * The KPI row above it used to be MON/USDC balance tiles. As of the Phase 2
- * dashboard reframe those became capability-neutral activity metrics
- * (On-chain activity / Payments / Automations / Success rate) so the page no
- * longer reads as payments-only; balances now live entirely in PortfolioCard,
- * their fuller home. This test guards the LAYOUT — a KPI row, then the
- * portfolio, then recent transactions — not the specific tiles.
+ * Wallet figures come from usePortfolio — the hook PortfolioCard on the
+ * Wallets page uses, which discovers holdings on-chain and prices them or
+ * shows "—" — never a second pricing path.
  */
 
 const src = readFileSync(new URL("../app/dashboard/page.tsx", import.meta.url), "utf8");
+const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-describe("Overview shows the wallet's real total value across every token it holds", () => {
-  it("imports and renders the same PortfolioCard the Wallets page uses", () => {
-    expect(src).toMatch(/import \{ PortfolioCard \} from "@\/components\/dashboard\/PortfolioCard"/);
-    expect(src).toMatch(/<PortfolioCard address=\{wallet\.readAddress\} locked=\{wallet\.isLocked\}/);
+describe("Dashboard: intent first, wallet last", () => {
+  it("leads with the welcome, the promise and the intent box", () => {
+    expect(code).toMatch(/Welcome to PayAI/);
+    expect(code).toMatch(/Turn intent into onchain execution in seconds\./);
+    expect(code).toMatch(/Tell PayAI what you want done\. It understands your intent, prepares the action, and lets you review it before execution\./);
+    expect(code).toMatch(/placeholder="What do you want to do\?"/);
   });
 
-  it("is placed after the KPI tiles and before recent transactions, not instead of the KPI tiles", () => {
-    // The KPI row is still there (now capability-neutral activity tiles), the
-    // portfolio sits below it, and recent transactions below that — the
-    // portfolio never replaces the KPI row.
-    const kpiIdx = src.indexOf('label: "On-chain activity"');
-    const portfolioIdx = src.indexOf("<PortfolioCard");
-    const recentIdx = src.indexOf('title="Recent transactions"');
-    expect(kpiIdx).toBeGreaterThan(-1);
-    expect(portfolioIdx).toBeGreaterThan(kpiIdx);
-    expect(recentIdx).toBeGreaterThan(portfolioIdx);
+  it("orders the page: welcome → intent → attention → recent → coming up → wallet", () => {
+    const order = ["Welcome to PayAI", "<AskEntry", 'title="Needs attention"', 'title="Recent activity"', 'title="Coming up"', 'title="Wallet"'].map((m) => code.indexOf(m));
+    for (const i of order) expect(i).toBeGreaterThan(-1);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  it("offers capabilities, not example transactions", () => {
+    const caps = /const CAPABILITIES = \[([\s\S]*?)\] as const;/.exec(code)?.[1] ?? "";
+    expect([...caps.matchAll(/label: "(\w+)"/g)].map((m) => m[1])).toEqual(["Send", "Trade", "Automate", "Schedule"]);
+    expect(caps).not.toMatch(/\d|USDC|MON|\.nad|0x/);
+  });
+
+  it("has no KPI tiles, count-up numbers, insights or charts", () => {
+    expect(code).not.toMatch(/CountUp|SummaryTile|AI insights|strokeDasharray|Active automations/);
+  });
+
+  it("reads wallet figures through usePortfolio, and never prints an unknown balance as a number", () => {
+    expect(code).toMatch(/usePortfolio\(wallet\.readAddress, wallet\.isLocked\)/);
+    expect(code).toMatch(/formatUsd\(portfolio\.totalUsd\) \?\? "—"/);
   });
 });

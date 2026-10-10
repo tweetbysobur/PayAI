@@ -163,7 +163,9 @@ export async function POST(req: NextRequest) {
       const { formatUnits } = await import("viem");
       const { resolveTenantId } = await import("@/lib/platform/tenant");
       const { recordTx } = await import("@/lib/platform/store");
-      const shownIn = formatUnits(trade.amountIn, trade.decimalsIn);
+      // The amount SWAPPED (what the user asked to trade); PayAI's fee was
+      // charged on top of it — amountIn on the event is that gross.
+      const shownIn = formatUnits(trade.amountIn - trade.fee, trade.decimalsIn);
       const shownOut = formatUnits(trade.amountOut, trade.decimalsOut);
       const shownFee = formatUnits(trade.fee, trade.decimalsIn);
       await recordTx(await resolveTenantId(req), {
@@ -181,7 +183,7 @@ export async function POST(req: NextRequest) {
         txHash,
         explorerUrl,
         summary:
-          `Trade ${shownIn} ${trade.symbolIn} → ${shownOut} ${trade.symbolOut} via ${trade.provider} (PayAI fee ${shownFee} ${trade.symbolIn})` +
+          `Trade ${shownIn} ${trade.symbolIn} → ${shownOut} ${trade.symbolOut} via ${trade.provider} (+ PayAI fee ${shownFee} ${trade.symbolIn} on top)` +
           ` · base units: in ${trade.amountIn}, out ${trade.amountOut}, fee ${trade.fee}`,
         outputAmount: Number(shownOut),
         outputToken: trade.symbolOut,

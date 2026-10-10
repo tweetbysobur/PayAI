@@ -14,10 +14,22 @@
  * the request unsupported. Keywords and symbols match case-insensitively;
  * runs of spaces collapse; one trailing "." or "!" is allowed.
  *
+ *   REQUEST   := ACTION (CONNECTOR ACTION)*   — any number of actions, in order,
+ *                up to the Intent IR's resource bounds (MAX_ACTIONS / MAX_REQUEST_LENGTH)
+ *   ACTION    := TRANSFER | SWAP | BOUND_SEND | NEXT_TRANSFER
  *   TRANSFER  := ("send"|"pay") AMOUNT SYMBOL "to" RECIPIENT
  *   SWAP      := "swap" AMOUNT SYMBOL ("to"|"for"|"into") SYMBOL
- *   SWAP_SEND := SWAP ("and" | "then" | "and then" | ", then") "send" BINDREF "to" RECIPIENT
+ *   BOUND_SEND    := "send" BINDREF "to" RECIPIENT     — only right after a SWAP:
+ *                    sends exactly what that swap returned
+ *   NEXT_TRANSFER := AMOUNT SYMBOL "to" RECIPIENT       — only right after a
+ *                    TRANSFER/NEXT_TRANSFER ("send 1 MON to a and 2 MON to b")
+ *   CONNECTOR := "," | "and" | "then" | ", and" | ", then" | "and then" | ", and then"
  *   BINDREF   := "it" | "the result" | "the" <the swap's output SYMBOL>
+ *
+ * Actions run in the order written. Every action after the first depends on
+ * the one before it (./adapter.ts), so the order is part of the plan: the
+ * Plan Service never quotes action N+1 before action N has confirmed, and a
+ * failed action stops everything after it.
  *   SYMBOL    := "MON" | the configured stablecoin's symbol
  *   AMOUNT    := (0|[1-9][0-9]{0,30})(\.[0-9]+)?   then > 0, ≤ token decimals, ≤ uint256
  *   RECIPIENT := a 0x address | a .nad/.nads name | a payee name
@@ -30,9 +42,13 @@
 import { parseUnits } from "viem";
 import { isDomainName } from "@/lib/monad/domain-resolver";
 import { recipientAppearsIn } from "@/lib/payees/directory";
+import { MAX_INTENT_NODES, MAX_INTENT_SOURCE_CHARS } from "@/lib/plan/types";
 
 export const ADAPTER_VERSION = "5a.1";
-export const MAX_REQUEST_LENGTH = 500;
+/** The Intent IR's own resource bounds (lib/plan/types.ts) — no tighter
+ *  product limit here: a request may hold as many actions as it really does. */
+export const MAX_REQUEST_LENGTH = MAX_INTENT_SOURCE_CHARS;
+export const MAX_ACTIONS = MAX_INTENT_NODES;
 
 export type AdapterErrorCode =
   | "UNSUPPORTED_REQUEST"
@@ -44,6 +60,7 @@ export type AdapterErrorCode =
   | "INVALID_RECIPIENT"
   | "NATIVE_OUTPUT_NOT_BINDABLE"
   | "ACTION_UNAVAILABLE"
+  | "TOO_MANY_ACTIONS"
   | "TOO_LONG";
 
 export interface AdapterError {
@@ -73,7 +90,9 @@ export type ParsedStep =
   | {
       kind: "transfer";
       token: Asset;
-      amount: { kind: "units"; units: string } | { kind: "output"; step: 0; output: "amountOut" };
+      /** "output": exactly what the swap at index `step` (always the action
+       *  right before this one) returned. */
+      amount: { kind: "units"; units: string } | { kind: "output"; step: number; output: "amountOut" };
       recipient: ParsedRecipient;
     };
 
@@ -97,6 +116,7 @@ const MESSAGES: Record<AdapterErrorCode, string> = {
   INVALID_RECIPIENT: "Give the recipient as a 0x address, a .nad name, or a saved payee name.",
   NATIVE_OUTPUT_NOT_BINDABLE: "MON received from a swap can't be passed to the next step — only the stablecoin can.",
   ACTION_UNAVAILABLE: "That action isn't available right now.",
+  TOO_MANY_ACTIONS: `A plan can have up to ${MAX_ACTIONS} actions. Split the request in two.`,
   TOO_LONG: `Keep the request under ${MAX_REQUEST_LENGTH} characters.`,
 };
 
@@ -177,18 +197,16 @@ const asksForDeferredAmount = (lower: readonly string[]): boolean =>
 
 /* ── Productions ────────────────────────────────────────────────────────── */
 
-function parseTransfer(w: string[], text: string, tokens: TokenConfig): ParseResult {
-  // send|pay AMOUNT SYMBOL to RECIPIENT
-  const token = parseSymbol(w[2], tokens);
+/** send|pay AMOUNT SYMBOL to RECIPIENT — or, after a transfer, the elided
+ *  AMOUNT SYMBOL to RECIPIENT. `w` is the clause's words from AMOUNT on. */
+function parseTransferTail(w: string[], text: string, tokens: TokenConfig): { ok: true; step: ParsedStep } | AdapterError {
+  const token = parseSymbol(w[1], tokens);
   if (!token) return adapterError("UNSUPPORTED_TOKEN");
-  const amount = parseAmount(w[1], decimalsOf(token, tokens));
+  const amount = parseAmount(w[0], decimalsOf(token, tokens));
   if (!amount.ok) return amount;
-  const recipient = parseRecipient(w[4], text);
+  const recipient = parseRecipient(w[3], text);
   if (!recipient) return adapterError("INVALID_RECIPIENT");
-  return {
-    ok: true, adapterVersion: ADAPTER_VERSION, sourceText: text,
-    steps: [{ kind: "transfer", token, amount: { kind: "units", units: amount.units }, recipient }],
-  };
+  return { ok: true, step: { kind: "transfer", token, amount: { kind: "units", units: amount.units }, recipient } };
 }
 
 function parseSwap(w: string[], tokens: TokenConfig): { ok: true; step: Extract<ParsedStep, { kind: "swap" }> } | AdapterError {
@@ -202,14 +220,32 @@ function parseSwap(w: string[], tokens: TokenConfig): { ok: true; step: Extract<
   return { ok: true, step: { kind: "swap", tokenIn, tokenOut, amountIn: amount.units } };
 }
 
-/** The send clause after a swap, or null when its words don't fit. */
-function sendClause(rest: string[], lower: string[]): { bind: "it" | "result" | string | "literal"; recipient: string } | null {
-  if (lower[0] !== "send") return null;
-  // send it to R | send the result to R | send the SYMBOL to R | send AMOUNT SYMBOL to R (deferred)
-  if (rest.length === 4 && lower[1] === "it" && lower[2] === "to") return { bind: "it", recipient: rest[3] };
-  if (rest.length === 5 && lower[1] === "the" && lower[3] === "to") return { bind: lower[2] === "result" ? "result" : rest[2], recipient: rest[4] };
-  if (rest.length === 5 && AMOUNT_RE.test(rest[1]) && lower[3] === "to") return { bind: "literal", recipient: rest[4] };
-  return null;
+/** Splits the words into action clauses at connectors. A comma is its own
+ *  word. Null when a connector is misplaced (leading, trailing, doubled). */
+function clauses(words: string[]): string[][] | null {
+  const out: string[][] = [];
+  let cur: string[] = [];
+  let i = 0;
+  while (i < words.length) {
+    const l = words[i].toLowerCase();
+    if (l === "," || l === "and" || l === "then") {
+      // One connector: , | and | then | , and | , then | and then | , and then
+      let j = i;
+      if (words[j] === ",") j++;
+      if (words[j]?.toLowerCase() === "and") j++;
+      if (words[j]?.toLowerCase() === "then") j++;
+      if (cur.length === 0 || j === i) return null;
+      out.push(cur);
+      cur = [];
+      i = j;
+      continue;
+    }
+    cur.push(words[i]);
+    i++;
+  }
+  if (cur.length === 0) return null;
+  out.push(cur);
+  return out;
 }
 
 export function parseIntent(text: string, tokens: TokenConfig): ParseResult {
@@ -230,52 +266,62 @@ function parse(text: string, tokens: TokenConfig): ParseResult {
   let s = text.trim().replace(/ {2,}/g, " ");
   if (s.endsWith(".") || s.endsWith("!")) s = s.slice(0, -1);
   if (s.length === 0) return adapterError("UNSUPPORTED_REQUEST");
-  const w = s.split(" ");
-  const lower = w.map((x) => x.toLowerCase());
+  // A comma that ENDS a word is a connector of its own ("alice.nad, then …").
+  // A comma inside a word ("1,000") stays part of it — and is then refused.
+  const words = s.split(" ").flatMap((x) => (x.length > 1 && x.endsWith(",") ? [x.slice(0, -1), ","] : [x]));
+  const lower = words.map((x) => x.toLowerCase());
+  const parts = clauses(words);
+  if (!parts) return unmatched(lower);
+  if (parts.length > MAX_ACTIONS) return adapterError("TOO_MANY_ACTIONS");
 
-  if (w.length === 5 && (lower[0] === "send" || lower[0] === "pay") && lower[3] === "to") {
-    return parseTransfer(w, text, tokens);
-  }
+  const steps: ParsedStep[] = [];
+  const total = parts.length;
+  /** A refusal in a multi-action request says WHICH action — the code is
+   *  unchanged; nothing is planned either way. */
+  const at = (e: AdapterError): AdapterError => (total > 1 ? { ...e, message: `Action ${steps.length + 1} of ${total}: ${e.message}` } : e);
+  for (const w of parts) {
+    const l = w.map((x) => x.toLowerCase());
+    const prev = steps.length > 0 ? steps[steps.length - 1] : null;
 
-  if (lower[0] === "swap" && w.length >= 5 && (lower[3] === "to" || lower[3] === "for" || lower[3] === "into")) {
-    // ", then": the comma is written against the swap's output symbol.
-    const comma = w[4].endsWith(",");
-    const swapWords = comma ? [...w.slice(0, 4), w[4].slice(0, -1)] : w.slice(0, 5);
-
-    if (w.length === 5 && !comma) {
-      const swap = parseSwap(swapWords, tokens);
-      if (!swap.ok) return swap;
-      return { ok: true, adapterVersion: ADAPTER_VERSION, sourceText: text, steps: [swap.step] };
+    // send it / the result / the SYMBOL to R — what the swap right before returned.
+    const bound =
+      l[0] === "send" && w.length === 4 && l[1] === "it" && l[2] === "to" ? { ref: "it", recipient: w[3] }
+        : l[0] === "send" && w.length === 5 && l[1] === "the" && l[3] === "to" && !AMOUNT_RE.test(w[2]) ? { ref: l[2] === "result" ? "result" : w[2], recipient: w[4] }
+        : null;
+    if (bound) {
+      if (prev?.kind !== "swap") return at(adapterError("UNSUPPORTED_REQUEST"));
+      if (bound.ref !== "it" && bound.ref !== "result") {
+        const named = parseSymbol(bound.ref, tokens);
+        if (!named) return at(adapterError("UNSUPPORTED_TOKEN"));
+        if (named !== prev.tokenOut) return at(adapterError("UNSUPPORTED_REQUEST"));
+      }
+      // Only an ERC-20 output can be passed on (the planner refuses native MON).
+      if (prev.tokenOut === "MON") return at(adapterError("NATIVE_OUTPUT_NOT_BINDABLE"));
+      const recipient = parseRecipient(bound.recipient, text);
+      if (!recipient) return at(adapterError("INVALID_RECIPIENT"));
+      steps.push({ kind: "transfer", token: prev.tokenOut, amount: { kind: "output", step: steps.length - 1, output: "amountOut" }, recipient });
+      continue;
     }
-
-    // SWAP_SEND: the connector, then exactly one send clause.
-    let k = 5;
-    if (comma) k = lower[5] === "then" ? 6 : -1;
-    else if (lower[5] === "and" && lower[6] === "then") k = 7;
-    else if (lower[5] === "and" || lower[5] === "then") k = 6;
-    const clause = k > 0 ? sendClause(w.slice(k), lower.slice(k)) : null;
-    if (!clause) return unmatched(lower);
-
-    const swap = parseSwap(swapWords, tokens);
-    if (!swap.ok) return swap;
-    if (clause.bind === "literal") return adapterError("UNSUPPORTED_AMOUNT");
-    if (clause.bind !== "it" && clause.bind !== "result") {
-      const named = parseSymbol(clause.bind, tokens);
-      if (!named) return adapterError("UNSUPPORTED_TOKEN");
-      if (named !== swap.step.tokenOut) return adapterError("UNSUPPORTED_REQUEST");
+    if (w.length === 5 && (l[0] === "send" || l[0] === "pay") && l[3] === "to") {
+      const r = parseTransferTail(w.slice(1), text, tokens);
+      if (!r.ok) return at(r);
+      steps.push(r.step);
+      continue;
     }
-    // Only an ERC-20 output can be passed on (the planner refuses native MON).
-    if (swap.step.tokenOut === "MON") return adapterError("NATIVE_OUTPUT_NOT_BINDABLE");
-    const recipient = parseRecipient(clause.recipient, text);
-    if (!recipient) return adapterError("INVALID_RECIPIENT");
-    return {
-      ok: true, adapterVersion: ADAPTER_VERSION, sourceText: text,
-      steps: [
-        swap.step,
-        { kind: "transfer", token: swap.step.tokenOut, amount: { kind: "output", step: 0, output: "amountOut" }, recipient },
-      ],
-    };
+    // "…and 2 MON to bob" — the verb carries over, only from a transfer.
+    if (w.length === 4 && l[2] === "to" && AMOUNT_RE.test(w[0]) && prev?.kind === "transfer") {
+      const r = parseTransferTail(w, text, tokens);
+      if (!r.ok) return at(r);
+      steps.push(r.step);
+      continue;
+    }
+    if (w.length === 5 && l[0] === "swap" && (l[3] === "to" || l[3] === "for" || l[3] === "into")) {
+      const r = parseSwap(w, tokens);
+      if (!r.ok) return at(r);
+      steps.push(r.step);
+      continue;
+    }
+    return at(unmatched(w.map((x) => x.toLowerCase())));
   }
-
-  return unmatched(lower);
+  return { ok: true, adapterVersion: ADAPTER_VERSION, sourceText: text, steps };
 }

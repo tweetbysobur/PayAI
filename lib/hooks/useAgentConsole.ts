@@ -48,6 +48,8 @@ export interface AgentResult {
   // both omit it). See app/api/agent/route.ts.
   approvalTx?: { to: string; data: string; value?: string; from: string } | null;
   approvalLabel?: string | null;
+  /** PayAI's fee, charged on top of the amount (see app/api/agent/route.ts). */
+  platformFee?: { amount: string; total: string; token: string; percent: string } | null;
   /** The real receipt, computed server-side. Render this directly — never
    *  recompute a receipt client-side (see the import comment above). */
   receipt?: Receipt;
@@ -104,6 +106,8 @@ export interface PendingConfirmation {
   // one-time exact-amount approval signed BEFORE the forward (see confirmSign).
   approvalTx?: { to: string; data: string; value?: string; from: string } | null;
   approvalLabel?: string | null;
+  /** PayAI's fee on top of `amount`; null when none. */
+  platformFee?: { amount: string; total: string; token: string; percent: string } | null;
 }
 
 export interface InfoResult {
@@ -185,7 +189,7 @@ export const DECISION: Record<string, { label: string; tone: "success" | "warnin
   blocked: { label: "Blocked", tone: "danger" },
   refused: { label: "Refused", tone: "danger" },
   error: { label: "Error", tone: "neutral" },
-  ready_to_sign: { label: "Awaiting your signature", tone: "warning" },
+  ready_to_sign: { label: "Awaiting your signature", tone: "neutral" },
 };
 
 export const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
@@ -659,6 +663,7 @@ export function useAgentConsole() {
           network: json.intent.network,
           approvalTx: json.approvalTx ?? null,
           approvalLabel: json.approvalLabel ?? null,
+          platformFee: json.platformFee ?? null,
         });
         return;
       }
