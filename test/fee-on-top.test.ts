@@ -75,10 +75,10 @@ describe("verifyForwardedNet", () => {
   const fc = (feeAmount: bigint, o: Partial<DecodedFeeCollected> = {}): DecodedFeeCollected => ({ id: 1n, token: USDC, feeAmount, treasury: TREASURY, ...o });
 
   it("fee on top: gross 20.050125 with fee 0.050125 delivers exactly 20 → verified", () => {
-    expect(verifyForwardedNet(ev(20_050125n), fc(50125n), expected)).toEqual({ fee: 50125n, feeOnTop: true });
+    expect(verifyForwardedNet(ev(20_050125n), fc(50125n), expected)).toEqual({ fee: 50125n, feeOnTop: true, feeEvent: "collected" });
   });
   it("a payment built before the fee moved on top (gross == amount) still verifies — it is what the user signed", () => {
-    expect(verifyForwardedNet(ev(20_000000n), fc(50000n), expected)).toEqual({ fee: 50000n, feeOnTop: false });
+    expect(verifyForwardedNet(ev(20_000000n), fc(50000n), expected)).toEqual({ fee: 50000n, feeOnTop: false, feeEvent: "collected" });
   });
   it.each([
     ["a recipient short by one unit", ev(20_050124n), fc(50125n)],

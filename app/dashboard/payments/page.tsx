@@ -435,6 +435,7 @@ export default function Payments() {
                         <div className="space-y-1.5 rounded-lg border border-border bg-input/30 p-3 text-xs">
                           <div className="flex items-center justify-between"><span className="text-muted-foreground">Payment amount</span><span className="font-medium text-foreground">{receipt.paymentAmount} {receipt.token}</span></div>
                           <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary-ink" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
+                          {receipt.recipientReceives && <div className="flex items-center justify-between"><span className="text-muted-foreground">Recipient received</span><span className="font-medium text-foreground">{receipt.recipientReceives}</span></div>}
                           {receipt.gasFee && <div className="flex items-center justify-between"><span className="text-muted-foreground">Gas fee</span><span className="font-medium text-foreground">{receipt.gasFee} MON</span></div>}
                           <div className="flex items-center justify-between border-t border-border pt-1.5"><span className="text-muted-foreground">Total cost</span><span className="font-semibold text-foreground">{receipt.totalCost}</span></div>
                         </div>

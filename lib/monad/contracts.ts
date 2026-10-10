@@ -79,17 +79,24 @@ export interface ExecuteResult {
   sender: string;
   paymentId?: number;
   event?: { name: string; paymentId: number; args: Record<string, string | number> };
+  /** PaymentExecutorV2's own FeeCollected for this payment (it emits one for
+   *  every payment, including a zero fee). Absent when none was found. */
+  feeCollected?: { feeUnits: string; token: string };
 }
 
 /** Build the full audit trail (block timestamp + decoded event) from a settled receipt. */
 async function buildAuditTrail(
   receipt: Awaited<ReturnType<ReturnType<typeof getPublicClient>["waitForTransactionReceipt"]>>,
-): Promise<{ blockTimestamp: number; sender: string; event?: ExecuteResult["event"] }> {
+  executor?: `0x${string}`,
+): Promise<{ blockTimestamp: number; sender: string; event?: ExecuteResult["event"]; feeCollected?: ExecuteResult["feeCollected"] }> {
   const pub = getPublicClient();
   const block = await pub.getBlock({ blockNumber: receipt.blockNumber });
 
   let event: ExecuteResult["event"] | undefined;
   for (const log of receipt.logs) {
+    // Only the executor's own PaymentExecuted establishes this payment's id —
+    // never a matching event from another contract in the same transaction.
+    if (executor && log.address.toLowerCase() !== executor.toLowerCase()) continue;
     try {
       const decoded = decodeEventLog({ abi: PAYMENT_EXECUTOR_ABI, data: log.data, topics: log.topics });
       if (decoded.eventName === "PaymentExecuted") {
@@ -110,8 +117,25 @@ async function buildAuditTrail(
     }
   }
 
-  return { blockTimestamp: Number(block.timestamp) * 1000, sender: receipt.from, event };
+  // The fee this payment actually paid: FeeCollected emitted BY the executor
+  // for this payment id (same event signature as the forwarder's). Read-only
+  // decoding of a settled receipt — never affects the payment itself.
+  let feeCollected: ExecuteResult["feeCollected"] | undefined;
+  if (executor && event) {
+    try {
+      const { decodeFeeCollected } = await import("./forwarder");
+      const fc = decodeFeeCollected(receipt.logs, executor, BigInt(event.paymentId));
+      if (fc) feeCollected = { feeUnits: fc.feeAmount.toString(), token: fc.token };
+    } catch {
+      /* undecodable — leave the fee unverified rather than guess */
+    }
+  }
+
+  return { blockTimestamp: Number(block.timestamp) * 1000, sender: receipt.from, event, feeCollected };
 }
+
+/** Test-only handle on the audit-trail decoder (read-only log decoding). */
+export { buildAuditTrail as __buildAuditTrailForTests };
 
 /**
  * Execute a payment through the PaymentExecutor contract: ensure the agent has
@@ -166,7 +190,7 @@ export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteRe
 
   const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
   const { formatEther } = await import("viem");
-  const trail = await buildAuditTrail(receipt);
+  const trail = await buildAuditTrail(receipt, executor);
   return {
     txHash,
     explorerUrl: explorerTx(txHash),
@@ -176,6 +200,7 @@ export async function executeViaExecutor(input: ExecuteInput): Promise<ExecuteRe
     sender: trail.sender,
     paymentId: trail.event?.paymentId,
     event: trail.event,
+    feeCollected: trail.feeCollected,
   };
 }
 
@@ -207,7 +232,7 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
 
   const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
   const { formatEther } = await import("viem");
-  const trail = await buildAuditTrail(receipt);
+  const trail = await buildAuditTrail(receipt, executor);
   return {
     txHash,
     explorerUrl: explorerTx(txHash),
@@ -217,6 +242,7 @@ export async function executeNativeViaExecutor(input: Omit<ExecuteInput, "amount
     sender: trail.sender,
     paymentId: trail.event?.paymentId,
     event: trail.event,
+    feeCollected: trail.feeCollected,
   };
 }
 
@@ -275,11 +301,11 @@ export async function executePaymentFromViaExecutor(
 
   const feeWei = receipt.gasUsed * receipt.effectiveGasPrice;
   const { formatEther } = await import("viem");
-  const trail = await buildAuditTrail(receipt);
+  const trail = await buildAuditTrail(receipt, executor);
   return {
     txHash, explorerUrl: explorerTx(txHash), gasFee: `${formatEther(feeWei)} MON`,
     blockNumber: Number(receipt.blockNumber), blockTimestamp: trail.blockTimestamp,
-    sender: trail.sender, paymentId: trail.event?.paymentId, event: trail.event,
+    sender: trail.sender, paymentId: trail.event?.paymentId, event: trail.event, feeCollected: trail.feeCollected,
   };
 }
 

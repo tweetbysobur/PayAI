@@ -29,35 +29,102 @@ export interface FeeConfig {
   value: number;
 }
 
+/**
+ * Where a fee figure comes from:
+ *  - "verified":   read from the settling contract's own on-chain event
+ *                  (FeeCollected), or proven zero because the transaction
+ *                  went through no PayAI fee contract at all;
+ *  - "estimated":  computed from PayAI's CONFIGURED rate (env) — a preview,
+ *                  never proof of what was charged;
+ *  - "unverified": a PayAI fee contract was involved but its fee couldn't be
+ *                  established from the transaction (e.g. no FeeCollected).
+ */
+export type FeeStatus = "verified" | "estimated" | "unverified";
+/** How the fee related to the amount: added on top, taken out of it, or none. */
+export type FeeBasis = "on_top" | "deducted" | "none" | "unknown";
+
 export interface FeeBreakdown {
   feature: FeeFeature;
   /** The amount the user typed/approved — never modified by this module. */
   amount: number;
-  /** Platform fee, same units as amount. Zero during beta. */
+  /** Platform fee, same units as amount. Only authoritative when status is "verified". */
   fee: number;
-  /** What the recipient receives: the full amount — PayAI's fee is charged
-   *  ON TOP (lib/payment/feeOnTop.ts), so the total cost is amount + fee. */
+  /** What the recipient receives (amount − fee when the fee was deducted). */
   net: number;
-  /** True while the configured fee for this feature is zero (the beta state). */
+  /** True ONLY for a verified zero fee — never because a configured rate is 0. */
   isFree: boolean;
-  /** What to actually print in a UI: "Free during Beta" while zero, else the formatted fee. */
+  /** What to print in a UI. Says "estimated" / "not verified" when it is. */
   label: string;
+  /** Where `fee` comes from (see FeeStatus). Absent on old payloads. */
+  status?: FeeStatus;
+  basis?: FeeBasis;
 }
 
+/** An ESTIMATE from PayAI's configured rate — a preview, not a charge. A zero
+ *  configured rate is not proof that nothing is charged (the contracts charge
+ *  their own on-chain rate), so it is never labelled "free". */
 export function calculateFeeFromConfig(cfg: FeeConfig, feature: FeeFeature, amount: number): FeeBreakdown {
   const safeAmount = Number.isFinite(amount) && amount > 0 ? amount : 0;
   const fee = cfg.value <= 0 ? 0
     : cfg.kind === "percentage" ? (safeAmount * cfg.value) / 10_000
     : cfg.value; // a flat fee, on top
-  const isFree = fee <= 0;
   return {
     feature,
     amount: safeAmount,
     fee,
     net: safeAmount,
-    isFree,
-    label: isFree ? "Free during Beta" : String(fee),
+    isFree: false,
+    label: fee > 0 ? `≈${fee} (estimated)` : "Not verified (no fee estimate configured)",
+    status: "estimated",
+    basis: "unknown",
   };
+}
+
+/**
+ * What a settled transaction proves about PayAI's fee — supplied by the
+ * caller from the transaction itself, never from configuration:
+ *  - collected:  the settling contract's FeeCollected event (V2 contracts emit
+ *                it on every payment, including a zero fee), with whether it
+ *                was added on top of the amount or deducted from it;
+ *  - none:       the transaction went through no PayAI fee contract (e.g. a
+ *                direct wallet transfer), so no PayAI fee was charged;
+ *  - unverified: a PayAI fee contract was involved but no fee event was found;
+ *  - estimate:   nothing settled on-chain (e.g. simulation) — show the
+ *                configured estimate, labelled as one.
+ */
+export type FeeEvidence =
+  | { kind: "collected"; feeUnits: bigint; decimals: number; basis: "on_top" | "deducted" }
+  | { kind: "none"; received?: { units: bigint; decimals: number } }
+  | { kind: "unverified" }
+  | { kind: "estimate"; reason?: string };
+
+/** Exact decimal string of base units (no float rounding). */
+function unitsToString(units: bigint, decimals: number): string {
+  const neg = units < 0n;
+  const s = (neg ? -units : units).toString().padStart(decimals + 1, "0");
+  const whole = s.slice(0, s.length - decimals);
+  const frac = decimals > 0 ? s.slice(s.length - decimals).replace(/0+$/, "") : "";
+  return `${neg ? "-" : ""}${whole}${frac ? `.${frac}` : ""}`;
+}
+
+/** A decimal amount → base units, exactly (null when it has more precision
+ *  than `decimals` or isn't a plain number). */
+function amountToUnits(amount: number, decimals: number): bigint | null {
+  if (!Number.isFinite(amount) || amount < 0) return null;
+  const str = amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
+  const m = /^(\d+)(?:\.(\d+))?$/.exec(str);
+  if (!m) return null;
+  const frac = m[2] ?? "";
+  if (frac.length > decimals && /[1-9]/.test(frac.slice(decimals))) return null;
+  return BigInt(m[1] + frac.slice(0, decimals).padEnd(decimals, "0"));
+}
+
+/** Gas arrives either bare ("0.0004") or with its unit ("0.0004 MON"); the
+ *  receipt always carries the bare number (the UI adds "MON"). */
+function bareGas(gasFee: string | null | undefined): string | null {
+  if (!gasFee) return null;
+  const t = gasFee.trim().replace(/\s*MON$/i, "");
+  return t && Number.isFinite(Number(t)) ? t : null;
 }
 
 export interface Receipt {
@@ -67,6 +134,10 @@ export interface Receipt {
   platformFee: FeeBreakdown;
   gasFee: string | null;
   totalCost: string;
+  /** Where the platform fee figure comes from (mirrors platformFee.status). */
+  feeStatus?: FeeStatus;
+  /** What the recipient received, exact, when the fee is verified; else null. */
+  recipientReceives?: string | null;
   status: string;
   txHash?: string;
   explorerUrl?: string;
@@ -75,7 +146,11 @@ export interface Receipt {
 
 /** A single, consistent receipt shape for Send Payment, Swap, and every
  *  automation mode — payment amount, platform fee, gas fee, total cost,
- *  and status, so every "what did this cost me" screen agrees. */
+ *  and status, so every "what did this cost me" screen agrees.
+ *
+ *  The platform fee is VERIFIED only from `feeEvidence` (the transaction's
+ *  own data). Without evidence it is an ESTIMATE from `cfg`, labelled as one —
+ *  a configured rate is never presented as what was charged. */
 export function buildReceiptFromConfig(cfg: FeeConfig, input: {
   feature: FeeFeature;
   amount: number;
@@ -84,31 +159,79 @@ export function buildReceiptFromConfig(cfg: FeeConfig, input: {
   status: string;
   txHash?: string;
   explorerUrl?: string;
-  /** The fee actually collected on-chain, when known — it wins over `cfg`. */
-  actualFee?: number;
+  /** What the settled transaction proves about the fee. Absent = estimate. */
+  feeEvidence?: FeeEvidence;
 }): Receipt {
-  const configured = calculateFeeFromConfig(cfg, input.feature, input.amount);
-  const platformFee = input.actualFee !== undefined && Number.isFinite(input.actualFee) && input.actualFee >= 0
-    ? { ...configured, fee: input.actualFee, net: configured.amount, isFree: input.actualFee <= 0, label: input.actualFee <= 0 ? "Free during Beta" : String(input.actualFee) }
-    : configured;
-  // Gas is always paid in native MON, regardless of what the payment itself
-  // moves — summing it into a single figure only makes sense when the
-  // payment token IS MON. For USDC (or anything else), gas is a separate
-  // currency and must be shown as its own line, never folded into one number.
-  const inNativeToken = input.token.toUpperCase() === "MON";
-  const gasNum = input.gasFee ? Number(input.gasFee) : 0;
-  const totalCost = inNativeToken
-    ? `${platformFee.amount + platformFee.fee + (Number.isFinite(gasNum) ? gasNum : 0)} ${input.token}`
-    : input.gasFee
-      ? `${platformFee.amount + platformFee.fee} ${input.token} + ${input.gasFee} MON gas`
-      : `${platformFee.amount + platformFee.fee} ${input.token}`;
+  const ev: FeeEvidence = input.feeEvidence ?? { kind: "estimate" };
+  const token = input.token;
+  const gas = bareGas(input.gasFee);
+  const inNativeToken = token.toUpperCase() === "MON";
+  const gasNum = gas ? Number(gas) : 0;
+  // Exact figures keep gas as its own line (it is paid in MON, separately).
+  const withGas = (total: string): string => (gas ? `${total} ${token} + ${gas} MON gas` : `${total} ${token}`);
+
+  let platformFee: FeeBreakdown;
+  let totalCost: string;
+  let recipientReceives: string | null = null;
+
+  if (ev.kind === "collected") {
+    const amountUnits = amountToUnits(input.amount, ev.decimals);
+    const feeStr = unitsToString(ev.feeUnits, ev.decimals);
+    const feeNum = Number(feeStr);
+    const zero = ev.feeUnits === 0n;
+    if (amountUnits !== null) {
+      const net = ev.basis === "on_top" ? amountUnits : amountUnits - ev.feeUnits;
+      const total = ev.basis === "on_top" ? amountUnits + ev.feeUnits : amountUnits;
+      recipientReceives = `${unitsToString(net, ev.decimals)} ${token}`;
+      totalCost = withGas(unitsToString(total, ev.decimals));
+    } else {
+      totalCost = withGas(`${input.amount}${ev.basis === "on_top" && !zero ? ` + ${feeStr}` : ""}`);
+    }
+    platformFee = {
+      feature: input.feature, amount: input.amount, fee: feeNum,
+      net: ev.basis === "on_top" ? input.amount : Number(recipientReceives?.split(" ")[0] ?? input.amount - feeNum),
+      isFree: zero,
+      label: zero ? "None — verified on-chain" : `${feeStr} ${token}${ev.basis === "deducted" ? " (deducted from the payment)" : ""} — verified on-chain`,
+      status: "verified", basis: zero ? "none" : ev.basis,
+    };
+  } else if (ev.kind === "none") {
+    // What actually moved (e.g. a native overpayment) when known; else the amount.
+    const actual = ev.received ? unitsToString(ev.received.units, ev.received.decimals) : String(input.amount);
+    recipientReceives = `${actual} ${token}`;
+    platformFee = {
+      feature: input.feature, amount: input.amount, fee: 0, net: Number(actual), isFree: true,
+      label: "None — this payment didn't go through a PayAI fee contract", status: "verified", basis: "none",
+    };
+    totalCost = inNativeToken && gas
+      ? (ev.received ? `${actual} ${token} + ${gas} MON gas` : `${input.amount + gasNum} ${token}`)
+      : withGas(actual);
+  } else if (ev.kind === "unverified") {
+    platformFee = {
+      feature: input.feature, amount: input.amount, fee: 0, net: input.amount, isFree: false,
+      label: "Not verified — check the transaction on the explorer", status: "unverified", basis: "unknown",
+    };
+    totalCost = `${withGas(String(input.amount))} + PayAI fee (not verified)`;
+  } else {
+    const est = calculateFeeFromConfig(cfg, input.feature, input.amount);
+    platformFee = ev.reason ? { ...est, label: `${est.label} — ${ev.reason}` } : est;
+    // Same arithmetic as before for an estimate; marked "≈" when it includes one.
+    const sum = est.amount + est.fee;
+    totalCost = inNativeToken
+      ? `${est.fee > 0 ? "≈" : ""}${sum + (Number.isFinite(gasNum) ? gasNum : 0)} ${token}`
+      : gas
+        ? `${est.fee > 0 ? "≈" : ""}${sum} ${token} + ${gas} MON gas`
+        : `${est.fee > 0 ? "≈" : ""}${sum} ${token}`;
+  }
+
   return {
     feature: input.feature,
-    token: input.token,
+    token,
     paymentAmount: input.amount,
     platformFee,
-    gasFee: input.gasFee ?? null,
+    gasFee: gas,
     totalCost,
+    feeStatus: platformFee.status,
+    recipientReceives,
     status: input.status,
     txHash: input.txHash,
     explorerUrl: input.explorerUrl,

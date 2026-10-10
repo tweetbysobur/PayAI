@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 /**
- * PayAI is fee-free during beta. That's a product promise, so it gets a test
- * rather than a convention: every feature must charge zero unless someone
- * deliberately sets a fee env var, and a user must always receive exactly the
- * amount they approved.
+ * The CONFIGURED fee engine (env) charges nothing unless a fee env var is set,
+ * and a user must always receive exactly the amount they approved. A zero
+ * configured rate is only an estimate, though: the contracts charge their own
+ * on-chain rate, so it is never labelled "free" (receipts call a fee free only
+ * when the transaction itself proves it — see test/receipt-fees.test.ts).
  */
 const FEATURES = ["send_payment", "swap", "wallet_automation", "reserved_funds"] as const;
 
@@ -27,13 +28,17 @@ describe("zero fees during beta", () => {
       const f = calculateFee(feature, 250);
       expect(f.fee, `${feature} must charge no fee`).toBe(0);
       expect(f.net, `${feature} must pay out the full amount`).toBe(250);
-      expect(f.isFree).toBe(true);
+      // A zero CONFIGURED rate is an estimate, not proof of a free payment.
+      expect(f.status).toBe("estimated");
+      expect(f.isFree).toBe(false);
     }
   });
 
-  it("says 'Free during Beta' rather than printing a zero", async () => {
+  it("never says 'Free during Beta' for a zero configured rate — it says it isn't verified", async () => {
     const { calculateFee } = await import("@/lib/payment/feeEngine");
-    expect(calculateFee("send_payment", 10).label).toMatch(/free during beta/i);
+    const label = calculateFee("send_payment", 10).label;
+    expect(label).not.toMatch(/free|beta/i);
+    expect(label).toMatch(/not verified/i);
   });
 
   it("never skims a tiny payment through rounding", async () => {
@@ -45,11 +50,12 @@ describe("zero fees during beta", () => {
     }
   });
 
-  it("a receipt shows no platform fee, so the UI can't imply one", async () => {
+  it("a receipt without transaction evidence shows no fee figure, and doesn't claim one was free", async () => {
     const { buildReceipt } = await import("@/lib/payment/feeEngine");
     const r = buildReceipt({ feature: "send_payment", amount: 42, token: "USDC", status: "settled" });
     expect(r.platformFee.fee).toBe(0);
-    expect(r.platformFee.isFree).toBe(true);
+    expect(r.platformFee.isFree).toBe(false);
+    expect(r.feeStatus).toBe("estimated");
     expect(r.paymentAmount).toBe(42);
   });
 

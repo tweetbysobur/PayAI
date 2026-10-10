@@ -37,7 +37,7 @@ const EXEMPT: Record<string, string> = {
   "automation-config/route.ts":
     "Returns configured contract addresses read from env. Constant work per request, no chain or DB access.",
   "fees/route.ts":
-    "Returns the current fee rate per feature, read from env. Constant work per request, no chain or DB access — same shape as automation-config/route.ts above.",
+    "Returns PayAI's configured fee estimates per feature, read from env (labelled not authoritative). Constant work per request, no chain or DB access.",
   "wallet-service/status/route.ts":
     "Reports whether the wallet service is configured. Constant work per request.",
   "platform-stats/route.ts":

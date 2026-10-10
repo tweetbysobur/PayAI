@@ -319,18 +319,26 @@ export type { Hash };
  * exactly what the user approved and signed. The fee must be the forwarder's
  * own FeeCollected for this payment and within the contracts' 1% cap.
  * Returns the fee collected, or null when the event doesn't match.
+ *
+ * `feeEvent` says where `fee` comes from: "collected" = the forwarder's own
+ * FeeCollected for this payment (PayAIForwarderV2 emits one for EVERY payment,
+ * including a zero fee); "absent" = no such event, so `fee` is 0 by
+ * assumption only — true for a V1 forwarder (which has no fee at all), never
+ * proof. Acceptance is unchanged either way (a V1 forward still verifies);
+ * a caller must not present an "absent" fee as verified.
  */
 export function verifyForwardedNet(
   ev: DecodedPaymentForwarded,
   fc: DecodedFeeCollected | null,
   expected: ExpectedForward,
-): { fee: bigint; feeOnTop: boolean } | null {
+): { fee: bigint; feeOnTop: boolean; feeEvent: "collected" | "absent" } | null {
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
   if (!same(ev.payer, expected.payer) || !same(ev.recipient, expected.recipient) || !same(ev.token, expected.token)) return null;
   const fee = fc ? fc.feeAmount : 0n;
   if (fc && !same(fc.token, ev.token)) return null;
   if (fee < 0n || fee > ev.amount || fee * 10000n > ev.amount * 100n) return null;
-  if (ev.amount - fee === expected.amountUnits) return { fee, feeOnTop: true };
-  if (ev.amount === expected.amountUnits) return { fee, feeOnTop: false }; // legacy: fee taken from the amount
+  const feeEvent = fc ? "collected" as const : "absent" as const;
+  if (ev.amount - fee === expected.amountUnits) return { fee, feeOnTop: true, feeEvent };
+  if (ev.amount === expected.amountUnits) return { fee, feeOnTop: false, feeEvent }; // legacy: fee taken from the amount
   return null;
 }

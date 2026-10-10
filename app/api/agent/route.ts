@@ -578,6 +578,9 @@ export async function POST(req: NextRequest) {
           feature: "send_payment", amount: intent.amount, token: intent.token,
           gasFee: transaction.gasFee, status: "executed",
           txHash: transaction.txHash, explorerUrl: transaction.explorerUrl,
+          // The fee this payment actually paid, from its own receipt
+          // (PaymentExecutor's FeeCollected) — never the configured rate.
+          feeEvidence: (await import("@/lib/payment/receiptEvidence")).feeEvidenceFromExecution(transaction),
         })
       : undefined;
     return respond(base("executed", { guardrail, compliance, risk, riskScore: risk.score, transaction, receipt }));

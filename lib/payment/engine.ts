@@ -229,7 +229,7 @@ function explorer(network: Network, txHash: string): string {
 const simulationProvider: PaymentProvider = {
   mode: "simulation",
   async execute(req) {
-    const base = { network: req.network, mode: "simulation" as const, amount: req.amount ?? undefined, token: req.token };
+    const base = { network: req.network, mode: "simulation" as const, amount: req.amount ?? undefined, token: req.token, settledVia: "simulation" as const };
     switch (req.action) {
       case "send_payment": {
         const txHash = fakeTxHash();
@@ -340,7 +340,7 @@ const monadProvider: PaymentProvider = {
         return {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
           amount, token: req.token, recipient: to, gasFee: r.gasFee, blockNumber: r.blockNumber,
-          blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId,
+          blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId, settledVia: "vault",
           detail: `Released ${amount} ${req.token} from your reserved balance to ${to}.`,
         };
       } catch (e) {
@@ -379,6 +379,7 @@ const monadProvider: PaymentProvider = {
           status: "settled", mode: "monad", network: req.network, txHash: r.txHash, explorerUrl: r.explorerUrl,
           amount, token: req.token, recipient: to, gasFee: r.gasFee, blockNumber: r.blockNumber,
           blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId, event: r.event,
+          settledVia: "executor", feeCollected: r.feeCollected ? { ...r.feeCollected, decimals: tokenDecimals } : undefined,
           detail: `Sent ${amount} ${req.token} directly from your wallet to ${to}.`,
         };
       } catch (e) {
@@ -420,6 +421,7 @@ const monadProvider: PaymentProvider = {
             amount, token: req.token, recipient: to,
             gasFee: r.gasFee, blockNumber: r.blockNumber,
             blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId, event: r.event,
+            settledVia: "executor", feeCollected: r.feeCollected ? { ...r.feeCollected, decimals: 18 } : undefined,
             detail: `Executed ${amount} MON via PaymentExecutor — native transfer + on-chain audit record in one tx.`,
           };
         }
@@ -439,6 +441,10 @@ const monadProvider: PaymentProvider = {
           amount, token: req.token, recipient: to,
           gasFee: r.gasFee, blockNumber: r.blockNumber,
           blockTimestamp: r.blockTimestamp, sender: r.sender, requestId: req.requestId, event: r.event,
+          settledVia: "executor",
+          feeCollected: r.feeCollected
+            ? { ...r.feeCollected, decimals: req.tokenDecimals ?? (await import("../monad/config")).getStablecoin().decimals }
+            : undefined,
           detail: `Executed ${amount} ${req.token} via PaymentExecutor — transfer + on-chain audit record in one tx.`,
         };
       } catch (e) {
@@ -467,7 +473,7 @@ const monadProvider: PaymentProvider = {
         status: result.status, mode: "monad", network: req.network,
         txHash: result.txHash, explorerUrl: result.explorerUrl,
         amount: result.amount, token: req.token, recipient: result.recipient,
-        gasFee: result.gasFee, gasEstimate, blockNumber: result.blockNumber, requestId: req.requestId,
+        gasFee: result.gasFee, gasEstimate, blockNumber: result.blockNumber, requestId: req.requestId, settledVia: "direct",
         detail: `Transferred ${result.amount} MON on ${result.network} (no on-chain audit anchor for native MON without PaymentExecutor).`,
       };
     }
@@ -524,6 +530,7 @@ const monadProvider: PaymentProvider = {
       requestId: req.requestId,
       registryTxHash,
       registryExplorerUrl,
+      settledVia: "direct",
       detail: `Transferred ${result.amount} ${req.token} on ${result.network}.${registryTxHash ? " Anchored on-chain." : ""}`,
     };
   },

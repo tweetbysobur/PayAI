@@ -155,6 +155,14 @@ export interface TransactionResult {
   sender?: string;
   /** Idempotency key this execution was claimed under. */
   requestId?: string;
+  /** How this payment settled — decides what can be VERIFIED about PayAI's
+   *  fee: "executor" (PaymentExecutor; its FeeCollected is in feeCollected),
+   *  "direct" (a plain wallet transfer — no PayAI fee contract), "vault"
+   *  (AutomationVault release), "simulation" (nothing on-chain). */
+  settledVia?: "executor" | "direct" | "vault" | "simulation";
+  /** The PaymentExecutor's own FeeCollected for this payment (base units),
+   *  when found in the receipt. Absent = not verified. */
+  feeCollected?: { feeUnits: string; token: string; decimals: number };
   /** Decoded on-chain PaymentExecuted event, when settled via PaymentExecutor. */
   event?: {
     name: string;

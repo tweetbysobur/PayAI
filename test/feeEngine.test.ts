@@ -2,13 +2,14 @@ import { describe, it, expect } from "vitest";
 import { calculateFee, buildReceipt, getTreasuryAddress } from "../lib/payment/feeEngine";
 
 describe("calculateFee", () => {
-  it("is free for every feature during beta — net always equals the input amount", () => {
+  it("with no fee configured: estimates zero, net equals the input amount, and is labelled as an estimate (never 'free')", () => {
     for (const feature of ["send_payment", "swap", "wallet_automation", "reserved_funds"] as const) {
       const b = calculateFee(feature, 1000);
       expect(b.fee).toBe(0);
       expect(b.net).toBe(1000);
-      expect(b.isFree).toBe(true);
-      expect(b.label).toBe("Free during Beta");
+      expect(b.isFree).toBe(false);
+      expect(b.status).toBe("estimated");
+      expect(b.label).toBe("Not verified (no fee estimate configured)");
     }
   });
 
@@ -35,7 +36,7 @@ describe("buildReceipt", () => {
   it("keeps USDC payments and MON gas as separate currencies in the total", () => {
     const r = buildReceipt({ feature: "send_payment", amount: 50, token: "USDC", gasFee: "0.002", status: "executed", txHash: "0xabc", explorerUrl: "https://monadexplorer.com/tx/0xabc" });
     expect(r.paymentAmount).toBe(50);
-    expect(r.platformFee.isFree).toBe(true);
+    expect(r.platformFee.isFree).toBe(false); // no evidence → an estimate, never "free"
     expect(r.gasFee).toBe("0.002");
     expect(r.totalCost).toBe("50 USDC + 0.002 MON gas");
     expect(r.status).toBe("executed");

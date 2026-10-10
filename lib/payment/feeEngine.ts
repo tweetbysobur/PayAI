@@ -1,5 +1,5 @@
 import "server-only";
-import { calculateFeeFromConfig, buildReceiptFromConfig, type FeeFeature, type FeeConfig, type FeeBreakdown, type Receipt } from "./feeMath";
+import { calculateFeeFromConfig, buildReceiptFromConfig, type FeeFeature, type FeeConfig, type FeeBreakdown, type FeeEvidence, type Receipt } from "./feeMath";
 
 /**
  * PayAI Fee Engine — the SERVER-ONLY half of the fee system: knowing the
@@ -50,7 +50,7 @@ import { calculateFeeFromConfig, buildReceiptFromConfig, type FeeFeature, type F
  * and never itself the thing doing the charging.
  */
 
-export type { FeeFeature, FeeConfig, FeeBreakdown, Receipt };
+export type { FeeFeature, FeeConfig, FeeBreakdown, FeeEvidence, Receipt };
 
 /** One env var per feature so any of them can be priced independently,
  *  without redeploying the others.
@@ -97,9 +97,9 @@ export function buildReceipt(input: {
   status: string;
   txHash?: string;
   explorerUrl?: string;
-  /** The fee actually collected on-chain, when known — it wins over the
-   *  configured rate. */
-  actualFee?: number;
+  /** What the settled transaction proves about the fee (lib/payment/
+   *  receiptEvidence.ts). Absent = the configured rate, shown as an estimate. */
+  feeEvidence?: FeeEvidence;
 }): Receipt {
   return buildReceiptFromConfig(FEE_CONFIG[input.feature], input);
 }

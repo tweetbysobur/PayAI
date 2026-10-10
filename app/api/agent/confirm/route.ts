@@ -171,9 +171,15 @@ export async function POST(req: NextRequest) {
   const { hasErc20TransferTo, isNativeTransferTo, toBaseUnits, toParseableAmount } = await import("@/lib/monad/verify");
   const recipient = intent.recipient;
   let matched = false;
-  // The PayAI fee actually collected (FeeCollected), when routed through the
-  // forwarder — the receipt reports this, never a configured rate.
-  let platformFeeUnits: { fee: bigint; decimals: number } | null = null;
+  // What this transaction proves about the PayAI fee, for the receipt only —
+  // never a configured rate, and never part of what is accepted below.
+  // Unverified until a branch establishes otherwise.
+  let feeEvidence: import("@/lib/payment/feeMath").FeeEvidence = { kind: "unverified" };
+  const evidence = await import("@/lib/payment/receiptEvidence");
+  // Every PayAI fee contract this deployment knows: their logs (or PayAI fee
+  // event signatures from anywhere) rule out a verified zero-fee transfer.
+  const cfg = await import("@/lib/monad/config");
+  const feeContracts = [cfg.getPayAIForwarder(), cfg.getPaymentExecutor(), cfg.getAutomationVault(), cfg.getPayAITradeExecutor(), cfg.getPayAITradeExecutorV2()];
 
   // If this payment was routed through PayAIForwarder, the tx target is the
   // forwarder (not the recipient), so the raw to/value check below wouldn't
@@ -209,7 +215,10 @@ export async function POST(req: NextRequest) {
         amountUnits: wantAmount,
       });
       matched = verdict !== null;
-      if (verdict) platformFeeUnits = { fee: verdict.fee, decimals: intent.token === "MON" ? 18 : getStablecoin().decimals };
+      if (verdict) {
+        const decimals = intent.token === "MON" ? 18 : getStablecoin().decimals;
+        feeEvidence = evidence.feeEvidenceFromForward({ ...verdict, decimals });
+      }
     }
     if (!matched) {
       await releaseRequest(confirmKey);
@@ -231,6 +240,8 @@ export async function POST(req: NextRequest) {
     try {
       const tx = await client.getTransaction({ hash: txHash as `0x${string}` });
       matched = isNativeTransferTo(tx, recipient, wanted);
+      // The receipt reports what was actually sent (an overpayment is accepted).
+      if (matched) feeEvidence = evidence.directNativeFeeEvidence({ txTo: tx.to, recipient, value: tx.value, logs: receipt.logs, feeContracts });
     } catch {
       matched = false;
     }
@@ -238,6 +249,15 @@ export async function POST(req: NextRequest) {
     const usdc = getStablecoin();
     const wanted = toBaseUnits(intent.amount, usdc.decimals);
     matched = hasErc20TransferTo(receipt.logs, usdc.address, recipient, wanted);
+    // Acceptance is unchanged; the receipt calls the fee a verified zero only
+    // for a plain token transfer from this wallet with no PayAI fee contract
+    // anywhere in it — a forwarded payment reaching this branch (forwarder
+    // unset or rotated) stays unverified.
+    if (matched) {
+      feeEvidence = evidence.directErc20FeeEvidence({
+        txTo: receipt.to, token: usdc.address, decimals: usdc.decimals, wallet: walletAddress, recipient, minAmount: wanted, logs: receipt.logs, feeContracts,
+      });
+    }
   }
   if (!matched) {
     await releaseRequest(confirmKey);
@@ -283,7 +303,7 @@ export async function POST(req: NextRequest) {
     ? buildReceipt({
         feature: "send_payment", amount: intent.amount, token: intent.token,
         gasFee: gasFee ?? undefined, status: "executed", txHash, explorerUrl,
-        ...(platformFeeUnits ? { actualFee: Number((await import("viem")).formatUnits(platformFeeUnits.fee, platformFeeUnits.decimals)) } : {}),
+        feeEvidence,
       })
     : undefined;
 

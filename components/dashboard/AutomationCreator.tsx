@@ -14,6 +14,7 @@ import { useModalA11y } from "@/lib/hooks/useModalA11y";
 import { AUTOMATION_VAULT_ABI } from "@/lib/monad/abi";
 import { toParseableAmount } from "@/lib/monad/verify";
 import { feeOnTop, fromUnits, toUnits } from "@/lib/payment/feeOnTop";
+import { fundingSummary } from "@/lib/automation/fundingSummary";
 import type { TemplateCategory } from "@/lib/automation/templates";
 import {
   NATIVE_TOKEN_ADDRESS, ERC20_APPROVE_ABI, PURPOSES,
@@ -209,6 +210,11 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
   const reservedBudgetAmount = totalScheduled != null ? totalScheduled : perPaymentGross;
   // What the Review screen shows depends on the chosen mode.
   const budgetAmount = fundingMode === "wallet" ? walletBudgetAmount : reservedBudgetAmount;
+  // Display only: the exact payment, fee and total — the same base units the
+  // approval / reservation is built from below — so the summary reconciles.
+  const summary = perPaymentFee && tokenInfo
+    ? fundingSummary({ ...perPaymentFee, decimals: tokenInfo.decimals, symbol: tokenInfo.symbol, occurrences, mode: fundingMode })
+    : null;
 
   const endCondition: EndCondition = cadence === "once" || endMode === "never"
     ? { type: "never" }
@@ -357,9 +363,9 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
                   {endMode === "until_date" && <div className="mt-3"><label className="mb-1.5 block text-xs font-medium text-muted-foreground">Runs until (inclusive)</label><Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} /></div>}
                 </div>}
                 <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-4 text-sm">
-                  {occurrences != null
-                    ? <p className="text-foreground">{occurrences} payment{occurrences === 1 ? "" : "s"} × {money(perPayment, tokenInfo?.symbol ?? "")} = <strong className="text-primary-ink">{money(totalScheduled ?? 0, tokenInfo?.symbol ?? "")}</strong> total{fundingMode === "reserved" ? " reserved up front" : " authorized"}.</p>
-                    : <p className="text-muted-foreground">Ongoing — no fixed total. {fundingMode === "reserved" ? "Reserved Funds sets aside only the next payment; add an end date or count to reserve the full run up front." : "You authorize about a year at a time and re-approve later — funds only move at each run."}</p>}
+                  {summary
+                    ? <p className={occurrences != null ? "text-foreground" : "text-muted-foreground"}>{summary.line}</p>
+                    : <p className="text-muted-foreground">PayAI&apos;s fee rate couldn&apos;t be read yet, so the total isn&apos;t shown. Nothing is approved or reserved until it is.</p>}
                 </div>
               </Step>}
               {step === 5 && <Step title="Purpose" detail="Purpose powers history, analytics, receipts, and future AI insights."><div className="grid gap-2 sm:grid-cols-3">{PURPOSES.map((p) => <button key={p} onClick={() => setPurpose(p)} className={choiceClass(purpose === p, "px-3 py-2")}>{p}</button>)}</div>{purpose === "Other" && <Input value={customPurpose} onChange={(e) => setCustomPurpose(e.target.value)} placeholder="Custom purpose" className="mt-4 w-full" />}</Step>}
@@ -388,13 +394,15 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
                 </div>
                 <ReviewGrid rows={[
                   { label: "Funding Method", value: fundingMode === "wallet" ? "Wallet Automation" : "Reserved Funds", accent: true },
-                  { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: money(budgetAmount, tokenInfo?.symbol ?? ""), accent: true },
+                  { label: fundingMode === "wallet" ? "You authorize up to" : "You reserve", value: summary?.total ?? (fundingMode === "wallet" && summary ? `~${money(budgetAmount, tokenInfo?.symbol ?? "")} (about a year)` : "—"), accent: true },
                   { label: "Recipient", value: recipientInput, accent: true },
                   { label: "Resolved Address", value: resolved?.recipient ?? "-", mono: true },
                   { label: "Asset", value: tokenInfo?.symbol ?? "-", accent: true },
-                  { label: "Recipient receives per payment", value: money(amountNum || 0, tokenInfo?.symbol ?? ""), accent: true },
+                  { label: "Recipient receives per payment", value: summary?.perPayment ?? money(amountNum || 0, tokenInfo?.symbol ?? ""), accent: true },
+                  { label: "PayAI fee per payment (added on top)", value: summary?.feePerPayment ?? "—", accent: true },
+                  { label: "Each payment uses", value: summary?.perRunTotal ?? "—", accent: true },
                   { label: "Total payments", value: occurrences != null ? `${occurrences}` : "Ongoing", accent: true },
-                  { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: occurrences != null ? money(totalScheduled ?? 0, tokenInfo?.symbol ?? "") : "Up to ~1 year", accent: true },
+                  { label: fundingMode === "reserved" ? "Total reserved now" : "Total authorized", value: summary?.total ?? (fundingMode === "wallet" ? "Up to ~1 year" : "—"), accent: true },
                   { label: "Automation Type", value: cadence === "custom" ? `Every ${intervalCount} ${intervalUnit}` : cadenceLabel({ cadence }), accent: true },
                   { label: "Ends", value: cadence === "once" ? "Single payment" : endMode === "never" ? "No end date" : endMode === "after_count" ? `After ${Math.max(1, Math.floor(Number(endCount) || 1))} payments` : `On ${new Date(endUntilMs).toLocaleDateString()}`, accent: true },
                   { label: "Execution Time", value: new Date(startAt).toLocaleString() },

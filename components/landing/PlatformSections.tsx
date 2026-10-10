@@ -449,7 +449,7 @@ function Figure({ children }: { children: React.ReactNode }) {
 /* ── API for Developers — real routes only ──────────────────────────────── */
 
 const ENDPOINTS = [
-  { method: "GET", path: "/api/fees", body: "Current platform fee rates." },
+  { method: "GET", path: "/api/fees", body: "Configured fee estimates (not authoritative; contracts charge their on-chain rate)." },
   { method: "GET", path: "/api/onchain", body: "Live contract addresses on this deployment." },
   { method: "GET", path: "/api/tokens", body: "Verified Monad token registry." },
   { method: "GET", path: "/api/health", body: "Liveness: network connected or not." },

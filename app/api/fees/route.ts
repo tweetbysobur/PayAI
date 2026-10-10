@@ -1,24 +1,33 @@
 import { NextResponse } from "next/server";
 import { FEE_CONFIG } from "@/lib/payment/feeEngine";
+import { FEES_ABOUT } from "@/lib/payment/feeEstimates";
 
 /**
- * GET /api/fees — the current PayAI fee rate for every feature. Public,
- * unauthenticated: these are rates, not secrets, and a UI cannot show an
- * honest "Estimated Fees" line (the AI confirmation screen, the Automation/
- * Bulk Payment creation wizards) without knowing them BEFORE anything has
- * executed — there's no prior API response to read a receipt off yet.
+ * GET /api/fees — PayAI's CONFIGURED fee estimates per feature. Public,
+ * unauthenticated: these are rates, not secrets.
  *
- * This is the ONLY sanctioned way client code learns the real fee rate.
- * lib/payment/feeEngine.ts (which reads process.env) is `server-only` and
- * cannot be imported from a client bundle at all; lib/payment/feeMath.ts's
- * pure `calculateFeeFromConfig`/`buildReceiptFromConfig` are safe for client
- * use ONLY once given a real FeeConfig — this endpoint is where that comes
- * from. See feeEngine.ts's doc comment for the bug this split fixes.
+ * What this is NOT: the rate PayAI actually charges. Every fee is computed
+ * on-chain by the contract a transaction settles through, from that
+ * contract's own feeBps() at execution (PayAIForwarderV2 for sends and
+ * split payments, PayAITradeExecutor for executor-routed trades,
+ * PaymentExecutorV2 / AutomationVaultV2 for automations). The confirmation a
+ * user signs is prepared from those on-chain reads, not from this endpoint.
+ * The values below come from env (lib/payment/feeEngine.ts) and can disagree
+ * with a contract — e.g. a `swap` of 0 while the trade executor charges 25
+ * bps — so the response says so in `about`, rather than this endpoint
+ * silently claiming to be live. It deliberately does no chain reads (constant
+ * work per request; see test/api-rate-limit-coverage.test.ts).
+ *
+ * The feature keys and their shape are unchanged (lib/ask/planCards.ts reads
+ * `send_payment` for a labelled pre-quote ESTIMATE); `about` is additive.
  */
 // Rates can change (a config value in Vercel), so this must never be
 // statically cached at build time.
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json(FEE_CONFIG);
+  return NextResponse.json(
+    { ...FEE_CONFIG, about: FEES_ABOUT },
+    { headers: { "X-PayAI-Fee-Source": "configured-estimates; not-authoritative" } },
+  );
 }

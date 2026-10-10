@@ -68,17 +68,22 @@ export default function TermsPage() {
 
       <DocsSection id="fees" index="05" title="Fees">
         <p>
-          PayAI currently charges a <strong>0.25% platform fee</strong> (25 basis points) on
-          send-payment, Wallet Automation, and Reserved Funds executions, and on swaps and trades routed
-          through PayAI&apos;s trade executor, collected on-chain and added on top of the amount, so the
-          recipient receives — and a swap swaps — the full amount you set. Swaps and trades routed directly
-          to a DEX carry no PayAI fee. Monad network gas is always paid by the signer.
+          PayAI currently charges a <strong>0.25% platform fee</strong> (25 basis points) of the
+          gross amount handled by the contract, rounded down, on send-payment, Wallet Automation,
+          and Reserved Funds executions, on split payments (0.25% of the recipients&apos; total), and
+          on swaps and trades routed through PayAI&apos;s trade executor. It is collected on-chain and
+          added on top of the amount, so the recipient receives — and a swap swaps — the full amount
+          you set; the effective fee relative to that amount can be slightly higher than 0.25%.
+          Automations created before the fee moved on top keep having it deducted from each payment.
+          Swaps and trades routed directly to a DEX carry no PayAI fee. Monad network gas is always
+          paid by the signer.
         </p>
         <p>
-          The on-chain fee cannot exceed 1.00%. Live rates are at{" "}
-          <a href="/api/fees">/api/fees</a> and shown in the confirmation screen before you sign.
-          Rates can change; the rate in the confirmation you signed is the rate that applies to
-          that transaction. See <Link href="/docs/fees">Fees</Link>.
+          The on-chain fee cannot exceed 1.00%. The exact fee and total are shown in the
+          confirmation screen before you sign; the authoritative rate is each contract&apos;s
+          on-chain rate when the transaction executes. <a href="/api/fees">/api/fees</a> publishes
+          configured estimates and is not authoritative. Rates can change; the amount you sign or
+          approve is never exceeded. See <Link href="/docs/fees">Fees</Link>.
         </p>
       </DocsSection>
 

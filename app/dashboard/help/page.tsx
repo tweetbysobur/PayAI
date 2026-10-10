@@ -198,8 +198,10 @@ const ARTICLES: Article[] = [
     category: "fees",
     question: "What does PayAI charge?",
     answer: [
-      "PayAI currently charges a 0.25% platform fee on send-payment, Wallet Automation, Reserved Funds, split payments, and swaps and trades routed through PayAI's trade executor. The fee is added on top, so every recipient gets exactly their amount and every swap swaps exactly the amount you set. A swap routed directly to a DEX has no PayAI fee — its quote shows no PayAI fee line. You also pay standard Monad network gas on every on-chain transaction.",
-      "The fee is taken on-chain from the gross amount and shown in the confirmation screen before you sign. Live rates are published at /api/fees. If they change, the rate in the confirmation you signed is the one that applies.",
+      "PayAI charges fees on sends, Wallet Automation, Reserved Funds, split payments, and swaps and trades routed through PayAI's trade executor. A swap routed directly to a DEX has no PayAI fee — its quote shows no PayAI fee line. You also pay standard Monad network gas on every on-chain transaction.",
+      "PayAI's fee is 0.25% of the gross amount handled by the contract, rounded down. For sends, swaps through PayAI's trade executor, and new automations, the fee is added on top so the recipient receives the amount you requested. Because the fee is calculated on the gross amount, the effective fee relative to the requested amount can be slightly higher than 0.25%. Your confirmation screen shows the exact fee and total before you sign. For example, sending 1 USDC costs 1.002506 USDC before network gas, and the recipient receives 1 USDC.",
+      "For split payments, the PayAI fee is 0.25% of the recipients' total, rounded down, and is added on top. Automations created before this change retain their original fee behaviour: the fee is deducted from each payment, so the recipient receives the payment amount minus the fee.",
+      "The authoritative rate is each PayAI contract's on-chain feeBps(), which your confirmation is prepared from. /api/fees publishes PayAI's configured estimates for previews; it is not read from the contracts and is not authoritative.",
     ],
   },
   {
