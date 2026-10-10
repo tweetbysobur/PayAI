@@ -8,7 +8,7 @@ import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import { recordTx } from "@/lib/platform/store";
 import { authError } from "@/lib/platform/auth";
-import { claimRequest, completeRequest, computeRequestId, releaseRequest } from "@/lib/platform/idempotency";
+import { agentRequestKey, claimRequest, completeRequest, computeRequestId, releaseRequest } from "@/lib/platform/idempotency";
 
 /**
  * POST /api/agent — the full PayAI pipeline.
@@ -234,7 +234,13 @@ export async function POST(req: NextRequest) {
   // is the app-level layer only — the authoritative guard for actual fund
   // movement is the on-chain requestId check in PaymentExecutor.sol.
   const requestId = body.idempotencyKey?.trim() || computeRequestId({ merchantId, walletAddress, text });
-  const claim = await claimRequest<Record<string, unknown>>(requestId);
+  // Where this request's outcome is stored: the client's key in its own
+  // namespace, scoped to this tenant and wallet — never the raw client key,
+  // which could otherwise name (read or occupy) a server-owned key such as a
+  // payment confirmation's. `requestId` itself is unchanged: it is what the
+  // client sees, the forwarder `ref`, and PaymentExecutor's on-chain id.
+  const idemKey = agentRequestKey(merchantId, walletAddress, requestId);
+  const claim = await claimRequest<Record<string, unknown>>(idemKey);
   if (!claim.claimed) {
     if (claim.status === "done" && claim.result) {
       return NextResponse.json({ ...claim.result, replayed: true });
@@ -302,7 +308,7 @@ export async function POST(req: NextRequest) {
     };
     // Persist under the idempotency key so a retry/double-click replays this
     // exact outcome instead of re-running the pipeline (or, worse, re-executing).
-    await completeRequest(requestId, body as unknown as Record<string, unknown>);
+    await completeRequest(idemKey, body as unknown as Record<string, unknown>);
     return NextResponse.json(body, init);
   };
 
@@ -536,7 +542,7 @@ export async function POST(req: NextRequest) {
         requestId,
         success: false,
       };
-      await completeRequest(requestId, readyBody);
+      await completeRequest(idemKey, readyBody);
       return NextResponse.json(readyBody);
     }
 
@@ -547,7 +553,7 @@ export async function POST(req: NextRequest) {
       // Auth failure isn't a pipeline outcome — release the claim so the
       // caller can retry the same idempotencyKey once authorized correctly,
       // instead of it being stuck "in_progress" until the TTL expires.
-      await releaseRequest(requestId);
+      await releaseRequest(idemKey);
       return denied;
     }
 

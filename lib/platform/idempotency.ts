@@ -95,6 +95,29 @@ export function computeRequestId(parts: Record<string, unknown>): string {
 }
 
 /**
+ * Storage keys for POST /api/agent and POST /api/agent/confirm.
+ *
+ * Every route shares one key space (`veripay:idem:<key>`), and /api/agent
+ * accepts a CLIENT-chosen `idempotencyKey`. Used as the storage key directly,
+ * a client could name any server-owned key — `confirm:<txHash>`,
+ * `swap-settle:<txHash>`, `sdk-build:<quoteId>`, … — and read its stored
+ * result back as a "replay", or occupy it before the server writes it.
+ *
+ * So a client key is never a storage key on its own. agentRequestKey() puts
+ * it in its own namespace (`agent-req:`, which no server key uses), scoped to
+ * the tenant and wallet that made the request, and hashes the parts so no
+ * choice of key, tenant or wallet text can produce another key's string. The
+ * client-visible requestId itself is unchanged (it is also the forwarder
+ * `ref`), only where it is stored moves.
+ *
+ * This separates namespaces; it does not authenticate the caller. A tenant
+ * and a wallet address are not secrets on the shared demo tenant.
+ */
+export function agentRequestKey(merchantId: string, walletAddress: string | null | undefined, requestId: string): string {
+  return `agent-req:${computeRequestId({ scope: "agent", merchantId, wallet: (walletAddress ?? "").toLowerCase(), requestId })}`;
+}
+
+/**
  * Deterministic id from a wallet signature — for any mutation whose proof
  * of authorization is itself the thing worth deduping on. A wallet
  * signature is minted fresh per real user action (the message it signs

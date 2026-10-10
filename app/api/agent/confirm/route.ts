@@ -5,7 +5,7 @@ import { assessRisk, runValidation } from "@/lib/payment/engine";
 import type { PaymentRequest } from "@/lib/payment/types";
 import { isAddress, resolvePayee } from "@/lib/payees/directory";
 import { isDomainName, extractDomain, resolveDomain } from "@/lib/monad/domain-resolver";
-import { claimRequest, completeRequest, peekRequest, releaseRequest } from "@/lib/platform/idempotency";
+import { agentRequestKey, claimRequest, completeRequest, peekRequest, releaseRequest } from "@/lib/platform/idempotency";
 
 
 /**
@@ -71,7 +71,13 @@ export async function POST(req: NextRequest) {
   let intent: ParsedIntentT | undefined;
   let source: IntentSourceT = "fallback";
   if (approvalRequestId) {
-    const stored = await peekRequest<{ intent?: ParsedIntentT; source?: IntentSourceT }>(approvalRequestId);
+    // Read where /api/agent stored it (agentRequestKey: its own namespace,
+    // this tenant and wallet) — never the raw client-supplied id, which could
+    // otherwise name a server-owned key (another payment's confirmation, an
+    // SDK build or settlement record) and replay its contents as the intent.
+    const stored = await peekRequest<{ intent?: ParsedIntentT; source?: IntentSourceT }>(
+      agentRequestKey(merchantId, walletAddress, approvalRequestId),
+    );
     if (stored?.intent) {
       intent = stored.intent;
       source = stored.source ?? source;
