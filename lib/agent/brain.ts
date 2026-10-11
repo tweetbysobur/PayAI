@@ -77,7 +77,7 @@ export function detectSwapIntent(text: string): SwapIntent | null {
   //
   // The separator is required (not optional) now that symbols are generic —
   // otherwise "swap 5 usdc" alone could capture two adjacent words as a pair.
-  const m = t.match(/\b(?:swap|convert|exchange|trade)\b[^a-z0-9]*(\d+(?:[.,]\d+)?)?\s*([a-z0-9]{2,10})\b\s*(?:to|for|into|->|→|>)\s*([a-z0-9]{2,10})\b/);
+  const m = t.match(/\b(?:swap|convert|exchange|trade)\b[^a-z0-9]*(\d+(?:[.,]\d+)?)?\s*(?:(?:of\s+)?(?:my|the|some)\s+)?([a-z0-9]{2,10})\b\s*(?:to|for|into|->|→|>)\s*([a-z0-9]{2,10})\b/);
   if (!m) return null;
   const from = m[2].toUpperCase();
   const to = m[3].toUpperCase();

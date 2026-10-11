@@ -483,7 +483,7 @@ const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
  *  through to detectSwapIntent exactly as before. Every phrasing here reaches
  *  Anthropic in production regardless — this only decides how well the
  *  key-free fallback copes with one specific button. */
-const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*trade\s+(?:a\s+|an\s+)?tokens?\s*[.!?]?\s*$/i;
+const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*(?:trade|swap)\s+(?:a\s+|an\s+|some\s+)?(?:tokens?|crypto|coins?)\s*[.!?]?\s*$|^\s*(?:trade|swap)\s*[.!?]*\s*$/i;
 
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
