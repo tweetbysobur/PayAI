@@ -39,15 +39,12 @@ describe("the welcome itself", () => {
   });
 });
 
-describe("Ask PayAI's how-to points", () => {
+describe("Ask PayAI's empty chat", () => {
   const src = code("components/ask/AskEmptyState.tsx");
   const welcome = src.slice(src.indexOf("export function AskEmptyState("));
-  it("show once: read a seen flag, set it the first time, render only when unseen", () => {
-    expect(welcome).toMatch(/localStorage\.getItem\(HOW_TO_SEEN_KEY\) === "1"/);
-    expect(welcome).toMatch(/localStorage\.setItem\(HOW_TO_SEEN_KEY, "1"\)/);
-    expect(welcome).toMatch(/\{showHowTo && \(/);
-  });
-  it("carry no example prompts", () => {
-    expect(welcome).not.toMatch(/\b\d+(\.\d+)?\s*(USDC|MON)\b|\.nad\b|ASK_STARTERS/);
+  it("is just the heading and the one describe line", () => {
+    expect(welcome).toContain("Turn a sentence into onchain execution.");
+    expect(welcome).toContain("Describe what you want done on Monad. PayAI turns it into a plan you review before anything runs.");
+    expect(welcome).not.toMatch(/How to ask|<ol|<button|<a |\.nad\b|\b\d+\s*(USDC|MON)\b/);
   });
 });
