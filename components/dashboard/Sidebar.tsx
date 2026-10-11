@@ -128,7 +128,7 @@ export function NavList({ onNavigate }: { onNavigate?: () => void }) {
 export function Sidebar() {
   return (
     <aside className="hidden h-screen w-64 shrink-0 flex-col border-r border-border bg-background lg:flex">
-      <Link href="/" title="Back to home" className="flex h-[61px] items-center gap-2 border-b border-border px-5 transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+      <Link href="/dashboard" title="Dashboard home" className="flex h-[61px] items-center gap-2 border-b border-border px-5 transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
         <Logo size={28} />
         <p className="text-sm font-semibold text-foreground">PayAI</p>
       </Link>

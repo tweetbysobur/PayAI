@@ -45,7 +45,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex h-[61px] items-center justify-between border-b border-border px-5">
-              <Link href="/" onClick={onClose} className="flex items-center gap-2" title="Back to home">
+              <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2" title="Dashboard home">
                 <Logo size={26} />
                 <p className="text-sm font-semibold text-foreground">PayAI</p>
               </Link>
