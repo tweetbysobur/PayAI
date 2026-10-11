@@ -332,7 +332,7 @@ export async function executeSwapIntent(
       // keep the pending settlement so the reconciler resolves it on next load,
       // and never call it "failed".
       if (cj.reverted) {
-        clearPendingSettlement();
+        clearPendingSettlement(lastHash);
         const error: OperationError = {
           message: prefixApprovalContext(cj.error || "This swap failed on-chain. No tokens were swapped.", approvalTx),
           code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
@@ -341,7 +341,7 @@ export async function executeSwapIntent(
       }
       return { ...operation, status: "submitted", submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: "main" } };
     }
-    clearPendingSettlement();
+    clearPendingSettlement(lastHash);
     const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
     return { ...operation, status: "success", result };
   } catch (e) {
@@ -581,7 +581,7 @@ export async function executeTradeIntent(
         // read, so it's safe to keep going — the pending-settlement
         // reconciler catches up the record later if needed.
         if (cj.reverted) {
-          clearPendingSettlement();
+          clearPendingSettlement(lastHash);
           const error: OperationError = {
             message: prefixApprovalContext(cj.error || "This trade failed on-chain. No tokens were traded.", approvalTx),
             code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
@@ -599,7 +599,7 @@ export async function executeTradeIntent(
         // failure; "couldn't confirm yet" is submitted-but-pending (keep the
         // pending settlement so the reconciler resolves it).
         if (cj.reverted) {
-          clearPendingSettlement();
+          clearPendingSettlement(lastHash);
           const error: OperationError = {
             message: prefixApprovalContext(cj.error || "This trade failed on-chain. No tokens were traded.", approvalTx),
             code: "REVERTED", txHash: lastHash, explorerUrl: cj.explorerUrl, approvalTx: approvalTx ?? undefined,
@@ -608,7 +608,7 @@ export async function executeTradeIntent(
         }
         return { ...operation, status: "submitted", intent: { ...operation.intent, data: freshData }, submitted: { txHash: lastHash, explorerUrl: cj.explorerUrl || configExplorerTx(lastHash), approvalConfirmed, approvalTx: approvalTx ?? undefined, step: "main" } };
       }
-      clearPendingSettlement();
+      clearPendingSettlement(lastHash);
       const result: TransactionResult = { txHash: lastHash, explorerUrl: cj.explorerUrl ?? "" };
       return { ...operation, status: "success", intent: { ...operation.intent, data: freshData }, result };
     }

@@ -260,7 +260,7 @@ export async function executeSendPayment(
     // refusal, a rate limit — leaves the payment possibly settled, so the
     // evidence is kept and the user is told not to resend.
     if (json.reverted === true) {
-      clearPendingSettlement();
+      clearPendingSettlement(hash);
       const message = prefixApprovalContext(json.error || "This payment failed on-chain. No funds were transferred.", approvalTxInfo);
       const error: OperationError = { message, code: "REVERTED", txHash: hash, explorerUrl: configExplorerTx(hash), approvalTx: approvalTxInfo ?? undefined };
       return { ...operation, status: "error", error };
@@ -272,7 +272,7 @@ export async function executeSendPayment(
       };
       return { ...operation, status: "error", error };
     }
-    clearPendingSettlement();
+    clearPendingSettlement(hash);
     const result: TransactionResult = {
       txHash: json.transaction?.txHash ?? hash,
       explorerUrl: json.transaction?.explorerUrl ?? "",

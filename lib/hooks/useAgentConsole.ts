@@ -303,8 +303,12 @@ export function useAgentConsole() {
             // Definitely mined and definitely failed on-chain — this is a real,
             // final outcome (gas spent, no funds moved), not "try again later".
             // Safe to clear the pending record; the user can retry fresh.
-            clearPendingSettlement();
-            setPendingRecovery(null);
+            clearPendingSettlement(pending.txHash);
+            // More than one broadcast may be waiting: bring the next into view and
+            // work on it too (each record is cleared only by its own outcome).
+            const next = getPendingSettlement(wallet.address);
+            setPendingRecovery(next);
+            if (next) void confirmPending(next, { silent: true });
             setErr(json.error || "This payment failed on-chain. No funds were transferred.");
             return;
           }
@@ -313,8 +317,12 @@ export function useAgentConsole() {
           if (!opts.silent) setErr(friendlyError(json.error || "Could not confirm the payment yet."));
           return;
         }
-        clearPendingSettlement();
-        setPendingRecovery(null);
+        clearPendingSettlement(pending.txHash);
+        // More than one broadcast may be waiting: bring the next into view and
+        // work on it too (each record is cleared only by its own outcome).
+        const next = getPendingSettlement(wallet.address);
+        setPendingRecovery(next);
+        if (next) void confirmPending(next, { silent: true });
         setRes(json);
         pushHistory(json);
         loadOnchain();
@@ -333,16 +341,24 @@ export function useAgentConsole() {
           if (cj.reverted) {
             // Definite, mined revert — gas spent, no tokens moved. A real final
             // outcome, safe to clear and let the user try a fresh swap.
-            clearPendingSettlement();
-            setPendingRecovery(null);
+            clearPendingSettlement(pending.txHash);
+            // More than one broadcast may be waiting: bring the next into view and
+            // work on it too (each record is cleared only by its own outcome).
+            const next = getPendingSettlement(wallet.address);
+            setPendingRecovery(next);
+            if (next) void confirmPending(next, { silent: true });
             setErr(cj.error || "This swap failed on-chain. No tokens were swapped.");
             return;
           }
           if (!opts.silent) setErr(friendlyError(cj.error || "Could not confirm the swap yet."));
           return;
         }
-        clearPendingSettlement();
-        setPendingRecovery(null);
+        clearPendingSettlement(pending.txHash);
+        // More than one broadcast may be waiting: bring the next into view and
+        // work on it too (each record is cleared only by its own outcome).
+        const next = getPendingSettlement(wallet.address);
+        setPendingRecovery(next);
+        if (next) void confirmPending(next, { silent: true });
         loadOnchain();
         balances.refresh();
       }
@@ -416,15 +432,15 @@ export function useAgentConsole() {
         if (json.reverted) {
           // Definite, mined revert — a real final outcome (gas spent, no funds
           // moved), not "unconfirmed". Safe to clear and let the user retry.
-          clearPendingSettlement();
-          setPendingRecovery(null);
+          clearPendingSettlement(hash);
+          setPendingRecovery(getPendingSettlement(wallet.address));
           setErr(json.error || "This payment failed on-chain. No funds were transferred.");
           return "broadcast";
         }
         throw new Error(json.error || "Could not confirm the payment.");
       }
-      clearPendingSettlement();
-      setPendingRecovery(null);
+      clearPendingSettlement(hash);
+      setPendingRecovery(getPendingSettlement(wallet.address));
       setRes(json);
       pushHistory(json);
       loadOnchain();
@@ -499,15 +515,15 @@ export function useAgentConsole() {
         if (cj.reverted) {
           // Definite, mined revert — gas spent, no tokens moved. A real final
           // outcome; safe to clear the pending record and let the user retry.
-          clearPendingSettlement();
-          setPendingRecovery(null);
+          clearPendingSettlement(lastHash);
+          setPendingRecovery(getPendingSettlement(wallet.address));
           setSwap((s) => (s ? { ...s, phase: "error", error: cj.error || "This swap failed on-chain. No tokens were swapped." } : s));
           return;
         }
         throw new Error(cj.error || "The swap could not be confirmed.");
       }
-      clearPendingSettlement();
-      setPendingRecovery(null);
+      clearPendingSettlement(lastHash);
+      setPendingRecovery(getPendingSettlement(wallet.address));
       setSwap((s) => (s ? { ...s, phase: "done", txHash: lastHash, explorerUrl: cj.explorerUrl } : s));
       loadOnchain();
       // The whole dashboard, not just this hook's balances: a swap changes the
