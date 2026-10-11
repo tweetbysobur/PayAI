@@ -13,6 +13,7 @@
  * source already scopes itself to the connected wallet, so the merged feed
  * inherits that: you see your own activity and nobody else's.
  */
+import { fetchHistory } from "@/lib/hooks/historyFetch";
 import { useCallback, useEffect, useState } from "react";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
@@ -80,12 +81,7 @@ export function useActivity(address: string | null, providerId?: string | null) 
     let cancelled = false;
     setLoading(true);
 
-    const payments = fetch("/api/agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ intent: "Show my transaction history", walletAddress: address }),
-    })
-      .then((r) => r.json())
+    const payments = fetchHistory(address)
       .then((j) =>
         ((j.history ?? []) as {
           at: number; decision: string; summary: string; amount: number | null;

@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchHistory } from "@/lib/hooks/historyFetch";
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, AlertTriangle } from "lucide-react";
@@ -90,8 +91,8 @@ export default function Dashboard() {
     // so these come back empty by design.
     return Promise.all([
       fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {}),
-      fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
-        .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).catch(() => {}),
+      fetchHistory(wallet.address)
+        .then((j) => setHistory((j.history ?? []) as HistoryRow[])).catch(() => {}),
     ]).finally(() => setLoaded(true));
   }, [wallet.address]);
 

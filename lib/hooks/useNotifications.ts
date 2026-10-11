@@ -1,5 +1,6 @@
 "use client";
 
+import { fetchHistory } from "@/lib/hooks/historyFetch";
 import { useEffect, useRef, useState } from "react";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
@@ -69,8 +70,7 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
       const seenAt = Number(localStorage.getItem(SEEN_KEY) ?? 0);
       const cutoff = Date.now() - RETENTION_MS; // keep the last 24h, read or not
 
-      const payments = fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress }) })
-        .then((r) => r.json())
+      const payments = fetchHistory(walletAddress)
         .then((j) => {
           const rows = (j.history ?? []) as HistoryRow[];
           return rows
