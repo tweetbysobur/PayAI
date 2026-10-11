@@ -13,7 +13,9 @@
  *  as "swap" — same reasoning: an Ask PayAI trade (arbitrary-token, quoted
  *  via lib/monad/tradeQuote.ts) and PayAI's curated Smart Swap are
  *  otherwise indistinguishable in the log without this. */
-export type PlatformFeature = "payment" | "swap" | "trade" | "automation" | "bulk";
+/** "protocol": a protocol action with no recipient (wrap/unwrap MON, Aave
+ *  supply/withdraw) — the user's own money changing form, never volume. */
+export type PlatformFeature = "payment" | "swap" | "trade" | "automation" | "bulk" | "protocol";
 
 /** The revenue/analytics chart's own category set — deliberately narrower
  *  than PlatformFeature. "trade" (Step 5's Ask PayAI arbitrary-token trades)
@@ -21,7 +23,7 @@ export type PlatformFeature = "payment" | "swap" | "trade" | "automation" | "bul
  *  featureOf() — since this chart's 4-color categorical palette is validated
  *  for exactly these four buckets (see PlatformSections.tsx's FEATURE_COLOR
  *  doc); the raw "trade" vs "swap" distinction stays on TxLogEntry itself. */
-export type RevenueFeature = Exclude<PlatformFeature, "trade">;
+export type RevenueFeature = Exclude<PlatformFeature, "trade" | "protocol">;
 
 /** One recorded agent run (every outcome, not just settled). */
 export interface TxLogEntry {

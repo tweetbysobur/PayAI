@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Activity as ActivityIcon, ArrowLeftRight, ArrowUpRight, CheckCircle2, Clock3,
   ExternalLink, LifeBuoy, Repeat, Search, Undo2, Wallet, XCircle,
@@ -64,10 +65,16 @@ export function ActivityTabContent() {
   const [period, setPeriod] = useState<Period>("week");
   const [kinds, setKinds] = useState<ActivityKind[]>([]);
   const [query, setQuery] = useState("");
+  // ?tx=0x… (a notification, or any link to one transaction) opens the feed on
+  // exactly that transaction, whatever its age or kind.
+  const searchParams = useSearchParams();
+  const focusTx = searchParams.get("tx")?.toLowerCase() ?? null;
 
   const rows = useMemo(
-    () => filterActivity(items, { period, kinds, query }),
-    [items, period, kinds, query],
+    () => focusTx
+      ? items.filter((i) => i.txHash?.toLowerCase() === focusTx)
+      : filterActivity(items, { period, kinds, query }),
+    [items, period, kinds, query, focusTx],
   );
 
   function toggleKind(k: ActivityKind) {
@@ -76,7 +83,22 @@ export function ActivityTabContent() {
 
   return (
     <div>
-      <Card className="mb-4">
+      {focusTx && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3.5 py-2.5 text-sm">
+          <span className="min-w-0 text-foreground">
+            {loading && rows.length === 0
+              ? "Finding this transaction…"
+              : rows.length > 0
+                ? "Showing the transaction from your notification."
+                : "This transaction isn't in your activity yet — new transactions can take a minute to appear."}
+            <span className="ml-1.5 break-all font-mono text-xs text-muted-foreground">{focusTx.slice(0, 10)}…{focusTx.slice(-6)}</span>
+          </span>
+          <Link href="/dashboard/transactions?tab=activity" className="shrink-0 rounded-sm text-xs font-medium text-primary-ink hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Show all activity
+          </Link>
+        </div>
+      )}
+      <Card className={`mb-4 ${focusTx ? "hidden" : ""}`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex shrink-0 gap-0.5 rounded-lg border border-border bg-input p-0.5">
             {PERIODS.map((p) => (

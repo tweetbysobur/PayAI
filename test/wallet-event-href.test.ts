@@ -66,7 +66,8 @@ describe("every surface that renders a wallet-event notification uses walletEven
 
   it("the bell (useNotifications) computes href from the event, not a literal string", () => {
     const src = read("../lib/hooks/useNotifications.ts");
-    expect(src).toMatch(/href:\s*walletEventHref\(e\.type/);
+    // The exact transaction when the event has one, else the page for its type.
+    expect(src).toMatch(/href:\s*(?:txHref\(e\.txHash\)\s*\?\?\s*)?walletEventHref\(e\.type/);
     // The literal that caused the bug must not reappear on the wallet-events branch.
     expect(src).not.toMatch(/href:\s*"\/dashboard\/wallets"/);
   });

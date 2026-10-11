@@ -85,14 +85,19 @@ export function useActivity(address: string | null, providerId?: string | null) 
       .then((j) =>
         ((j.history ?? []) as {
           at: number; decision: string; summary: string; amount: number | null;
-          token: string; txHash?: string; explorerUrl?: string; action?: string;
-        }[]).map((h): ActivityItem => ({
+          token: string; txHash?: string; explorerUrl?: string; action?: string; feature?: string;
+        }[]).map((h): ActivityItem => {
+          // A swap (including an Ask trade, feature "trade") is recorded in the
+          // same log as a payment but is not one — filtering by "swap" has to
+          // find it here too, or the filter lies. A protocol action (wrap,
+          // Aave) is named for what it was.
+          const swap = h.action === "swap" || h.feature === "trade" || h.feature === "swap";
+          const protocol = h.feature === "protocol";
+          return {
           id: h.txHash ?? `pay-${h.at}-${h.decision}`,
-          // A swap is recorded in the same log as a payment but is not one —
-          // filtering by "swap" has to find it here too, or the filter lies.
-          kind: h.action === "swap" ? "swap" : "payment",
+          kind: swap ? "swap" : "payment",
           at: h.at,
-          title: h.action === "swap" ? "Swap" : "Payment",
+          title: swap ? "Swap" : protocol ? "Monad protocol" : "Payment",
           detail: phraseSummary(h.summary, h.decision),
           status: paymentStatus(h.decision),
           amount: h.amount,
@@ -100,7 +105,8 @@ export function useActivity(address: string | null, providerId?: string | null) 
           txHash: h.txHash,
           explorerUrl: h.explorerUrl,
           href: "/dashboard/transactions",
-        })),
+          };
+        }),
       )
       .catch(() => [] as ActivityItem[]);
 

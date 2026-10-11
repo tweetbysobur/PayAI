@@ -64,7 +64,8 @@ const CAPABILITIES = [
   { label: "Schedule", fill: "Schedule " },
 ] as const;
 
-const isSwap = (h: HistoryRow) => h.feature === "swap" || h.feature === "trade" || h.action === "swap";
+/** No recipient to show: swaps and protocol actions (wrap, Aave) are titled by their summary. */
+const isSwap = (h: HistoryRow) => h.feature === "swap" || h.feature === "trade" || h.feature === "protocol" || h.action === "swap";
 
 function when(ms: number): string {
   const d = new Date(ms);

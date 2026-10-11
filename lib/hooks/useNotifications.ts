@@ -5,8 +5,9 @@ import { useEffect, useRef, useState } from "react";
 import { phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { walletEventHref, type WalletEventType } from "@/lib/wallet-service/types";
+import { dedupeByTx, historyTitle, txHref } from "@/lib/hooks/notificationItems";
 
-interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string }
+interface HistoryRow { at: number; decision: string; summary: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; feature?: string; action?: string }
 interface AutomationEventRow {
   id: string; type: string; at: number; title: string; detail: string; txHash?: string; explorerUrl?: string;
 }
@@ -23,6 +24,9 @@ export interface NotifItem {
   detail: string;
   at: number;
   explorerUrl?: string;
+  /** The transaction this is about, when there is one — one notification per
+   *  transaction, and the row opens exactly it. */
+  txHash?: string;
   /** In-app destination for this notification — clicking the row goes here. */
   href: string;
   /** True once the user has opened the bell after this arrived. Read items
@@ -39,17 +43,10 @@ const SEEN_KEY = "veripay_notifs_seen_at";
  *  out on their own — whether or not they were ever opened. */
 const RETENTION_MS = 24 * 60 * 60 * 1000;
 
-const LABEL: Record<string, string> = {
-  executed: "Payment sent",
-  needs_review: "Payment stopped — nothing was sent",
-  blocked: "Payment blocked",
-  refused: "Payment refused",
-  // Was missing entirely — an execution error (RPC failure, agent-wallet
-  // balance, an automation auto-pausing after repeated failures) is
-  // exactly the outcome a user most needs to be told about, and it was
-  // silently dropped from notifications because this map had no entry for it.
-  error: "Payment failed",
-};
+/** Where a transaction-log row without a hash opens: its own filtered list. */
+function historyListHref(decision: string): string {
+  return decision === "executed" ? "/dashboard/transactions" : `/dashboard/transactions?status=${decision}`;
+}
 
 export function useNotifications(walletAddress?: string | null, providerId?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
@@ -74,15 +71,16 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
         .then((j) => {
           const rows = (j.history ?? []) as HistoryRow[];
           return rows
-            .filter((h) => h.at > cutoff && LABEL[h.decision])
+            .filter((h) => h.at > cutoff && historyTitle(h))
             .map((h): Omit<NotifItem, "read"> => ({
               id: h.txHash ?? `${h.at}-${h.decision}`,
               decision: h.decision,
-              title: LABEL[h.decision],
+              title: historyTitle(h) as string,
               detail: phraseSummary(h.summary, h.decision),
               at: h.at,
               explorerUrl: h.explorerUrl,
-              href: "/dashboard/transactions",
+              txHash: h.txHash,
+              href: txHref(h.txHash) ?? historyListHref(h.decision),
             }));
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
@@ -102,7 +100,8 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
               detail: e.detail,
               at: e.at,
               explorerUrl: e.explorerUrl,
-              href: "/dashboard/automations",
+              txHash: e.txHash,
+              href: txHref(e.txHash) ?? "/dashboard/automations",
             }));
         })
         .catch(() => [] as Omit<NotifItem, "read">[]);
@@ -146,7 +145,10 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
               // Not always Wallets — a swap, a refund, or an automation
               // signature belongs on the page that actually shows it. See
               // walletEventHref's own doc for why each type lands where it does.
-              href: walletEventHref(e.type as WalletEventType),
+              txHash: e.txHash,
+              // The exact transaction when there is one; otherwise the page
+              // that shows this kind of event (walletEventHref's own doc).
+              href: txHref(e.txHash) ?? walletEventHref(e.type as WalletEventType),
               amount: e.amount,
               token: e.token,
             }));
@@ -155,7 +157,10 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
 
       Promise.all([payments, automations, tickets, walletEvents]).then(([fresh, automationFresh, ticketFresh, walletFresh]) => {
         if (cancelled) return;
-        const all = [...fresh, ...automationFresh, ...ticketFresh, ...walletFresh].sort((a, b) => b.at - a.at).slice(0, 15);
+        // One notification per transaction: a swap, an automation run or a
+        // payment can also arrive as a wallet event for the same hash. The
+        // transaction-log row is the most specific, so it goes first and wins.
+        const all = dedupeByTx([...fresh, ...walletFresh, ...automationFresh, ...ticketFresh]).sort((a, b) => b.at - a.at).slice(0, 15);
         // Read items stay in the feed (dimmed) until they age past 24h; only
         // unseen ones drive the unread badge.
         setNotifications(all.map((n) => ({ ...n, read: n.at <= seenAt })));

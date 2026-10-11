@@ -26,6 +26,9 @@ const FEATURES: RevenueFeature[] = ["payment", "swap", "automation", "bulk"];
  *  from `action` for entries recorded before TxLogEntry.feature existed. */
 function featureOf(t: TxLogEntry): RevenueFeature {
   if (t.feature === "trade") return "swap";
+  // Never reached for volume (every aggregation skips protocol rows first);
+  // here only so the type stays exhaustive.
+  if (t.feature === "protocol") return "swap";
   if (t.feature) return t.feature;
   return t.action === "swap" ? "swap" : "payment";
 }
@@ -37,7 +40,7 @@ function isSettled(t: TxLogEntry): boolean {
   // A swap moves your own money between two tokens you already hold. Counting
   // it as settled payment volume double-counts funds that never left, and
   // inflates "revenue" with an amount nobody paid anybody.
-  return t.decision === "executed" && t.action !== "swap" && (t.amount ?? 0) > 0;
+  return t.decision === "executed" && t.action !== "swap" && t.feature !== "protocol" && (t.amount ?? 0) > 0;
 }
 function isFailed(t: TxLogEntry): boolean {
   return t.decision === "blocked" || t.decision === "refused" || t.decision === "error";
@@ -76,7 +79,7 @@ export function sumByToken(txs: TxLogEntry[], since = 0): Record<string, number>
 export function sumActivityByToken(txs: TxLogEntry[], since = 0): Record<string, number> {
   const out: Record<string, number> = {};
   for (const t of txs) {
-    if (t.decision !== "executed" || (t.amount ?? 0) <= 0 || t.at < since) continue;
+    if (t.decision !== "executed" || t.feature === "protocol" || (t.amount ?? 0) <= 0 || t.at < since) continue;
     const token = t.token || "USDC";
     out[token] = (out[token] ?? 0) + (t.amount ?? 0);
   }
@@ -102,7 +105,7 @@ export function computeMonthlyVolumeByFeature(txs: TxLogEntry[], months = 6): Mo
     });
   }
   for (const t of txs) {
-    if (t.decision !== "executed" || (t.amount ?? 0) <= 0) continue;
+    if (t.decision !== "executed" || t.feature === "protocol" || (t.amount ?? 0) <= 0) continue;
     const key = new Date(t.at).toISOString().slice(0, 7);
     const bucket = buckets.get(key);
     if (!bucket) continue; // outside the window

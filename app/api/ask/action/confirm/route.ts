@@ -254,8 +254,42 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 4c. A protocol action with neither a trade nor recipients (wrap/unwrap
+    // MON, Aave supply/withdraw): one History row, so it is in the user's
+    // history and notifications like everything else. Phrased only from the
+    // receipt's verified details; no numeric amount, so it never counts as
+    // payment volume (lib/sdk/protocolHistory.ts). Inside the same settle
+    // claim as every other record here, so a retry can't record it twice.
+    let protocolRecorded = 0;
+    if (!action.settledTrade && !action.settledOutflows) {
+      const { protocolHistory } = await import("@/lib/sdk/protocolHistory");
+      const { resolveToken } = await import("@/lib/monad/tokenRegistry");
+      const { resolveTenantId } = await import("@/lib/platform/tenant");
+      const { recordTx } = await import("@/lib/platform/store");
+      const row = await protocolHistory(
+        { protocolId: record.protocolId, actionId: record.actionId, name: action.name },
+        details,
+        async (address) => { const t = await resolveToken(address); return t ? { symbol: t.symbol, decimals: t.decimals } : null; },
+      );
+      await recordTx(await resolveTenantId(req), {
+        decision: "executed",
+        action: action.historyAction ?? action.actionId,
+        feature: "protocol",
+        amount: null,
+        token: row.token,
+        recipient: null,
+        sender: wallet,
+        riskScore: record.riskScore,
+        compliance: record.compliance,
+        txHash,
+        explorerUrl,
+        summary: row.summary,
+      });
+      protocolRecorded = 1;
+    }
+
     const outputs = await confirmedOutputsFor(action, actionReceipt, resultCtx, { quoteId: body.quoteId, txHash, wallet: record.wallet, protocolId: record.protocolId, actionId: record.actionId, version: record.version });
-    const okBody = { ok: true, success: true, explorerUrl, details, recorded: settled.length, ...outputs };
+    const okBody = { ok: true, success: true, explorerUrl, details, recorded: settled.length + protocolRecorded, ...outputs };
     await completeRequest(sKey, okBody);
     return NextResponse.json(okBody);
   } catch {

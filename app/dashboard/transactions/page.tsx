@@ -181,7 +181,9 @@ function TransactionsTabContent() {
           <>
             <ul className="divide-y divide-border">
               {pageRows.map((h, i) => {
-                const swap = h.feature === "swap" || h.feature === "trade" || h.action === "swap";
+                // Swaps and protocol actions (wrap, Aave) have no recipient: their row
+                // is titled by what happened.
+                const swap = h.feature === "swap" || h.feature === "trade" || h.feature === "protocol" || h.action === "swap";
                 return (
                   <ActivityRow
                     key={`${h.at}-${i}`}
