@@ -219,8 +219,10 @@ describe("the LLM can never introduce a split or its recipients", () => {
       slots: { protocolId: "payai-settlement", actionId: "split_payment", actionVersion: "2.0.0", actionInputs: { recipients: [{ recipient: C, amount: "1" }, { recipient: B, amount: "1" }] } },
     } }] });
     const { understand } = await import("@/lib/ask/intent/classify");
-    // No split verb, so this reaches the model.
-    const u = await understand(`pay ${A} and ${B} 5 USDC each`, [], null);
+    // No split verb and no named recipients, so this reaches the model. (Naming two
+    // recipients — "pay A and B 5 USDC each" — is refused before the model, see
+    // ask-compound-recipients.test.ts.)
+    const u = await understand("pay my two friends 5 USDC each", [], null);
     expect(mockCreate).toHaveBeenCalled();
     expect(u.kind).not.toBe("protocol_action");
     expect(JSON.stringify(u)).not.toContain(C);
@@ -230,7 +232,7 @@ describe("the LLM can never introduce a split or its recipients", () => {
       kind: "distribution", outcome: "complete", slots: { amount: "5", asset: "USDC", recipientCount: 2, actionInputs: { recipients: [{ recipient: C, amount: "1" }] }, recipientLabels: { [C]: "x" } },
     } }] });
     const { understand } = await import("@/lib/ask/intent/classify");
-    const u = await understand(`pay ${A} and ${B} 5 USDC each`, [], null);
+    const u = await understand("pay my two friends 5 USDC each", [], null);
     if (u.outcome !== "complete" && u.outcome !== "incomplete") throw new Error("expected actionable");
     expect(u.kind).toBe("distribution");
     expect(u.slots.actionInputs).toBeUndefined();
