@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeFunctionData, getAddress, pad, parseAbi, type Hex } from "viem";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * R4 — payment-path storage fails CLOSED in production.
@@ -94,6 +95,8 @@ beforeEach(() => {
   vi.stubEnv("MONAD_MAINNET_USDC", USDC);
   vi.stubEnv("PAYAI_FORWARDER_ENABLED", "");
   vi.stubEnv("ANTHROPIC_API_KEY", "");
+  // Wallet grants are signed with this; production refuses to sign without it.
+  vi.stubEnv("AUTH_SESSION_SECRET", "test-only-session-secret");
   kv.data.clear();
   kv.importFails = false;
   Object.keys(kv.fail).forEach((k) => (kv.fail[k as keyof typeof kv.fail] = false));
@@ -113,7 +116,7 @@ const memLog = () => (globalThis as { __veripayMem?: Map<string, unknown> }).__v
 type Body = Record<string, unknown> & { state?: string; reason?: string; error?: string; unsignedTx?: unknown; decision?: string };
 const req = (path: string, body: unknown) => new NextRequest(`http://localhost${path}`, {
   method: "POST",
-  headers: { "content-type": "application/json", "x-forwarded-for": `10.6.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
+  headers: { "content-type": "application/json", "x-forwarded-for": `10.6.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor((body as { walletAddress?: unknown }).walletAddress) },
   body: JSON.stringify(body),
 });
 async function agent(idempotencyKey = "k-1") {

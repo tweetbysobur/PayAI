@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeFunctionData, getAddress, pad, parseAbi, TransactionReceiptNotFoundError, type Hex } from "viem";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * POST /api/agent/confirm — recovery when the chain and PayAI's own records
@@ -106,10 +107,11 @@ function mineSuccess(from: string = WALLET) {
 }
 async function confirm(requestId?: string, over: Record<string, unknown> = {}) {
   const { POST } = await import("@/app/api/agent/confirm/route");
+  const body = { rawText: "Send 1 USDC", walletAddress: WALLET, txHash: TX, ...(requestId ? { requestId } : {}), ...over };
   const res = await POST(new NextRequest("http://localhost/api/agent/confirm", {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": `10.4.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
-    body: JSON.stringify({ rawText: "Send 1 USDC", walletAddress: WALLET, txHash: TX, ...(requestId ? { requestId } : {}), ...over }),
+    headers: { "content-type": "application/json", "x-forwarded-for": `10.4.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor(body.walletAddress) },
+    body: JSON.stringify(body),
   }));
   return { status: res.status, body: (await res.json()) as Body };
 }

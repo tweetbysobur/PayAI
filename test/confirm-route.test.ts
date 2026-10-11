@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, pad, parseAbi, TransactionReceiptNotFoundError, type Hex } from "viem";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * POST /api/agent/confirm, driven as a route against a MOCKED chain.
@@ -90,7 +91,7 @@ beforeEach(() => {
 const post = (body: unknown, headers: Record<string, string> = {}, path = "/api/agent/confirm") =>
   new NextRequest(`http://localhost${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": `10.1.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...headers },
+    headers: { "content-type": "application/json", "x-forwarded-for": `10.1.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor((body as { walletAddress?: unknown }).walletAddress), ...headers },
     body: JSON.stringify(body),
   });
 

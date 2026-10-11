@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { encodeFunctionData, getAddress, pad, parseAbi, type Hex } from "viem";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * /api/agent's client-chosen idempotencyKey is stored in its own namespace
@@ -79,7 +80,7 @@ type Json = Record<string, unknown> & {
 const req = (path: string, body: unknown, headers: Record<string, string> = {}) =>
   new NextRequest(`http://localhost${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": `10.2.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...headers },
+    headers: { "content-type": "application/json", "x-forwarded-for": `10.2.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor((body as { walletAddress?: unknown }).walletAddress), ...headers },
     body: JSON.stringify(body),
   });
 async function agent(body: Record<string, unknown>, headers: Record<string, string> = {}) {

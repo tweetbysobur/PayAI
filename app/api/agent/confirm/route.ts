@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import type { ParsedIntent } from "@/lib/agent/types";
 import { TransactionReceiptNotFoundError } from "viem";
 import { StorageUnavailableError } from "@/lib/platform/kv";
+import { requestHasWalletGrant } from "@/lib/auth/walletGrant";
 
 
 /**
@@ -86,7 +87,8 @@ type ConfirmState =
   | "rpc_unavailable"    // the chain couldn't be read
   | "store_unavailable"  // PayAI's own storage couldn't be read or written
   | "in_progress"        // another confirmation of this tx is running
-  | "already_confirmed"; // confirmed already, for another caller
+  | "already_confirmed" // confirmed already, for another caller
+  | "wallet_grant_required"; // the caller hasn't proven it controls the wallet
 
 /** Shown whenever the payment may already have settled. */
 const DONT_RESEND = "Don't send it again";
@@ -108,6 +110,17 @@ function storageFailureOf(e: unknown): string | null {
 }
 function logStorageFailure(step: string, txHash: string, e: unknown): void {
   console.error(JSON.stringify({ event: "payai.confirm.storage_unavailable", step, txHash, storage: storageFailureOf(e) ?? "unknown", message: e instanceof Error ? e.message : String(e) }));
+}
+
+/** Whether this request carries a valid wallet grant for `address`: "ok",
+ *  "missing", or "unavailable" when the grant can't be checked at all (e.g.
+ *  AUTH_SESSION_SECRET unset in production) — never treated as proof. */
+function walletGrantStatus(req: NextRequest, address: string): "ok" | "missing" | "unavailable" {
+  try {
+    return requestHasWalletGrant(req, address) ? "ok" : "missing";
+  } catch {
+    return "unavailable";
+  }
 }
 
 /** viem's own "the node returned no receipt" error (not mined yet, or an
@@ -150,6 +163,22 @@ export async function POST(req: NextRequest) {
   // must not double-write the transaction log.
   // Server-owned key (agentConfirmKey): no client-chosen idempotency key can
   // name it, since /api/agent stores client keys in their own namespace.
+  // Wallet ownership, before anything is read or claimed: only a caller that
+  // has proven control of `walletAddress` (its signed wallet grant) may
+  // confirm a payment for it or read a stored confirmation back. A wallet
+  // address and a public tx hash are not proof; the approval requestId is
+  // not a strong secret. Refusal never suggests paying again — if the wallet
+  // already sent the payment, it is safe on-chain and confirms once unlocked.
+  const grant = walletGrantStatus(req, walletAddress);
+  if (grant !== "ok") {
+    return grant === "missing"
+      ? NextResponse.json(
+          { error: `Unlock your wallet to confirm this payment. ${DONT_RESEND} — if your wallet sent it, it's safe on-chain and will be confirmed once your wallet is unlocked.`, state: "wallet_grant_required", txHash },
+          { status: 401 },
+        )
+      : unavailable("store_unavailable", txHash);
+  }
+
   const confirmKey = agentConfirmKey(txHash);
   let claim: Awaited<ReturnType<typeof claimRequest<StoredConfirmation>>>;
   try {

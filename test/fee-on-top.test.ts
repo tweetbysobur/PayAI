@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { decodeFunctionData, parseEther, parseUnits } from "viem";
 import { feeOfGross, feeOnTop, fromUnits, grossForNet, maxNetFor, toUnits } from "@/lib/payment/feeOnTop";
 import { verifyForwardedNet, type DecodedFeeCollected, type DecodedPaymentForwarded } from "@/lib/monad/forwarder";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * PayAI's fee is charged ON TOP everywhere: the amount a user asks to move
@@ -151,7 +152,8 @@ async function send(intent: string) {
   const { POST } = await import("@/app/api/agent/route");
   const res = await POST(new NextRequest("http://localhost/api/agent", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // The caller has proven control of USER (approvals require it).
+    headers: { "content-type": "application/json", ...grantCookieFor(USER) },
     body: JSON.stringify({ intent, walletAddress: USER, idempotencyKey: `fee-${Math.random()}`, skipLLMRefinement: true }),
   }));
   return { status: res.status, json: await res.json() };

@@ -10,6 +10,7 @@ import { recordTx } from "@/lib/platform/store";
 import { authError } from "@/lib/platform/auth";
 import { agentRequestKey, claimRequest, completeRequest, computeRequestId, releaseRequest } from "@/lib/platform/idempotency";
 import { StorageUnavailableError } from "@/lib/platform/kv";
+import { requestHasWalletGrant } from "@/lib/auth/walletGrant";
 
 /** Payment approvals and outcomes live in SHARED storage only: in production
  *  a missing or broken KV fails closed instead of using this instance's
@@ -23,6 +24,18 @@ function storageUnavailable(): NextResponse {
     { error: "PayAI can't prepare this right now because its records are unavailable. Nothing was sent — please try again in a moment.", state: "store_unavailable" },
     { status: 503 },
   );
+}
+
+/** Whether this request carries a valid wallet grant for `address`: "ok",
+ *  "missing" (no/expired/other-wallet grant), or "unavailable" (the grant
+ *  can't be checked — e.g. AUTH_SESSION_SECRET unset in production — which is
+ *  refused like a dependency failure, never treated as proof). */
+function walletGrantStatus(req: NextRequest, address: string): "ok" | "missing" | "unavailable" {
+  try {
+    return requestHasWalletGrant(req, address) ? "ok" : "missing";
+  } catch {
+    return "unavailable";
+  }
 }
 
 /** Server-side detail only: which storage failure (never sent to clients). */
@@ -444,6 +457,22 @@ export async function POST(req: NextRequest) {
     // unsigned tx for the wallet to sign. Only applies to direct sends to a
     // resolved address (link/invoice creation has nothing for a wallet to sign).
     if (walletAddress && intent.action === "send_payment" && intent.recipient && isAddress(intent.recipient) && intent.amount) {
+      // Wallet ownership: an approval is a payment PayAI prepared FOR this
+      // wallet, so it is issued only to a caller that has proven control of
+      // it (the signed, httpOnly wallet grant — lib/auth/walletGrant.ts, the
+      // same proof private reads already require). A wallet address in the
+      // request body proves nothing; without this, anyone could create
+      // approvals for someone else's wallet.
+      const grant = walletGrantStatus(req, walletAddress);
+      if (grant !== "ok") {
+        await releaseRequest(idemKey, DURABLE).catch(() => {});
+        return grant === "missing"
+          ? NextResponse.json(
+              { error: "Unlock your wallet to approve this payment. PayAI prepares a payment only for a wallet you've proven you control. Nothing was sent.", code: "wallet_grant_required", state: "wallet_grant_required" },
+              { status: 401 },
+            )
+          : storageUnavailable();
+      }
       const { forwarderPaymentsEnabled, getPayAIForwarder } = await import("@/lib/monad/config");
       const forwarderOn = forwarderPaymentsEnabled();
       const refuse = (reason: string) => {

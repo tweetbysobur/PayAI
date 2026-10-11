@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * Phase 0 — no fabricated recipients.
@@ -76,7 +77,7 @@ afterEach(() => {
 function post(path: string, body: unknown) {
   return new NextRequest(`http://localhost${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-forwarded-for": `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
+    headers: { "content-type": "application/json", "x-forwarded-for": `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor((body as { walletAddress?: unknown }).walletAddress) },
     body: JSON.stringify(body),
   });
 }

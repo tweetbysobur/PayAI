@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NextRequest } from "next/server";
 import type { Operation, PaymentIntent } from "@/lib/ask/types";
+import { grantCookieFor } from "./walletGrantCookie";
 
 /**
  * Ask PayAI must never invite a second payment while the first may already
@@ -219,10 +220,11 @@ describe("pending settlement: kept unless verified success or definitive revert"
 describe("/api/agent/confirm never tells a possibly-settled payer to pay again", () => {
   async function confirm(body: Record<string, unknown>) {
     const { POST } = await import("@/app/api/agent/confirm/route");
+    const sent = { rawText: "Send 1 USDC", walletAddress: WALLET, txHash: HASH, ...body };
     const res = await POST(new NextRequest("http://localhost/api/agent/confirm", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": `10.9.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}` },
-      body: JSON.stringify({ rawText: "Send 1 USDC", walletAddress: WALLET, txHash: HASH, ...body }),
+      headers: { "content-type": "application/json", "x-forwarded-for": `10.9.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...grantCookieFor(sent.walletAddress) },
+      body: JSON.stringify(sent),
     }));
     return { status: res.status, body: (await res.json()) as { error?: string; reason?: string } };
   }
