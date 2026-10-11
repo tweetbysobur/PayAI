@@ -34,6 +34,10 @@ const CARRIED_TRANSFER_RE = /^(?:\$\s*)?\d[\d,]*(?:\.\d+)?\s*[a-z$][a-z0-9$]*\s+
 const SCHEDULE_RE = /\b(schedule|every|each|daily|weekly|monthly|recurring|tomorrow|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/i;
 /** One word that names a recipient: a 0x address, a .nad name or a plain name. */
 const RECIPIENT_WORD_RE = /^(?:0x[0-9a-f]{40}|[a-z0-9][a-z0-9-]*\.nads?|[a-z][a-z0-9_-]{0,31})$/i;
+/** A recipient that can't be mistaken for a word: a 0x address or a .nad name. */
+const STRONG_RECIPIENT_RE = /^(?:0x[0-9a-f]{40}|[a-z0-9][a-z0-9-]*\.nads?)$/i;
+/** What may follow a second recipient in "pay A and B 5 USDC each". */
+const TRAILING_AMOUNT_RE = /^(?:\$\s*)?\d[\d,]*(?:\.\d+)?\s*[a-z$][a-z0-9$]*(?:\s+each)?$/i;
 /** Words that look like a name but are about time, tokens or politeness. */
 const NOT_A_RECIPIENT = new Set([
   "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
@@ -42,7 +46,7 @@ const NOT_A_RECIPIENT = new Set([
 ]);
 
 /** Where one clause ends and the next begins. */
-const CONNECTOR_RE = /\s*(?:;|,\s*and\s+then|,\s*and|,\s*then|,|\s+and\s+then|\s+and\s+also|\s+and|\s+then|\s+also|\s+plus)\s+/i;
+const CONNECTOR_RE = /\s*(?:;|&|,\s*and\s+then|,\s*and|,\s*then|,|\s+and\s+then|\s+and\s+also|\s+and|\s+then|\s+also|\s+plus)\s+/i;
 
 export interface CompoundShape {
   /** Clauses that are an action of their own, in order. */
@@ -62,7 +66,13 @@ export function analyzeCompound(text: string): CompoundShape | null {
   const t = stripPoliteFraming(text).replace(/[.!?]+$/, "");
   if (!t) return null;
   const parts = t.split(CONNECTOR_RE).map((p) => p.trim()).filter(Boolean);
-  if (parts.length < 2) return null;
+  if (parts.length < 2) {
+    // No connector at all, but a send naming two addresses/.nad names back to
+    // back ("send 5 USDC to alice.nad bob.nad") still names two recipients.
+    if (!ACTION_VERB_RE.test(t)) return null;
+    const strong = [...new Set(t.split(" ").map((w) => w.replace(/[,;]$/, "")).filter((w) => STRONG_RECIPIENT_RE.test(w)).map((w) => w.toLowerCase()))];
+    return strong.length > 1 ? { actions: [t], extraRecipients: strong.slice(1), scheduled: SCHEDULE_RE.test(t) } : null;
+  }
 
   const actions: string[] = [];
   const extraRecipients: string[] = [];
@@ -74,10 +84,23 @@ export function analyzeCompound(text: string): CompoundShape | null {
       // recipient, so a bare name after it is a second one. ("…to bob.nad for
       // coffee and snacks" ends in its memo; "snacks" is not a recipient.)
       lastWasRecipientAction = (/^(?:please\s+|also\s+)?(send|pay|transfer)\b/i.test(p) || CARRIED_TRANSFER_RE.test(p))
-        && /(?:\bto|^(?:please\s+|also\s+)?pay)\s+\S+$/i.test(p);
+        && /(?:\bto|^(?:please\s+|also\s+)?pay|^(?:please\s+|also\s+)?(?:send|transfer)(?=\s+[^\d\s]))\s+\S+$/i.test(p);
+      // "send 5 USDC to alice.nad bob.nad" — two recipients, no connector.
+      const strong = p.split(" ").map((w) => w.replace(/[,;]$/, "")).filter((w) => STRONG_RECIPIENT_RE.test(w));
+      for (const w of new Set(strong.map((x) => x.toLowerCase())).values()) {
+        if (w !== strong[0].toLowerCase()) extraRecipients.push(w);
+      }
       continue;
     }
     const word = p.replace(/^(?:to\s+)/i, "");
+    // "pay alice.nad and bob.nad 5 USDC each" — the second recipient is
+    // followed by the amount, so the clause is more than one word.
+    if (lastWasRecipientAction) {
+      const [first, ...rest] = word.split(" ");
+      const tail = rest.join(" ");
+      if (STRONG_RECIPIENT_RE.test(first) && (!tail || TRAILING_AMOUNT_RE.test(tail))) { extraRecipients.push(first); continue; }
+      if (tail && TRAILING_AMOUNT_RE.test(tail) && RECIPIENT_WORD_RE.test(first) && !NOT_A_RECIPIENT.has(first.toLowerCase())) { extraRecipients.push(first); continue; }
+    }
     if (lastWasRecipientAction && RECIPIENT_WORD_RE.test(word) && !NOT_A_RECIPIENT.has(word.toLowerCase())) {
       extraRecipients.push(word);
       continue;
