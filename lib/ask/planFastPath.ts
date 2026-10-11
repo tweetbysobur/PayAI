@@ -47,6 +47,23 @@ function clauseKind(c: string): Clause | null {
   return null;
 }
 
+/** Conversational framing around a request ("can you … ?", "please …", ", please"). */
+const POLITE_LEAD_RE = /^(?:(?:hey|hi|hello|ok|okay|so)[,!]?\s+)?(?:(?:can|could|would|will) you(?: please)?|please|pls|i(?:'d| would) like (?:you )?to|i want to|i need to|let's|lets)[,]?\s+/i;
+const POLITE_TAIL_RE = /[,]?\s*(?:please|pls|thanks|thank you)\s*$/i;
+
+/** The request with its polite framing removed: "Can you swap 5 MON to USDC
+ *  and send it to bob.nad?" → "swap 5 MON to USDC and send it to bob.nad".
+ *  Only framing words and trailing "?"s are dropped — never an amount, token
+ *  or recipient — and the server's grammar still decides whether what is left
+ *  is a plan. Whitespace runs collapse. */
+export function stripPoliteFraming(text: string): string {
+  if (typeof text !== "string") return text;
+  let t = text.trim().replace(/\s+/g, " ");
+  t = t.replace(/\?+$/, "").trim().replace(POLITE_TAIL_RE, "").trim();
+  t = t.replace(POLITE_LEAD_RE, "").trim();
+  return t;
+}
+
 /** Which plan shape a message looks like, or null. Whitespace runs collapse,
  *  like the server grammar's. */
 export function matchPlanRequest(text: string): PlanRequestKind | null {

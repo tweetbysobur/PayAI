@@ -24,6 +24,7 @@
  * Pure and deterministic: no I/O, no model.
  */
 import type { Understanding } from "./types";
+import { stripPoliteFraming } from "../planFastPath";
 
 /** Verbs that start a money-moving action of their own. */
 const ACTION_VERB_RE = /^(?:please\s+|also\s+|and\s+)?(send|pay|transfer|swap|convert|exchange|trade|buy|sell|schedule|wrap|unwrap|supply|withdraw|stake|bridge|split|distribute|airdrop)\b/i;
@@ -56,7 +57,9 @@ export interface CompoundShape {
  *  one recipient for an action. Null for an ordinary single request. */
 export function analyzeCompound(text: string): CompoundShape | null {
   if (typeof text !== "string") return null;
-  const t = text.trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "");
+  // "Can you swap … and send …?" is the same request without the framing; the
+  // verbs below are anchored to the start of a clause, so strip it first.
+  const t = stripPoliteFraming(text).replace(/[.!?]+$/, "");
   if (!t) return null;
   const parts = t.split(CONNECTOR_RE).map((p) => p.trim()).filter(Boolean);
   if (parts.length < 2) return null;
@@ -90,6 +93,41 @@ export function analyzeCompound(text: string): CompoundShape | null {
  * request is a single action. Always "unsupported" — never a partial
  * operation — so nothing can be prepared from it.
  */
+/** Words that stand in for a recipient without naming one. */
+const PLACEHOLDER_WORDS = new Set([
+  "a", "an", "the", "my", "another", "some", "any", "someone", "somebody", "anyone", "person", "friend",
+  "address", "wallet", "account", "recipient", "payee", "one", "him", "her", "them", "us",
+]);
+const SWAP_THEN_SEND_RE = /^swap\s+(?:(\d[\d,]*(?:\.\d+)?)\s+)?([a-z][a-z0-9]{1,9})\s+(?:to|for|into)\s+([a-z][a-z0-9]{1,9})(?:\s*,)?\s+(?:and then|and|then)\s+send\s+(?:(?:it|the result|(?:the\s+)?[a-z][a-z0-9]{1,9}|(?:\d[\d,]*(?:\.\d+)?\s+)?[a-z][a-z0-9]{1,9}))?\s*(?:to\s+(.+))?$/i;
+
+/**
+ * "swap MON to USDC and send it to an address": a swap, then a transfer of
+ * its result — which the plan path does — but with the amount and/or the
+ * recipient left out. Ask for exactly what is missing and show how to write
+ * the whole request, instead of refusing it. Null when nothing is missing.
+ */
+function swapThenSendGap(text: string): Understanding | null {
+  const t = stripPoliteFraming(text).replace(/[.!]+$/, "");
+  const m = SWAP_THEN_SEND_RE.exec(t);
+  if (!m) return null;
+  const amount = m[1];
+  const from = m[2].toUpperCase();
+  const to = m[3].toUpperCase();
+  // The first word after "to" is the recipient; anything after it is a memo.
+  const recipient = m[4]?.trim().split(" ")[0];
+  const hasRecipient = !!recipient && RECIPIENT_WORD_RE.test(recipient)
+    && !PLACEHOLDER_WORDS.has(recipient.toLowerCase()) && !NOT_A_RECIPIENT.has(recipient.toLowerCase());
+  const missing: string[] = [];
+  if (!amount) missing.push(`how much ${from} to swap`);
+  if (!hasRecipient) missing.push("who should receive it (a 0x address, a .nad name or a saved payee)");
+  if (missing.length === 0) return null;
+  const example = `swap ${amount ?? "5"} ${from} to ${to} and send it to ${hasRecipient ? recipient : "alice.nad"}`;
+  return {
+    kind: "unsupported", outcome: "unsupported", capability: "compound_incomplete",
+    reply: `Yes — PayAI can do that as one plan: swap ${from} to ${to}, then send the ${to} you receive. I just need ${missing.join(" and ")}. Write it in one message, for example "${example}". I'll show you the whole plan — both steps — to review before anything runs. Nothing was prepared yet.`,
+  };
+}
+
 export function detectCompoundRequest(text: string): Understanding | null {
   const shape = analyzeCompound(text);
   if (!shape) return null;
@@ -110,6 +148,9 @@ export function detectCompoundRequest(text: string): Understanding | null {
       reply: `That's ${shape.actions.length} actions, and at least one is scheduled or recurring. Scheduled and recurring payments can't be combined with other actions in one request yet — send each one as its own message. Nothing was prepared.`,
     };
   }
+
+  const gap = swapThenSendGap(text);
+  if (gap) return gap;
 
   return {
     kind: "unsupported", outcome: "unsupported", capability: "compound_request",

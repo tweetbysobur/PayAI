@@ -30,7 +30,7 @@ import {
 } from "@/lib/ask/persistChat";
 import { useSync } from "@/lib/hooks/useSync";
 import { warmPortfolioDiscovery } from "@/lib/hooks/usePortfolio";
-import { matchPlanRequest, planFoundText, PLAN_THINKING_LABEL, type PlanRequestKind } from "@/lib/ask/planFastPath";
+import { matchPlanRequest, planFoundText, stripPoliteFraming, PLAN_THINKING_LABEL, type PlanRequestKind } from "@/lib/ask/planFastPath";
 import { createPlanForTurn } from "@/lib/ask/planTurn";
 import { attachTiming, primePlan } from "@/lib/ask/planCards";
 import { startAskTiming } from "@/lib/ask/timing";
@@ -48,6 +48,9 @@ interface TurnInput {
   readyOp: Operation | null;
   startContext: { wallet: string | null; conversationId: string | null };
   planKind: PlanRequestKind | null;
+  /** The text sent to the Plan API: the message without its polite framing
+   *  ("can you … ?"). Same as `text` when there is none. */
+  planText?: string;
   /** ms since epoch, when the user sent it. */
   startedAt: number;
 }
@@ -708,10 +711,11 @@ export function useAskChat(options?: { persist?: boolean }) {
     // was refused this session (the normal path serves it instead).
     // Longer than the normal path accepts: only a plan can serve it, so the
     // Plan API is asked (and explains a refusal) even without a hint.
+    const planText = stripPoliteFraming(trimmed);
     const planKind = wallet.address && planPathOffFor.current !== wallet.address.toLowerCase()
-      ? matchPlanRequest(trimmed) ?? (trimmed.length > ASK_INPUT_LIMIT ? "multi" : null)
+      ? matchPlanRequest(planText) ?? (trimmed.length > ASK_INPUT_LIMIT ? "multi" : null)
       : null;
-    await runTurn({ text: trimmed, history, pending, readyOp: readyOp ?? null, startContext, planKind, startedAt: Date.now() }, false);
+    await runTurn({ text: trimmed, history, pending, readyOp: readyOp ?? null, startContext, planKind, planText, startedAt: Date.now() }, false);
   }
 
   /** One Ask turn after the user's message is on screen: the plan fast path
@@ -733,7 +737,7 @@ export function useAskChat(options?: { persist?: boolean }) {
         setThinkingHint(t.planKind === "transfer" ? "Still checking the recipient and amount" : t.planKind === "multi" ? "Still checking each action" : "Still checking the tokens and amount");
         const timing = startAskTiming("plan");
         timing.mark("intent_detected");
-        const r = await createPlanForTurn(t.text, { signal: ac.signal, since: t.startedAt, retry });
+        const r = await createPlanForTurn(t.planText ?? t.text, { signal: ac.signal, since: t.startedAt, retry });
         if (!current()) return;
         if (r.data) {
           timing.mark("plan_created");
