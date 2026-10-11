@@ -254,17 +254,15 @@ describe("D2 — buildAuditTrail only trusts the executor's own PaymentExecuted"
   });
 });
 
-describe("the confirm route uses the classifiers and keeps acceptance unchanged", () => {
+describe("the confirm route takes receipt evidence from the classifiers", () => {
   const route = readFileSync(new URL("../app/api/agent/confirm/route.ts", import.meta.url), "utf8");
-  it("acceptance is still exactly the existing checks", () => {
-    expect(route).toMatch(/matched = isNativeTransferTo\(tx, recipient, wanted\);/);
-    expect(route).toMatch(/matched = hasErc20TransferTo\(receipt\.logs, usdc\.address, recipient, wanted\);/);
-    expect(route).toMatch(/matched = verdict !== null;/);
-  });
+  // Acceptance now lives in lib/payment/confirmPaths.ts (one verifier per
+  // path, exercised through the route in test/confirm-route.test.ts); the
+  // receipt evidence is decided separately and only after a path accepted.
   it("the receipt evidence comes from the classifiers, never a bare 'none'", () => {
     expect(route).toMatch(/directErc20FeeEvidence\(\{\s*txTo: receipt\.to, token: usdc\.address, decimals: usdc\.decimals, wallet: walletAddress/);
     expect(route).toMatch(/directNativeFeeEvidence\(\{ txTo: tx\.to, recipient, value: tx\.value/);
-    expect(route).toMatch(/feeEvidenceFromForward\(\{ \.\.\.verdict, decimals \}\)/);
+    expect(route).toMatch(/feeEvidenceFromForward\(\{ fee: verdict\.fee, feeOnTop: verdict\.feeOnTop, feeEvent: verdict\.feeEvent, decimals \}\)/);
     expect(route).not.toMatch(/kind: "none"/);
   });
 });

@@ -43,12 +43,12 @@ vi.mock("@/lib/monad/wallet", async (orig) => ({
 }));
 vi.mock("@/lib/payment/sanctions", async (orig) => ({ ...(await orig<typeof import("@/lib/payment/sanctions")>()), ensureSanctionsLoaded: async () => {} }));
 
-const chain = { receipt: null as unknown };
+const chain = { receipt: null as unknown, tx: null as unknown };
 vi.mock("viem", async (orig) => ({
   ...(await orig<typeof import("viem")>()),
   createPublicClient: () => ({
     getTransactionReceipt: async () => { if (!chain.receipt) throw new Error("could not be found"); return chain.receipt; },
-    getTransaction: async () => ({ to: USDC, value: 0n }),
+    getTransaction: async () => chain.tx,
     getBlock: async () => ({ timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
   }),
 }));
@@ -63,6 +63,7 @@ beforeEach(() => {
   // The in-memory store lives on globalThis and survives resetModules.
   (globalThis as { __veripayIdem?: Map<string, unknown> }).__veripayIdem?.clear();
   chain.receipt = null;
+  chain.tx = null;
 });
 
 type Json = Record<string, unknown> & {
@@ -90,12 +91,19 @@ async function confirm(body: Record<string, unknown>, headers: Record<string, st
 const idem = () => import("@/lib/platform/idempotency");
 /** The USDC payment the direct-transfer approval asks for, mined. */
 function mineDirectPayment(from: string = WALLET) {
+  // The mined transaction itself — the confirm route checks it against the
+  // stored unsignedTx (sender, target, calldata, value), not just the logs.
+  chain.tx = {
+    hash: TX, from, to: USDC, value: 0n,
+    input: encodeFunctionData({ abi: parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]), functionName: "transfer", args: [RECIPIENT, 1_000_000n] }),
+  };
   chain.receipt = {
     status: "success", from, to: USDC, blockNumber: 7n, gasUsed: 50_000n, effectiveGasPrice: 1n,
     logs: [{ address: USDC, topics: [TRANSFER, pad(from as Hex), pad(RECIPIENT)], data: pad("0xf4240") }],
   };
 }
-const replayedApproval = (b: Json) => (b.trace ?? []).some((t) => t.step === "intent" && /^Replayed approved intent/.test(t.detail));
+/** The confirm route settled against the stored approval (its trace says so). */
+const replayedApproval = (b: Json) => (b.trace ?? []).some((t) => t.step === "intent" && /^Approved intent/.test(t.detail));
 
 const RESERVED = [
   `sdk-settle:${TX}`, `sdk-build:${QUOTE}`, `sdk-outputs:${QUOTE}`, `confirm:${TX}`,
@@ -128,9 +136,11 @@ describe("client idempotency keys never reach server-owned keys", () => {
     await completeRequest(`confirm:0x${"cd".repeat(32)}`, { intent: { action: "send_payment", amount: 1, token: "USDC", recipient: OTHER_WALLET, network: "monad", summary: "x", confidence: 1, rawText: "x", purpose: null } });
     mineDirectPayment();
     const r = await confirm({ requestId: `confirm:0x${"cd".repeat(32)}` });
-    expect(r.status).toBe(200);
-    expect(replayedApproval(r.body)).toBe(false); // the stored record was not read
-    expect(r.body.intent?.recipient?.toLowerCase()).toBe(RECIPIENT.toLowerCase());
+    // The server record is not an approval: refused, and nothing of it leaks.
+    expect(r.status).toBe(409);
+    expect(r.body.reason).toBe("approval_not_found");
+    expect(replayedApproval(r.body)).toBe(false);
+    expect(JSON.stringify(r.body).toLowerCase()).not.toContain(OTHER_WALLET.toLowerCase());
   });
 
   it("the storage key is namespaced, hashed and tenant/wallet scoped; it never names a server key", async () => {
@@ -182,9 +192,10 @@ describe("legitimate retries and scoping", () => {
 
     // Another wallet naming the same requestId does not get that approval.
     chain.receipt = null;
-    (globalThis as { __veripayIdem?: Map<string, unknown> }).__veripayIdem?.delete(`confirm:${TX}`);
     mineDirectPayment(OTHER_WALLET);
     const other = await confirm({ requestId: "pay-1", walletAddress: OTHER_WALLET, txHash: `0x${"ef".repeat(32)}` });
+    expect(other.status).toBe(409);
+    expect(other.body.reason).toBe("approval_not_found");
     expect(replayedApproval(other.body)).toBe(false);
   });
 });

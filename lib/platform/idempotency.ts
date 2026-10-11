@@ -117,6 +117,13 @@ export function agentRequestKey(merchantId: string, walletAddress: string | null
   return `agent-req:${computeRequestId({ scope: "agent", merchantId, wallet: (walletAddress ?? "").toLowerCase(), requestId })}`;
 }
 
+/** The server-owned key a wallet-signed payment's confirmation is stored
+ *  under. Lower-cased so one transaction has exactly one key, whatever hex
+ *  casing a caller sends. Never derived from client-chosen text. */
+export function agentConfirmKey(txHash: string): string {
+  return `agent-confirm:${txHash.toLowerCase()}`;
+}
+
 /**
  * Deterministic id from a wallet signature — for any mutation whose proof
  * of authorization is itself the thing worth deduping on. A wallet
@@ -190,6 +197,25 @@ export async function peekRequest<T>(requestId: string): Promise<T | null> {
   pruneMem();
   const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
   return existing?.status === "done" ? ((existing.result as T) ?? null) : null;
+}
+
+/**
+ * peekRequest, plus when the record was stored (`createdAt`, ms). For a
+ * completed record that is the moment the result was written — for an
+ * approval, when /api/agent handed it out. Same visibility rule: only a
+ * `done` record is returned.
+ */
+export async function peekRequestRecord<T>(requestId: string): Promise<{ result: T; createdAt: number } | null> {
+  const r = await getRedis();
+  let existing: IdempotencyRecord<T> | null | undefined;
+  if (r) {
+    existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
+  } else {
+    pruneMem();
+    existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
+  }
+  if (existing?.status !== "done" || existing.result == null) return null;
+  return { result: existing.result, createdAt: existing.createdAt };
 }
 
 /** Store the final outcome under a claimed request id so retries replay it. */
