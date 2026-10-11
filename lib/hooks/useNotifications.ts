@@ -41,7 +41,7 @@ const RETENTION_MS = 24 * 60 * 60 * 1000;
 
 const LABEL: Record<string, string> = {
   executed: "Payment sent",
-  needs_review: "Payment needs review",
+  needs_review: "Payment stopped — nothing was sent",
   blocked: "Payment blocked",
   refused: "Payment refused",
   // Was missing entirely — an execution error (RPC failure, agent-wallet

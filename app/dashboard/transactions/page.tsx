@@ -1,5 +1,6 @@
 "use client";
 
+import { STOPPED_LABEL } from "@/lib/hooks/stoppedPayments";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, ArrowUpRight, ArrowLeftRight } from "lucide-react";
@@ -18,7 +19,7 @@ const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"
   executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "danger",
 };
 const DECISION_LABEL: Record<string, string> = {
-  executed: "Settled", needs_review: "In review", blocked: "Blocked", refused: "Declined", error: "Failed",
+  executed: "Settled", needs_review: STOPPED_LABEL, blocked: "Blocked", refused: "Declined", error: "Failed",
 };
 const STATUS_FILTERS = ["all", "executed", "needs_review", "blocked", "refused"] as const;
 const PAGE_SIZE = 12;
@@ -113,7 +114,13 @@ function TransactionsTabContent() {
   const [history, setHistory] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<typeof STATUS_FILTERS[number]>("all");
+  // ?status= opens the list already filtered (the dashboard's "View them"
+  // links to the payments the risk check stopped).
+  const searchParams = useSearchParams();
+  const [status, setStatus] = useState<typeof STATUS_FILTERS[number]>(() => {
+    const s = searchParams.get("status");
+    return (STATUS_FILTERS as readonly string[]).includes(s ?? "") ? (s as typeof STATUS_FILTERS[number]) : "all";
+  });
   const [page, setPage] = useState(1);
 
   useEffect(() => {

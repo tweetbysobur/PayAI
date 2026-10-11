@@ -157,7 +157,7 @@ export async function respondToSendPayment(rawText: string, walletAddress: strin
     return assistantText(`Payment blocked. Reason: ${failed?.detail || json.compliance?.summary || "This didn't pass compliance screening."}`);
   }
   if (decision === "needs_review") {
-    return assistantText("This payment needs manual review before it can be sent — it wasn't cleared for instant execution.");
+    return assistantText("PayAI's risk check stopped this payment, so nothing was sent.");
   }
   if (decision === "error") {
     return assistantText(json.error || "Something went wrong preparing that payment.");

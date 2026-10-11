@@ -50,8 +50,8 @@ export const PERIOD_MS: Record<Period, number> = {
 /** Payment decisions → an outcome the feed can colour. */
 function paymentStatus(decision: string): ActivityItem["status"] {
   if (decision === "executed") return "ok";
-  if (decision === "needs_review") return "pending";
-  if (decision === "blocked" || decision === "refused" || decision === "error") return "failed";
+  // Stopped by the risk check: final, nothing sent — not "pending".
+  if (decision === "needs_review" || decision === "blocked" || decision === "refused" || decision === "error") return "failed";
   return null;
 }
 

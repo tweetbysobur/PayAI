@@ -422,7 +422,7 @@ export default function AutomationsPage() {
       const j = await r.json();
       if (!j.success) throw new Error(j.error || "Action failed.");
       if (actionName === "execute_now") {
-        toast(j.outcome === "executed" ? "Payment sent" : j.outcome === "error" ? "Execution failed — check activity for details" : "Payment could not be sent — needs review");
+        toast(j.outcome === "executed" ? "Payment sent" : j.outcome === "error" ? "Execution failed — check activity for details" : "Payment not sent — stopped by the compliance or risk check. Nothing moved.");
       } else {
         toast(ACTION_LABEL[actionName] ?? "Done");
       }
@@ -770,7 +770,7 @@ function ActivityFeed({ runs }: { runs: { automation: Automation; at: number; de
   const meta = (d: string) =>
     d === "executed" ? { Icon: CheckCircle2, tone: "bg-primary/12 text-primary-ink", label: "Sent" }
     : d === "blocked" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Blocked" }
-    : d === "needs_review" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Needs review" }
+    : d === "needs_review" ? { Icon: ShieldCheck, tone: "bg-warning/12 text-warning", label: "Stopped by risk check" }
     : d === "error" || d === "failed" ? { Icon: AlertTriangle, tone: "bg-danger/12 text-danger", label: "Failed" }
     : { Icon: CalendarClock, tone: "bg-input text-muted-foreground", label: "Scheduled" };
   const fmt = (ts: number) => new Date(ts).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });

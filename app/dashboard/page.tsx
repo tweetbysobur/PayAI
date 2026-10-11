@@ -1,5 +1,6 @@
 "use client";
 
+import { stoppedNotice, STOPPED_LABEL } from "@/lib/hooks/stoppedPayments";
 import { fetchHistory } from "@/lib/hooks/historyFetch";
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
@@ -30,7 +31,7 @@ const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal")
  *   1–3  Welcome, what PayAI does, and the intent box (AskEntry). Submitting
  *        hands the exact words to Ask PayAI, which plans and asks for review
  *        and approval — the Dashboard executes nothing.
- *   4    Needs attention — wallet state, failing automations, held items.
+ *   4    Needs attention — wallet state, failing automations, payments the risk check stopped.
  *   5    Recent activity — this wallet's own executed transactions.
  *   6    Coming up — the next scheduled and recurring actions.
  *   7    Wallet — balance and top holdings, last: supporting information,
@@ -49,7 +50,7 @@ const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : 
 
 const DECISION: Record<string, { label: string; tone: StatusTone }> = {
   executed: { label: "Settled", tone: "success" },
-  needs_review: { label: "Needs review", tone: "warning" },
+  needs_review: { label: STOPPED_LABEL, tone: "warning" },
   blocked: { label: "Blocked", tone: "danger" },
   refused: { label: "Refused", tone: "danger" },
   error: { label: "Failed", tone: "danger" },
@@ -150,9 +151,11 @@ export default function Dashboard() {
         items.push({ key: `aw-${a.id}`, tone: "warning", title: `${name}: last run failed`, detail: a.lastError ?? "It will try again at its next run.", action: { label: "Review", href: "/dashboard/automations" } });
       }
     }
-    const review = history.filter((h) => h.decision === "needs_review").length;
-    if (review > 0) {
-      items.push({ key: "review", tone: "warning", title: review === 1 ? "1 transaction is held for review" : `${review} transactions are held for review`, action: { label: "Open history", href: "/dashboard/transactions" } });
+    // Payments the risk check stopped: nothing was sent and nothing is waiting
+    // (lib/hooks/stoppedPayments.ts). Recent ones only, so the warning clears.
+    const stopped = stoppedNotice(history);
+    if (stopped) {
+      items.push({ key: "stopped", tone: "warning", title: stopped.title, detail: stopped.detail, action: { label: "View them", href: stopped.href } });
     }
     return items;
   }, [wallet, automations, history, busy, toast]);
