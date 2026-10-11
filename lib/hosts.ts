@@ -40,7 +40,7 @@ export function isAppPath(pathname: string): boolean {
 }
 
 export function isMarketingPath(pathname: string): boolean {
-  return pathname === "/product" || pathname === "/how-it-works";
+  return pathname === "/product" || pathname === "/how-it-works" || pathname === "/intents";
 }
 
 const DOCS_SLUGS = new Set([

@@ -5,25 +5,31 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import {
   ArrowRight, Sparkles, ShieldCheck, Send, ArrowLeftRight, Layers,
-  Repeat2, Wallet, Activity, Hash, FileCheck, CheckCircle2, Lock, Eye,
+  Repeat2, Wallet, Users, Hash, FileCheck, CheckCircle2, Lock, Eye,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
 import { EXECUTION_VENUES } from "@/components/landing/PlatformOverview";
+import { CORE_EXAMPLES, PRODUCT_EXAMPLES } from "@/components/landing/intentExamples";
+
+/** The protocols PayAI's own actions call today, besides trading venues. */
+const PROTOCOLS = ["Aave V3", "WMON"] as const;
 
 /**
  * /product's core-positioning sections: PayAI as one natural-language intent
- * layer, not a bundle of separate products. Payments, trading, DeFi and
- * automation are capabilities of the same intent → interpretation → approval
+ * layer, not a bundle of separate products. Payments, trading, Monad protocols,
+ * Rooms and automation are capabilities of the same intent → interpretation → approval
  * → execution → verification model, not six unrelated tools — so these
  * sections build and reuse ONE shared visual language (stage chips, divided
  * panels) rather than giving each capability its own distinct card style the
  * way an actual product bundle would.
  *
- * Nothing here claims a capability the codebase doesn't have. In particular:
- * DeFi is currently Monad's DEX and launchpad infrastructure (the same
- * venues Trading uses) — there is no separate lending/staking/pool-deposit
- * feature yet, so the DeFi section says exactly that instead of implying
- * one exists.
+ * Nothing here claims a capability the codebase doesn't have. Protocol
+ * support today is exactly: wrap/unwrap MON (WMON) and supply/withdraw USDC on
+ * Aave V3 (lib/sdk/actions/wmon, aave-v3-monad), plus trades through the
+ * supported venues. There is no staking, borrowing or bridging, and the
+ * protocols section names what exists rather than "supported protocols".
+ * Every example prompt comes from intentExamples.ts and is checked against the
+ * product in test/intent-examples.test.ts.
  */
 
 const SECTION = "border-t border-border py-24 sm:py-28";
@@ -66,20 +72,12 @@ function MiniFlow() {
 
 /** Every intent shown here has to be one Ask PayAI can actually carry through
  *  to a signable transaction, because the card puts "Monad tx" at the end of
- *  the flow. Two traps to avoid:
- *
- *  - Multi-recipient phrasing ("to three wallets", "across these addresses")
- *    classifies as `distribution`, and dispatchDistribution replies that bulk
- *    distributions are not executable from chat yet. So the payments example
- *    is single-recipient recurring, which does execute.
- *  - DeFi is not "deposit into a pool" — PayAI has no lending/liquidity-pool
- *    integration today. Nad.Fun's bonding-curve buy is the real DeFi-adjacent
- *    action distinct from a plain DEX trade, so it stands in honestly until
- *    protocol integrations land. */
+ *  the flow — so they come from intentExamples.ts, where each one is checked
+ *  against the real product. */
 const CORE_CARDS = [
-  { icon: Send, label: "PAYMENTS", intent: "Send 500 USDC to alice.nad every Friday." },
-  { icon: ArrowLeftRight, label: "TRADING", intent: "Swap 0.2 MON for USDC." },
-  { icon: Layers, label: "DEFI", intent: "Buy 5 MON worth of a new token on Nad.Fun." },
+  { icon: Send, label: "PAYMENTS", intent: CORE_EXAMPLES.payments.say },
+  { icon: ArrowLeftRight, label: "TRADING", intent: CORE_EXAMPLES.trading.say },
+  { icon: Layers, label: "PROTOCOLS", intent: CORE_EXAMPLES.protocols.say },
 ];
 
 export function CoreProductSection() {
@@ -151,7 +149,7 @@ export function IntentToExecutionSection() {
         <Head
           eyebrow="From intent to execution"
           title="One request. One execution flow."
-          body="Every action PayAI takes — a payment, a trade, a DeFi interaction — moves through the same four stages."
+          body="Every action PayAI takes — a payment, a trade, a protocol action — moves through the same four stages."
         />
 
         <motion.div
@@ -221,12 +219,12 @@ export function IntentToExecutionSection() {
 /* ── Capabilities — one interface, not six products ─────────────────────── */
 
 const CAPABILITIES = [
-  { icon: Send, title: "Payments", body: "Send, schedule, and distribute funds." },
-  { icon: ArrowLeftRight, title: "Trading", body: "Trade tokens across supported Monad venues." },
-  { icon: Layers, title: "DeFi", body: "Interact with supported Monad protocols." },
-  { icon: Repeat2, title: "Automation", body: "Set a schedule once; PayAI runs it on time." },
-  { icon: Wallet, title: "Wallet", body: "Create or connect a wallet you control." },
-  { icon: Activity, title: "Activity", body: "See every execution, verified on-chain." },
+  { icon: Send, title: "Payments", body: "Send, schedule and automate transfers, or pay several people at once." },
+  { icon: ArrowLeftRight, title: "Trading", body: "Swap, buy or sell tokens across supported Monad venues." },
+  { icon: Layers, title: "Monad protocols", body: "Wrap MON, and supply or withdraw USDC on Aave V3." },
+  { icon: Repeat2, title: "Plans", body: "Several actions from one request, reviewed together and run in order." },
+  { icon: Users, title: "Rooms", body: "Split a shared cost; each person pays the recipient directly." },
+  { icon: Wallet, title: "Wallet & activity", body: "Create or connect a wallet you control, and see every execution verified on-chain." },
 ];
 
 export function CapabilitiesSection() {
@@ -236,7 +234,7 @@ export function CapabilitiesSection() {
         <Head
           eyebrow="Built around your intent"
           title="One interface for on-chain actions."
-          body="Payments, trading, DeFi, and automation are capabilities of the same intent layer — reachable from one interface, not six separate products."
+          body="Payments, trading, protocols, plans and Rooms are capabilities of the same intent layer — reachable from one interface, not separate products."
         />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CAPABILITIES.map((c, i) => (
@@ -261,7 +259,7 @@ export function CapabilitiesSection() {
   );
 }
 
-/* ── DeFi — honest about what's actually integrated today ────────────────── */
+/* ── Monad protocols — exactly what's integrated today ───────────────────── */
 
 /**
  * Venues are rendered as typographic wordmarks, not logos, and that is a
@@ -280,12 +278,12 @@ export function DeFiSection() {
     <section id="defi" className={SECTION}>
       <div className="mx-auto max-w-2xl px-6 text-center">
         <Head
-          eyebrow="DeFi"
-          title="Interact with supported Monad protocols through natural-language intent."
-          body="Today, PayAI's DeFi interactions run through Monad's DEX and launchpad infrastructure — the same execution venues Trading uses. Broader protocol support is added as it's implemented, never claimed ahead of it."
+          eyebrow="Monad protocols"
+          title="Use Monad protocols by saying what you want."
+          body="Today that means wrapping and unwrapping MON, and supplying or withdrawing USDC on Aave V3. Trades route through supported Monad venues. More protocols are added as they're built and tested — never listed ahead of that."
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
-          {EXECUTION_VENUES.map((v) => (
+          {[...PROTOCOLS, ...EXECUTION_VENUES].map((v) => (
             <span key={v} className="rounded-full border border-border bg-input/50 px-3 py-1.5 text-xs font-medium text-foreground">
               {v}
             </span>
@@ -343,19 +341,12 @@ export function VerificationSection() {
 
 /* ── Intent examples — demonstrate the interface, not a template catalog ─── */
 
-/** Sentences Ask PayAI executes today — this block sits directly above a
+/** Sentences Ask PayAI acts on today — this block sits directly above a
  *  "Try it in Ask PayAI" button, so anything listed here has to survive the
- *  click. "Distribute 1,000 USDC across these addresses" and "…to my team"
- *  were both here, but neither names its recipients, so neither can execute —
- *  the deterministic split path (lib/ask/intent/split.ts) answers them with a
- *  question. A split example belongs here only if it lists real, resolvable
- *  recipients. */
-const INTENT_EXAMPLES = [
-  "Send 100 USDC to alice.nad every Friday.",
-  "Swap 0.1 MON for USDC.",
-  "Pay this wallet 50 USDC tomorrow.",
-  "What's my USDC balance?",
-];
+ *  click. They come from intentExamples.ts and are checked against the real
+ *  product (test/intent-examples.test.ts); a prompt with no resolvable
+ *  recipient ("pay this wallet…", "…to my team") can't be listed. */
+const INTENT_EXAMPLES = PRODUCT_EXAMPLES.map((e) => e.say);
 
 export function IntentExamplesSection() {
   return (

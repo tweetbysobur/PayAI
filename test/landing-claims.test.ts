@@ -1,7 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseIntent } from "@/lib/plan-adapter/grammar";
-import { parseScheduleIntent } from "@/lib/agent/brain";
 
 /**
  * The marketing pages make claims about what PayAI can do, and they have to
@@ -22,12 +20,14 @@ const page = read("../app/page.tsx");
 const product = read("../app/product/page.tsx");
 const howItWorks = read("../app/how-it-works/page.tsx");
 const overview = read("../components/landing/PlatformOverview.tsx");
+const steps = read("../components/landing/HowItWorksSteps.tsx");
 
 describe("the landing page stays the pitch", () => {
   it("renders none of the depth sections — no product-card grid, no capability deep-dives", () => {
     for (const deep of [
       "ProductOverviewSection", "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
       "EmbeddedWalletSection", "TradingSection", "AnalyticsSection", "SecuritySection",
+      "HowItWorksSteps", "CapabilityGrid", "WhyMonadSection",
     ]) {
       expect(page, `${deep} belongs on a depth page, not the landing page`).not.toContain(deep);
     }
@@ -39,8 +39,8 @@ describe("the landing page stays the pitch", () => {
     }
   });
 
-  it("puts the mechanics on /how-it-works", () => {
-    for (const s of ["HowPayAIWorksSection", "AIOperatorSection", "SecuritySection"]) {
+  it("puts the steps, the capability grid and the mechanics on /how-it-works", () => {
+    for (const s of ["<HowItWorksSteps />", "<CapabilityGrid />", "AIOperatorSection", "SecuritySection"]) {
       expect(howItWorks, `/how-it-works is missing ${s}`).toContain(s);
     }
   });
@@ -49,13 +49,21 @@ describe("the landing page stays the pitch", () => {
     // Duplication is how the split rots: a section lands on both, then the
     // landing page keeps the copy and the depth page is forgotten.
     const sections = [
-      "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
-      "EmbeddedWalletSection", "TradingSection", "AnalyticsSection",
+      "PaymentOperationsSection", "AIOperatorSection", "EmbeddedWalletSection", "TradingSection",
+      "AnalyticsSection", "HowItWorksSteps", "CapabilityGrid", "WhyMonadSection",
     ];
     for (const s of sections) {
-      const on = [product.includes(s), howItWorks.includes(s)].filter(Boolean).length;
-      expect(on, `${s} is rendered on both depth pages`).toBe(1);
+      const on = [page.includes(s), product.includes(s), howItWorks.includes(s)].filter(Boolean).length;
+      expect(on, `${s} is rendered on more than one page`).toBe(1);
     }
+  });
+
+  it("puts \"Why we chose Monad\" on /product, toward the end", () => {
+    expect(product).toContain("<WhyMonadSection />");
+    expect(howItWorks).not.toContain("WhyMonadSection");
+    const order = ["<IntentExamplesSection />", "<WhyMonadSection />", "Describe it. Review it. Approve it."].map((m) => product.indexOf(m));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 });
 
@@ -140,8 +148,10 @@ describe("the hero states the product: intent → onchain execution", () => {
     expect(hero.length).toBeGreaterThan(0);
   });
 
-  it("teaches the three steps", () => {
-    for (const s of ["Describe your intent", "Review the plan", "Approve and execute"]) expect(page, s).toContain(s);
+  it("teaches the three steps on /how-it-works, and the landing page points there", () => {
+    for (const s of ["Describe your intent", "Review the plan", "Approve and execute"]) expect(steps, s).toContain(s);
+    expect(howItWorks).toContain("<HowItWorksSteps />");
+    expect(page).toMatch(/href="\/how-it-works"/);
   });
 
   it("does not claim DeFi protocol support, guarantees, or zero risk", () => {
@@ -156,15 +166,11 @@ describe("the hero states the product: intent → onchain execution", () => {
     expect(page).toMatch(/const LAUNCH = "\/auth";/);
   });
 
-  it("every capability example is a request the product accepts as written", () => {
-    const tokens = { monDecimals: 18, stable: { symbol: "USDC", decimals: 6 } };
-    for (const ex of ["Send 50 USDC to alice.nad", "Swap 100 USDC to MON"]) {
-      expect(page, ex).toContain(ex);
-      expect(parseIntent(ex, tokens).ok, ex).toBe(true);
-    }
-    for (const ex of ["Send 20 USDC to bob.nad every Friday", "Send 200 USDC to john.nad tomorrow"]) {
-      expect(page, ex).toContain(ex);
-      expect(parseScheduleIntent(ex), ex).toMatchObject({ needsTime: false });
-    }
+  it("shows no example prompts itself: they live on /how-it-works and /intents, where each is tested", () => {
+    // Every prompt the site shows comes from intentExamples.ts and is run
+    // through the real product in test/intent-examples.test.ts.
+    expect(code).not.toMatch(/\b\d+(\.\d+)?\s*(USDC|MON)\b/);
+    expect(page).toMatch(/href="\/intents"/);
+    expect(page).toMatch(/href=\{`\/how-it-works#capabilities`\}/);
   });
 });

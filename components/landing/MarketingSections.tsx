@@ -223,12 +223,12 @@ export function AutomationTimelineSection() {
 /* ── Security ───────────────────────────────────────────────────────────── */
 
 const TECHNOLOGY = [
-  { icon: Lock, title: "Your money stays yours", body: "You hold your own funds. PayAI never takes custody, and every payment needs your approval." },
-  { icon: Fingerprint, title: "Confirmation before execution", body: "Nothing signs itself. A PayAI wallet asks for your passkey on every transaction; a connected wallet asks you to sign. What you approve is what you were shown." },
+  { icon: Lock, title: "Your money stays yours", body: "Payments and trades you start are signed by your own wallet, and PayAI never holds its keys. Payment Automations are the exception in the app: they run from a capped agent wallet, only within the limits you approve when you set them up." },
+  { icon: Fingerprint, title: "Confirmation before execution", body: "Nothing you start signs itself. A PayAI wallet asks for your passkey on every transaction; a connected wallet asks you to sign. What you approve is what you were shown." },
   { icon: Wallet, title: "Your wallet, or ours", body: "Create a PayAI wallet from a passkey — no seed phrase, because there is nothing for us to hold — or connect the wallet you already use. Link both to one account." },
   { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
   { icon: Undo2, title: "Cancelled means refunded", body: "Cancel an automation backed by Reserved Funds and what was set aside is released back to you automatically — the same when a schedule finishes its last run." },
-  { icon: Zap, title: "Arrives in seconds", body: "Payments land almost instantly, any time of day, with a receipt you can always look up." },
+  { icon: Zap, title: "Settles on Monad", body: "Payments settle on Monad any time of day, with a transaction hash you can always look up." },
   { icon: Eye, title: "Nothing to hide", body: "Every payment is recorded permanently, so you can prove it happened whenever you need to." },
   { icon: LifeBuoy, title: "Something wrong? Report it", body: "Report an issue on any transaction from the dashboard, and the Support Center tracks it — with your history beside it rather than in a separate inbox." },
 ];
@@ -259,10 +259,13 @@ export function SecuritySection() {
 
 /* ── Why Monad ──────────────────────────────────────────────────────────── */
 
+/** Why PayAI runs on Monad — each point tied to how PayAI actually works,
+ *  with no benchmark figures. */
 const WHY_MONAD = [
-  { title: "Fast settlement", body: "Payments and automations confirm in seconds, so a scheduled payout or an AI-triggered send never leaves you waiting." },
-  { title: "Low fees", body: "High throughput keeps gas costs low, so frequent and recurring payments stay practical instead of a tax on convenience." },
-  { title: "Built for real usage", body: "Wallet Automation and Reserved Funds depend on the same high-volume, repeatable transactions Monad is built to handle." },
+  { title: "Plans wait on the chain, so the chain has to be quick", body: "A multi-step plan quotes each step only after the one before it has confirmed. Fast confirmation is what keeps a swap-then-send feeling like one action instead of a wait between two." },
+  { title: "Many small transactions stay practical", body: "Paying several people is one transaction per recipient, and an automation is one per run. Low fees keep that a sensible way to move money rather than a cost to avoid." },
+  { title: "EVM-compatible", body: "PayAI's contracts are standard Solidity, verified on the Monad explorer, and the wallets people already use connect without anything special." },
+  { title: "Names and venues that live on Monad", body: ".nad names resolve on-chain, and trades route through supported Monad venues — so a request can name a person and a token the way people actually do." },
 ];
 
 export function WhyMonadSection() {
@@ -273,9 +276,9 @@ export function WhyMonadSection() {
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-panel px-3 py-1.5 text-xs text-muted-foreground">
             <MonadMark size={14} /> Built on Monad
           </div>
-          <h2 className={H2}>Why PayAI is built on Monad</h2>
+          <h2 className={H2}>Why we chose Monad</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Automations and AI-triggered payments only feel instant if the chain underneath actually is. Monad&apos;s speed and low fees are what make that real, not a future promise.
+            PayAI turns a request into real transactions, often several in a row. That only works well on a chain that confirms quickly, costs little per transaction and runs the tools people already use.
           </p>
         </motion.div>
         <div className="space-y-6">

@@ -29,16 +29,19 @@ import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
  * document overflow; the landing page only LOOKED fine there because its
  * <main> is overflow-hidden, which hides the symptom and not the bug.
  *
- * Security and Docs are the links that do not fit on a phone once the CTA
- * reads "Launch PayAI" rather than the shorter "Launch App" — four links
- * plus that button overruns 375px. So they are `phoneHidden`: shown from
- * `sm` up, and reachable on a phone from the footer (Security in Product,
- * Docs in Resources). Nothing else here is hidden, and no link is
+ * How to ask, Security and Docs are the links that do not fit on a phone once
+ * the CTA reads "Launch PayAI" rather than the shorter "Launch App" — four
+ * links plus that button overruns 375px. So they are `phoneHidden`: shown from
+ * `sm` up, and reachable on a phone from the footer (How to ask and Security
+ * in Product, Docs in Resources) and from the landing page itself. Nothing else here is hidden, and no link is
  * hidden at a width where it would fit.
  */
 const LINKS = [
   { href: "/product", label: "Product", phoneHidden: false },
   { href: "/how-it-works", label: "How it works", phoneHidden: false },
+  // Five links plus the CTA overrun the header at sm (640px, measured: the
+  // CTA was pushed off-screen), so this one joins from md up.
+  { href: "/intents", label: "How to ask", phoneHidden: true, fromMd: true },
   { href: DOCS_ORIGIN, label: "Docs", phoneHidden: true },
   { href: "/security", label: "Security", phoneHidden: true },
 ];
@@ -74,7 +77,7 @@ export function SiteNav() {
               // breakpoint on purpose: a `sm:py-*` override loses to source
               // order in Tailwind (media queries add no specificity), and 44px
               // is a perfectly good nav height on desktop too.
-              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              className={`${"fromMd" in l && l.fromMd ? "hidden md:inline-flex" : l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >

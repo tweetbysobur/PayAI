@@ -1,5 +1,6 @@
 "use client";
 
+import { OPERATOR_EXAMPLES as OPERATOR_PROMPTS } from "@/components/landing/intentExamples";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
@@ -250,7 +251,7 @@ const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.
   },
   {
     title: "It executes on Monad",
-    body: "One passkey confirmation, or one signature from your connected wallet. What you approved is exactly what is submitted.",
+    body: "Your passkey or connected wallet confirms each transaction. What you approved is exactly what is submitted.",
     icon: Fingerprint,
     preview: (
       <div className="flex items-center gap-2">
@@ -392,13 +393,11 @@ export function PaymentOperationsSection() {
 
 /* ── 4. AI payment operator ─────────────────────────────────────────────── */
 
-const OPERATOR_EXAMPLES = [
-  "Pay contributors every Friday.",
-  "Swap 100 MON into USDC.",
-  "Trade 50 USDC for any Monad token.",
-  "Send 250 USDC to alice.nad.",
-  "Create monthly payroll.",
-];
+/** Prompts Ask PayAI acts on as written — from intentExamples.ts, where each
+ *  is checked against the real product. ("Pay contributors every Friday",
+ *  "Create monthly payroll" and "Trade 50 USDC for any Monad token" used to
+ *  rotate here; none names enough to run.) */
+const OPERATOR_EXAMPLES = OPERATOR_PROMPTS.map((e) => e.say);
 
 export function AIOperatorSection() {
   const [i, setI] = useState(0);

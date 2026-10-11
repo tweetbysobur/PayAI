@@ -2,19 +2,24 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowRight, Sparkles, Wallet, Lock, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Wallet, Lock, CheckCircle2 } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
-import { AutomationTimelineSection, SecuritySection, WhyMonadSection } from "@/components/landing/MarketingSections";
-import { HowPayAIWorksSection, AIOperatorSection } from "@/components/landing/PlatformOverview";
+import { AutomationTimelineSection, SecuritySection } from "@/components/landing/MarketingSections";
+import { AIOperatorSection } from "@/components/landing/PlatformOverview";
+import { HowItWorksSteps } from "@/components/landing/HowItWorksSteps";
+import { CapabilityGrid } from "@/components/landing/CapabilityGrid";
+import { geist, geistMono } from "@/components/landing/fonts";
 import { DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
 
 /**
  * /how-it-works — answers "how does this actually work?"
  *
- * The mechanics: the seven stages of an automation, the two execution modes,
- * what secures it, why Monad, and the developer surface. All previously on the
- * landing page, where they competed with the pitch.
+ * Leads with the three steps (describe → review → approve and execute) and
+ * the full capability grid — both moved here from the landing page, which now
+ * only previews them. Then the mechanics: Ask PayAI's preparation step, how an
+ * automation runs and is funded, what secures it, and the developer surface.
+ * "Why Monad" lives on /product.
  *
  * The execution-mode comparison is NEW here and belongs on this page rather
  * than /product: choosing Wallet Automation vs Reserved Funds is the single
@@ -38,55 +43,49 @@ const MODES = [
   {
     icon: Lock,
     name: "Reserved Funds",
-    tagline: "Execution is guaranteed",
+    tagline: "Funds set aside up front",
     points: [
       "Funds are set aside up front in the AutomationVault contract.",
       "The reservation is locked to the recipient you chose — it can only pay them.",
-      "A run cannot fail because your balance changed later.",
+      "A run doesn't depend on what your wallet holds when it fires.",
       "Refund whatever is unspent, whenever you want.",
     ],
-    note: "Best when a payment absolutely must go out on time.",
+    note: "Best when a payment must not depend on your wallet balance at run time.",
   },
 ];
 
 export default function HowItWorksPage() {
   return (
-    <main className="min-h-screen bg-background">
-      {/* Same ambient treatment as the landing/product pages: a single
-          hairline rule at the hero's optical center, not a blurred glow
-          blob. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 flex justify-center">
-        <div className="h-64 w-px bg-gradient-to-b from-primary/25 to-transparent" />
-      </div>
-
+    <main
+      className={`${geist.className} ${geistMono.variable} min-h-screen overflow-x-hidden bg-background antialiased`}
+      style={{ "--font-mono": "var(--font-geist-mono)" } as React.CSSProperties}
+    >
       <SiteNav />
 
-      <section className="relative z-10 mx-auto max-w-4xl px-6 pb-4 pt-12 text-center sm:pt-16">
-        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary-ink">How it works</p>
-          <h1 className="mt-3 text-4xl font-semibold tracking-tighter text-foreground sm:text-5xl">
-            Intent in. Verified execution out.
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-muted-foreground">
-            You describe what you want. PayAI interprets it, prepares the execution, and waits
-            for your approval — then settles it on Monad with a record you can verify yourself.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/auth" className="flex items-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">
-              <Sparkles size={15} /> Launch PayAI
-            </Link>
-            <Link href="/product" className="flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input">
-              See the product <ArrowRight size={14} className="text-primary-ink" />
-            </Link>
-          </div>
-        </motion.div>
+      <section className="border-b border-border">
+        <div className="mx-auto max-w-7xl px-5 pb-14 pt-10 sm:px-6 sm:pb-20 sm:pt-16">
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">How it works</p>
+            <h1 className="mt-4 max-w-3xl text-balance text-[clamp(2.1rem,8vw,3.6rem)] font-medium leading-[0.98] tracking-[-0.045em] text-foreground lg:text-[4.2rem]">
+              Intent in. Verified execution out.
+            </h1>
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+              You describe what you want. PayAI turns it into a plan, waits for your approval, then carries it out on Monad and checks every result on-chain.
+            </p>
+            <div className="mt-8 grid gap-3 min-[360px]:flex min-[360px]:flex-wrap min-[360px]:items-center">
+              <Link href="/auth" className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                Launch PayAI <ArrowRight size={15} aria-hidden />
+              </Link>
+              <Link href="/intents" className="inline-flex h-12 items-center justify-center rounded-md border border-border px-6 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                How to ask PayAI
+              </Link>
+            </div>
+          </motion.div>
+        </div>
       </section>
 
-      {/* The six-step walkthrough leads: it is what the landing page's "See how
-          it works" button promises, and what someone arriving here came for.
-          The automation timeline that follows goes a level deeper, into how a
-          single automation is authorised and executed. */}
-      <HowPayAIWorksSection />
+      <HowItWorksSteps />
+      <CapabilityGrid />
       <AIOperatorSection />
       <AutomationTimelineSection />
 
@@ -130,7 +129,6 @@ export default function HowItWorksPage() {
       </section>
 
       <SecuritySection />
-      <WhyMonadSection />
       <DeveloperApi />
       <EcosystemIntegrations />
 

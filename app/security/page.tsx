@@ -37,6 +37,11 @@ export default function SecurityPage() {
           (MetaMask and the rest) signs the same way it always has.
         </p>
         <p>
+          <strong>Rooms</strong> are shared costs split into equal shares. Each share is a direct
+          transfer from the person paying to the room&apos;s recipient — PayAI never holds the
+          money, and there is no escrow.
+        </p>
+        <p>
           Every settled payment has a transaction hash. There is no simulated “success” on mainnet.
           If it did not land on Monad, it did not happen.
         </p>
@@ -71,6 +76,8 @@ export default function SecurityPage() {
       <DocsSection id="safeguards" index="03" title="Safeguards">
         <ul>
           <li><strong>Your signature</strong> — interactive payments cannot move without it.</li>
+          <li><strong>Plan review</strong> — Ask PayAI shows the whole plan, every action, amount and recipient in order, before anything is prepared for signing. A multi-step plan quotes each step only after the one before it has confirmed, and a step that may already have been sent is never sent again automatically.</li>
+          <li><strong>Wallet-bound approvals</strong> — PayAI prepares and confirms a payment only for a wallet the browser has proven it controls, not for an address someone merely types in.</li>
           <li><strong>Replay protection</strong> — each payment carries a request id the contract marks as used, so a retry cannot settle twice.</li>
           <li><strong>On-chain spend caps</strong> — per-transaction and daily limits for the agent path are enforced by PaymentExecutor.</li>
           <li><strong>Sanctions screening</strong> — recipients are checked against the OFAC SDN digital-currency address list. This is address screening, not a licensed KYC/AML programme.</li>

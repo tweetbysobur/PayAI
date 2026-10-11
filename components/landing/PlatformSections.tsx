@@ -523,10 +523,10 @@ function DevPoint({ icon: Icon, title, body }: { icon: typeof Code2; title: stri
 /* ── Ecosystem — only what is genuinely wired ───────────────────────────── */
 
 const INTEGRATIONS = [
-  { icon: MonadMark, title: "Monad Mainnet", body: "Every payment and automation settles on Monad, with sub-second finality and fees low enough for recurring runs.", brand: true },
+  { icon: MonadMark, title: "Monad Mainnet", body: "Every payment and automation settles on Monad, with fast confirmation and fees low enough for recurring runs.", brand: true },
   { icon: AtSign, title: "Nad Name Service", body: "Pay a .nad or .nads name instead of a 42-character address. Resolved on-chain, then re-verified server-side before anything sends." },
   { icon: Wallet, title: "Any EIP-6963 wallet", body: "MetaMask, Rabby, Backpack, OKX, Coinbase and more are detected automatically — plus WalletConnect for mobile." },
-  { icon: Database, title: "Durable scheduling", body: "Automations are indexed and persisted so a due payment survives restarts and fires on time, every time." },
+  { icon: Database, title: "Durable scheduling", body: "Automations are indexed and persisted, so a due payment survives restarts and runs when it's due." },
 ];
 
 export function EcosystemIntegrations() {

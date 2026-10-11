@@ -12,6 +12,7 @@ import {
 import {
   TradingSection, EmbeddedWalletSection, PaymentOperationsSection, AnalyticsSection,
 } from "@/components/landing/PlatformOverview";
+import { WhyMonadSection } from "@/components/landing/MarketingSections";
 
 /**
  * /product — answers "what is PayAI, and what can it actually do?"
@@ -79,6 +80,8 @@ export default function ProductPage() {
       <VerificationSection />
       <AnalyticsSection />
       <IntentExamplesSection />
+      {/* Why we chose Monad — toward the end, once the reader knows what PayAI does. */}
+      <WhyMonadSection />
 
       <section className="mx-auto max-w-3xl px-6 py-24 text-center">
         <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}>
@@ -86,7 +89,7 @@ export default function ProductPage() {
             Describe it. Review it. Approve it.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Payments, trading, and DeFi from one natural-language interface on Monad.
+            Payments, trading, protocols and Rooms from one natural-language interface on Monad.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">

@@ -9,14 +9,16 @@ import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
 import { geist, geistMono } from "@/components/landing/fonts";
 import { ExecutionPath } from "@/components/landing/ExecutionPath";
+import { CAPABILITIES } from "@/components/landing/intentExamples";
 
 /**
  * The landing page says one thing: turn your intent into onchain execution.
  *
  *   hero          the approved headline and line, the way in, and the
  *                 execution model as a static diagram (who does what)
- *   how           01 describe · 02 review · 03 approve and execute
- *   capabilities  the four things PayAI does today
+ *   what          a short preview of what PayAI does, pointing to
+ *                 /how-it-works (the steps and the full capability grid)
+ *                 and /intents (how to phrase a request)
  *   model         what PayAI does, and what stays with checks and your wallet
  *   faq · close
  *
@@ -30,24 +32,9 @@ import { ExecutionPath } from "@/components/landing/ExecutionPath";
  *  sends /auth on the marketing host to the app host, and local dev stays local. */
 const LAUNCH = "/auth";
 
-const STEPS = [
-  { n: "01", title: "Describe your intent", body: "Tell PayAI what you want done." },
-  { n: "02", title: "Review the plan", body: "See what PayAI understood before anything executes." },
-  { n: "03", title: "Approve and execute", body: "Your wallet authorizes the action. PayAI carries it out on Monad." },
-];
-
-/** Only what the product does today. Each phrase is a request it accepts as
- *  written (test/landing-claims.test.ts checks them against the engines). */
-const CAPABILITIES = [
-  { name: "Send", body: "Transfer MON or USDC to a wallet address or a .nad name.", say: "Send 50 USDC to alice.nad" },
-  { name: "Trade", body: "Swap between tokens across supported Monad venues, with the exact quote shown before you sign.", say: "Swap 100 USDC to MON" },
-  { name: "Automate", body: "Recurring transfers and swaps that run on their own, within limits you approve once.", say: "Send 20 USDC to bob.nad every Friday" },
-  { name: "Schedule", body: "A one-time transfer set for a future date.", say: "Send 200 USDC to john.nad tomorrow" },
-];
-
 const FAQS = [
   { q: "What is PayAI?", a: "PayAI turns what you want done into onchain execution on Monad. You describe the outcome in plain language; PayAI turns it into a plan you can review, approve and execute with your wallet." },
-  { q: "What can I ask it to do today?", a: "Send tokens to an address or a .nad name, swap between tokens, combine several actions into one plan, and set up scheduled or recurring transfers and swaps." },
+  { q: "What can I ask it to do today?", a: "Send MON or USDC to an address, a .nad name or a saved payee; pay several people at once; trade Monad tokens; chain several actions into one plan; schedule or automate transfers; split a cost in a Room; wrap MON or supply USDC to Aave V3; and ask about your balances and activity. The How to ask page has examples of each." },
   { q: "What if PayAI misunderstands me?", a: "That's what the review step is for. You see exactly what PayAI understood — every action, amount and recipient, in order — before anything executes. If it's wrong, change it or cancel; nothing has moved." },
   { q: "Who controls my funds?", a: "You do. Actions you start are signed by your own wallet, and PayAI never holds your keys. Payment Automations run from a capped agent wallet, only within the limits you approve when you set them up." },
   { q: "What are the fees?", a: "PayAI charges a 0.25% fee on supported fee-bearing transactions. Network and protocol fees are separate." },
@@ -65,35 +52,37 @@ export default function LandingPage() {
       {/* Hero */}
       <Hero />
 
-      {/* How it works */}
-      <Section id="how">
-        <SectionTitle eyebrow="How PayAI works" title="You say what you want. You approve what runs." />
-        <ol className="mt-10 grid gap-8 sm:grid-cols-3 sm:gap-6">
-          {STEPS.map((s) => (
-            <li key={s.n} className="relative border-t border-border pt-6">
-              {/* A node on the line — the same mark the hero figure uses. */}
-              <span aria-hidden className="absolute -top-[5px] left-0 h-[9px] w-[9px] rounded-full border border-primary bg-background" />
-              <p className="font-mono text-[11px] font-medium tracking-[0.12em] text-primary-ink">{s.n}</p>
-              <h3 className="mt-3 text-lg font-medium tracking-[-0.02em] text-foreground">{s.title}</h3>
-              <p className="mt-2 max-w-xs text-[15px] leading-relaxed text-muted-foreground">{s.body}</p>
-            </li>
-          ))}
-        </ol>
-      </Section>
-
-      {/* Capabilities */}
-      <Section>
-        <SectionTitle eyebrow="What it does today" title="Four things, done from one sentence." />
-        <dl className="mt-10 divide-y divide-border border-y border-border">
-          {CAPABILITIES.map((c) => (
-            <div key={c.name} className="grid gap-1.5 py-6 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-8 lg:grid-cols-[10rem_minmax(0,1.3fr)_minmax(0,1fr)]">
-              <dt className="text-lg font-medium tracking-[-0.02em] text-foreground">{c.name}</dt>
-              <dd className="text-sm leading-relaxed text-muted-foreground">{c.body}</dd>
-              <dd className="break-words font-mono text-[13px] leading-relaxed text-foreground/80 sm:col-start-2 lg:col-start-auto">&ldquo;{c.say}&rdquo;</dd>
+      {/* What it does — a preview only. The steps and the full capability
+          grid live on /how-it-works; how to phrase a request lives on /intents. */}
+      <Section id="what">
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start lg:gap-16">
+          <SectionTitle eyebrow="What it does" title="One sentence in. Onchain execution out." />
+          <div>
+            <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
+              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms, and use Monad protocols — each from a plain-language request you review before anything runs.
+            </p>
+            <ul className="mt-6 flex flex-wrap gap-2" aria-label="Capabilities">
+              {CAPABILITIES.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/how-it-works#capabilities`}
+                    className="inline-flex h-8 items-center rounded-full border border-border px-3 text-[13px] text-foreground/85 transition-colors hover:border-primary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {c.name}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Link href="/how-it-works" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-primary-ink transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                See how it works <ArrowRight size={14} aria-hidden />
+              </Link>
+              <Link href="/intents" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                How to ask PayAI <ArrowRight size={14} aria-hidden />
+              </Link>
             </div>
-          ))}
-        </dl>
-        <p className="mt-6 max-w-2xl text-[15px] leading-relaxed text-foreground/85">Several actions can go into one plan — reviewed together, approved once, executed in order.</p>
+          </div>
+        </div>
       </Section>
 
       {/* Execution model / trust */}
