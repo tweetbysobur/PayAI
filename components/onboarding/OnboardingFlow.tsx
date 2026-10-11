@@ -12,13 +12,15 @@ import { LogoMark } from "@/components/Logo";
 import { startGuidedTour } from "@/components/onboarding/TourOverlay";
 
 /**
- * First-run onboarding — shown once per account after its first connection,
- * never again after it's finished or skipped. Reopened on demand from the
- * sidebar's "Getting Started" link (see reopenOnboarding()).
+ * The welcome — shown at the first visit of each day (useOnboarding), so new
+ * users and anyone returning after time away see it; closed for the rest of
+ * the day once finished or skipped. Reopened on demand from the sidebar's
+ * "Getting Started" link (see reopenOnboarding()).
  *
- * Two short steps. It teaches one idea — tell PayAI what you want, review
- * what it understood, approve — and ends on the Dashboard's intent box. It
- * never teaches how to operate a wallet.
+ * Four short steps — Welcome, Your wallet, Automations, Get started — each a
+ * few plain points, no worked examples. It ends in Ask PayAI, or on desktop
+ * can hand over to the guided sidebar tour. It never teaches how to operate a
+ * wallet.
  *
  * Design: PayAI's own colours and nothing else. A purple brand rail (logo,
  * the four steps, where you are) beside a black content pane; on a phone the
@@ -27,7 +29,7 @@ import { startGuidedTour } from "@/components/onboarding/TourOverlay";
  * explains itself.
  */
 
-const STEPS = ["How PayAI works", "Your wallet"] as const;
+const STEPS = ["Welcome", "Your wallet", "Automations", "Get started"] as const;
 
 export function OnboardingFlow() {
   const wallet = useWallet();
@@ -41,12 +43,11 @@ export function OnboardingFlow() {
   if (!wallet.address) return null;
 
   function close() { complete(); setStep(0); }
-  /** Finish on the Dashboard with the intent box focused — the one thing
-   *  onboarding teaches is "tell PayAI what you want". */
+  /** Finish in Ask PayAI — the one thing the welcome teaches is "say what
+   *  you want done". */
   function start() {
     close();
-    router.push("/dashboard");
-    window.setTimeout(() => document.getElementById("intent")?.focus(), 300);
+    router.push("/dashboard/ask");
   }
   const last = step === STEPS.length - 1;
 
@@ -89,7 +90,7 @@ export function OnboardingFlow() {
                   </li>
                 ))}
               </ol>
-              <p className="mt-auto hidden pt-10 text-xs leading-relaxed text-white/70 md:block">Turn intent into onchain execution in seconds.</p>
+              <p className="mt-auto hidden pt-10 text-xs leading-relaxed text-white/75 md:block">Make an intent and get your onchain execution done in seconds.</p>
             </aside>
 
             {/* Content — black. */}
@@ -101,11 +102,11 @@ export function OnboardingFlow() {
                     {step === 0 && (
                       <>
                         <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-white sm:mt-2 sm:text-3xl">Welcome to PayAI</h1>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Turn intent into onchain execution in seconds.</p>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Make an intent and get your onchain execution done in seconds — on {MONAD_CHAIN_NAME}, from your own wallet.</p>
                         <Numbered items={[
-                          ["Tell PayAI what you want", "Describe the outcome in plain English."],
-                          ["Review what PayAI understood", "See the exact actions, amounts and order before anything happens."],
-                          ["Approve and execute", "Your wallet signs. PayAI handles the execution."],
+                          ["Say what you want", "In plain English."],
+                          ["Review the plan", "Every action, amount and recipient, in order, before anything runs."],
+                          ["Sign and it\u2019s done", "Your wallet signs, Monad settles, you get the receipt."],
                         ]} />
                       </>
                     )}
@@ -126,12 +127,34 @@ export function OnboardingFlow() {
                           </div>
                         </dl>
                         <Numbered items={[
-                          ["Your keys stay yours", "PayAI never asks for, or stores, your private key or seed phrase."],
-                          ["Nothing runs without approval", "Every action waits for you — except automations, within limits you approve in advance."],
+                          ["Your keys stay yours", "PayAI never asks for or stores your private key or seed phrase."],
+                          ["Nothing runs without you", "Every action you start waits for your signature."],
+                        ]} />
+                      </>
+                    )}
+                    {step === 2 && (
+                      <>
+                        <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-white sm:mt-2 sm:text-3xl">Automations</h1>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Set a payment once, and it runs on schedule.</p>
+                        <Numbered items={[
+                          ["Schedule or repeat", "One-time, daily, weekly or monthly."],
+                          ["Within your limits", "Runs from a capped agent wallet, only within the limits you approve."],
+                          ["Always yours to stop", "Pause, edit or cancel any automation at any time."],
+                        ]} />
+                      </>
+                    )}
+                    {step === 3 && (
+                      <>
+                        <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-white sm:mt-2 sm:text-3xl">You&apos;re ready</h1>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Three ways to begin.</p>
+                        <Numbered items={[
+                          ["Open Ask PayAI", "Say what you want done."],
+                          ["Add funds", "Deposit MON or USDC to your wallet."],
+                          ["Take the tour", "A quick look around the app."],
                         ]} />
                         {/* Desktop only: the tour spotlights the sidebar, which a phone doesn't show. */}
-                        <button type="button" onClick={() => { close(); startGuidedTour(); }} className="mt-5 hidden rounded-sm text-xs font-medium text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline">
-                          Take a quick tour of the sidebar instead
+                        <button type="button" onClick={() => { close(); startGuidedTour(); }} className="mt-5 hidden h-9 items-center rounded-md border border-border px-3 text-xs font-medium text-white transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex">
+                          Take the tour
                         </button>
                       </>
                     )}
@@ -151,11 +174,11 @@ export function OnboardingFlow() {
                 )}
                 {!last ? (
                   <button type="button" onClick={() => setStep(step + 1)} className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-black">
-                    Continue <ArrowRight size={14} aria-hidden />
+                    {step === 0 ? "Get started" : "Continue"} <ArrowRight size={14} aria-hidden />
                   </button>
                 ) : (
                   <button type="button" onClick={start} className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-5 text-sm font-medium text-white transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-black">
-                    Start <ArrowRight size={14} aria-hidden />
+                    Open Ask PayAI <ArrowRight size={14} aria-hidden />
                   </button>
                 )}
               </div>
@@ -172,7 +195,7 @@ function Numbered({ items }: { items: [string, string][] }) {
     <ol className="mt-4 space-y-3 sm:mt-6 sm:space-y-4">
       {items.map(([title, body], i) => (
         <li key={title} className="flex gap-4">
-          <span className="w-6 shrink-0 pt-0.5 font-mono text-xs font-medium text-primary-ink">{String(i + 1).padStart(2, "0")}</span>
+          <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-semibold text-white">{i + 1}</span>
           <div className="min-w-0 pt-0.5">
             <p className="text-sm font-medium text-white">{title}</p>
             <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground sm:text-sm sm:leading-relaxed">{body}</p>

@@ -4,7 +4,7 @@ import { parseIntent } from "@/lib/plan-adapter/grammar";
 import { parseScheduleIntent } from "@/lib/agent/brain";
 import { toPlanText } from "@/lib/ask/planFastPath";
 import {
-  ASK_STARTERS, CAPABILITIES, CORE_EXAMPLES, GUIDE, OPERATOR_EXAMPLES, PRODUCT_EXAMPLES, type IntentExample,
+  CAPABILITIES, CORE_EXAMPLES, GUIDE, OPERATOR_EXAMPLES, PRODUCT_EXAMPLES, type IntentExample,
 } from "@/components/landing/intentExamples";
 
 /**
@@ -69,7 +69,6 @@ const all: [string, IntentExample][] = [
   ...OPERATOR_EXAMPLES.map((e) => ["operator", e] as [string, IntentExample]),
   ...PRODUCT_EXAMPLES.map((e) => ["product", e] as [string, IntentExample]),
   ...Object.entries(CORE_EXAMPLES).map(([k, e]) => [`core ${k}`, e] as [string, IntentExample]),
-  ...ASK_STARTERS.map((e) => [`ask starter ${e.label}`, e] as [string, IntentExample]),
 ];
 
 describe("every example prompt on the site does what it says", () => {

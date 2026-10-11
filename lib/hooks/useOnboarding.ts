@@ -2,24 +2,39 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const DONE_PREFIX = "payai_onboarding_done_";
+const SHOWN_PREFIX = "payai_welcome_shown_day_";
 const REOPEN_EVENT = "payai:reopen-onboarding";
 
-function doneKey(address: string) {
-  return `${DONE_PREFIX}${address.toLowerCase()}`;
+function shownKey(address: string) {
+  return `${SHOWN_PREFIX}${address.toLowerCase()}`;
 }
 
-/** Per-wallet onboarding completion, gated on the wallet actually being
- *  connected — a fresh wallet always sees onboarding once, a returning one
- *  never sees it again. `reopenOnboarding()` (used by the sidebar's "Getting
- *  Started" link) forces it back open regardless of completion state. */
+/** The local calendar day, YYYY-MM-DD. */
+export function localDay(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** The welcome shows at the first visit of each day — so a first-time user
+ *  sees it, and so does anyone coming back after a day or more away. Once it
+ *  has been shown (finished or skipped) it stays closed for the rest of that
+ *  day. */
+export function shouldShowWelcome(lastShownDay: string | null, today: string): boolean {
+  return lastShownDay !== today;
+}
+
+/** Per-account welcome, gated on a wallet actually being connected.
+ *  `reopenOnboarding()` (the sidebar's "Getting Started") forces it open. */
 export function useOnboarding(address?: string | null) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!address) { setOpen(false); return; }
-    const done = typeof window !== "undefined" && localStorage.getItem(doneKey(address)) === "1";
-    setOpen(!done);
+    let last: string | null = null;
+    try { last = localStorage.getItem(shownKey(address)); } catch { /* storage blocked: show it */ }
+    setOpen(shouldShowWelcome(last, localDay()));
   }, [address]);
 
   useEffect(() => {
@@ -29,7 +44,9 @@ export function useOnboarding(address?: string | null) {
   }, []);
 
   const complete = useCallback(() => {
-    if (address) localStorage.setItem(doneKey(address), "1");
+    if (address) {
+      try { localStorage.setItem(shownKey(address), localDay()); } catch { /* storage blocked */ }
+    }
     setOpen(false);
   }, [address]);
 
@@ -37,7 +54,7 @@ export function useOnboarding(address?: string | null) {
 }
 
 /** Fired from anywhere (the sidebar's "Getting Started" link) to bring the
- *  onboarding flow back up on demand. */
+ *  welcome back up on demand. */
 export function reopenOnboarding() {
   window.dispatchEvent(new Event(REOPEN_EVENT));
 }

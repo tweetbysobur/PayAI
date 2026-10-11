@@ -157,7 +157,7 @@ function AskPayAIChat() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel/40">
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {messages.length === 0 ? (
-              <AskEmptyState onFill={setInput} />
+              <AskEmptyState />
             ) : (
               <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4 sm:p-6">
                 {messages.map((m) => (

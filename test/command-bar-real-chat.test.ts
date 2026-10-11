@@ -26,9 +26,8 @@ describe("the popup renders the real Ask PayAI chat, not its own console", () =>
     expect(src).toMatch(/import\s*\{\s*AskEmptyState\s*\}\s*from\s*"@\/components\/ask\/AskEmptyState"/);
     expect(src).toMatch(/<ChatMessageRow/);
     expect(src).toMatch(/<ChatComposer/);
-    // The welcome screen fills this chat's own box (never sends): its prompts
-    // carry example names the user has to replace.
-    expect(src).toMatch(/<AskEmptyState onFill=\{chat\.setInput\}/);
+    // The welcome screen sends nothing: it only explains how to ask.
+    expect(src).toMatch(/<AskEmptyState \/>/);
   });
 
   it("no longer runs the old single-shot console pipeline", () => {

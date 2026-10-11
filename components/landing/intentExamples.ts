@@ -190,13 +190,3 @@ export const CORE_EXAMPLES: Record<"payments" | "trading" | "protocols", IntentE
   protocols: { say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
 };
 
-/** Ask PayAI's welcome screen: one prompt per kind of request, each with the
- *  short label shown above it. Picking one fills the message box to edit — it
- *  is never sent as is, because the names in it are examples. */
-export const ASK_STARTERS: (IntentExample & { label: string })[] = [
-  { label: "Chain two steps", say: "Swap 10 MON to USDC and send it to alice.nad", check: { kind: "plan", actions: 2 } },
-  { label: "Pay several people", say: "Send 5 USDC each to alice.nad and bob.nad", check: { kind: "plan", actions: 2 } },
-  { label: "Automate a payment", say: "Send 20 USDC to bob.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
-  { label: "Use a Monad protocol", say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
-  { label: "Ask about your wallet", say: "What's my USDC balance?", check: { kind: "route", intent: "token_balance" } },
-];

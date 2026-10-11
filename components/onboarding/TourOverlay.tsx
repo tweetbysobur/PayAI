@@ -26,7 +26,7 @@ interface TourStep {
 
 const STEPS: TourStep[] = [
   { target: "ask", title: "Ask PayAI", body: "Make an intent in plain English — a transfer, a swap, or several actions chained together. Review the plan and sign it in your wallet." },
-  { target: "rooms", title: "Rooms", body: "Shared payment rooms, where a group each pays a fixed share. Rooms isn't available yet; this is where it will live." },
+  { target: "rooms", title: "Rooms", body: "Split a shared cost into equal shares. Each person pays their share straight to the recipient." },
   { target: "payments", title: "Payments & Automations", body: "Transfers, swaps, scheduled and recurring execution, plus your full transaction history and saved recipients." },
   { target: "settings", title: "Settings", body: "Your account, linked wallets, and wallet security." },
   { target: "help", title: "Help Center", body: "Come back here any time — FAQs, security details, and support live here." },

@@ -219,7 +219,7 @@ export function CommandBar() {
                   both render from the same useAskChat() engine. */}
               <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto sm:max-h-[60vh] sm:flex-none">
                 {chat.messages.length === 0 ? (
-                  <AskEmptyState onFill={chat.setInput} />
+                  <AskEmptyState />
                 ) : (
                   <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4">
                     {chat.messages.map((m) => (
