@@ -30,7 +30,7 @@ import {
 } from "@/lib/ask/persistChat";
 import { useSync } from "@/lib/hooks/useSync";
 import { warmPortfolioDiscovery } from "@/lib/hooks/usePortfolio";
-import { matchPlanRequest, planFoundText, stripPoliteFraming, PLAN_THINKING_LABEL, type PlanRequestKind } from "@/lib/ask/planFastPath";
+import { matchPlanRequest, planFoundText, toPlanText, PLAN_THINKING_LABEL, type PlanRequestKind } from "@/lib/ask/planFastPath";
 import { createPlanForTurn } from "@/lib/ask/planTurn";
 import { attachTiming, primePlan } from "@/lib/ask/planCards";
 import { startAskTiming } from "@/lib/ask/timing";
@@ -711,7 +711,7 @@ export function useAskChat(options?: { persist?: boolean }) {
     // was refused this session (the normal path serves it instead).
     // Longer than the normal path accepts: only a plan can serve it, so the
     // Plan API is asked (and explains a refusal) even without a hint.
-    const planText = stripPoliteFraming(trimmed);
+    const planText = toPlanText(trimmed);
     const planKind = wallet.address && planPathOffFor.current !== wallet.address.toLowerCase()
       ? matchPlanRequest(planText) ?? (trimmed.length > ASK_INPUT_LIMIT ? "multi" : null)
       : null;

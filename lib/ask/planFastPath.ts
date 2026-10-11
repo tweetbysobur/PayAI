@@ -113,3 +113,55 @@ export const PLAN_FOUND_TEXT: Readonly<Record<PlanRequestKind, string>> = {
 export function planFoundText(kind: PlanRequestKind, actions: number): string {
   return kind === "multi" ? `Here are your ${actions} actions, in order.` : PLAN_FOUND_TEXT[kind];
 }
+
+/* ── "…5 USDC each to alice.nad and bob.nad" ─────────────────────────────── */
+
+const LIST = String.raw`(.+?)`;
+const EACH_RES = [
+  new RegExp(String.raw`^(?:send|pay) (${AMOUNT}) (${SYMBOL}) each to ${LIST}$`, "i"),
+  new RegExp(String.raw`^(?:send|pay) (${AMOUNT}) (${SYMBOL}) to ${LIST} each$`, "i"),
+  new RegExp(String.raw`^(?:send|pay) (${AMOUNT}) (${SYMBOL}) to each of ${LIST}$`, "i"),
+  new RegExp(String.raw`^(?:send|pay) ${LIST} (${AMOUNT}) (${SYMBOL}) each$`, "i"),
+];
+/** Which capture groups hold [amount, symbol, list] for each pattern above. */
+const EACH_GROUPS: [number, number, number][] = [[1, 2, 3], [1, 2, 3], [1, 2, 3], [2, 3, 1]];
+const LIST_SPLIT = /\s*(?:,\s*and|,|\s+and|\s*&)\s+/i;
+const FULL_RECIPIENT = new RegExp(`^${RECIPIENT}$`, "i");
+const NOT_RECIPIENTS = new Set(["it", "me", "myself", "all", "the", "each", "everyone", "them", "us", "rest"]);
+
+/**
+ * "send 5 USDC each to alice.nad and bob.nad" → the written-out form the Plan
+ * API's grammar accepts: "send 5 USDC to alice.nad, 5 USDC to bob.nad".
+ *
+ * Only when the request says "each" (so the amount is plainly per recipient —
+ * without it the amount could be a total or a share, and nothing is guessed),
+ * names at least two different recipients that each look like one, and has
+ * nothing left over. Anything else returns null and is handled as before. The
+ * server still parses, resolves and validates every transfer, and the user
+ * reviews each one before approving.
+ */
+export function expandEachRequest(text: string): string | null {
+  if (typeof text !== "string") return null;
+  let t = text.trim().replace(/\s+/g, " ");
+  if (t.endsWith(".") || t.endsWith("!")) t = t.slice(0, -1);
+  if (!/\beach\b/i.test(t)) return null;
+  for (let i = 0; i < EACH_RES.length; i++) {
+    const m = EACH_RES[i].exec(t);
+    if (!m) continue;
+    const [ia, is, il] = EACH_GROUPS[i];
+    const recipients = m[il].split(LIST_SPLIT).map((r) => r.trim());
+    if (recipients.length < 2 || recipients.length > MAX_ACTIONS) return null;
+    if (!recipients.every((r) => FULL_RECIPIENT.test(r) && !NOT_RECIPIENTS.has(r.toLowerCase()))) return null;
+    if (new Set(recipients.map((r) => r.toLowerCase())).size !== recipients.length) return null;
+    return `send ${m[ia]} ${m[is]} to ${recipients.join(`, ${m[ia]} ${m[is]} to `)}`;
+  }
+  return null;
+}
+
+/** What Ask sends the Plan API for a message: its polite framing removed and an
+ *  explicit "each" written out per recipient. Never changes an amount, token
+ *  or recipient. */
+export function toPlanText(text: string): string {
+  const stripped = stripPoliteFraming(text);
+  return expandEachRequest(stripped) ?? stripped;
+}
