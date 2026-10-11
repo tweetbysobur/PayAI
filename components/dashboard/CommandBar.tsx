@@ -134,7 +134,11 @@ export function CommandBar() {
   // outside this conditional render) — reopening just scrolls back to the
   // latest message, the same as a real chat window being un-minimized.
   useEffect(() => {
-    if (open) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!open || !el) return;
+    // Follow the conversation; with none yet, keep the welcome screen's top in view.
+    if (chat.messages.length === 0 && !chat.thinking) el.scrollTo({ top: 0 });
+    else el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [open, chat.messages, chat.thinking]);
 
   return (
@@ -215,7 +219,7 @@ export function CommandBar() {
                   both render from the same useAskChat() engine. */}
               <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto sm:max-h-[60vh] sm:flex-none">
                 {chat.messages.length === 0 ? (
-                  <AskEmptyState onPick={chat.send} />
+                  <AskEmptyState onFill={chat.setInput} />
                 ) : (
                   <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4">
                     {chat.messages.map((m) => (

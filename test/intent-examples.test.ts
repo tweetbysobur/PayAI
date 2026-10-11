@@ -4,7 +4,7 @@ import { parseIntent } from "@/lib/plan-adapter/grammar";
 import { parseScheduleIntent } from "@/lib/agent/brain";
 import { toPlanText } from "@/lib/ask/planFastPath";
 import {
-  CAPABILITIES, CORE_EXAMPLES, GUIDE, OPERATOR_EXAMPLES, PRODUCT_EXAMPLES, type IntentExample,
+  ASK_STARTERS, CAPABILITIES, CORE_EXAMPLES, GUIDE, OPERATOR_EXAMPLES, PRODUCT_EXAMPLES, type IntentExample,
 } from "@/components/landing/intentExamples";
 
 /**
@@ -69,6 +69,7 @@ const all: [string, IntentExample][] = [
   ...OPERATOR_EXAMPLES.map((e) => ["operator", e] as [string, IntentExample]),
   ...PRODUCT_EXAMPLES.map((e) => ["product", e] as [string, IntentExample]),
   ...Object.entries(CORE_EXAMPLES).map(([k, e]) => [`core ${k}`, e] as [string, IntentExample]),
+  ...ASK_STARTERS.map((e) => [`ask starter ${e.label}`, e] as [string, IntentExample]),
 ];
 
 describe("every example prompt on the site does what it says", () => {
@@ -89,6 +90,7 @@ describe("the data is what the pages render", () => {
       product: read("../components/landing/ProductSections.tsx"),
       operator: read("../components/landing/PlatformOverview.tsx"),
       grid: read("../components/landing/CapabilityGrid.tsx"),
+      askWelcome: read("../components/ask/AskEmptyState.tsx"),
     };
     // A prompt: an action verb, then (within a few words) an amount and a token.
     const sentence = /["'`](?:Send|Swap|Pay|Buy|Sell|Supply|Withdraw|Wrap|Create|Trade)\b[^"'`.;]{0,40}?\$?\d[\d.,]*\s*(?:of\s+)?(?:USDC|MON)\b[^"'`]*["'`]/;

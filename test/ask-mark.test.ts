@@ -126,13 +126,18 @@ describe("Ask PayAI identifies itself with its own mark, never a stock glyph", (
 describe("the capability shortcuts still send only their label", () => {
   const src = readFileSync(new URL("../components/ask/AskEmptyState.tsx", import.meta.url), "utf8");
 
-  it("sends s.label, never the display-only hint", () => {
-    // The tiles gained a subtitle. The message put through the understanding
-    // pipeline must stay the bare label — a hint leaking into the transcript
-    // would be words the user never wrote.
-    expect(src).toMatch(/onClick=\{\(\) => onPick\(s\.label\)\}/);
-    expect(src).not.toMatch(/onPick\(s\.hint\)/);
-    expect(src).not.toMatch(/onPick\(`/);
+  it("the welcome screen fills the message box with a prompt — it never sends one", () => {
+    // Its prompts carry example names (alice.nad, bob.nad). Sending one as is
+    // would start a plan to pay someone the user never chose, so a pick only
+    // fills the box (onFill) for the user to edit.
+    const welcome = src.slice(src.indexOf("export function AskEmptyState("));
+    expect(welcome).toMatch(/onClick=\{\(\) => pick\(s\.say\)\}/);
+    expect(welcome).toMatch(/function pick\(text: string\) \{\s*onFill\(text\);/);
+    expect(welcome).not.toMatch(/onPick|send\(|\.send\b/);
+    for (const page of ["../app/dashboard/ask/page.tsx", "../components/dashboard/CommandBar.tsx"]) {
+      const p = readFileSync(new URL(page, import.meta.url), "utf8");
+      expect(p, page).toMatch(/<AskEmptyState onFill=\{(chat\.)?setInput\} \/>/);
+    }
   });
 
   it("still offers all four on-ramps, phrased as spoken intents", () => {

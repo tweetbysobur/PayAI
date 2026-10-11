@@ -12,7 +12,7 @@ export function ChatComposer({
   disabled,
   // Mirrors the empty state's on-ramps, in the same words — "automate" rather
   // than "schedule", and trading named since it is a headline capability.
-  placeholder = "Send a payment, trade a token, or automate something…",
+  placeholder = "Describe what you want done…",
 }: {
   value: string;
   onChange: (v: string) => void;

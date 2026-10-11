@@ -93,7 +93,11 @@ function AskPayAIChat() {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    // Follow the conversation; with none yet, keep the welcome screen's top in view.
+    const el = scrollRef.current;
+    if (!el) return;
+    if (messages.length === 0 && !thinking) el.scrollTo({ top: 0 });
+    else el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, thinking]);
 
   return (
@@ -153,7 +157,7 @@ function AskPayAIChat() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-panel/40">
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
             {messages.length === 0 ? (
-              <AskEmptyState onPick={send} />
+              <AskEmptyState onFill={setInput} />
             ) : (
               <div role="log" aria-live="polite" aria-label="Conversation with Ask PayAI" className="space-y-4 p-4 sm:p-6">
                 {messages.map((m) => (

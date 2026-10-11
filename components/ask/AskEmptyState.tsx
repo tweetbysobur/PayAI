@@ -1,44 +1,19 @@
 "use client";
 
 import { motion } from "motion/react";
-import { Send, ArrowLeftRight, Clock3, Wallet, ArrowRight, ShieldCheck } from "lucide-react";
+import { Send, ArrowLeftRight, Clock3, Wallet, ArrowUpRight, PencilLine, ShieldCheck } from "lucide-react";
 import { AskLogo } from "@/components/AskMark";
+import { ASK_STARTERS } from "@/components/landing/intentExamples";
+import { MARKETING_ORIGIN } from "@/lib/hosts";
 
 /**
- * Optional, entirely bypassable on-ramps — never a form, never a hint at
- * required wording. Clicking one sends its LABEL as an ordinary chat message
- * through the exact same understanding pipeline as anything typed by hand;
- * there is no special-cased path for these four strings. A user who ignores
- * every one of them and types something completely different is the normal
- * case, not a degraded one.
- *
- * `hint` is display-only and is never sent — the label alone is the message.
- * Keeping them separate is what lets the tile say more than the user has to.
- *
- * ── The labels are phrased as intents, and that is load-bearing ─────────────
- * Each label reads the way someone would actually say it out loud, because the
- * product's whole premise is "tell me what you want, in your own words" — a
- * row of terse console commands argues against that on the very first screen.
- *
- * "Trade" replaces the old "Swap tokens" for both reasons. It is the plainer
- * word, and it names the better of two genuinely different capabilities:
- * `swap` is a mechanical MON/USDC-style exchange, while `trade` produces a
- * real quote preview for ANY Monad token and understands buy/sell direction,
- * dollar amounts and percentage-of-balance. The tile should open the richer
- * door, and its hint names that breadth — buy or sell, any token — rather than
- * quoting a worked example with a figure in it. Every hint here describes what
- * the tile reaches, never what to type: a concrete "buy $50 of X" reads as a
- * command to copy, which is the opposite of "say it in your own words", and it
- * puts an arbitrary amount in front of someone who has not chosen one yet.
- *
- * Every label here was run through the real classifier rather than assumed.
- * All four reach Anthropic in production (routeRequest returns anthropic=true),
- * so the phrasing is understood semantically. Two of them — "Trade a token"
- * and "Automate a payment" — previously dead-ended at `unclear` in the
- * key-free fallback, so that path was taught to recognize them too (see
- * TRADE_SIGNAL_RE's anchored trade clause in lib/ask/intent/classify.ts and
- * `automate` in lib/agent/brain.ts's schedule detector). A shortcut should not
- * become a dead end just because the model is briefly unreachable.
+ * CAPABILITY_SHORTCUTS: the four spoken on-ramps ("Send a payment", "Trade a
+ * token"…). The welcome screen no longer shows them — it teaches how to ask
+ * and offers real prompts instead (AskEmptyState below) — but the hidden
+ * "coming soon" placeholder on /dashboard/ask still lists them, and their
+ * labels stay valid requests: each one, typed, still reaches the right intent
+ * (test/ask-swap-trade-entry.test.ts, test/ask-trade.test.ts). A hint
+ * describes what the tile reaches, never what to type.
  */
 export interface CapabilityShortcut {
   label: string;
@@ -53,86 +28,111 @@ export const CAPABILITY_SHORTCUTS: CapabilityShortcut[] = [
   { label: "Check my balance", hint: "See everything your wallet holds.", icon: Wallet },
 ];
 
-export function AskEmptyState({ onPick }: { onPick: (text: string) => void }) {
+/** The three things a request needs, shown on the welcome screen. */
+const HOW_TO_ASK = [
+  "Say the action, the amount and the token.",
+  "Name who it\u2019s for \u2014 a 0x address, a .nad name or a saved payee.",
+  "Join steps with \u201Cand\u201D or \u201Cthen\u201D \u2014 they run in order.",
+];
+
+/**
+ * Ask PayAI's welcome screen: how to phrase a request, and real prompts to
+ * start from. It teaches the one thing the product does — turn a sentence
+ * into onchain execution — instead of offering a menu of features.
+ *
+ * Picking a prompt FILLS the message box (onFill) and focuses it; it is never
+ * sent as is. The names in the prompts are examples, and sending one straight
+ * away would start a plan to pay someone the user never chose. Every prompt
+ * comes from ASK_STARTERS and is checked against the real product in
+ * test/intent-examples.test.ts.
+ *
+ * Type sizes stay moderate on both phone and desktop (sm/base headings, 13–14px
+ * body) so the screen reads as a note, not a poster, and fits a phone without
+ * a long scroll.
+ */
+export function AskEmptyState({ onFill }: { onFill: (text: string) => void }) {
+  function pick(text: string) {
+    onFill(text);
+    // Hand the cursor to the box the prompt went into, so editing the example
+    // names is the obvious next step.
+    requestAnimationFrame(() => {
+      const boxes = [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Message Ask PayAI"]')];
+      const box = boxes.reverse().find((b) => b.offsetParent !== null);
+      if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    });
+  }
+
   return (
-    <div className="flex h-full flex-col items-center justify-center px-4 py-10 sm:py-12">
-      {/* The identity block: a bare mark, then confident display type —
-          rather than the flat icon-and-paragraph this used to be. No glow
-          behind the mark (a blurred blob reads as a stock decoration, not
-          craft); the mark itself carries the weight. */}
+    <div className="flex min-h-full flex-col items-center justify-center px-4 py-5 sm:py-8">
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: "easeOut" }}
-        className="relative flex flex-col items-center"
-      >
-        <AskLogo size={48} className="relative text-primary" />
-      </motion.div>
-
-      <motion.h1
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05, duration: 0.35 }}
-        className="mt-5 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl"
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="w-full max-w-xl"
       >
-        Ask PayAI
-      </motion.h1>
+        {/* The surrounding page or command bar already names Ask PayAI; this
+            opens with what it does instead of repeating the name. */}
+        <div className="flex items-start gap-3">
+          <AskLogo size={26} className="mt-0.5 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="text-[15px] font-medium tracking-tight text-foreground sm:text-base">Turn a sentence into onchain execution.</p>
+            <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground sm:text-sm">
+              Describe what you want done on Monad. PayAI turns it into a plan you review before anything runs.
+            </p>
+          </div>
+        </div>
 
-      <motion.p
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1, duration: 0.35 }}
-        className="mt-2 max-w-md text-center text-sm leading-relaxed text-muted-foreground"
-      >
-        Tell me what you want to do, in your own words.
-      </motion.p>
+        <section aria-labelledby="ask-how-title" className="mt-5 rounded-xl border border-border bg-panel/60 p-4">
+          <h2 id="ask-how-title" className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">How to ask</h2>
+          <ol className="mt-3 space-y-2">
+            {HOW_TO_ASK.map((t, i) => (
+              <li key={t} className="flex gap-2.5 text-[13px] leading-relaxed text-foreground/90 sm:text-sm">
+                <span aria-hidden className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border font-mono text-[10px] text-muted-foreground">{i + 1}</span>
+                <span>{t}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15, duration: 0.35 }}
-        className="mt-8 grid w-full max-w-xl grid-cols-1 gap-2.5 sm:grid-cols-2"
-      >
-        {CAPABILITY_SHORTCUTS.map((s, i) => {
-          const Icon = s.icon;
-          return (
-            <motion.button
-              key={s.label}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.18 + i * 0.04, duration: 0.3 }}
-              onClick={() => onPick(s.label)}
-              className="group flex items-start gap-3 rounded-xl border border-border bg-panel p-3.5 text-left transition-all duration-150 hover:border-primary/40 hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center text-primary transition-transform duration-150 group-hover:scale-110">
-                <Icon size={19} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-                  {s.label}
-                  <ArrowRight
-                    size={13}
-                    className="shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-primary-ink"
-                  />
-                </span>
-                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{s.hint}</span>
-              </span>
-            </motion.button>
-          );
-        })}
+        <section aria-labelledby="ask-try-title" className="mt-5">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 id="ask-try-title" className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Start from a prompt</h2>
+            <span className="text-[11px] text-muted-foreground/80">Opens in the box to edit</span>
+          </div>
+          <ul className="mt-2 divide-y divide-border overflow-hidden rounded-xl border border-border">
+            {ASK_STARTERS.map((s) => (
+              <li key={s.say}>
+                <button
+                  type="button"
+                  onClick={() => pick(s.say)}
+                  className="group flex w-full items-center gap-3 bg-background/40 px-3.5 py-2.5 text-left transition-colors hover:bg-input/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11px] text-muted-foreground">{s.label}</span>
+                    <span className="mt-0.5 block break-words font-mono text-[12.5px] leading-snug text-foreground sm:text-[13px]">{s.say}</span>
+                  </span>
+                  <PencilLine size={14} aria-hidden className="shrink-0 text-muted-foreground transition-colors group-hover:text-primary-ink" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <p className="flex items-center gap-1.5">
+            <ShieldCheck size={13} aria-hidden className="shrink-0 text-primary-ink" />
+            Nothing moves until you review and sign.
+          </p>
+          <a
+            href={`${MARKETING_ORIGIN}/intents`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-sm font-medium text-primary-ink transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            More examples <ArrowUpRight size={12} aria-hidden />
+          </a>
+        </div>
       </motion.div>
-
-      {/* The non-custodial promise, stated once where it reassures rather than
-          buried in the composer's fine print alone. */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.34, duration: 0.35 }}
-        className="mt-7 flex items-center gap-1.5 text-xs text-muted-foreground/80"
-      >
-        <ShieldCheck size={13} className="shrink-0 text-primary-ink" />
-        Nothing moves until you confirm and sign.
-      </motion.p>
     </div>
   );
 }
