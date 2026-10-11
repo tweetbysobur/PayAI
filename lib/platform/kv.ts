@@ -36,6 +36,10 @@ export interface RedisLike {
 }
 
 let _redis: RedisLike | null | undefined;
+/** Set when KV IS configured but its client could not be created. getRedis()
+ *  still returns null then (callers that tolerate memory keep their old
+ *  behaviour); getDurableRedis() refuses instead. */
+let _redisInitFailed = false;
 
 export async function getRedis(): Promise<RedisLike | null> {
   if (_redis !== undefined) return _redis;
@@ -46,9 +50,65 @@ export async function getRedis(): Promise<RedisLike | null> {
     const { Redis } = await import("@upstash/redis");
     _redis = new Redis({ url, token }) as unknown as RedisLike;
   } catch {
+    _redisInitFailed = true;
     _redis = null;
   }
   return _redis;
+}
+
+/* ── Durable storage for money-path records ────────────────────────────── */
+
+/**
+ * Why shared storage was unavailable — never confused with "the record
+ * doesn't exist", which is an ordinary null/absent result:
+ *   not_configured      production, and KV_REST_API_URL/TOKEN are not set
+ *   client_unavailable  KV is configured but its client could not be created
+ *   operation_failed    a KV call itself failed (network, auth, Upstash error)
+ */
+export type StorageFailure = "not_configured" | "client_unavailable" | "operation_failed";
+
+export class StorageUnavailableError extends Error {
+  readonly failure: StorageFailure;
+  constructor(failure: StorageFailure, message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "StorageUnavailableError";
+    this.failure = failure;
+  }
+}
+
+/** A KV call that threw, as a StorageUnavailableError (already-typed errors pass through). */
+export function asStorageError(e: unknown): StorageUnavailableError {
+  if (e instanceof StorageUnavailableError) return e;
+  return new StorageUnavailableError("operation_failed", "Shared storage operation failed.", { cause: e });
+}
+
+/**
+ * The shared KV client for records that must be visible to every server
+ * instance and survive restarts: payment approvals, confirmation claims and
+ * results, and the transaction log written on the payment path.
+ *
+ * Fails closed, the way lib/plan/store.ts and lib/rooms/store.ts already do
+ * for their data:
+ *   - KV configured and its client created → the client.
+ *   - KV configured but the client could not be created → throws
+ *     client_unavailable, in EVERY environment: configured shared storage
+ *     never silently degrades to per-instance memory.
+ *   - KV not configured, in production (NODE_ENV=production — every Vercel
+ *     deployment, and `next start`) → throws not_configured.
+ *   - KV not configured, outside production (local `next dev`, vitest) →
+ *     null: the caller uses its documented in-memory fallback. That mode is
+ *     only reachable where NODE_ENV is not "production".
+ */
+export async function getDurableRedis(): Promise<RedisLike | null> {
+  const r = await getRedis();
+  if (r) return r;
+  if (_redisInitFailed) {
+    throw new StorageUnavailableError("client_unavailable", "Shared storage is configured but its client could not be created.");
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new StorageUnavailableError("not_configured", "Shared storage (KV_REST_API_URL/TOKEN) is not configured.");
+  }
+  return null;
 }
 
 export function kvEnabled(): boolean {

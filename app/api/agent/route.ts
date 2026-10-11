@@ -9,6 +9,27 @@ import { isDomainName, extractDomain } from "@/lib/monad/domain-resolver";
 import { recordTx } from "@/lib/platform/store";
 import { authError } from "@/lib/platform/auth";
 import { agentRequestKey, claimRequest, completeRequest, computeRequestId, releaseRequest } from "@/lib/platform/idempotency";
+import { StorageUnavailableError } from "@/lib/platform/kv";
+
+/** Payment approvals and outcomes live in SHARED storage only: in production
+ *  a missing or broken KV fails closed instead of using this instance's
+ *  memory (lib/platform/kv.ts getDurableRedis). */
+const DURABLE = { durable: true } as const;
+
+/** Storage unavailable BEFORE anything was prepared or signed: nothing was
+ *  sent, so trying again later is safe — and it is said plainly. */
+function storageUnavailable(): NextResponse {
+  return NextResponse.json(
+    { error: "PayAI can't prepare this right now because its records are unavailable. Nothing was sent — please try again in a moment.", state: "store_unavailable" },
+    { status: 503 },
+  );
+}
+
+/** Server-side detail only: which storage failure (never sent to clients). */
+function logStorageFailure(step: string, e: unknown): void {
+  const storage = e instanceof StorageUnavailableError ? e.failure : "unknown";
+  console.error(JSON.stringify({ event: "payai.agent.storage_unavailable", step, storage, message: e instanceof Error ? e.message : String(e) }));
+}
 
 /**
  * POST /api/agent — the full PayAI pipeline.
@@ -240,7 +261,17 @@ export async function POST(req: NextRequest) {
   // payment confirmation's. `requestId` itself is unchanged: it is what the
   // client sees, the forwarder `ref`, and PaymentExecutor's on-chain id.
   const idemKey = agentRequestKey(merchantId, walletAddress, requestId);
-  const claim = await claimRequest<Record<string, unknown>>(idemKey);
+  // Shared storage only (durable): an approval created here is looked up by
+  // /api/agent/confirm, possibly on another instance, so in production it may
+  // never live in this instance's memory. A missing or broken KV fails closed
+  // with a 503 before anything is prepared or signed.
+  let claim: Awaited<ReturnType<typeof claimRequest<Record<string, unknown>>>>;
+  try {
+    claim = await claimRequest<Record<string, unknown>>(idemKey, DURABLE);
+  } catch (e) {
+    logStorageFailure("claim", e);
+    return storageUnavailable();
+  }
   if (!claim.claimed) {
     if (claim.status === "done" && claim.result) {
       return NextResponse.json({ ...claim.result, replayed: true });
@@ -280,21 +311,28 @@ export async function POST(req: NextRequest) {
   /** Serialize with the flat, spec-required convenience fields on top. */
   const respond = async (result: AgentResult, init?: { status?: number }) => {
     // Record every outcome (incl. failures) into the merchant transaction log.
-    await recordTx(merchantId, {
-      decision: result.decision as Exclude<AgentResult["decision"], "info" | "ready_to_sign">,
-      action: result.intent.action,
-      feature: "payment",
-      amount: result.intent.amount,
-      token: result.intent.token,
-      recipient: result.intent.recipient,
-      domain: result.intent.domain ?? null,
-      sender: walletAddress,
-      riskScore: result.riskScore,
-      compliance: result.compliance?.status ?? null,
-      txHash: result.transaction?.txHash,
-      explorerUrl: result.transaction?.explorerUrl,
-      summary: result.intent.summary,
-    });
+    // A storage failure here is logged, not hidden — but the decision itself
+    // already happened (e.g. a custodial payment executed), so its real
+    // outcome is still returned rather than replaced by an error.
+    try {
+      await recordTx(merchantId, {
+        decision: result.decision as Exclude<AgentResult["decision"], "info" | "ready_to_sign">,
+        action: result.intent.action,
+        feature: "payment",
+        amount: result.intent.amount,
+        token: result.intent.token,
+        recipient: result.intent.recipient,
+        domain: result.intent.domain ?? null,
+        sender: walletAddress,
+        riskScore: result.riskScore,
+        compliance: result.compliance?.status ?? null,
+        txHash: result.transaction?.txHash,
+        explorerUrl: result.transaction?.explorerUrl,
+        summary: result.intent.summary,
+      }, DURABLE);
+    } catch (e) {
+      logStorageFailure("record", e);
+    }
     const body = {
       // Full structured payload (dashboard reads this) — includes decision,
       // confidence, riskScore, intent, compliance, risk, transaction, trace.
@@ -308,7 +346,13 @@ export async function POST(req: NextRequest) {
     };
     // Persist under the idempotency key so a retry/double-click replays this
     // exact outcome instead of re-running the pipeline (or, worse, re-executing).
-    await completeRequest(idemKey, body as unknown as Record<string, unknown>);
+    // If this write fails the claim stays in progress, so a retry gets a 409
+    // rather than re-running (and, for the custodial path, re-executing).
+    try {
+      await completeRequest(idemKey, body as unknown as Record<string, unknown>, DURABLE);
+    } catch (e) {
+      logStorageFailure("complete", e);
+    }
     return NextResponse.json(body, init);
   };
 
@@ -542,7 +586,17 @@ export async function POST(req: NextRequest) {
         requestId,
         success: false,
       };
-      await completeRequest(idemKey, readyBody);
+      // The approval must be in shared storage BEFORE the wallet is asked to
+      // sign: /api/agent/confirm settles only against it. If it can't be
+      // stored, nothing to sign is returned — the user is told nothing was
+      // sent, which is true, and can safely try again.
+      try {
+        await completeRequest(idemKey, readyBody, DURABLE);
+      } catch (e) {
+        logStorageFailure("approval_store", e);
+        await releaseRequest(idemKey, DURABLE).catch(() => {});
+        return storageUnavailable();
+      }
       return NextResponse.json(readyBody);
     }
 
@@ -553,7 +607,7 @@ export async function POST(req: NextRequest) {
       // Auth failure isn't a pipeline outcome — release the claim so the
       // caller can retry the same idempotencyKey once authorized correctly,
       // instead of it being stuck "in_progress" until the TTL expires.
-      await releaseRequest(idemKey);
+      await releaseRequest(idemKey, DURABLE).catch(() => {});
       return denied;
     }
 

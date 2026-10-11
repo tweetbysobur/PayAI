@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, pad, parseAbi, type Hex } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, getAddress, pad, parseAbi, TransactionReceiptNotFoundError, type Hex } from "viem";
 
 /**
  * POST /api/agent/confirm, driven as a route against a MOCKED chain.
@@ -41,7 +41,8 @@ const chain = {
   receipt: null as unknown,
   tx: null as unknown,
   blockTimestamp: NOW_S,
-  getTransactionReceipt: vi.fn(async () => { if (!chain.receipt) throw new Error("could not be found"); return chain.receipt; }),
+  // viem's own not-found error — what a node with no receipt (not mined yet) produces.
+  getTransactionReceipt: vi.fn(async () => { if (!chain.receipt) throw new TransactionReceiptNotFoundError({ hash: TX }); return chain.receipt; }),
   getTransaction: vi.fn(async () => chain.tx),
   getBlock: vi.fn(async () => ({ timestamp: chain.blockTimestamp })),
 };
@@ -250,7 +251,11 @@ describe("ACCEPTANCE — the stored approval is required and binding", () => {
   it("a stored record that is not a ready_to_sign transfer is refused", async () => {
     await approve("blocked", DIRECT_USDC, intentOf("USDC"), { decision: "blocked" });
     mine({ to: USDC, input: DIRECT_USDC.data }, [transferLog(WALLET, RECIPIENT, ONE)]);
-    expect((await confirm("blocked")).body.reason).toBe("approval_not_found");
+    // The record exists but isn't a usable approval: the settled payment is
+    // reported unmatched (evidence kept), never verified against it.
+    const r = await confirm("blocked");
+    expect(r.body.reason).toBe("approval_invalid");
+    expect((r.body as Record<string, unknown>).state).toBe("settled_unmatched");
   });
 
   it("a payment that differs from the stored unsignedTx is refused (approval is for another recipient)", async () => {

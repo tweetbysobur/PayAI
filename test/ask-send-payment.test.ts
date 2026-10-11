@@ -324,6 +324,7 @@ describe("send_payment — executeSendPayment (the ONLY function allowed to sign
     const { restore } = mockFetch(() => ({
       intent: { action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, purpose: null, network: "monad", summary: "Sent 50 USDC", confidence: 1 },
       decision: "executed",
+      success: true, // the confirm route's success body always carries it
       transaction: { status: "settled", detail: "ok", mode: "monad", txHash: "0xabc123", explorerUrl: "https://explorer.monad.xyz/tx/0xabc123", gasFee: "0.0004 MON", blockNumber: 42 },
     }));
     try {
@@ -345,6 +346,7 @@ describe("send_payment — executeSendPayment (the ONLY function allowed to sign
     const { restore } = mockFetch(() => ({
       intent: { action: "send_payment", amount: 50, token: "USDC", recipient: ADDR, purpose: null, network: "monad", summary: "Sent 50 USDC", confidence: 1 },
       decision: "executed",
+      success: true, // the confirm route's success body always carries it
       transaction: { status: "settled", detail: "ok", mode: "monad", txHash: "0xabc123", explorerUrl: "https://explorer.monad.xyz/tx/0xabc123", gasFee: "0.0004 MON", blockNumber: 42 },
     }));
     try {

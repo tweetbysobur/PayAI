@@ -34,6 +34,7 @@ import { matchPlanRequest, planFoundText, PLAN_THINKING_LABEL, type PlanRequestK
 import { createPlanForTurn } from "@/lib/ask/planTurn";
 import { attachTiming, primePlan } from "@/lib/ask/planCards";
 import { startAskTiming } from "@/lib/ask/timing";
+import { isSafeToRetry } from "@/lib/ask/retryPolicy";
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -61,8 +62,12 @@ function nextId(prefix: string): string {
 }
 
 /** Canonical text for a retry — always rebuilt from the operation's own
- *  validated fields, never a stored raw string that might now be stale. */
+ *  validated fields, never a stored raw string that might now be stale.
+ *  Null unless the failure provably moved nothing (lib/ask/retryPolicy.ts):
+ *  a retry starts a NEW payment, so it is never offered when the earlier
+ *  transaction may already have reached the chain. */
 export function retryTextFor(op: NonNullable<AskMessage["operation"]>): string | null {
+  if (!isSafeToRetry(op)) return null;
   if (op.intent.kind === "payment" && op.intent.execution) return op.intent.execution.confirmRawText;
   if (op.intent.kind === "swap" && op.intent.execution) return `Swap ${op.intent.fromAmount} ${op.intent.fromToken} to ${op.intent.toToken}`;
   if (op.intent.kind === "trade_preview") {

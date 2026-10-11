@@ -16,7 +16,8 @@ function mockFetch(responder: () => unknown) {
   const calls: string[] = [];
   globalThis.fetch = (async (url: string) => {
     calls.push(String(url));
-    return { json: async () => responder() } as unknown as Response;
+    // A real 200 Response (executeSendPayment checks r.ok, as fetch always sets it).
+    return { ok: true, status: 200, json: async () => responder() } as unknown as Response;
   }) as unknown as typeof fetch;
   return { calls, restore: () => { globalThis.fetch = original; } };
 }
@@ -51,7 +52,7 @@ const approvalTx = { to: TOKEN, data: "0xapprove", value: "0x0", from: WALLET };
 describe("executeSendPayment — ERC-20 forwarder two-step", () => {
   let fetchMock: { calls: string[]; restore: () => void };
   beforeEach(() => {
-    fetchMock = mockFetch(() => ({ intent: { recipient: "0x2222222222222222222222222222222222222222", amount: 50 }, transaction: { txHash: "0xabc", explorerUrl: "e" } }));
+    fetchMock = mockFetch(() => ({ success: true, intent: { recipient: "0x2222222222222222222222222222222222222222", amount: 50 }, transaction: { txHash: "0xabc", explorerUrl: "e" } }));
   });
   afterEach(() => fetchMock.restore());
 

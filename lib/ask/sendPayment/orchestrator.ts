@@ -250,13 +250,26 @@ export async function executeSendPayment(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ rawText: confirmRawText, walletAddress: unsignedTx.from, txHash: hash, requestId }),
     });
-    const json = (await r.json()) as AgentResult & { error?: string; reverted?: boolean };
-    if (!json.intent) {
+    // A malformed body throws here and lands in the catch below, which treats
+    // it as broadcast-but-unconfirmed — never as "not sent".
+    const json = (await r.json()) as AgentResult & { error?: string; reverted?: boolean; success?: boolean };
+    // The pending settlement is cleared ONLY on a definitive outcome: the
+    // confirm route saw the transaction mined and reverted, or it verified
+    // and recorded the payment. Anything else — approval missing, 503,
+    // not mined yet, already processing/confirmed, a mismatch, a policy
+    // refusal, a rate limit — leaves the payment possibly settled, so the
+    // evidence is kept and the user is told not to resend.
+    if (json.reverted === true) {
       clearPendingSettlement();
-      const message = json.reverted
-        ? prefixApprovalContext(json.error || "This payment failed on-chain. No funds were transferred.", approvalTxInfo)
-        : friendlyError(json.error || "Could not confirm the payment.");
-      const error: OperationError = { message, code: json.reverted ? "REVERTED" : "CONFIRM_FAILED", approvalTx: approvalTxInfo ?? undefined };
+      const message = prefixApprovalContext(json.error || "This payment failed on-chain. No funds were transferred.", approvalTxInfo);
+      const error: OperationError = { message, code: "REVERTED", txHash: hash, explorerUrl: configExplorerTx(hash), approvalTx: approvalTxInfo ?? undefined };
+      return { ...operation, status: "error", error };
+    }
+    if (!r.ok || json.success !== true || !json.intent) {
+      const error: OperationError = {
+        message: `Your payment was sent (${hash.slice(0, 10)}…) but we couldn't confirm it yet. Don't resend it — check the transaction on the explorer or in Transactions for the latest status.`,
+        code: "CONFIRM_FAILED", txHash: hash, explorerUrl: configExplorerTx(hash), approvalTx: approvalTxInfo ?? undefined,
+      };
       return { ...operation, status: "error", error };
     }
     clearPendingSettlement();
@@ -273,7 +286,7 @@ export async function executeSendPayment(
       // have moved, and re-offering Confirm here is how someone pays twice.
       const error: OperationError = {
         message: `Your payment was sent (${broadcastHash.slice(0, 10)}…) but we couldn't confirm it yet. Don't resend it — check Transactions for the latest status.`,
-        code: "UNCONFIRMED",
+        code: "UNCONFIRMED", txHash: broadcastHash, explorerUrl: configExplorerTx(broadcastHash),
       };
       return { ...operation, status: "error", error };
     }

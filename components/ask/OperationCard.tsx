@@ -9,6 +9,7 @@ import {
   Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw, Blocks,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
+import { isSafeToRetry } from "@/lib/ask/retryPolicy";
 import {
   FREQUENCY_LABEL, NETWORK_LABEL, WALLET_OP_LABEL,
   type Operation, type OperationError, type OperationStatus, type WalletTransactionView,
@@ -263,7 +264,10 @@ export function OperationCard({
       {!isInfo && status !== "error" && status !== "submitted" && (
         <CardFooter operation={operation} onAdvance={onAdvance} onCancel={onCancel} progressLabel={progressLabel} />
       )}
-      {status === "error" && onRetry && (
+      {/* Retry starts a NEW payment, so it is offered only when the failed
+          attempt provably moved nothing — never because a caller passed a
+          handler (lib/ask/retryPolicy.ts). */}
+      {status === "error" && onRetry && isSafeToRetry(operation) && (
         <div className="flex border-t border-border/70 px-4 py-3">
           <button
             onClick={() => onRetry(operation.id)}

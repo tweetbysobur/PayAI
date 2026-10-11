@@ -8,7 +8,7 @@
  * Server-only.
  */
 import "server-only";
-import { getRedis } from "./kv";
+import { asStorageError, getDurableRedis, getRedis } from "./kv";
 import type { PaymentLink, TxLogEntry } from "./types";
 
 const MAX_TX = 500;
@@ -26,13 +26,31 @@ function memOf(m: string) {
 
 /* ── Transaction log ────────────────────────────────────────────────────── */
 
-export async function recordTx(merchantId: string, entry: Omit<TxLogEntry, "id" | "at">): Promise<TxLogEntry> {
+/**
+ * Append a row to a tenant's transaction log. The payment path passes
+ * `durable: true`: the row must reach shared KV, so in production a missing
+ * or broken KV throws StorageUnavailableError (./kv getDurableRedis) instead
+ * of the row landing in one instance's memory, and a failed KV write throws
+ * it too. Other callers keep the KV-else-memory behaviour.
+ */
+export async function recordTx(
+  merchantId: string,
+  entry: Omit<TxLogEntry, "id" | "at">,
+  opts?: { durable?: boolean },
+): Promise<TxLogEntry> {
   const row: TxLogEntry = { id: `tx_${crypto.randomUUID()}`, at: Date.now(), ...entry };
-  const r = await getRedis();
-  if (r) {
-    await r.lpush(txKey(merchantId), row);
-    await r.ltrim(txKey(merchantId), 0, MAX_TX - 1);
-  } else {
+  let r;
+  try {
+    r = opts?.durable ? await getDurableRedis() : await getRedis();
+    if (r) {
+      await r.lpush(txKey(merchantId), row);
+      await r.ltrim(txKey(merchantId), 0, MAX_TX - 1);
+    }
+  } catch (e) {
+    if (opts?.durable) throw asStorageError(e);
+    throw e;
+  }
+  if (!r) {
     const s = memOf(merchantId);
     s.txLog.unshift(row);
     if (s.txLog.length > MAX_TX) s.txLog.length = MAX_TX;

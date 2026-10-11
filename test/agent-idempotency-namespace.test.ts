@@ -44,14 +44,18 @@ vi.mock("@/lib/monad/wallet", async (orig) => ({
 vi.mock("@/lib/payment/sanctions", async (orig) => ({ ...(await orig<typeof import("@/lib/payment/sanctions")>()), ensureSanctionsLoaded: async () => {} }));
 
 const chain = { receipt: null as unknown, tx: null as unknown };
-vi.mock("viem", async (orig) => ({
-  ...(await orig<typeof import("viem")>()),
-  createPublicClient: () => ({
-    getTransactionReceipt: async () => { if (!chain.receipt) throw new Error("could not be found"); return chain.receipt; },
-    getTransaction: async () => chain.tx,
-    getBlock: async () => ({ timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
-  }),
-}));
+vi.mock("viem", async (orig) => {
+  const actual = await orig<typeof import("viem")>();
+  return {
+    ...actual,
+    createPublicClient: () => ({
+      // viem's own not-found error — what a node with no receipt produces.
+      getTransactionReceipt: async () => { if (!chain.receipt) throw new actual.TransactionReceiptNotFoundError({ hash: TX }); return chain.receipt; },
+      getTransaction: async () => chain.tx,
+      getBlock: async () => ({ timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
+    }),
+  };
+});
 
 const ENV = ["MONAD_NETWORK", "MONAD_MAINNET_USDC", "MONAD_MAINNET_PAYAI_FORWARDER", "PAYAI_FORWARDER_ENABLED", "PAYAI_MODE", "ANTHROPIC_API_KEY", "KV_REST_API_URL", "KV_REST_API_TOKEN"] as const;
 

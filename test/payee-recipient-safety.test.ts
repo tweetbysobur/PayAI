@@ -28,6 +28,20 @@ vi.mock("@anthropic-ai/sdk", () => ({
   }),
 }));
 
+// /api/agent/confirm reads the chain first. Keep every real client method but
+// make receipt reads deterministic (viem's own "no receipt yet" error), so no
+// test here reaches a live RPC.
+vi.mock("viem", async (orig) => {
+  const actual = await orig<typeof import("viem")>();
+  return {
+    ...actual,
+    createPublicClient: (...args: Parameters<typeof actual.createPublicClient>) => ({
+      ...actual.createPublicClient(...args),
+      getTransactionReceipt: async ({ hash }: { hash: `0x${string}` }) => { throw new actual.TransactionReceiptNotFoundError({ hash }); },
+    }),
+  };
+});
+
 const resolveDomainMock = vi.fn();
 vi.mock("@/lib/monad/domain-resolver", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/monad/domain-resolver")>();

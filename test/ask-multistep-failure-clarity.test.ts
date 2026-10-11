@@ -401,7 +401,7 @@ describe("18. existing single-signature payment behavior is intact (no approval 
     };
     const op: Operation = { id: "op", intent, status: "ready" };
     const wallet = { sendTransaction: vi.fn().mockResolvedValue("0xpay"), waitForReceipt: vi.fn().mockResolvedValue({ status: "success" }) };
-    const { restore } = mockFetch(() => ({ intent: { action: "send_payment" }, transaction: { txHash: "0xpay", explorerUrl: "https://explorer.monad.xyz/tx/0xpay" } }));
+    const { restore } = mockFetch(() => ({ intent: { action: "send_payment" }, success: true, transaction: { txHash: "0xpay", explorerUrl: "https://explorer.monad.xyz/tx/0xpay" } }));
     try {
       const result = await executeSendPayment(op, wallet);
       expect(result.status).toBe("success");

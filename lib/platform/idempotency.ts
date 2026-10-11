@@ -21,16 +21,46 @@
  */
 import "server-only";
 import { createHash } from "node:crypto";
-import { getRedis } from "./kv";
+import { asStorageError, getDurableRedis, getRedis, type RedisLike } from "./kv";
 
 const TTL_SECONDS = 24 * 60 * 60; // 24h — long enough to outlive any realistic retry window
 /** The default record lifetime. A caller may ask for a different one per
  *  record (claimRequest / completeRequest `ttlSeconds`); nothing else does. */
 export const IDEMPOTENCY_TTL_SECONDS = TTL_SECONDS;
 
-export interface IdempotencyOptions {
+export interface StorageOptions {
+  /**
+   * Money-path records (payment approvals, confirmation claims and results)
+   * pass `durable: true`: the record must live in shared KV, never in this
+   * instance's memory. In production a missing or broken KV then throws
+   * StorageUnavailableError instead of silently using memory, and any KV
+   * call that fails throws it too — so a storage failure can never read as
+   * "no record" (see getDurableRedis in ./kv). Without the flag, behaviour is
+   * unchanged: KV when configured, else in-memory.
+   */
+  durable?: boolean;
+}
+
+export interface IdempotencyOptions extends StorageOptions {
   /** This record's lifetime in seconds (a positive integer). Defaults to IDEMPOTENCY_TTL_SECONDS. */
   ttlSeconds?: number;
+}
+
+/** The KV client for this call: fail-closed when durable (may be null only
+ *  outside production with KV unconfigured), else the legacy best-effort one. */
+function client(opts: StorageOptions | undefined): Promise<RedisLike | null> {
+  return opts?.durable ? getDurableRedis() : getRedis();
+}
+
+/** Runs a storage call; when durable, any failure becomes a typed
+ *  StorageUnavailableError (never a plain throw a caller might misread). */
+async function guarded<T>(opts: StorageOptions | undefined, fn: () => Promise<T>): Promise<T> {
+  if (!opts?.durable) return fn();
+  try {
+    return await fn();
+  } catch (e) {
+    throw asStorageError(e);
+  }
 }
 
 function ttlOf(opts: IdempotencyOptions | undefined): number {
@@ -152,34 +182,36 @@ export async function claimRequest<T>(
   opts?: IdempotencyOptions,
 ): Promise<{ claimed: true } | { claimed: false; status: IdempotencyStatus; result?: T }> {
   const ttl = ttlOf(opts);
-  const r = await getRedis();
-  if (r) {
-    // SET NX, not GET-then-SET. A read followed by a write is two round trips
-    // with a gap between them, and two requests that arrive in that gap both
-    // see "no record" and both claim — which is precisely the collision this
-    // module exists to prevent, and it happens most readily under the load
-    // that makes double-submits likely in the first place. NX decides the
-    // winner inside Redis, in one atomic step; the loser reads the record
-    // afterwards to find out whether to replay a result or report a 409.
-    const claimed = await r.set(
-      key(requestId),
-      { status: "in_progress", createdAt: Date.now() } as IdempotencyRecord<T>,
-      { nx: true, ex: ttl },
-    );
-    if (claimed) return { claimed: true };
-    const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
-    // Lost the race, but the record vanished between the two calls (TTL expiry
-    // on a 24h-old key). Nothing is in flight and nothing was recorded, so
-    // treat it as free rather than stalling a caller behind a ghost.
-    if (!existing) return { claimed: true };
-    return { claimed: false, status: existing.status, result: existing.result };
-  }
+  return guarded(opts, async () => {
+    const r = await client(opts);
+    if (r) {
+      // SET NX, not GET-then-SET. A read followed by a write is two round trips
+      // with a gap between them, and two requests that arrive in that gap both
+      // see "no record" and both claim — which is precisely the collision this
+      // module exists to prevent, and it happens most readily under the load
+      // that makes double-submits likely in the first place. NX decides the
+      // winner inside Redis, in one atomic step; the loser reads the record
+      // afterwards to find out whether to replay a result or report a 409.
+      const claimed = await r.set(
+        key(requestId),
+        { status: "in_progress", createdAt: Date.now() } as IdempotencyRecord<T>,
+        { nx: true, ex: ttl },
+      );
+      if (claimed) return { claimed: true };
+      const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
+      // Lost the race, but the record vanished between the two calls (TTL expiry
+      // on a 24h-old key). Nothing is in flight and nothing was recorded, so
+      // treat it as free rather than stalling a caller behind a ghost.
+      if (!existing) return { claimed: true };
+      return { claimed: false, status: existing.status, result: existing.result };
+    }
 
-  pruneMem();
-  const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
-  if (existing) return { claimed: false, status: existing.status, result: existing.result };
-  memSet(requestId, { status: "in_progress", createdAt: Date.now() }, ttl);
-  return { claimed: true };
+    pruneMem();
+    const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
+    if (existing) return { claimed: false, status: existing.status, result: existing.result };
+    memSet(requestId, { status: "in_progress", createdAt: Date.now() }, ttl);
+    return { claimed: true };
+  });
 }
 
 /**
@@ -188,15 +220,17 @@ export async function claimRequest<T>(
  * else null. Used by the confirm path to replay the exact approved intent
  * instead of re-deriving it from raw text (which could drift).
  */
-export async function peekRequest<T>(requestId: string): Promise<T | null> {
-  const r = await getRedis();
-  if (r) {
-    const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
-    return existing?.status === "done" ? (existing.result ?? null) : null;
-  }
-  pruneMem();
-  const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
-  return existing?.status === "done" ? ((existing.result as T) ?? null) : null;
+export async function peekRequest<T>(requestId: string, opts?: StorageOptions): Promise<T | null> {
+  return guarded(opts, async () => {
+    const r = await client(opts);
+    if (r) {
+      const existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
+      return existing?.status === "done" ? (existing.result ?? null) : null;
+    }
+    pruneMem();
+    const existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
+    return existing?.status === "done" ? ((existing.result as T) ?? null) : null;
+  });
 }
 
 /**
@@ -205,44 +239,50 @@ export async function peekRequest<T>(requestId: string): Promise<T | null> {
  * approval, when /api/agent handed it out. Same visibility rule: only a
  * `done` record is returned.
  */
-export async function peekRequestRecord<T>(requestId: string): Promise<{ result: T; createdAt: number } | null> {
-  const r = await getRedis();
-  let existing: IdempotencyRecord<T> | null | undefined;
-  if (r) {
-    existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
-  } else {
-    pruneMem();
-    existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
-  }
-  if (existing?.status !== "done" || existing.result == null) return null;
-  return { result: existing.result, createdAt: existing.createdAt };
+export async function peekRequestRecord<T>(requestId: string, opts?: StorageOptions): Promise<{ result: T; createdAt: number } | null> {
+  return guarded(opts, async () => {
+    const r = await client(opts);
+    let existing: IdempotencyRecord<T> | null | undefined;
+    if (r) {
+      existing = (await r.get(key(requestId))) as IdempotencyRecord<T> | null;
+    } else {
+      pruneMem();
+      existing = mem.get(requestId) as IdempotencyRecord<T> | undefined;
+    }
+    if (existing?.status !== "done" || existing.result == null) return null;
+    return { result: existing.result, createdAt: existing.createdAt };
+  });
 }
 
 /** Store the final outcome under a claimed request id so retries replay it. */
 export async function completeRequest<T>(requestId: string, result: T, opts?: IdempotencyOptions): Promise<void> {
   const ttl = ttlOf(opts);
   const record: IdempotencyRecord<T> = { status: "done", result, createdAt: Date.now() };
-  const r = await getRedis();
-  if (r) {
-    // TTL in the same command. Setting it separately leaves a window where a
-    // failed EXPIRE strands the record forever, which would permanently block
-    // that requestId from ever being usable again.
-    await r.set(key(requestId), record, { ex: ttl });
-    return;
-  }
-  memSet(requestId, record, ttl);
+  return guarded(opts, async () => {
+    const r = await client(opts);
+    if (r) {
+      // TTL in the same command. Setting it separately leaves a window where a
+      // failed EXPIRE strands the record forever, which would permanently block
+      // that requestId from ever being usable again.
+      await r.set(key(requestId), record, { ex: ttl });
+      return;
+    }
+    memSet(requestId, record, ttl);
+  });
 }
 
 /** Release a claim without recording a result — used when execution fails before any chain action, so a genuine retry isn't permanently blocked. */
-export async function releaseRequest(requestId: string): Promise<void> {
-  const r = await getRedis();
-  if (r) {
-    // DEL, not SET null. Writing a null value leaves a key behind with no TTL
-    // (SET clears the old expiry), so a released claim would sit in Redis
-    // forever — invisible to `get`, but never reclaimed.
-    await r.del(key(requestId));
-    return;
-  }
-  mem.delete(requestId);
-  memTtl.delete(requestId);
+export async function releaseRequest(requestId: string, opts?: StorageOptions): Promise<void> {
+  return guarded(opts, async () => {
+    const r = await client(opts);
+    if (r) {
+      // DEL, not SET null. Writing a null value leaves a key behind with no TTL
+      // (SET clears the old expiry), so a released claim would sit in Redis
+      // forever — invisible to `get`, but never reclaimed.
+      await r.del(key(requestId));
+      return;
+    }
+    mem.delete(requestId);
+    memTtl.delete(requestId);
+  });
 }

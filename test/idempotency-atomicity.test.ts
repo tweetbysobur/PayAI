@@ -157,7 +157,7 @@ describe("record lifetime (5C-2e): 24h by default; an explicit ttlSeconds only w
     }
     expect(store.has("veripay:idem:ttl-bad")).toBe(false);
   });
-  it("source guard: only the SDK build route asks for a non-default lifetime, at every sdk-build write", async () => {
+  it("source guard: only the SDK build route and the payment-confirm lease ask for a non-default lifetime", async () => {
     const { readFileSync, readdirSync, statSync } = await import("node:fs");
     const { join } = await import("node:path");
     const root = join(__dirname, "..");
@@ -176,7 +176,17 @@ describe("record lifetime (5C-2e): 24h by default; an explicit ttlSeconds only w
     const users = files
       .filter((f) => { const src = readFileSync(f, "utf8"); return /ttlSeconds/.test(src) && (/@\/lib\/platform\/idempotency/.test(src) || f.endsWith("idempotency.ts")); })
       .map((f) => f.slice(root.length + 1)).sort();
-    expect(users).toEqual(["app/api/ask/action/build/route.ts", "lib/platform/idempotency.ts"]);
+    expect(users).toEqual(["app/api/agent/confirm/route.ts", "app/api/ask/action/build/route.ts", "lib/platform/idempotency.ts"]);
+    // /api/agent/confirm: only its in-progress CLAIM is a short lease; the
+    // finished confirmation keeps the default 24h.
+    const confirm = readFileSync(join(root, "app/api/agent/confirm/route.ts"), "utf8");
+    expect(confirm).toMatch(/const CONFIRM_LEASE_SECONDS = 900;/);
+    const confirmCalls = [...confirm.matchAll(/(claimRequest|completeRequest)(<[^>]*>)?\(([^;]*?)\);/g)].map((m) => [m[1], m[3]]);
+    expect(confirmCalls).toEqual([
+      // ...DURABLE: shared storage only, fail-closed in production (R4).
+      ["claimRequest", "confirmKey, { ttlSeconds: CONFIRM_LEASE_SECONDS, ...DURABLE }"],
+      ["completeRequest", "confirmKey, stored, DURABLE"],
+    ]);
     const build = readFileSync(join(root, "app/api/ask/action/build/route.ts"), "utf8");
     expect(build).toMatch(/BUILD_RECORD_TTL = \{ ttlSeconds: PLAN_TTL_SECONDS \+ PLAN_RETENTION_GRACE_SECONDS \}/);
     const calls = [...build.matchAll(/(claimRequest|completeRequest)(<[^>]*>)?\(([^;]*?)\)/g)].map((m) => m[3]);
