@@ -164,10 +164,10 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
     }
     loadRef.current = load;
     load();
-    // The interval stays as a floor: notifications are the one surface that
-    // should keep arriving even on a page that registers nothing else.
-    const t = setInterval(load, 20000);
-    return () => { cancelled = true; clearInterval(t); loadRef.current = () => {}; };
+    // No timer of its own: the dashboard's SyncProvider refreshes this hook
+    // (registered above) every 20 s and on return to the tab. A second timer
+    // here ran every load twice per cycle.
+    return () => { cancelled = true; loadRef.current = () => {}; };
   }, [walletAddress, providerId]);
 
   // Opening the bell marks everything currently shown as read — but keeps it
