@@ -92,6 +92,17 @@ function AskPayAIChat() {
   // drawer instead — same state, different presentation below.
   const [historyOpen, setHistoryOpen] = useState(false);
 
+  // "?new=1" (the welcome tour's last step) opens a new conversation instead
+  // of the last saved one, then drops the flag so a refresh keeps the chat.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("new") !== "1") return;
+    newConversation();
+    url.searchParams.delete("new");
+    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     // Follow the conversation; with none yet, keep the welcome screen's top in view.
     const el = scrollRef.current;

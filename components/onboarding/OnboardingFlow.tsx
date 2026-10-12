@@ -9,6 +9,7 @@ import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useOnboarding } from "@/lib/hooks/useOnboarding";
 import { MONAD_CHAIN_NAME } from "@/lib/monad/public";
 import { LogoMark } from "@/components/Logo";
+import { normalizeWalletAddress, setActiveConversationPointer } from "@/lib/ask/persistChat";
 import { startGuidedTour } from "@/components/onboarding/TourOverlay";
 
 /**
@@ -47,7 +48,11 @@ export function OnboardingFlow() {
    *  you want done". */
   function start() {
     close();
-    router.push("/dashboard/ask");
+    // A fresh conversation, not the last saved one: reopening an old chat
+    // here showed replies from before later fixes as if they were current.
+    // History is kept; only which conversation opens changes.
+    setActiveConversationPointer(normalizeWalletAddress(wallet.address), null);
+    router.push("/dashboard/ask?new=1");
   }
   const last = step === STEPS.length - 1;
 
