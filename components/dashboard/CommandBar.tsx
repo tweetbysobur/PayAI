@@ -244,7 +244,7 @@ export function CommandBar() {
                 )}
               </div>
 
-              <ChatComposer value={chat.input} onChange={chat.setInput} onSend={() => chat.send(chat.input)} disabled={chat.thinking} />
+              <ChatComposer value={chat.input} onChange={chat.setInput} onSend={() => chat.send(chat.input)} onSendImage={chat.wallet.address ? chat.sendVisual : undefined} disabled={chat.thinking} />
             </motion.div>
           </motion.div>
         )}

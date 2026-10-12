@@ -76,7 +76,7 @@ function AskComingSoon() {
 function AskPayAIChat() {
   const {
     wallet, messages, input, setInput, thinking, thinkingLabel, thinkingHint, thinkingStartedAt, progress,
-    send, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
+    send, sendVisual, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
     // P1.3 — conversation history. The rail below is purely a view over
     // these; every action just calls straight through to the hook, which
@@ -193,7 +193,7 @@ function AskPayAIChat() {
             )}
           </div>
 
-          <ChatComposer value={input} onChange={setInput} onSend={() => send(input)} disabled={thinking} />
+          <ChatComposer value={input} onChange={setInput} onSend={() => send(input)} onSendImage={wallet.address ? sendVisual : undefined} disabled={thinking} />
         </div>
       </div>
 

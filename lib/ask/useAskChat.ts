@@ -35,6 +35,9 @@ import { createPlanForTurn } from "@/lib/ask/planTurn";
 import { attachTiming, primePlan } from "@/lib/ask/planCards";
 import { startAskTiming } from "@/lib/ask/timing";
 import { isSafeToRetry } from "@/lib/ask/retryPolicy";
+import { applyVisualAddress, type VisualResolution } from "@/lib/ask/visual/resolve";
+
+type VisualResponse = { ok: boolean; resolution?: VisualResolution; message?: string; retryable?: boolean };
 
 /** Details the in-chat AutomationCreator modal returns on a real creation. */
 export type CreatedAutomation = { nextRun: number; cadence: Cadence; amount: number; token: string; recipient: string; domain: string | null };
@@ -294,6 +297,10 @@ export function useAskChat(options?: { persist?: boolean }) {
   // The in-flight turn: its id (a retried or superseded attempt never lands),
   // its abort, and how to run it again.
   const turnSeq = useRef(0);
+  // Visual intent input: the address last shown from an image/QR, so a reply
+  // like "send 5 USDC to this address" means that address. Cleared once used.
+  const visualAddressRef = useRef<string | null>(null);
+  const visualBusyRef = useRef(false);
   const activeTurn = useRef<{ id: number; abort: AbortController; retry: () => void } | null>(null);
   // The wallet whose Plan API create came back 401 this session: its sends
   // skip the plan fast path rather than pay for a refused round trip.
@@ -698,6 +705,12 @@ export function useAskChat(options?: { persist?: boolean }) {
     }
 
     const startContext = captureContext();
+    let requestText = trimmed;
+    if (visualAddressRef.current) {
+      const withAddress = applyVisualAddress(trimmed, visualAddressRef.current);
+      visualAddressRef.current = null;
+      if (withAddress) requestText = withAddress;
+    }
     const userMsg: AskMessage = { id: nextId("u"), role: "user", content: trimmed, createdAt: Date.now() };
     // Optimistic: the user's message is on screen before anything is sent.
     setMessages((m) => [...m, userMsg]);
@@ -711,11 +724,71 @@ export function useAskChat(options?: { persist?: boolean }) {
     // was refused this session (the normal path serves it instead).
     // Longer than the normal path accepts: only a plan can serve it, so the
     // Plan API is asked (and explains a refusal) even without a hint.
-    const planText = toPlanText(trimmed);
+    if (requestText !== trimmed) history[history.length - 1] = { role: "user", content: requestText };
+    await runRequest(requestText, history, startContext, readyOp ?? null);
+  }
+
+  /** The normal Ask turn for one request sentence — shared by typed text and
+   *  by a sentence composed from an image (sendVisual), so both reach exactly
+   *  the same plan grammar, validation, review card and wallet approval. */
+  async function runRequest(text: string, history: ConversationTurn[], startContext: ReturnType<typeof captureContext>, readyOp: Operation | null) {
+    const planText = toPlanText(text);
     const planKind = wallet.address && planPathOffFor.current !== wallet.address.toLowerCase()
-      ? matchPlanRequest(planText) ?? (trimmed.length > ASK_INPUT_LIMIT ? "multi" : null)
+      ? matchPlanRequest(planText) ?? (text.length > ASK_INPUT_LIMIT ? "multi" : null)
       : null;
-    await runTurn({ text: trimmed, history, pending, readyOp: readyOp ?? null, startContext, planKind, planText, startedAt: Date.now() }, false);
+    await runTurn({ text, history, pending, readyOp, startContext, planKind, planText, startedAt: Date.now() }, false);
+  }
+
+  /**
+   * Visual intent input: an image (or QR code) plus an optional caption.
+   * The server only READS it (POST /api/ask/visual) and answers with either
+   * a plain request sentence or a question. A sentence goes through
+   * runRequest — the same path as typed text — so the image is never an
+   * approval and nothing runs until the user reviews the plan and their
+   * wallet signs. The image itself is not kept in the conversation.
+   */
+  async function sendVisual(image: Blob, caption: string): Promise<boolean> {
+    if (thinking || visualBusyRef.current) return false;
+    visualBusyRef.current = true;
+    ensureConversation();
+    const startContext = captureContext();
+    const cap = caption.trim();
+    const userMsg: AskMessage = { id: nextId("u"), role: "user", content: cap ? `[Image] ${cap}` : "[Image]", createdAt: Date.now() };
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    const say = (content: string) => setMessages((m) => [...m, { id: nextId("a"), role: "assistant", content, createdAt: Date.now() }]);
+    setThinkingStartedAt(Date.now());
+    setThinkingLabel("Reading your image");
+    setThinkingHint("Still reading the image");
+    setThinking(true);
+    let res: VisualResponse | null = null;
+    try {
+      const form = new FormData();
+      form.append("image", image, "upload");
+      if (cap) form.append("caption", cap);
+      const r = await fetch("/api/ask/visual", { method: "POST", body: form, credentials: "same-origin" });
+      res = (await r.json().catch(() => null)) as VisualResponse | null;
+      if (!res) res = { ok: false, message: "PayAI couldn't read that image just now. Try again in a moment.", retryable: true };
+    } catch {
+      res = { ok: false, message: "Couldn't reach PayAI just now — check your connection and try again.", retryable: true };
+    } finally {
+      setThinking(false);
+      visualBusyRef.current = false;
+    }
+    if (isStaleContext(startContext)) return true;
+    if (!res.ok || !res.resolution) {
+      say(`${res.message ?? "PayAI couldn't read that image."} Nothing was prepared.`);
+      return true;
+    }
+    const v = res.resolution;
+    visualAddressRef.current = v.kind === "clarify" && v.address ? v.address : null;
+    if (v.kind !== "intent") { say(v.reply); return true; }
+    say(`${v.found.length ? `Here's what I read:\n${v.found.map((f) => `• ${f}`).join("\n")}\n\n` : ""}Preparing this for your review: “${v.text}”. Check every detail before you approve — if anything is wrong, cancel and type the correct request.`);
+    const history: ConversationTurn[] = [...messages, userMsg].slice(-7)
+      .map((m) => ({ role: m.role, content: m.content }))
+      .concat({ role: "user", content: v.text });
+    await runRequest(v.text, history, startContext, null);
+    return true;
   }
 
   /** One Ask turn after the user's message is on screen: the plan fast path
@@ -977,6 +1050,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  active, so "New conversation" never deletes anything (see
    *  deleteConversationAction/clearAllHistoryAction for the actions that do). */
   function newConversation() {
+    visualAddressRef.current = null;
     setMessages([]);
     setInput("");
     setPending(null);
@@ -1075,7 +1149,7 @@ export function useAskChat(options?: { persist?: boolean }) {
 
   return {
     wallet, messages, input, setInput, thinking, thinkingLabel, thinkingHint, thinkingStartedAt, progress,
-    send, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
+    send, sendVisual, retryThinking, editRequest, advanceOperation, retryOperation, cancelOperation, newConversation,
     automationDraft, closeAutomationDraft, completeAutomationDraft,
     // P1.3 — conversation history (only meaningful when persist: true; for
     // CommandBar's non-persisted instance this stays an empty, inert list).
