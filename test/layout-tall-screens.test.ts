@@ -38,3 +38,14 @@ describe("How to ask lives on How it works", () => {
     expect(read("app/how-it-works/page.tsx")).not.toMatch(/AIOperatorSection|CapabilityGrid/);
   });
 });
+
+describe("landing close", () => {
+  it("reads 'Make intent. Get your onchain execution done' with Launch PayAI beside it, never stacked", () => {
+    const page = read("app/page.tsx");
+    const close = page.slice(page.indexOf("{/* Close */}"), page.indexOf("<SiteFooter />"));
+    expect(close).toMatch(/Make intent\. Get your onchain execution done/);
+    expect(close).toMatch(/flex max-w-7xl flex-row items-center justify-between/);
+    expect(close).not.toMatch(/flex-col/);
+    expect(close).toMatch(/shrink-0[^"]*whitespace-nowrap/);
+  });
+});

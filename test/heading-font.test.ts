@@ -54,7 +54,7 @@ describe("the landing page's closing heading follows the landing typeface", () =
   // The landing redesign sets one typeface (Geist) across the whole page, so
   // its closing heading no longer opts into Montserrat.
   it("is not Montserrat or uppercase, and the page sets Geist on <main>", () => {
-    const match = page.match(/<h2 className="([^"]*)">\s*Start with what you want done\./);
+    const match = page.match(/<h2 className="([^"]*)">\s*Make intent\. Get your onchain execution done/);
     expect(match, "heading not found on the landing page").toBeTruthy();
     expect(match![1]).not.toMatch(/\bfont-montserrat\b|\buppercase\b/);
     expect(page).toMatch(/<main\s+className=\{`\$\{geist\.className\}/);
