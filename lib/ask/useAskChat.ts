@@ -457,6 +457,8 @@ export function useAskChat(options?: { persist?: boolean }) {
   // runs during SSR (same as useEffect), so the hydration-safety above is
   // unaffected.
   useLayoutEffect(() => {
+    // A remembered image address belongs to one wallet's conversation.
+    visualAddressRef.current = null;
     currentWalletRef.current = normalizeWalletAddress(persist ? wallet.address : null);
     activeConversationIdRef.current = null;
     activeConversationMetaRef.current = null;
@@ -1074,6 +1076,7 @@ export function useAskChat(options?: { persist?: boolean }) {
    *  one that is. Never auto-executes anything; the existing confirm funnel
    *  still gates every actionable card exactly as it does for a fresh one. */
   function openConversation(conversationId: string) {
+    visualAddressRef.current = null;
     const w = currentWalletRef.current;
     if (!w) return;
     const record = loadConversation(w, conversationId);

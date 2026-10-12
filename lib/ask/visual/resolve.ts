@@ -118,7 +118,11 @@ export function readCaption(caption: string): CaptionFacts {
   let amount: string | null = null;
   let token: string | null = null;
   let toToken: string | null = null;
-  const amt = /(?:^|[\s$])(\d[\d,]*(?:\.\d+)?)\s*([a-z][a-z0-9]{1,9}|0x[0-9a-f]{40})?\b/i.exec(c);
+  // An amount is a number right after the verb ("send 5 USDC", "pay $20")
+  // or written as money ("$20") — never any number in the sentence, which
+  // read "invoice 104" or "due in 30 days" as amounts.
+  const amt = /\b(?:send|pay|transfer|settle|tip|swap|convert|exchange|trade)(?:\s+(?:me|them|him|her|over|just|only|exactly|about))?\s+\$?(\d[\d,]*(?:\.\d+)?)(?:\s*([a-z][a-z0-9]{1,9}|0x[0-9a-f]{40}))?\b/i.exec(c)
+    ?? /(?:^|\s)\$(\d[\d,]*(?:\.\d+)?)()\b/.exec(c);
   if (amt) {
     amount = normAmount(amt[1]);
     token = normToken(amt[2]);

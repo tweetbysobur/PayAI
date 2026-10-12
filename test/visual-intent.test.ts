@@ -342,3 +342,23 @@ describe("no second execution path", () => {
     expect(logs[0]).not.toMatch(/qrText|caption\b|resolution\.(text|reply)|found/);
   });
 });
+
+describe("regressions", () => {
+  it("numbers that aren't amounts aren't read as amounts (invoice numbers, days)", () => {
+    expect(readCaption("Pay invoice 104")).toMatchObject({ verb: "send", amount: null });
+    expect(readCaption("pay this, due in 30 days")).toMatchObject({ amount: null, token: null });
+    expect(readCaption("send 5 to this address")).toMatchObject({ amount: "5", token: null });
+    expect(readCaption("pay $20 to this address")).toMatchObject({ amount: "20" });
+    expect(readCaption("please send me 2.5 MON")).toMatchObject({ amount: "2.5", token: "MON" });
+  });
+  it("“Pay invoice 104” pays the invoice total instead of reporting a false conflict", () => {
+    const r = resolveVisualIntent({ qr: null, caption: "Pay invoice 104", image: reading({ kind: "invoice", invoice: { number: "104", payee: "Studio", dueDate: null, total: "1250", token: "USDC", payTo: ADDR } }) });
+    expect(r).toMatchObject({ kind: "intent", text: `Send 1250 USDC to ${ADDR}` });
+  });
+  it("the remembered image address is dropped when switching conversation or wallet", () => {
+    const hook = readFileSync("lib/ask/useAskChat.ts", "utf8");
+    expect(hook).toMatch(/function openConversation\(conversationId: string\) \{\s*visualAddressRef\.current = null;/);
+    expect(hook).toMatch(/useLayoutEffect\(\(\) => \{\s*\/\/[^\n]*\n\s*visualAddressRef\.current = null;\s*currentWalletRef\.current = normalizeWalletAddress/);
+    expect(hook).toMatch(/function newConversation\(\) \{\s*visualAddressRef\.current = null;/);
+  });
+});
