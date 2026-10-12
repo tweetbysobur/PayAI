@@ -56,14 +56,6 @@ const DECISION: Record<string, { label: string; tone: StatusTone }> = {
   error: { label: "Failed", tone: "danger" },
 };
 
-/** Capabilities, not examples: each only starts the sentence. */
-const CAPABILITIES = [
-  { label: "Send", fill: "Send " },
-  { label: "Trade", fill: "Swap " },
-  { label: "Automate", fill: "Automate " },
-  { label: "Schedule", fill: "Schedule " },
-] as const;
-
 /** No recipient to show: swaps and protocol actions (wrap, Aave) are titled by their summary. */
 const isSwap = (h: HistoryRow) => h.feature === "swap" || h.feature === "trade" || h.feature === "protocol" || h.action === "swap";
 
@@ -200,7 +192,6 @@ export default function Dashboard() {
             hideLabel
             label="What do you want to do?"
             placeholder="What do you want to do?"
-            suggestions={CAPABILITIES}
           />
         </div>
       </section>
