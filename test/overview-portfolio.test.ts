@@ -29,10 +29,12 @@ describe("Dashboard: intent first, wallet last", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it("offers capabilities, not example transactions", () => {
-    const caps = /const CAPABILITIES = \[([\s\S]*?)\] as const;/.exec(code)?.[1] ?? "";
-    expect([...caps.matchAll(/label: "(\w+)"/g)].map((m) => m[1])).toEqual(["Send", "Trade", "Automate", "Schedule"]);
-    expect(caps).not.toMatch(/\d|USDC|MON|\.nad|0x/);
+  it("shows the Ask box alone — no shortcut chips, no example transactions", () => {
+    // The Send/Trade/Automate/Schedule chips were removed on request (Oct 2026).
+    expect(code).not.toMatch(/const CAPABILITIES|suggestions=\{/);
+    const entry = /<AskEntry[\s\S]*?\/>/.exec(code)?.[0] ?? "";
+    expect(entry).toMatch(/placeholder="What do you want to do\?"/);
+    expect(entry).not.toMatch(/\d|USDC|MON|\.nad|0x/);
   });
 
   it("has no KPI tiles, count-up numbers, insights or charts", () => {
