@@ -15,9 +15,6 @@ import { ExecutionPath } from "@/components/landing/ExecutionPath";
  *
  *   hero          the approved headline and line, the way in, and the
  *                 execution model as a static diagram (who does what)
- *   what          a short preview of what PayAI does, pointing to
- *                 /how-it-works (the steps and the full capability grid)
- *                 and how to phrase a request (/how-it-works#how-to-ask)
  *   model         what PayAI does, and what stays with checks and your wallet
  *   faq · close
  *
@@ -50,27 +47,6 @@ export default function LandingPage() {
 
       {/* Hero */}
       <Hero />
-
-      {/* What it does — a preview only. The steps and how to phrase a
-          request live on /how-it-works. */}
-      <Section id="what">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start lg:gap-16">
-          <SectionTitle eyebrow="What it does" title="One sentence in. Onchain execution out." />
-          <div>
-            <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms — and soon, DeFi protocols — each from a plain-language request you review before anything runs.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
-              <Link href="/how-it-works" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-primary-ink transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                See how it works <ArrowRight size={14} aria-hidden />
-              </Link>
-              <Link href="/how-it-works#how-to-ask" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                How to ask PayAI <ArrowRight size={14} aria-hidden />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </Section>
 
       {/* Execution model / trust */}
       <Section>

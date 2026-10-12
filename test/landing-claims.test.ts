@@ -172,6 +172,6 @@ describe("the hero states the product: intent → onchain execution", () => {
     // Every prompt the site shows comes from intentExamples.ts and is run
     // through the real product in test/intent-examples.test.ts.
     expect(code).not.toMatch(/\b\d+(\.\d+)?\s*(USDC|MON)\b/);
-    expect(page).toMatch(/href="\/how-it-works#how-to-ask"/);
+    expect(page).not.toMatch(/One sentence in\. Onchain execution out\.|id="what"/); // section removed on request
   });
 });
