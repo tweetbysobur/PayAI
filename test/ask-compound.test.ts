@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { readFileSync } from "node:fs";
-import { understand } from "@/lib/ask/intent/classify";
+import { understandWithScheduling as understand } from "@/lib/ask/intent/classify";
 import { analyzeCompound, detectCompoundRequest } from "@/lib/ask/intent/compound";
 import { analyzePlanRequest } from "@/lib/ask/planFastPath";
 

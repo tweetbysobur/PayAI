@@ -36,8 +36,8 @@ describe("intent first", () => {
     }
   });
 
-  it("Swap hands off to Ask rather than offering a trading form", () => {
-    expect(code(SWAP)).toMatch(/<AskEntry/);
+  it("there is no Swap tab: the old address redirects to Ask, where trading happens", () => {
+    expect(code(SWAP)).toMatch(/redirect\("\/dashboard\/ask"\)/);
   });
 });
 

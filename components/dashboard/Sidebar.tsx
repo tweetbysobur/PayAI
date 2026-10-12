@@ -20,7 +20,7 @@ import { NavigationItem, isNavActive, type NavigationEntry } from "@/components/
  *   Dashboard                what's happening, what's next, what needs you
  *   Ask PayAI                describe it; PayAI plans it; your wallet signs
  *   Rooms                    shared payment rooms (open rooms; verified rooms still blocked)
- *   Payments & Automations   send, swap, automate, history, recipients
+ *   Payments & Automations   send, automate, history, recipients
  *   Settings                 account, wallets, security
  *
  * Every page that used to be its own sidebar row still exists at the same
@@ -30,11 +30,11 @@ import { NavigationItem, isNavActive, type NavigationEntry } from "@/components/
  * the learning links sit in the sidebar's footer, out of the primary list.
  */
 
-/** The second level of Payments & Automations. Swap has no form of its own —
- *  swaps run through Ask PayAI — so its tab is a short page that hands off. */
+/** The second level of Payments & Automations. Trading lives in Ask PayAI
+ *  (quote, review, your wallet signs), so there is no Swap tab here;
+ *  /dashboard/swap redirects to Ask. */
 export const PAYMENTS_AREA: { href: string; label: string; soon?: boolean; match?: readonly string[] }[] = [
   { href: "/dashboard/payments", label: "Send" },
-  { href: "/dashboard/swap", label: "Swap" },
   { href: "/dashboard/automations", label: "Automations" },
   { href: "/dashboard/transactions", label: "History" },
   { href: "/dashboard/recipients", label: "Recipients" },

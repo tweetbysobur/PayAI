@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { understand, reconcileSchedule, missingSlots } from "@/lib/ask/intent/classify";
+import { understandWithScheduling as understand, reconcileSchedule, missingSlots } from "@/lib/ask/intent/classify";
 import { scheduleRequestText } from "@/lib/ask/intent/scheduleText";
 import { parseScheduleIntent } from "@/lib/agent/brain";
 import type { AskSlots, Understanding } from "@/lib/ask/intent/types";

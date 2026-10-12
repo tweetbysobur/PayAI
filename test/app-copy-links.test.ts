@@ -5,8 +5,8 @@ import { join } from "node:path";
 const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
 
 describe("app links and claims", () => {
-  it("the first-run Swap quick action opens the Swap page, not Send", () => {
-    expect(read("components/onboarding/FirstRunSteps.tsx")).toMatch(/id: "swap"[^}]*href: "\/dashboard\/swap"/);
+  it("the first-run Swap quick action opens Ask PayAI (where trading happens), not Send", () => {
+    expect(read("components/onboarding/FirstRunSteps.tsx")).toMatch(/id: "swap"[^}]*href: "\/dashboard\/ask"/);
   });
   it("Reserved Funds is not badged as guaranteed", () => {
     expect(read("components/dashboard/AutomationCreator.tsx").replace(/\/\/.*$/gm, "")).not.toMatch(/Guaranteed Execution/i);
