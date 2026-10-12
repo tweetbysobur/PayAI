@@ -195,6 +195,14 @@ const IDLE_LOCK_MS = 15 * 60 * 1000;
  *  where the choice was made and where it should be remembered. */
 const ACTIVE_KIND_KEY = "payai_active_wallet";
 
+/** What wallet set-up needs from /api/wallet-service/status. */
+interface StatusSnapshot {
+  signedIn: boolean;
+  label: string | null;
+  /** The wallet this sign-in is linked to, if any. */
+  serverAddress: string | null;
+}
+
 const emptyAuthMethods: AuthMethodAvailability = { google: false, apple: false, x: false, email: false };
 
 function useWalletServiceState(): WalletServiceState {
@@ -237,19 +245,48 @@ function useWalletServiceState(): WalletServiceState {
   // Restore the account session (identity only). The wallet itself is NOT
   // restored here: its key lives in memory and a reload ends that session by
   // design, so the next signature re-prompts for the passkey.
-  useEffect(() => {
-    fetch("/api/wallet-service/status")
-      .then((r) => r.json())
-      .then((j) => {
-        setAuthMethods(j.authMethods ?? emptyAuthMethods);
-        if (j.session) setAccount(j.session);
-        else setAccount(null);
-        setAccountWallet(j.accountWallet?.address && j.accountWallet?.credentialId
-          ? { address: j.accountWallet.address, credentialId: j.accountWallet.credentialId }
-          : null);
+  //
+  // The same read is what wallet set-up needs before its passkey prompt, so
+  // it is kept (statusRef) rather than fetched again on the tap: phone
+  // browsers only allow a passkey prompt shortly after a tap, and a fresh,
+  // cold request in between could outlast that and get the prompt blocked.
+  // Anything that changes the sign-in clears it (invalidateStatus), so the
+  // "this account already has a wallet" check never runs on stale data.
+  const statusRef = useRef<Promise<StatusSnapshot | null> | null>(null);
+  const loadStatus = useCallback((): Promise<StatusSnapshot | null> => {
+    const p = fetch("/api/wallet-service/status")
+      .then((r) => {
+        if (!r.ok) throw new Error("status");
+        return r.json();
       })
-      .catch(() => {});
+      .then((j): StatusSnapshot => {
+        setAuthMethods(j.authMethods ?? emptyAuthMethods);
+        if (j.session?.userId) {
+          setAccount({ userId: j.session.userId, authMethod: j.session.authMethod, label: j.session.label });
+        } else setAccount(null);
+        const linked = j.accountWallet?.address && j.accountWallet?.credentialId
+          ? { address: j.accountWallet.address as string, credentialId: j.accountWallet.credentialId as string }
+          : null;
+        setAccountWallet(linked);
+        return {
+          signedIn: !!j.session?.userId,
+          label: (j.session?.label as string | undefined) || null,
+          serverAddress: linked?.address ?? null,
+        };
+      })
+      .catch(() => {
+        // A failed read is never reused: the next tap asks again.
+        if (statusRef.current === p) statusRef.current = null;
+        return null;
+      });
+    statusRef.current = p;
+    return p;
   }, []);
+  const invalidateStatus = useCallback(() => { statusRef.current = null; }, []);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
 
   /**
    * True when this device has a wallet but the in-memory key is gone — after
@@ -372,13 +409,16 @@ function useWalletServiceState(): WalletServiceState {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Invalid code.");
       setAccount({ userId: `email:${email.toLowerCase()}`, authMethod: "email", label: email });
+      // A new sign-in may already own a wallet: read it fresh, ahead of the tap.
+      invalidateStatus();
+      void loadStatus();
     } catch (e) {
       setEmbeddedError(e instanceof Error ? e.message : "Could not verify the code.");
       throw e;
     } finally {
       setEmbeddedBusy(false);
     }
-  }, []);
+  }, [invalidateStatus, loadStatus]);
 
   /**
    * Opens the passkey wallet. Creating is not the default: a missing
@@ -395,31 +435,19 @@ function useWalletServiceState(): WalletServiceState {
         let serverHasWallet = !!accountWallet?.address;
         let serverAddress = accountWallet?.address ?? null;
         let label = account?.label ?? "PayAI Wallet";
-        try {
-          const res = await fetch("/api/wallet-service/status");
-          if (!res.ok) throw new Error("status");
-          const status = await res.json();
-          if (status?.session?.userId) {
-            signedIn = true;
-            label = status.session.label || label;
-            setAccount({
-              userId: status.session.userId,
-              authMethod: status.session.authMethod,
-              label: status.session.label,
-            });
-          }
-          if (status?.accountWallet?.address && status?.accountWallet?.credentialId) {
-            serverHasWallet = true;
-            serverAddress = status.accountWallet.address;
-            setAccountWallet({ address: status.accountWallet.address, credentialId: status.accountWallet.credentialId });
-          } else {
-            serverHasWallet = false;
-            serverAddress = null;
-            setAccountWallet(null);
-          }
-        } catch {
-          /* status is a hint. The passkey ceremony still decides the wallet. */
+        // Usually already loaded when the page opened, so this resolves at
+        // once and the passkey prompt follows the tap without a round trip.
+        // Fetched now only when nothing current is held.
+        const status = await (statusRef.current ?? loadStatus());
+        if (status) {
+          signedIn = status.signedIn || signedIn;
+          if (status.label) label = status.label;
+          serverHasWallet = !!status.serverAddress;
+          serverAddress = status.serverAddress;
         }
+        /* With no status the account state above is the hint. The passkey
+           ceremony still decides the wallet, and the match check below still
+           refuses a wallet that isn't this sign-in's. */
 
         const { handle, created } = await provider.open({
           mode,
@@ -452,6 +480,7 @@ function useWalletServiceState(): WalletServiceState {
             body: JSON.stringify({ address: handle.address, credentialId: handle.credentialId }),
           }).then((r) => r.ok ? r.json() : null).then((j) => {
             if (j?.wallet?.address) setAccountWallet(j.wallet);
+            invalidateStatus();
           }).catch(() => {});
         }
 
@@ -469,6 +498,9 @@ function useWalletServiceState(): WalletServiceState {
 
         return { address: handle.address, created };
       } catch (e) {
+        // The held status stays: a failed or cancelled passkey prompt changes
+        // nothing on the server, and refetching here made the retry tap wait
+        // on the network before its prompt.
         if (isWalletOpenError(e)) {
           setEmbeddedError(e.message);
           const wrapped = new Error(e.message) as Error & { code?: string };
@@ -481,7 +513,7 @@ function useWalletServiceState(): WalletServiceState {
         setEmbeddedBusy(false);
       }
     },
-    [provider, account, accountWallet],
+    [provider, account, accountWallet, invalidateStatus, loadStatus],
   );
 
   const linkGoogleAccount = useCallback(async () => {
@@ -546,7 +578,8 @@ function useWalletServiceState(): WalletServiceState {
     if (!res.ok) throw new Error(body.error || "Could not unlink Google.");
     setAccount(null);
     setAccountWallet(null);
-  }, [provider, account, accountWallet]);
+    invalidateStatus();
+  }, [provider, account, accountWallet, invalidateStatus]);
 
   const exportEmbeddedKey = useCallback(async () => {
     return provider.exportPrivateKey();
@@ -558,6 +591,7 @@ function useWalletServiceState(): WalletServiceState {
     setWallet(null);
     setAccount(null);
     setAccountWallet(null);
+    invalidateStatus();
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => {});
     clearWalletGrant();
     if (address) {
@@ -567,7 +601,7 @@ function useWalletServiceState(): WalletServiceState {
         body: JSON.stringify({ sender: address, providerId: provider.id, type: "wallet_disconnected" }),
       }).catch(() => {});
     }
-  }, [wallet, provider.id]);
+  }, [wallet, provider.id, invalidateStatus]);
 
   /** Disconnects the wallet currently acting, leaving the other one alone.
    *  With both connected, "Disconnect" while using MetaMask means MetaMask —

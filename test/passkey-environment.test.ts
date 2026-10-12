@@ -47,3 +47,29 @@ describe("sign-in page", () => {
     expect((page.match(/<PasskeyEnvNotice env=\{env\} \/>/g) ?? []).length).toBe(2);
   });
 });
+
+describe("wallet set-up doesn't wait on the network between the tap and the passkey prompt", () => {
+  const ctx = readFileSync("lib/wallet-service/WalletServiceContext.tsx", "utf8");
+  const setUp = ctx.slice(ctx.indexOf("const setUpEmbeddedWallet"), ctx.indexOf("const { handle, created } = await provider.open"));
+
+  it("uses the status already read when the page opened instead of fetching again", () => {
+    expect(setUp).toMatch(/await \(statusRef\.current \?\? loadStatus\(\)\)/);
+    expect(setUp).not.toMatch(/fetch\("\/api\/wallet-service\/status"\)/);
+  });
+  it("the page-open read fills the held status", () => {
+    expect(ctx).toMatch(/useEffect\(\(\) => \{\s*void loadStatus\(\);\s*\}, \[loadStatus\]\);/);
+  });
+  it("anything that changes the sign-in drops the held status, so the existing-wallet check never uses stale data", () => {
+    // email sign-in, unlinking Google, signing out, and linking a wallet
+    expect((ctx.match(/invalidateStatus\(\);/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(ctx).toMatch(/authMethod: "email", label: email \}\);\s*\/\/[^\n]*\n\s*invalidateStatus\(\);\s*void loadStatus\(\);/);
+    expect(ctx).toMatch(/signOutEmbedded[\s\S]*?setAccountWallet\(null\);\s*invalidateStatus\(\);/);
+  });
+  it("a failed status read is never reused", () => {
+    expect(ctx).toMatch(/if \(statusRef\.current === p\) statusRef\.current = null;/);
+  });
+  it("the existing-wallet decision still comes from the server's linked address", () => {
+    expect(setUp).toMatch(/serverHasWallet = !!status\.serverAddress;\s*serverAddress = status\.serverAddress;/);
+    expect(ctx).toMatch(/!openedWalletMatchesAccount\(serverAddress, handle\.address\)/);
+  });
+});
