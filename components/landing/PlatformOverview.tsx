@@ -1,6 +1,5 @@
 "use client";
 
-import { OPERATOR_EXAMPLES as OPERATOR_PROMPTS, displayPrompt } from "@/components/landing/intentExamples";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
@@ -407,89 +406,6 @@ export function PaymentOperationsSection() {
         <p className="mt-10 text-center text-xs text-muted-foreground">
           A Bulk payment is one setup and one signature, then PayAI sends one transaction per recipient, in order. Ready-made templates for payroll, treasury, launchpad and creator payouts are still coming.
         </p>
-      </div>
-    </section>
-  );
-}
-
-/* ── 4. AI payment operator ─────────────────────────────────────────────── */
-
-/** Prompts Ask PayAI acts on as written — from intentExamples.ts, where each
- *  is checked against the real product. ("Pay contributors every Friday",
- *  "Create monthly payroll" and "Trade 50 USDC for any Monad token" used to
- *  rotate here; none names enough to run.) */
-const OPERATOR_EXAMPLES = OPERATOR_PROMPTS.map((e) => displayPrompt(e.say));
-
-export function AIOperatorSection() {
-  const [i, setI] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => setI((n) => (n + 1) % OPERATOR_EXAMPLES.length), 3200);
-    return () => clearInterval(t);
-  }, []);
-
-  return (
-    <section id="operator" className={`${SECTION} bg-panel/20`}>
-      <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:items-center">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
-        >
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Ask PayAI</p>
-          <h2 className={H2}>Say what you want. Approve what it prepares.</h2>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Ask PayAI turns a sentence into a complete workflow — a payment or a trade. It resolves the recipient or
-            quotes the trade live across Monad DEXs, reads the token off its own contract, checks the
-            amount against your balance, and lays out every field for you to read.
-          </p>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Then it stops. Nothing is signed, sent, or scheduled until you approve it — and what you approve is exactly what
-            you were shown.
-          </p>
-          <Link
-            href="/dashboard/ask"
-            className="mt-7 inline-flex items-center gap-2 rounded-lg border border-border px-5 py-3 text-sm font-medium text-foreground transition-all duration-200 hover:border-primary/40 hover:bg-input"
-          >
-            Try Ask PayAI <ArrowRight size={14} className="text-primary-ink" />
-          </Link>
-        </motion.div>
-
-        <motion.div
-          initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45, delay: 0.1 }}
-          className="overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
-        >
-          <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-          <div className="p-5">
-            {/* The real command bar's own composition: prompt, then the
-                prepared workflow, then an approval that has not happened. */}
-            <div className="flex items-center gap-2.5 rounded-xl border border-border bg-input/40 px-3.5 py-3">
-              <Sparkles size={15} className="shrink-0 text-primary-ink" />
-              <p className="min-w-0 flex-1 truncate text-sm text-foreground">{OPERATOR_EXAMPLES[i]}</p>
-            </div>
-
-            <div className="mt-3 rounded-xl border border-border bg-background/40 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Prepared workflow</p>
-              <div className="mt-3 space-y-2">
-                {[
-                  { label: "Recipient", value: "Resolved on-chain" },
-                  { label: "Amount", value: "Checked against balance" },
-                  { label: "Schedule", value: "Set from your words" },
-                ].map((r) => (
-                  <div key={r.label} className="flex items-center justify-between gap-3 text-xs">
-                    <span className="text-muted-foreground">{r.label}</span>
-                    <span className="truncate font-medium text-foreground">{r.value}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex items-center gap-2 border-t border-border pt-3">
-                <span className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground">
-                  <Fingerprint size={12} /> Awaiting your approval
-                </span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
       </div>
     </section>
   );

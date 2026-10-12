@@ -41,7 +41,7 @@ const FOOTER_COLUMNS = [
       { label: "Launch PayAI", href: `${APP_ORIGIN}/auth`, internal: true },
       { label: "Product", href: "/product", internal: true },
       { label: "How it works", href: "/how-it-works", internal: true },
-      { label: "How to ask", href: "/intents", internal: true },
+      { label: "How to ask", href: "/how-it-works#how-to-ask", internal: true },
       { label: "Security", href: "/security", internal: true },
     ],
   },

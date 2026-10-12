@@ -9,7 +9,6 @@ import { SiteFooter } from "@/components/landing/SiteFooter";
 import { MonadMark } from "@/components/MonadMark";
 import { geist, geistMono } from "@/components/landing/fonts";
 import { ExecutionPath } from "@/components/landing/ExecutionPath";
-import { CAPABILITIES } from "@/components/landing/intentExamples";
 
 /**
  * The landing page says one thing: turn your intent into onchain execution.
@@ -18,7 +17,7 @@ import { CAPABILITIES } from "@/components/landing/intentExamples";
  *                 execution model as a static diagram (who does what)
  *   what          a short preview of what PayAI does, pointing to
  *                 /how-it-works (the steps and the full capability grid)
- *                 and /intents (how to phrase a request)
+ *                 and how to phrase a request (/how-it-works#how-to-ask)
  *   model         what PayAI does, and what stays with checks and your wallet
  *   faq · close
  *
@@ -52,8 +51,8 @@ export default function LandingPage() {
       {/* Hero */}
       <Hero />
 
-      {/* What it does — a preview only. The steps and the full capability
-          grid live on /how-it-works; how to phrase a request lives on /intents. */}
+      {/* What it does — a preview only. The steps and how to phrase a
+          request live on /how-it-works. */}
       <Section id="what">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] lg:items-start lg:gap-16">
           <SectionTitle eyebrow="What it does" title="One sentence in. Onchain execution out." />
@@ -61,23 +60,11 @@ export default function LandingPage() {
             <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
               Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms — and soon, DeFi protocols — each from a plain-language request you review before anything runs.
             </p>
-            <ul className="mt-6 flex flex-wrap gap-2" aria-label="Capabilities">
-              {CAPABILITIES.map((c) => (
-                <li key={c.id}>
-                  <Link
-                    href={`/how-it-works#capabilities`}
-                    className="inline-flex h-8 items-center rounded-full border border-border px-3 text-[13px] text-foreground/85 transition-colors hover:border-primary/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {c.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link href="/how-it-works" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-primary-ink transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 See how it works <ArrowRight size={14} aria-hidden />
               </Link>
-              <Link href="/intents" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <Link href="/how-it-works#how-to-ask" className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 How to ask PayAI <ArrowRight size={14} aria-hidden />
               </Link>
             </div>
@@ -173,7 +160,7 @@ function Hero() {
     // Keyed on the motion preference: it is only known after the first
     // client render, and remounting lands reduced motion on the final state.
     <section key={reduce ? "still" : "moving"} className="relative border-b border-border">
-      <div className="mx-auto grid max-w-7xl items-center gap-y-12 px-5 pb-14 pt-8 sm:px-6 sm:pb-20 sm:pt-14 lg:min-h-[calc(100svh-5.5rem)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-12 lg:pb-16 lg:pt-6">
+      <div className="mx-auto grid max-w-7xl items-center gap-y-12 px-5 pb-14 pt-8 sm:px-6 sm:pb-20 sm:pt-14 lg:min-h-[min(calc(100svh-5.5rem),48rem)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-12 lg:pb-16 lg:pt-6">
         <div className="relative z-10">
           <motion.p {...appear(0)} className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="text-primary-ink">PayAI</span>

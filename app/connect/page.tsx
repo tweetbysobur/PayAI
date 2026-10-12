@@ -162,7 +162,7 @@ export default function ConnectPage() {
         <Link href="/" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Back to home</Link>
       </header>
 
-      <div className="flex flex-1 items-center justify-center px-6 py-12">
+      <div className="flex flex-1 items-start justify-center px-6 pb-12 pt-[clamp(2rem,7vh,6rem)]">
         <h1 className="sr-only">Connect your wallet to PayAI</h1>
         <motion.div
           initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: "easeOut" }}

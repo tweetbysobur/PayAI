@@ -6,7 +6,7 @@ const BASE_URL = process.env.VERIPAYAI_PUBLIC_URL || MARKETING_ORIGIN;
 /** Generates /sitemap.xml — only the public, crawlable pages (see robots.ts). */
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
-  const marketing = ["/", "/how-it-works", "/intents", "/product", "/security", "/privacy", "/terms"].map((path) => ({
+  const marketing = ["/", "/how-it-works", "/product", "/security", "/privacy", "/terms"].map((path) => ({
     url: `${BASE_URL}${path === "/" ? "/" : path}`,
     lastModified: now,
     changeFrequency: "monthly" as const,

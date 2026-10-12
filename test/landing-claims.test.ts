@@ -27,7 +27,7 @@ describe("the landing page stays the pitch", () => {
     for (const deep of [
       "ProductOverviewSection", "HowPayAIWorksSection", "PaymentOperationsSection", "AIOperatorSection",
       "EmbeddedWalletSection", "TradingSection", "AnalyticsSection", "SecuritySection",
-      "HowItWorksSteps", "CapabilityGrid", "WhyMonadSection",
+      "HowItWorksSteps", "HowToAskSection", "WhyMonadSection",
     ]) {
       expect(page, `${deep} belongs on a depth page, not the landing page`).not.toContain(deep);
     }
@@ -39,8 +39,8 @@ describe("the landing page stays the pitch", () => {
     }
   });
 
-  it("puts the steps, the capability grid and the mechanics on /how-it-works", () => {
-    for (const s of ["<HowItWorksSteps />", "<CapabilityGrid />", "AIOperatorSection", "SecuritySection"]) {
+  it("puts the steps, how to ask and the mechanics on /how-it-works", () => {
+    for (const s of ["<HowItWorksSteps />", "<HowToAskSection />", "SecuritySection"]) {
       expect(howItWorks, `/how-it-works is missing ${s}`).toContain(s);
     }
   });
@@ -49,8 +49,8 @@ describe("the landing page stays the pitch", () => {
     // Duplication is how the split rots: a section lands on both, then the
     // landing page keeps the copy and the depth page is forgotten.
     const sections = [
-      "PaymentOperationsSection", "AIOperatorSection", "EmbeddedWalletSection", "TradingSection",
-      "AnalyticsSection", "HowItWorksSteps", "CapabilityGrid", "WhyMonadSection",
+      "PaymentOperationsSection", "EmbeddedWalletSection", "TradingSection",
+      "AnalyticsSection", "HowItWorksSteps", "HowToAskSection", "WhyMonadSection",
     ];
     for (const s of sections) {
       const on = [page.includes(s), product.includes(s), howItWorks.includes(s)].filter(Boolean).length;
@@ -168,11 +168,10 @@ describe("the hero states the product: intent → onchain execution", () => {
     expect(page).toMatch(/const LAUNCH = "\/auth";/);
   });
 
-  it("shows no example prompts itself: they live on /how-it-works and /intents, where each is tested", () => {
+  it("shows no example prompts itself: they live in How to ask on /how-it-works, where each is tested", () => {
     // Every prompt the site shows comes from intentExamples.ts and is run
     // through the real product in test/intent-examples.test.ts.
     expect(code).not.toMatch(/\b\d+(\.\d+)?\s*(USDC|MON)\b/);
-    expect(page).toMatch(/href="\/intents"/);
-    expect(page).toMatch(/href=\{`\/how-it-works#capabilities`\}/);
+    expect(page).toMatch(/href="\/how-it-works#how-to-ask"/);
   });
 });

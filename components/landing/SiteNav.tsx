@@ -29,11 +29,10 @@ import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
  * document overflow; the landing page only LOOKED fine there because its
  * <main> is overflow-hidden, which hides the symptom and not the bug.
  *
- * How to ask, Security and Docs are the links that do not fit on a phone once
- * the CTA reads "Launch PayAI" rather than the shorter "Launch App" — four
- * links plus that button overruns 375px. So they are `phoneHidden`: shown from
- * `sm` up, and reachable on a phone from the footer (How to ask and Security
- * in Product, Docs in Resources) and from the landing page itself. Nothing else here is hidden, and no link is
+ * Security and Docs are the links that do not fit on a phone beside the
+ * "Launch PayAI" button. So they are `phoneHidden`: shown from `sm` up, and
+ * reachable on a phone from the footer. "How to ask" is a section of
+ * /how-it-works, not a page of its own, so it has no link here. Nothing else here is hidden, and no link is
  * hidden at a width where it would fit.
  */
 const LINKS = [
@@ -41,7 +40,6 @@ const LINKS = [
   { href: "/how-it-works", label: "How it works", phoneHidden: false },
   // Five links plus the CTA overrun the header at sm (640px, measured: the
   // CTA was pushed off-screen), so this one joins from md up.
-  { href: "/intents", label: "How to ask", phoneHidden: true, fromMd: true },
   { href: DOCS_ORIGIN, label: "Docs", phoneHidden: true },
   { href: "/security", label: "Security", phoneHidden: true },
 ];

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { routeRequest } from "@/lib/ask/intent/classify";
-import { CAPABILITIES, GUIDE } from "@/components/landing/intentExamples";
+import { GUIDE } from "@/components/landing/intentExamples";
 
 const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf8");
 const CA = "0x1234567890abcdef1234567890abcdef12345678";
@@ -20,19 +20,19 @@ describe("trading any Monad token by its contract address", () => {
     expect(u.slots.toAsset?.toLowerCase()).toBe(CA);
   });
   it("the site says so", () => {
-    expect(CAPABILITIES.find((c) => c.id === "trade")?.body).toMatch(/any Monad token.*contract address/);
+    expect(GUIDE.find((g) => g.title === "Trade")?.body).toMatch(/any other Monad token.*contract address/);
+    expect(read("components/landing/HowToAskSection.tsx")).toMatch(/Trades work with any Monad token by its contract address/);
   });
 });
 
 describe("no DeFi protocol is presented as live", () => {
-  it("the capability card is 'coming soon' with no example to try", () => {
-    const defi = CAPABILITIES.find((c) => c.id === "protocols")!;
-    expect(defi.name).toMatch(/coming soon/i);
-    expect(defi.examples).toHaveLength(0);
+  it("How to ask says DeFi protocols aren't available yet, and offers nothing to try", () => {
+    expect(read("components/landing/HowToAskSection.tsx")).toMatch(/DeFi protocols aren't available from Ask yet/);
+    expect(GUIDE.some((g) => /defi|protocol/i.test(g.title))).toBe(false);
   });
   it("no page or guide offers Aave, WMON or another protocol action to try", () => {
-    expect(JSON.stringify({ CAPABILITIES, GUIDE })).not.toMatch(/Aave|WMON|wrap|supply|protocol_action/i);
-    for (const f of ["app/page.tsx", "components/landing/ProductSections.tsx", "app/intents/page.tsx", "components/landing/intentExamples.ts"]) {
+    expect(JSON.stringify({ GUIDE })).not.toMatch(/Aave|WMON|wrap|supply|protocol_action/i);
+    for (const f of ["app/page.tsx", "components/landing/ProductSections.tsx", "components/landing/HowToAskSection.tsx", "components/landing/intentExamples.ts"]) {
       const code = read(f).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
       expect(code, f).not.toMatch(/Aave|"WMON"/);
     }

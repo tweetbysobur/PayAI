@@ -32,7 +32,11 @@ export const CAPABILITY_SHORTCUTS: CapabilityShortcut[] = [
  */
 export function AskEmptyState() {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center px-4 py-6 sm:py-10">
+    // Centred in a short panel (the command bar), but on a very tall screen
+    // the space above is capped so the text doesn't float mid-screen: the
+    // top spacer stops growing at 10rem, the bottom one takes the rest.
+    <div className="flex min-h-full flex-col items-center px-4 py-6 sm:py-10">
+      <div aria-hidden className="max-h-40 min-h-0 flex-1 basis-0" />
       <motion.div
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
@@ -47,6 +51,7 @@ export function AskEmptyState() {
           </p>
         </div>
       </motion.div>
+      <div aria-hidden className="min-h-0 flex-1 basis-0" />
     </div>
   );
 }

@@ -220,7 +220,7 @@ function AuthFlow() {
         <Link href="/" className="text-sm text-muted-foreground transition-colors hover:text-foreground">Back to home</Link>
       </header>
 
-      <div className="flex flex-1 items-start justify-center px-5 py-8 sm:items-center sm:py-10">
+      <div className="flex flex-1 items-start justify-center px-5 pb-10 pt-[clamp(2rem,7vh,6rem)]">
         <div className="w-full max-w-md">
           <AnimatePresence mode="wait">
             {/* ── The single onboarding card ─────────────────────────────── */}

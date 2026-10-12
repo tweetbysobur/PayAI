@@ -4,7 +4,7 @@ import { parseIntent } from "@/lib/plan-adapter/grammar";
 import { parseScheduleIntent } from "@/lib/agent/brain";
 import { toPlanText } from "@/lib/ask/planFastPath";
 import {
-  CAPABILITIES, CORE_EXAMPLES, GUIDE, OPERATOR_EXAMPLES, PRODUCT_EXAMPLES, type IntentExample,
+  CORE_EXAMPLES, GUIDE, PRODUCT_EXAMPLES, type IntentExample,
 } from "@/components/landing/intentExamples";
 
 /**
@@ -64,9 +64,7 @@ async function holds(ex: IntentExample) {
 }
 
 const all: [string, IntentExample][] = [
-  ...CAPABILITIES.flatMap((c) => c.examples.map((e) => [`capability ${c.name}`, e] as [string, IntentExample])),
   ...GUIDE.flatMap((g) => g.examples.map((e) => [`guide ${g.title}`, e] as [string, IntentExample])),
-  ...OPERATOR_EXAMPLES.map((e) => ["operator", e] as [string, IntentExample]),
   ...PRODUCT_EXAMPLES.map((e) => ["product", e] as [string, IntentExample]),
   ...Object.entries(CORE_EXAMPLES).map(([k, e]) => [`core ${k}`, e] as [string, IntentExample]),
 ];
@@ -85,10 +83,9 @@ describe("the data is what the pages render", () => {
     const sources = {
       landing: read("../app/page.tsx"),
       how: read("../app/how-it-works/page.tsx"),
-      intents: read("../app/intents/page.tsx"),
+      howToAsk: read("../components/landing/HowToAskSection.tsx"),
       product: read("../components/landing/ProductSections.tsx"),
       operator: read("../components/landing/PlatformOverview.tsx"),
-      grid: read("../components/landing/CapabilityGrid.tsx"),
       askWelcome: read("../components/ask/AskEmptyState.tsx"),
     };
     // A prompt: an action verb, then (within a few words) an amount and a token.
@@ -99,7 +96,7 @@ describe("the data is what the pages render", () => {
     }
   });
   it("Rooms are never described as escrow, and the capability list names no feature that isn't live", () => {
-    const text = JSON.stringify({ CAPABILITIES, GUIDE });
+    const text = JSON.stringify({ GUIDE });
     expect(text).not.toMatch(/escrow|refund|guarantee|stak|bridg|lend\b|borrow|any token|every token/i);
   });
 });

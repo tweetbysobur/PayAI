@@ -15,7 +15,7 @@ export const HOW_STEPS = [
   {
     n: "02",
     title: "Review the plan",
-    body: "See exactly what PayAI understood — every action, amount and recipient, in order — before anything executes.",
+    body: "PayAI resolves the recipient, quotes any trade live and checks your balance. You see every action, amount and recipient, in order, before anything executes.",
   },
   {
     n: "03",

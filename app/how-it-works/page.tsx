@@ -6,19 +6,19 @@ import { Wallet, Lock, CheckCircle2 } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { AutomationTimelineSection, SecuritySection } from "@/components/landing/MarketingSections";
-import { AIOperatorSection } from "@/components/landing/PlatformOverview";
 import { HowItWorksSteps } from "@/components/landing/HowItWorksSteps";
-import { CapabilityGrid } from "@/components/landing/CapabilityGrid";
+import { HowToAskSection } from "@/components/landing/HowToAskSection";
 import { geist, geistMono } from "@/components/landing/fonts";
 import { DeveloperApi, EcosystemIntegrations } from "@/components/landing/PlatformSections";
 
 /**
  * /how-it-works — answers "how does this actually work?"
  *
- * Leads with the three steps (describe → review → approve and execute) and
- * the full capability grid — both moved here from the landing page, which now
- * only previews them. Then the mechanics: Ask PayAI's preparation step, how an
- * automation runs and is funded, what secures it, and the developer surface.
+ * Leads with the three steps (describe → review → approve and execute), then
+ * how to ask (what PayAI understands, with examples and today's limits —
+ * formerly /intents and the capability grid, merged so each point is made
+ * once). Then the mechanics: how an automation runs and is funded, what
+ * secures it, and the developer surface.
  * "Why Monad" lives on /product.
  *
  * The execution-mode comparison is NEW here and belongs on this page rather
@@ -63,8 +63,7 @@ export default function HowItWorksPage() {
       <SiteNav />
 
       <HowItWorksSteps />
-      <CapabilityGrid />
-      <AIOperatorSection />
+      <HowToAskSection />
       <AutomationTimelineSection />
 
       {/* Execution modes — the one decision a user must understand. */}

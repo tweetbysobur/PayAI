@@ -25,76 +25,7 @@ export interface IntentExample {
   check: ExampleCheck;
 }
 
-export interface Capability {
-  id: string;
-  name: string;
-  body: string;
-  examples: IntentExample[];
-}
-
-/**
- * The capability grid on /how-it-works. Only what the product does today, in
- * the words it is actually built around. Escrow is deliberately absent: Rooms
- * pay the recipient directly, and escrow is not live.
- */
-export const CAPABILITIES: Capability[] = [
-  {
-    id: "send",
-    name: "Send",
-    body: "MON or USDC to a 0x address, a .nad name or a saved payee.",
-    examples: [{ say: "Send 50 USDC to alice.nad", check: { kind: "plan", actions: 1 } }],
-  },
-  {
-    id: "several",
-    name: "Pay several people",
-    body: "One transfer per recipient, all in one plan you approve once.",
-    examples: [{ say: "Send 5 USDC each to alice.nad and bob.nad", check: { kind: "plan", actions: 2 } }],
-  },
-  {
-    id: "trade",
-    name: "Trade",
-    body: "Swap, buy or sell any Monad token — paste its contract address (CA) and say what to trade. The quote is shown before you sign.",
-    examples: [{ say: "Swap 100 USDC to MON", check: { kind: "plan", actions: 1 } }],
-  },
-  {
-    id: "chain",
-    name: "Chain actions",
-    body: "Several actions from one sentence, run in order. A swap's output can go straight to a transfer.",
-    examples: [{ say: "Swap 10 MON to USDC and send it to alice.nad", check: { kind: "plan", actions: 2 } }],
-  },
-  {
-    id: "schedule",
-    name: "Schedule",
-    body: "A one-time transfer set for a future date.",
-    examples: [{ say: "Send 200 USDC to john.nad tomorrow", check: { kind: "schedule", cadence: "once" } }],
-  },
-  {
-    id: "automate",
-    name: "Automate",
-    body: "Recurring transfers that run on their own from a capped agent wallet, within limits you approve once.",
-    examples: [{ say: "Send 20 USDC to bob.nad every Friday", check: { kind: "schedule", cadence: "weekly" } }],
-  },
-  {
-    id: "rooms",
-    name: "Rooms",
-    body: "Split a shared cost into equal shares. Each person pays their share straight to the recipient.",
-    examples: [{ say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } }],
-  },
-  {
-    id: "protocols",
-    name: "DeFi protocols — coming soon",
-    body: "DeFi protocols on Monad will integrate with PayAI as partners. Once a protocol is integrated, you use it by saying what you want; PayAI checks the transaction and your wallet signs it.",
-    examples: [],
-  },
-  {
-    id: "wallet",
-    name: "Ask about your wallet",
-    body: "Balances, recent activity and whether a transaction went through.",
-    examples: [{ say: "What's my USDC balance?", check: { kind: "route", intent: "token_balance" } }],
-  },
-];
-
-/** The /intents guide: how to ask, by what you want done. */
+/** The "How to ask" section on /how-it-works, by what you want done. */
 export interface GuideGroup {
   title: string;
   body: string;
@@ -156,15 +87,6 @@ export const GUIDE: GuideGroup[] = [
       { say: "Show my latest transaction", check: { kind: "route", intent: "transaction_details" } },
     ],
   },
-];
-
-/** The rotating prompt in the Ask section on /how-it-works. */
-export const OPERATOR_EXAMPLES: IntentExample[] = [
-  { say: "Send 250 USDC to alice.nad", check: { kind: "plan", actions: 1 } },
-  { say: "Swap 100 MON to USDC", check: { kind: "plan", actions: 1 } },
-  { say: "Swap 10 MON to USDC and send it to bob.nad", check: { kind: "plan", actions: 2 } },
-  { say: "Send 20 USDC to bob.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
-  { say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } },
 ];
 
 /** The "Start with an intent" examples and the core cards on /product. */
