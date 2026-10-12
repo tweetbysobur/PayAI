@@ -135,7 +135,7 @@ describe("the hero states the product: intent → onchain execution", () => {
   it("uses the approved headline and supporting line, word for word", () => {
     // The headline is animated word by word, so the exact string lives in one
     // constant, rendered as the h1's accessible name and split for display.
-    expect(page).toContain('const HEADLINE = "Turn your intent into onchain execution.";');
+    expect(page).toContain('const HEADLINE = "Turn natural language intent into onchain execution.";');
     expect(page).toMatch(/<h1 aria-label=\{HEADLINE\}/);
     expect(page).toMatch(/HEADLINE\.split\(" "\)/);
     expect(page).toContain('const SUBLINE = "Describe what you want in plain language. PayAI turns it into a plan you can review, approve, and execute with your wallet.";');

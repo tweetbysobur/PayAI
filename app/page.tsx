@@ -136,7 +136,7 @@ export default function LandingPage() {
 }
 
 /** Approved hero copy — final; tests check it word for word. */
-const HEADLINE = "Turn your intent into onchain execution.";
+const HEADLINE = "Turn natural language intent into onchain execution.";
 const SUBLINE = "Describe what you want in plain language. PayAI turns it into a plan you can review, approve, and execute with your wallet.";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -146,7 +146,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  * editorial; the Execution Path on the right — PayAI's signature drawing of
  * an intent becoming a reviewed, approved, executed action.
  *
- * The two are choreographed together: "Turn your intent" rises first, and as
+ * The two are choreographed together: "Turn natural language intent" rises first, and as
  * "onchain execution." decodes from hex, the scattered strokes on the right
  * gather into the route. The copy and the actions follow once the headline
  * has resolved. Reduced motion renders the finished composition at once.
@@ -159,8 +159,8 @@ function Hero() {
     animate: { opacity: 1, y: 0 },
     transition: t(0.7, delay),
   });
-  const words = HEADLINE.split(" ");            // Turn your intent into onchain execution.
-  const lineOne = words.slice(0, 3);            // Turn your intent
+  const words = HEADLINE.split(" ");            // Turn natural language intent into onchain execution.
+  const lineOne = words.slice(0, 4);            // Turn natural language intent
   const rise = (w: string, delay: number, key: string) => (
     <span key={key} aria-hidden className="inline-block overflow-hidden pb-[0.1em] align-bottom">
       <motion.span className="inline-block" initial={reduce ? false : { y: "112%" }} animate={{ y: "0%" }} transition={t(0.85, delay)}>
@@ -186,11 +186,11 @@ function Hero() {
           >
             <span className="block">{lineOne.map((w, i) => rise(w, 0.1 + i * 0.08, `a${i}`)).flatMap((el) => [el, " "])}</span>
             <span className="block">
-              {rise(words[3], 0.38, "b0")}{" "}
-              <span aria-hidden className="relative inline-block whitespace-nowrap pb-[0.1em] align-bottom"><Decode text={words[4]} start={0.7} reduce={reduce} /></span>
+              {rise(words[4], 0.46, "b0")}{" "}
+              <span aria-hidden className="relative inline-block whitespace-nowrap pb-[0.1em] align-bottom"><Decode text={words[5]} start={0.75} reduce={reduce} /></span>
             </span>
             <span className="block">
-              <span aria-hidden className="relative inline-block whitespace-nowrap pb-[0.1em] align-bottom"><Decode text={words[5]} start={0.95} reduce={reduce} /></span>
+              <span aria-hidden className="relative inline-block whitespace-nowrap pb-[0.1em] align-bottom"><Decode text={words[6]} start={1.0} reduce={reduce} /></span>
             </span>
           </h1>
 
