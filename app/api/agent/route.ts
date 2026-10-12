@@ -117,11 +117,16 @@ export async function POST(req: NextRequest) {
     const { listTx } = await import("@/lib/platform/store");
     // Scope to the connected wallet so a user only ever sees their own history.
     const rows = await listTx(merchantId, { sender: senderScope });
+    // Totals over every row this wallet has (the list itself is capped at
+    // 20) — the Wallets page's activity figures. Additive: other callers
+    // ignore it.
+    const { summarizeWalletActivity } = await import("@/lib/platform/walletActivity");
     return NextResponse.json({
       decision: "info",
       query: "show_history",
       count: rows.length,
       history: rows.slice(0, 20),
+      summary: summarizeWalletActivity(rows),
       success: true,
     });
   }

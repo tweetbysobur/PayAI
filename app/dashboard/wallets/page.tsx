@@ -3,7 +3,7 @@
 import { FundingSourcePicker } from "@/components/dashboard/FundingSourcePicker";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Wallet as WalletIcon, Sparkles, ArrowUpRight, ArrowDownLeft, Fuel, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint, Copy, Check, ExternalLink, LogOut } from "lucide-react";
+import { Wallet as WalletIcon, ArrowUpRight, ArrowDownLeft, Repeat, Activity, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint, Copy, Check, ExternalLink, LogOut } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -14,6 +14,8 @@ import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useUsername } from "@/lib/hooks/useUsername";
 import { useCopy } from "@/lib/hooks/useCopy";
+import { fetchHistory } from "@/lib/hooks/historyFetch";
+import type { WalletActivitySummary } from "@/lib/platform/walletActivity";
 import { MONAD_CHAIN_ID, MONAD_CHAIN_NAME, MONAD_EXPLORER } from "@/lib/monad/public";
 import { suiteFromOnchain, type OnchainContractFields } from "@/lib/monad/contractSuite";
 import { MonadMark } from "@/components/MonadMark";
@@ -42,6 +44,12 @@ interface WalletIntel {
   events?: WalletEvent[]; domain?: string | null; insights?: string;
 }
 
+/** One row of this wallet's own PayAI history (POST /api/agent show_history). */
+interface ActivityRow {
+  at: number; decision: string; summary: string; amount: number | null; token: string;
+  feature?: string; action?: string; txHash?: string; explorerUrl?: string;
+}
+
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 const fmt = (n?: number | null, d = 2) => (n != null ? n.toLocaleString(undefined, { maximumFractionDigits: d }) : "—");
 const fmtUsd = (n?: number | null) => (n != null ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—");
@@ -60,6 +68,10 @@ export default function Wallets() {
   const { copy, copied } = useCopy();
   const [onchainContracts, setOnchainContracts] = useState<OnchainContracts | null>(null);
   const [intel, setIntel] = useState<WalletIntel | null>(null);
+  // This wallet's own PayAI activity — the same private, wallet-scoped log
+  // the Transactions page lists. Null when it couldn't be read (e.g. the
+  // wallet is locked), which is shown as such, never as "no activity".
+  const [activity, setActivity] = useState<{ summary: WalletActivitySummary; rows: ActivityRow[] } | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
@@ -78,8 +90,14 @@ export default function Wallets() {
   }, [wallet.address]);
 
   const loadIntel = useCallback(() => {
-    if (!wallet.address) { setIntel(null); return; }
+    if (!wallet.address) { setIntel(null); setActivity(null); return; }
     setLoading(true); setFetchError(null);
+    fetchHistory(wallet.address)
+      .then((j) => {
+        const summary = (j as { summary?: WalletActivitySummary }).summary;
+        setActivity(summary ? { summary, rows: ((j.history ?? []) as ActivityRow[]).filter((r) => r.decision === "executed").slice(0, 10) } : null);
+      })
+      .catch(() => setActivity(null));
     fetch(`/api/wallet-intelligence?address=${wallet.address}`)
       .then((r) => r.json())
       .then((j) => {
@@ -98,25 +116,12 @@ export default function Wallets() {
     const monUsd = intel?.monPriceUsd != null ? mon * intel.monPriceUsd : null;
     const total = monUsd != null ? monUsd + usdc : mon + usdc;
     if (total <= 0) return null;
+    // Shares by USD value when MON can be priced — token counts aren't comparable.
     const monShare = monUsd != null ? monUsd / total : mon / total;
-    return { mon, usdc, monShare };
+    return { mon, usdc, monUsd, monShare, priced: monUsd != null };
   }, [balances, intel?.monPriceUsd]);
 
-  const dailyVolume = useMemo(() => {
-    if (!intel?.events?.length) return [];
-    const days: { date: string; volume: number; count: number }[] = [];
-    const map = new Map<string, { volume: number; count: number }>();
-    for (const e of intel.events) {
-      if (!e.timestamp) continue;
-      const key = new Date(e.timestamp).toISOString().slice(0, 10);
-      const cur = map.get(key) ?? { volume: 0, count: 0 };
-      cur.volume += e.amount; cur.count += 1;
-      map.set(key, cur);
-    }
-    const sortedKeys = Array.from(map.keys()).sort().slice(-14);
-    for (const k of sortedKeys) days.push({ date: k, ...map.get(k)! });
-    return days;
-  }, [intel?.events]);
+  const daily = activity?.summary.daily ?? [];
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -371,7 +376,7 @@ export default function Wallets() {
               { label: "Total wallet value", value: fmtUsd(intel.totalValueUsd), sub: intel.monPriceUsd == null ? "USD price unavailable" : null, icon: TrendingUp },
               { label: "MON balance", value: `${fmt(Number(intel.nativeBalance), 4)} MON`, icon: WalletIcon },
               { label: "USDC balance", value: `${fmt(Number(intel.usdcBalance))} USDC`, icon: WalletIcon },
-              { label: "Gas spent (PayAI txs)", value: intel.gasSpentMon != null ? `${fmt(intel.gasSpentMon, 6)} MON` : "Unavailable", icon: Fuel },
+              { label: "PayAI transactions", value: activity ? fmt(activity.summary.transactions, 0) : "—", sub: activity ? null : "Unlock your wallet to see activity", icon: Activity },
             ].map((k, i) => (
               <motion.div key={k.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.3 }}>
                 <Card className="p-5">
@@ -385,43 +390,39 @@ export default function Wallets() {
 
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { label: "Payments sent", value: fmt(intel.paymentsSent, 0), icon: ArrowUpRight },
-              { label: "Payments received", value: fmt(intel.paymentsReceived, 0), icon: ArrowDownLeft },
-              { label: "Lifetime volume", value: `${fmt(intel.lifetimeVolume)} USDC`, icon: TrendingUp },
-              { label: "Monthly volume (30d)", value: `${fmt(intel.monthlyVolume)} USDC`, icon: TrendingUp },
-              { label: "Largest transaction", value: `${fmt(intel.largestTx)} USDC`, icon: TrendingUp },
-              { label: "Average transaction", value: `${fmt(intel.averageTx)} USDC`, icon: TrendingUp },
-              { label: "Transactions sent (nonce)", value: fmt(intel.txCountSent, 0), icon: TrendingUp },
-              { label: ".nads domain", value: intel.domain ?? "Not set", icon: WalletIcon },
+              { label: "Payments sent", value: activity ? fmt(activity.summary.payments, 0) : "—", icon: ArrowUpRight },
+              { label: "Swaps", value: activity ? fmt(activity.summary.swaps, 0) : "—", icon: Repeat },
+              {
+                label: "Sent in the last 30 days",
+                value: !activity ? "—" : Object.keys(activity.summary.sent30dByToken).length === 0 ? "0"
+                  : Object.entries(activity.summary.sent30dByToken).map(([t, v]) => `${fmt(v, 4)} ${t}`).join(" · "),
+                icon: TrendingUp,
+              },
+              { label: "On-chain transactions sent", value: fmt(intel.txCountSent, 0), icon: ArrowUpRight },
             ].map((k) => (
               <Card key={k.label} className="p-4">
-                <p className="text-lg font-semibold text-foreground [font-variant-numeric:tabular-nums]">{k.value}</p>
+                <p className="break-words text-lg font-semibold text-foreground [font-variant-numeric:tabular-nums]">{k.value}</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">{k.label}</p>
               </Card>
             ))}
           </div>
 
-          <Card title="AI Insights" className="mb-4">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/12 text-primary-ink"><Sparkles size={14} /></div>
-              <p className="text-sm leading-relaxed text-foreground">{intel.insights}</p>
-            </div>
-          </Card>
-
           <div className="mb-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-            <Card title="Payment volume (last 14 days with activity)">
-              {dailyVolume.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No payment activity yet. Volume will chart here once you send or receive through PayAI.</p>
+            <Card title="PayAI activity (last 14 active days)">
+              {!activity ? (
+                <p className="text-sm text-muted-foreground">Unlock your wallet to see your PayAI activity.</p>
+              ) : daily.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No PayAI transactions yet. Your activity will chart here once you send, swap or automate through PayAI.</p>
               ) : (
                 <div className="flex h-36 items-end gap-2 overflow-x-auto">
-                  {dailyVolume.map((d, i) => {
-                    const max = Math.max(1, ...dailyVolume.map((x) => x.volume));
+                  {daily.map((d, i) => {
+                    const max = Math.max(1, ...daily.map((x) => x.count));
                     return (
                       <div key={d.date} className="group relative flex min-w-8 flex-1 flex-col items-center gap-1">
                         <div className="pointer-events-none absolute -top-7 hidden whitespace-nowrap rounded-md border border-border bg-panel px-2 py-1 text-[10px] text-foreground shadow-panel group-hover:block">
-                          {d.volume.toFixed(2)} USDC ({d.count} tx)
+                          {d.count} transaction{d.count === 1 ? "" : "s"}
                         </div>
-                        <motion.div className="w-full max-w-8 rounded-t bg-primary/70 transition-colors group-hover:bg-primary" initial={{ height: 0 }} animate={{ height: `${Math.max(2, (d.volume / max) * 100)}px` }} transition={{ delay: i * 0.04, duration: 0.4 }} />
+                        <motion.div className="w-full max-w-8 rounded-t bg-primary/70 transition-colors group-hover:bg-primary" initial={{ height: 0 }} animate={{ height: `${Math.max(4, (d.count / max) * 100)}px` }} transition={{ delay: i * 0.04, duration: 0.4 }} />
                         <span className="text-[10px] text-muted-foreground/70">{d.date.slice(5)}</span>
                       </div>
                     );
@@ -435,7 +436,7 @@ export default function Wallets() {
                 <div className="flex items-center gap-6">
                   <div className="relative h-28 w-28 shrink-0" title={`MON ${Math.round(assetSplit.monShare * 100)}% · USDC ${Math.round((1 - assetSplit.monShare) * 100)}%`}>
                     <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
-                      <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-secondary)" strokeWidth="14" />
+                      <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-muted-foreground)" strokeOpacity="0.3" strokeWidth="14" />
                       <motion.circle
                         cx="56" cy="56" r="44" fill="none" stroke="var(--color-primary)" strokeWidth="14"
                         strokeDasharray={2 * Math.PI * 44}
@@ -445,41 +446,56 @@ export default function Wallets() {
                       />
                     </svg>
                   </div>
-                  <div className="flex-1 space-y-2 text-sm">
-                    <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-primary" />MON</span><span className="text-muted-foreground">{fmt(assetSplit.mon, 4)}</span></div>
-                    <div className="flex items-center justify-between"><span className="flex items-center gap-2 text-foreground"><span className="h-2 w-2 rounded-full bg-secondary" />USDC</span><span className="text-muted-foreground">{fmt(assetSplit.usdc)}</span></div>
+                  <div className="min-w-0 flex-1 space-y-2.5 text-sm">
+                    {[
+                      { sym: "MON", dot: "bg-primary", amt: fmt(assetSplit.mon, 4), usd: assetSplit.monUsd, share: assetSplit.monShare },
+                      { sym: "USDC", dot: "bg-muted-foreground/50", amt: fmt(assetSplit.usdc, 2), usd: assetSplit.usdc, share: 1 - assetSplit.monShare },
+                    ].map((r) => (
+                      <div key={r.sym} className="flex items-start justify-between gap-3">
+                        <span className="flex items-center gap-2 text-foreground"><span className={`h-2 w-2 shrink-0 rounded-full ${r.dot}`} />{r.sym}</span>
+                        <span className="text-right [font-variant-numeric:tabular-nums]">
+                          <span className="block text-foreground">{r.amt}</span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {assetSplit.priced ? `${fmtUsd(r.usd)} · ${Math.round(r.share * 100)}%` : "USD price unavailable"}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ) : <p className="text-sm text-muted-foreground">No balance yet. Connect a funded wallet to see allocation.</p>}
+              ) : <p className="text-sm text-muted-foreground">No balance yet. Add MON or USDC to see your allocation.</p>}
             </Card>
           </div>
 
           <Card title="Recent activity">
-            {!intel.events || intel.events.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No on-chain payment activity yet for this wallet.</p>
+            {!activity ? (
+              <p className="text-sm text-muted-foreground">Unlock your wallet to see your PayAI activity.</p>
+            ) : activity.rows.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No PayAI transactions yet for this wallet.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="py-1.5 pr-3">Direction</th><th className="pr-3">Counterparty</th><th className="pr-3">Amount</th>
-                      <th className="pr-3">Block</th><th className="pr-3">Timestamp</th><th>Explorer</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-foreground">
-                    {intel.events.map((e, i) => (
-                      <motion.tr key={`${e.txHash}-${i}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }} className="border-t border-border">
-                        <td className="py-1.5 pr-3"><Badge tone={e.direction === "sent" ? "neutral" : "success"}>{e.direction === "sent" ? "Sent" : "Received"}</Badge></td>
-                        <td className="pr-3 font-mono text-xs">{short(e.counterparty)}</td>
-                        <td className="pr-3">{e.amount.toFixed(2)} {e.token}</td>
-                        <td className="pr-3 font-mono text-xs text-muted-foreground">{e.blockNumber || "—"}</td>
-                        <td className="pr-3 text-xs text-muted-foreground">{e.timestamp ? new Date(e.timestamp).toLocaleString() : "—"}</td>
-                        <td>{e.explorerUrl ? <a href={e.explorerUrl} target="_blank" rel="noreferrer" className="font-mono text-xs text-primary-ink hover:underline">{short(e.txHash)} ↗</a> : "—"}</td>
-                      </motion.tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="divide-y divide-border">
+                {activity.rows.map((r, i) => (
+                  <li key={`${r.txHash ?? r.at}-${i}`} className="flex items-center justify-between gap-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-foreground">{r.summary}</p>
+                      <p className="text-[11px] text-muted-foreground">{new Date(r.at).toLocaleString()}</p>
+                    </div>
+                    {r.explorerUrl || r.txHash ? (
+                      <Link
+                        href={`/dashboard/transactions?tab=activity&tx=${encodeURIComponent(r.txHash ?? "")}`}
+                        className="shrink-0 font-mono text-xs text-primary-ink hover:underline"
+                      >
+                        {short(r.txHash)}
+                      </Link>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {activity && activity.rows.length > 0 && (
+              <Link href="/dashboard/transactions" className="mt-3 inline-block text-xs text-muted-foreground hover:text-foreground">
+                All transactions →
+              </Link>
             )}
           </Card>
         </>
