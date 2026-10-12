@@ -39,6 +39,8 @@ import type { PlanViewDTO, QuoteDecision, QuoteProjection, RunnerPhase, RunnerWa
 import { feeEstimate, sendFeeBps, takePrimed, timingFor, type PlanCardData } from "@/lib/ask/planCards";
 import type { AskPlanRef } from "@/lib/ask/types";
 import { feePercent } from "@/lib/rooms/escrowChain";
+import { RecipientBlock } from "@/components/receipt/ReceiptKit";
+import { formatAmountText, formatDecimal, roundingForLabel } from "@/lib/format/tokenAmount";
 
 /** Decimals of the tokens a plan can move, for the "you pay" estimate only.
  *  An unknown symbol simply gets no estimate. */
@@ -65,12 +67,17 @@ function actionLine(s: ReviewStepDTO): { verb: string; what: string; to: string 
   return { verb: "Action", what: "", to: null };
 }
 
+/** One label/value line in the shared review style (ReceiptKit): a text
+ *  value has its amounts rounded by what the label means — what you pay up,
+ *  what you get down — with the exact text as the tooltip. */
 function Detail({ label, children, note }: { label: string; children: React.ReactNode; note?: string }) {
+  const exact = typeof children === "string" ? children : null;
+  const text = exact != null ? formatAmountText(exact, { round: roundingForLabel(label) }) : null;
   return (
-    <div className="flex items-baseline justify-between gap-4 py-2">
-      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-right text-sm text-foreground [font-variant-numeric:tabular-nums]">
-        <span className="[overflow-wrap:anywhere]">{children}</span>
+    <div className="flex items-baseline justify-between gap-4 py-2.5">
+      <dt className="shrink-0 text-[13px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right text-sm font-medium text-foreground [font-variant-numeric:tabular-nums]">
+        <span className="[overflow-wrap:anywhere]" title={text != null && text !== exact ? exact ?? undefined : undefined}>{text ?? children}</span>
         {note && <span className="ml-1.5 text-[11px] text-muted-foreground">{note}</span>}
       </dd>
     </div>
@@ -84,7 +91,7 @@ function youPay(s: Extract<ReviewStepDTO, { action: "transfer" }>, bps: number |
   const est = s.amount.kind === "exact" && bps !== null && bps > 0 && DECIMALS[sym] !== undefined
     ? feeEstimate(s.amount.decimal, DECIMALS[sym], bps)
     : null;
-  return est ? { text: `≈ ${est.total} ${sym}`, estimate: true } : { text: "Shown on the quote", estimate: false };
+  return est ? { text: `≈ ${formatDecimal(est.total, { round: "up" })} ${sym}`, estimate: true } : { text: "Shown on the quote", estimate: false };
 }
 
 /** A single transfer: the amount first, then who, then what it costs. */
@@ -98,12 +105,10 @@ function TransferSummary({ step, bps }: { step: Extract<ReviewStepDTO, { action:
       <p className="mt-1 text-[1.75rem] font-semibold leading-none tracking-tight text-foreground [font-variant-numeric:tabular-nums] [overflow-wrap:anywhere]">
         {step.amount.kind === "exact" ? <>{step.amount.decimal} <span className="text-muted-foreground">{step.amount.symbol}</span></> : amountText(step.amount)}
       </p>
-      <p className="mt-3 text-xs text-muted-foreground">to</p>
-      <p className="mt-0.5 text-sm text-foreground">
-        {named ? <span className="font-medium">{r.display}</span> : null}
-        <span className={`block font-mono text-xs [overflow-wrap:anywhere] ${named ? "mt-0.5 text-muted-foreground" : "text-foreground"}`} title={r.address}>{r.address}</span>
-      </p>
-      <dl className="mt-3 divide-y divide-border/70 border-t border-border/70">
+      <div className="mt-3 border-t border-border/70">
+        <RecipientBlock domain={named ? r.display : null} address={r.address} />
+      </div>
+      <dl className="divide-y divide-border/70 border-t border-border/70">
         <Detail label="Network">Monad</Detail>
         <Detail label="Recipient receives">{amountText(step.amount)}</Detail>
         <Detail label="You pay" note={pay.estimate ? "estimate" : undefined}>

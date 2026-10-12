@@ -47,6 +47,11 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const wallet = useWallet();
   const [health, setHealth] = useState<Health | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Room under the last thing on the page for the floating Ask PayAI button,
+  // so it never sits on a Confirm button or the end of a receipt — the page
+  // can always scroll clear of it. Not on Ask PayAI, which hides the button
+  // and keeps its own composer at the bottom.
+  const onAskPage = usePathname() === "/dashboard/ask";
   // readAddress, not address: a locked wallet still has history and can still
   // receive money — the feed shouldn't go blind just because the key is gone.
   const { notifications, markSeen } = useNotifications(wallet.readAddress, wallet.providerId);
@@ -77,7 +82,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
           whatever any child's own content happens to need. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar health={health} notifications={notifications} onOpenNotifications={markSeen} onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className={`flex-1 overflow-y-auto p-4 sm:p-6 ${onAskPage ? "" : "pb-24 sm:pb-24"}`}>
           <AccountReturnBanner />
           <AreaNav />
           {children}

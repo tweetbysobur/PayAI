@@ -11,9 +11,10 @@ import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
+import { AmountHero, RecipientBlock, ReceiptRow, ReceiptRows, ReceiptTotal, REVIEW_PRIMARY, REVIEW_SECONDARY } from "@/components/receipt/ReceiptKit";
 import { PageHeader } from "@/components/dashboard/primitives";
 import { AskEntry } from "@/components/dashboard/AskEntry";
-import { useAgentConsole, DECISION, friendlyError, phraseSummary, short } from "@/lib/hooks/useAgentConsole";
+import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useCopy } from "@/lib/hooks/useCopy";
 import { amountError, recipientError, isValidAmount, isValidRecipient } from "@/lib/validation";
@@ -323,23 +324,22 @@ export default function Payments() {
               signature has been requested yet. Nothing signs until Confirm. */}
           {c.pendingConfirm && (
             <Card className="border-primary/40">
-              <div className="mb-3 flex items-center gap-2.5">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-input text-muted-foreground"><Clock3 size={17} /></span>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Confirm this payment</p>
-                  <p className="text-xs text-muted-foreground">Review before signing — nothing moves until you confirm.</p>
-                </div>
+              <div className="mb-4">
+                <p className="text-base font-semibold tracking-tight text-foreground">Review payment</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">Check the details. Nothing moves until you confirm.</p>
               </div>
               <ConfirmDetails pending={c.pendingConfirm} kind={wallet.kind} />
-              <div className="mt-3.5 flex gap-2">
-                <button onClick={backToCompose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-input/40">
+              {/* Primary action first and full width on a phone; Edit and
+                  Cancel share the row under it. */}
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_1.4fr]">
+                <button onClick={c.confirmSign} className={`${REVIEW_PRIMARY} col-span-2 sm:order-3 sm:col-span-1`}>
+                  {wallet.kind === "embedded" && <Fingerprint size={15} aria-hidden />} Confirm and send
+                </button>
+                <button onClick={backToCompose} className={`${REVIEW_SECONDARY} sm:order-1`}>
                   Edit
                 </button>
-                <button onClick={backToCompose} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-muted-foreground transition hover:border-danger/40 hover:text-danger">
+                <button onClick={backToCompose} className={`${REVIEW_SECONDARY} text-muted-foreground hover:border-danger/40 hover:text-danger sm:order-2`}>
                   Cancel
-                </button>
-                <button onClick={c.confirmSign} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                  {wallet.kind === "embedded" && <Fingerprint size={14} />} Confirm
                 </button>
               </div>
             </Card>
@@ -378,74 +378,67 @@ export default function Payments() {
           <AnimatePresence>
             {c.res && !c.pendingConfirm && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
-                <div className="rounded-xl border border-border bg-panel p-6 text-center">
-                  <motion.div
-                    initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
-                    className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
-                  >
-                    {StatusIcon && <StatusIcon size={26} />}
-                  </motion.div>
-                  <p className="text-lg font-semibold text-foreground">{DECISION[c.res.decision].label}</p>
-                  {c.res.intent.amount != null && (
-                    <p className="mt-1 flex items-center justify-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-                      <TokenLogo token={c.res.intent.token} size={22} /> {c.res.intent.amount} {c.res.intent.token}
-                    </p>
-                  )}
-                  <p className="mt-1 text-sm text-muted-foreground">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
-                  {NEXT_STEP[c.res.decision] && <p className="mt-2 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
-                  {c.res.guardrail.violations.length > 0 && <p className="mt-2 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
+                <div className="rounded-xl border border-border bg-panel p-5 sm:p-6">
+                  {/* Status — icon, what happened, and the next step if any. */}
+                  <div className="flex items-center gap-3">
+                    <motion.div
+                      initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
+                    >
+                      {StatusIcon && <StatusIcon size={20} />}
+                    </motion.div>
+                    <div className="min-w-0">
+                      <p className="text-base font-semibold tracking-tight text-foreground">{DECISION[c.res.decision].label}</p>
+                      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
+                    </div>
+                  </div>
+                  {NEXT_STEP[c.res.decision] && <p className="mt-3 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
+                  {c.res.guardrail.violations.length > 0 && <p className="mt-3 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
 
-                  {/* Receipt details — who, when, on what network */}
-                  {c.res.decision === "executed" && (
-                    <div className="mt-4 grid grid-cols-2 gap-2 border-t border-border pt-4 text-left text-xs">
-                      {(c.res.intent.domain || c.res.intent.recipient) && (
-                        <div className="min-w-0">
-                          <p className="text-muted-foreground">To</p>
-                          {/* The name and the address it resolved to — a receipt
-                              for a .nad payment has to record which account was
-                              actually paid, not just the name that was typed. */}
-                          {c.res.intent.domain && <p className="mt-0.5 truncate font-medium text-foreground">{c.res.intent.domain}</p>}
-                          <p className={`mt-0.5 truncate font-mono ${c.res.intent.domain ? "text-[11px] text-muted-foreground" : "text-foreground"}`} title={c.res.intent.recipient ?? undefined}>
-                            {short(c.res.intent.recipient)}
-                          </p>
-                        </div>
-                      )}
-                      {c.res.transaction?.blockTimestamp != null && (
-                        <div className="min-w-0">
-                          <p className="text-muted-foreground">When</p>
-                          <p className="mt-0.5 truncate text-foreground">{new Date(c.res.transaction.blockTimestamp).toLocaleString()}</p>
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-muted-foreground">Network</p>
-                        <p className="mt-0.5 truncate text-foreground">{c.res.intent.network === "monad" ? MONAD_CHAIN_NAME : c.res.intent.network}</p>
-                      </div>
+                  {c.res.intent.amount != null && (
+                    <div className="mt-5">
+                      <AmountHero eyebrow={c.res.decision === "executed" ? "Amount sent" : "Amount"} amount={c.res.intent.amount} token={c.res.intent.token} />
                     </div>
                   )}
 
-                  {/* Receipt — amount, platform fee, gas, total, status. Computed
-                      SERVER-SIDE (see AgentResult.receipt's doc comment) and
-                      rendered exactly as returned — never recomputed here, since
-                      the live fee config only exists in the server's environment. */}
-                  {c.res.decision === "executed" && c.res.receipt && (() => {
-                    const receipt = c.res.receipt;
-                    return (
-                      <div className="mt-4 border-t border-border pt-4 text-left">
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Receipt</p>
-                        <div className="space-y-1.5 rounded-lg border border-border bg-input/30 p-3 text-xs">
-                          <div className="flex items-center justify-between"><span className="text-muted-foreground">Payment amount</span><span className="font-medium text-foreground">{receipt.paymentAmount} {receipt.token}</span></div>
-                          <div className="flex items-center justify-between"><span className="text-muted-foreground">Platform fee</span><span className={`font-medium ${receipt.platformFee.isFree ? "text-primary-ink" : "text-foreground"}`}>{receipt.platformFee.label}</span></div>
-                          {receipt.recipientReceives && <div className="flex items-center justify-between"><span className="text-muted-foreground">Recipient received</span><span className="font-medium text-foreground">{receipt.recipientReceives}</span></div>}
-                          {receipt.gasFee && <div className="flex items-center justify-between"><span className="text-muted-foreground">Gas fee</span><span className="font-medium text-foreground">{receipt.gasFee} MON</span></div>}
-                          <div className="flex items-center justify-between border-t border-border pt-1.5"><span className="text-muted-foreground">Total cost</span><span className="font-semibold text-foreground">{receipt.totalCost}</span></div>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {/* Receipt — who, when, network, then the money: amount, PayAI
+                      fee, gas and total. The money rows are computed SERVER-SIDE
+                      (see AgentResult.receipt's doc comment) and rendered as
+                      returned — never recomputed here, since the live fee config
+                      only exists in the server's environment. */}
+                  {c.res.decision === "executed" && (
+                    <ReceiptRows className="mt-4 border-t border-border/70">
+                      {(c.res.intent.domain || c.res.intent.recipient) && (
+                        // The name and the address it resolved to — a receipt
+                        // for a .nad payment has to record which account was
+                        // actually paid, not just the name that was typed.
+                        <RecipientBlock domain={c.res.intent.domain} address={c.res.intent.recipient} />
+                      )}
+                      {c.res.transaction?.blockTimestamp != null && (
+                        <ReceiptRow label="Date">{new Date(c.res.transaction.blockTimestamp).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</ReceiptRow>
+                      )}
+                      <ReceiptRow label="Network">{c.res.intent.network === "monad" ? MONAD_CHAIN_NAME : c.res.intent.network}</ReceiptRow>
+                      {c.res.receipt && (
+                        <>
+                          <ReceiptRow label="Payment amount" value={`${c.res.receipt.paymentAmount} ${c.res.receipt.token}`} round="nearest" />
+                          <ReceiptRow label="PayAI fee">
+                            <span className={c.res.receipt.platformFee.isFree ? "text-primary-ink" : ""}>{c.res.receipt.platformFee.label}</span>
+                          </ReceiptRow>
+                          {c.res.receipt.recipientReceives && <ReceiptRow label="Recipient received" value={c.res.receipt.recipientReceives} />}
+                          {c.res.receipt.gasFee && <ReceiptRow label="Network fee" value={`${c.res.receipt.gasFee} MON`} />}
+                        </>
+                      )}
+                    </ReceiptRows>
+                  )}
+                  {c.res.decision === "executed" && c.res.receipt && (
+                    <dl className="mt-1">
+                      <ReceiptTotal label="Total cost" value={c.res.receipt.totalCost} />
+                    </dl>
+                  )}
 
                   {/* Compliance visibility — expandable */}
                   {c.res.compliance && (
-                    <div className="mt-4 border-t border-border pt-4 text-left">
+                    <div className="mt-4 border-t border-border/70 pt-3">
                       <button onClick={() => setShowChecks((s) => !s)} className="flex w-full items-center justify-between text-xs text-muted-foreground hover:text-foreground">
                         <span className="flex items-center gap-1.5"><ShieldCheck size={13} className="text-success" /> Compliance {c.res.compliance.status}</span>
                         <ChevronDown size={13} className={`transition ${showChecks ? "rotate-180" : ""}`} />
@@ -465,48 +458,34 @@ export default function Payments() {
                     </div>
                   )}
 
-                  {/* Blockchain transparency — on-chain proof shown plainly, hash front and centre */}
+                  {/* On-chain proof — the transaction, the block, and the explorer. */}
                   {c.res.transaction?.txHash && (
-                    <div className="mt-4 border-t border-border pt-4 text-left">
-                      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">On-chain proof</p>
-
-                      <div className="rounded-lg border border-border bg-input/40 p-3">
-                        <p className="mb-1 text-[11px] text-muted-foreground">Transaction hash</p>
-                        <div className="flex items-center gap-2">
-                          <a
-                            href={c.res.transaction.explorerUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={c.res.transaction.txHash}
-                            className="block flex-1 break-all font-mono text-xs text-primary-ink hover:underline"
-                          >
-                            {c.res.transaction.txHash}
-                          </a>
-                          <button
-                            onClick={() => copyHash(c.res!.transaction!.txHash!)}
-                            aria-label="Copy transaction hash"
-                            className="shrink-0 rounded-md border border-border p-1.5 text-muted-foreground transition hover:border-primary/40 hover:text-primary-ink"
-                          >
-                            {copied === c.res!.transaction!.txHash ? <Check size={13} className="text-success" /> : <Copy size={13} />}
-                          </button>
-                        </div>
+                    <div className="mt-4 border-t border-border/70 pt-1">
+                      <ReceiptRows>
+                        <ReceiptRow label="Transaction">
+                          <span className="inline-flex items-center gap-1.5">
+                            <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" title={c.res.transaction.txHash} className="font-mono text-[12px] text-primary-ink hover:underline">
+                              {`${c.res.transaction.txHash.slice(0, 10)}…${c.res.transaction.txHash.slice(-8)}`}
+                            </a>
+                            <button
+                              onClick={() => copyHash(c.res!.transaction!.txHash!)}
+                              aria-label="Copy transaction hash"
+                              className="rounded-md p-1 text-muted-foreground transition hover:bg-input hover:text-foreground"
+                            >
+                              {copied === c.res!.transaction!.txHash ? <Check size={13} className="text-success" /> : <Copy size={13} />}
+                            </button>
+                          </span>
+                        </ReceiptRow>
+                        <ReceiptRow label="Block" mono>{c.res.transaction.blockNumber != null ? String(c.res.transaction.blockNumber) : "—"}</ReceiptRow>
+                      </ReceiptRows>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className={`${REVIEW_SECONDARY} gap-1.5 text-[13px]`}>
+                          Explorer <ExternalLink size={13} aria-hidden />
+                        </a>
+                        <button onClick={shareReceipt} className={`${REVIEW_SECONDARY} gap-1.5 text-[13px]`}>
+                          <Share2 size={13} aria-hidden /> Share receipt
+                        </button>
                       </div>
-
-                      <div className="mt-2 flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">Block</span>
-                        <span className="font-mono text-foreground">{c.res.transaction.blockNumber != null ? c.res.transaction.blockNumber : "—"}</span>
-                      </div>
-
-                      <a href={c.res.transaction.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-1 text-xs text-primary-ink hover:underline">
-                        View on explorer <ExternalLink size={11} />
-                      </a>
-
-                      <button
-                        onClick={shareReceipt}
-                        className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary/40"
-                      >
-                        <Share2 size={13} /> Share receipt
-                      </button>
                     </div>
                   )}
                 </div>

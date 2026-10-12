@@ -9,6 +9,8 @@ import {
   Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw, Blocks,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
+import { RecipientBlock, ReceiptTotal } from "@/components/receipt/ReceiptKit";
+import { formatAmountText, roundingForLabel } from "@/lib/format/tokenAmount";
 import { isSafeToRetry } from "@/lib/ask/retryPolicy";
 import {
   FREQUENCY_LABEL, NETWORK_LABEL, WALLET_OP_LABEL,
@@ -169,11 +171,19 @@ function ExecutionSteps({ phase }: { phase: number }) {
   );
 }
 
+/** One label/value line, in the shared review/receipt style
+ *  (components/receipt/ReceiptKit.tsx): values wrap instead of being cut
+ *  off, and a text value has its amounts rounded by what the label means
+ *  (what you pay up, what you get down), with the exact text as tooltip. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  const exact = typeof children === "string" ? children : null;
+  const text = exact != null ? formatAmountText(exact, { round: roundingForLabel(label) }) : null;
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 truncate text-right text-sm font-medium text-foreground">{children}</span>
+    <div className="flex items-baseline justify-between gap-4 py-2.5">
+      <span className="shrink-0 text-[13px] text-muted-foreground">{label}</span>
+      <span className="min-w-0 text-right text-sm font-medium text-foreground [font-variant-numeric:tabular-nums] [overflow-wrap:anywhere]">
+        {text != null ? <span title={text !== exact ? exact ?? undefined : undefined}>{text}</span> : children}
+      </span>
     </div>
   );
 }
@@ -292,24 +302,20 @@ function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; on
             <span className="text-xl font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-2xl">{intent.amount}</span>
             <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
           </div>
-          <div className="divide-y divide-border/60">
-            <Row label="Recipient">
-              {intent.recipientDomain ? (
-                <span className="text-primary-ink">{intent.recipientDomain}</span>
-              ) : (
-                <span className="font-mono">{short(intent.recipient)}</span>
-              )}
-            </Row>
+          <div className="divide-y divide-border/60 border-t border-border/60">
+            <RecipientBlock domain={intent.recipientDomain} address={intent.recipient} />
             {intent.kind === "scheduled_payment" && <Row label="Runs on">{fmtRunTime(intent.startDate)}</Row>}
             <Row label="Network">{NETWORK_LABEL[intent.network]}</Row>
-            {intent.estimatedFee && <Row label="Estimated network fee">{intent.estimatedFee}</Row>}
             {intent.kind === "payment" && intent.platformFee && (
-              <>
-                <Row label="Recipient receives">{`${intent.amount} ${intent.token}`}</Row>
-                <Row label="You pay">{`${intent.platformFee.total} ${intent.platformFee.token}`}</Row>
-              </>
+              <Row label={`PayAI fee (${intent.platformFee.percent})`}>{`${intent.platformFee.amount} ${intent.platformFee.token}`}</Row>
             )}
+            {intent.estimatedFee && <Row label="Network fee (est.)">{intent.estimatedFee}</Row>}
           </div>
+          {intent.kind === "payment" && intent.platformFee && (
+            <dl className="mt-1">
+              <ReceiptTotal label="Total" value={`${intent.platformFee.total} ${intent.platformFee.token}`} note={intent.estimatedFee ? "+ network fee" : undefined} />
+            </dl>
+          )}
         </>
       );
     case "recurring_payment":
@@ -321,10 +327,8 @@ function IntentBody({ intent, onQuickAction }: { intent: Operation["intent"]; on
             <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
             <span className="text-xs text-muted-foreground">/ {FREQUENCY_LABEL[intent.frequency].toLowerCase()}</span>
           </div>
-          <div className="divide-y divide-border/60">
-            <Row label="Recipient">
-              {intent.recipientDomain ? <span className="text-primary-ink">{intent.recipientDomain}</span> : <span className="font-mono">{short(intent.recipient)}</span>}
-            </Row>
+          <div className="divide-y divide-border/60 border-t border-border/60">
+            <RecipientBlock domain={intent.recipientDomain} address={intent.recipient} />
             <Row label="Frequency">{FREQUENCY_LABEL[intent.frequency]}</Row>
             <Row label="Starts">{fmtRunTime(intent.startDate)}</Row>
             <Row label="Ends">{intent.endDate ? fmtDate(intent.endDate) : "Until cancelled"}</Row>
@@ -963,7 +967,7 @@ function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["int
               ? "Set up — runs on-chain on schedule"
               : "Executed and verified on-chain"}
           </p>
-          {result.gasFee && <p className="mt-0.5 text-xs text-muted-foreground">Network fee: {result.gasFee}</p>}
+
         </div>
       </div>
       <ResultSummary intent={intent} />
@@ -989,15 +993,14 @@ function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["int
             ))}
         </div>
       )}
-      <div className="rounded-lg border border-border bg-input/40 p-3">
-        <p className="mb-1 text-[11px] text-muted-foreground">Transaction</p>
-        <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-primary-ink hover:underline">
-          {result.txHash}
-        </a>
+      <div className="divide-y divide-border/60 border-t border-border/60">
+        {result.gasFee && <Row label="Network fee">{result.gasFee}</Row>}
+        <Row label="Transaction">
+          <a href={result.explorerUrl} target="_blank" rel="noreferrer" title={result.txHash} className="inline-flex items-center gap-1 font-mono text-[12px] text-primary-ink hover:underline">
+            {`${result.txHash.slice(0, 10)}…${result.txHash.slice(-8)}`} <ExternalLink size={11} aria-hidden />
+          </a>
+        </Row>
       </div>
-      <a href={result.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
-        View transaction <ExternalLink size={11} />
-      </a>
       <SuccessFollowUp intent={intent} onQuickAction={onQuickAction} />
     </div>
   );
