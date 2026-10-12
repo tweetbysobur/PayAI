@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { CAPABILITIES } from "@/components/landing/intentExamples";
+import { CAPABILITIES, displayPrompt } from "@/components/landing/intentExamples";
 
 /**
  * What PayAI does today, on /how-it-works — a card grid in place of the old
@@ -43,7 +43,7 @@ export function CapabilityGrid() {
                   key={e.say}
                   className="mt-5 break-words border-l-2 border-primary/60 pl-3 font-mono text-[13px] leading-relaxed text-foreground/85"
                 >
-                  &ldquo;{e.say}&rdquo;
+                  &ldquo;{displayPrompt(e.say)}&rdquo;
                 </p>
               ))}
             </li>

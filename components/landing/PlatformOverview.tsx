@@ -1,6 +1,6 @@
 "use client";
 
-import { OPERATOR_EXAMPLES as OPERATOR_PROMPTS } from "@/components/landing/intentExamples";
+import { OPERATOR_EXAMPLES as OPERATOR_PROMPTS, displayPrompt } from "@/components/landing/intentExamples";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
@@ -397,7 +397,7 @@ export function PaymentOperationsSection() {
  *  is checked against the real product. ("Pay contributors every Friday",
  *  "Create monthly payroll" and "Trade 50 USDC for any Monad token" used to
  *  rotate here; none names enough to run.) */
-const OPERATOR_EXAMPLES = OPERATOR_PROMPTS.map((e) => e.say);
+const OPERATOR_EXAMPLES = OPERATOR_PROMPTS.map((e) => displayPrompt(e.say));
 
 export function AIOperatorSection() {
   const [i, setI] = useState(0);

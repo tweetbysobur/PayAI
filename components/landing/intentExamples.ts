@@ -82,8 +82,8 @@ export const CAPABILITIES: Capability[] = [
   },
   {
     id: "protocols",
-    name: "Monad protocols",
-    body: "Wrap and unwrap MON, and supply or withdraw USDC on Aave V3.",
+    name: "DeFi protocols",
+    body: "Wrap and unwrap MON, and supply or withdraw USDC on Aave V3. More DeFi protocols are on the way.",
     examples: [{ say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } }],
   },
   {
@@ -149,8 +149,8 @@ export const GUIDE: GuideGroup[] = [
     examples: [{ say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } }],
   },
   {
-    title: "Monad protocols",
-    body: "Wrap MON, or put USDC to work on Aave V3.",
+    title: "DeFi protocols",
+    body: "Wrap MON, or put USDC to work on Aave V3. More protocols are on the way.",
     examples: [
       { say: "Wrap 1 MON", check: { kind: "route", intent: "protocol_action" } },
       { say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
@@ -190,3 +190,10 @@ export const CORE_EXAMPLES: Record<"payments" | "trading" | "protocols", IntentE
   protocols: { say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
 };
 
+
+/** How a prompt is DISPLAYED: the example names (alice.nad, bob.nad…) become a
+ *  placeholder, so nobody reads a stranger's name as the thing to type. The
+ *  real sentence (`say`) is what the tests run through the product. */
+export function displayPrompt(say: string): string {
+  return say.replace(/\b[a-z0-9-]+\.nads?\b/gi, "‹.nad or wallet address›");
+}

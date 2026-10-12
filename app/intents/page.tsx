@@ -4,7 +4,7 @@ import { ArrowRight } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { geist, geistMono } from "@/components/landing/fonts";
-import { GUIDE } from "@/components/landing/intentExamples";
+import { GUIDE, displayPrompt } from "@/components/landing/intentExamples";
 
 /**
  * /intents — how to ask PayAI to get something done.
@@ -86,7 +86,7 @@ export default function IntentsPage() {
                 <ul className="mt-4 space-y-2">
                   {g.examples.map((e) => (
                     <li key={e.say} className="break-words border-l-2 border-primary/60 pl-3 font-mono text-[13px] leading-relaxed text-foreground/85">
-                      &ldquo;{e.say}&rdquo;
+                      &ldquo;{displayPrompt(e.say)}&rdquo;
                     </li>
                   ))}
                 </ul>

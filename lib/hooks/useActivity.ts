@@ -97,7 +97,7 @@ export function useActivity(address: string | null, providerId?: string | null) 
           id: h.txHash ?? `pay-${h.at}-${h.decision}`,
           kind: swap ? "swap" : "payment",
           at: h.at,
-          title: swap ? "Swap" : protocol ? "Monad protocol" : "Payment",
+          title: swap ? "Swap" : protocol ? "DeFi" : "Payment",
           detail: phraseSummary(h.summary, h.decision),
           status: paymentStatus(h.decision),
           amount: h.amount,

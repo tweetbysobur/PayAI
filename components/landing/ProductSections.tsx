@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
 import { EXECUTION_VENUES } from "@/components/landing/PlatformOverview";
-import { CORE_EXAMPLES, PRODUCT_EXAMPLES } from "@/components/landing/intentExamples";
+import { CORE_EXAMPLES, PRODUCT_EXAMPLES, displayPrompt } from "@/components/landing/intentExamples";
 
 /** The protocols PayAI's own actions call today, besides trading venues. */
 const PROTOCOLS = ["Aave V3", "WMON"] as const;
@@ -75,9 +75,9 @@ function MiniFlow() {
  *  the flow — so they come from intentExamples.ts, where each one is checked
  *  against the real product. */
 const CORE_CARDS = [
-  { icon: Send, label: "PAYMENTS", intent: CORE_EXAMPLES.payments.say },
-  { icon: ArrowLeftRight, label: "TRADING", intent: CORE_EXAMPLES.trading.say },
-  { icon: Layers, label: "PROTOCOLS", intent: CORE_EXAMPLES.protocols.say },
+  { icon: Send, label: "PAYMENTS", intent: displayPrompt(CORE_EXAMPLES.payments.say) },
+  { icon: ArrowLeftRight, label: "TRADING", intent: displayPrompt(CORE_EXAMPLES.trading.say) },
+  { icon: Layers, label: "DEFI", intent: displayPrompt(CORE_EXAMPLES.protocols.say) },
 ];
 
 export function CoreProductSection() {
@@ -221,7 +221,7 @@ export function IntentToExecutionSection() {
 const CAPABILITIES = [
   { icon: Send, title: "Payments", body: "Send, schedule and automate transfers, or pay several people at once." },
   { icon: ArrowLeftRight, title: "Trading", body: "Swap, buy or sell tokens across supported Monad venues." },
-  { icon: Layers, title: "Monad protocols", body: "Wrap MON, and supply or withdraw USDC on Aave V3." },
+  { icon: Layers, title: "DeFi protocols", body: "Wrap MON, and supply or withdraw USDC on Aave V3. More DeFi protocols are on the way." },
   { icon: Repeat2, title: "Plans", body: "Several actions from one request, reviewed together and run in order." },
   { icon: Users, title: "Rooms", body: "Split a shared cost; each person pays the recipient directly." },
   { icon: Wallet, title: "Wallet & activity", body: "Create or connect a wallet you control, and see every execution verified on-chain." },
@@ -278,8 +278,8 @@ export function DeFiSection() {
     <section id="defi" className={SECTION}>
       <div className="mx-auto max-w-2xl px-6 text-center">
         <Head
-          eyebrow="Monad protocols"
-          title="Use Monad protocols by saying what you want."
+          eyebrow="DeFi protocols"
+          title="Use DeFi protocols by saying what you want."
           body="Today that means wrapping and unwrapping MON, and supplying or withdrawing USDC on Aave V3. Trades route through supported Monad venues. More protocols are added as they're built and tested — never listed ahead of that."
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -346,7 +346,7 @@ export function VerificationSection() {
  *  click. They come from intentExamples.ts and are checked against the real
  *  product (test/intent-examples.test.ts); a prompt with no resolvable
  *  recipient ("pay this wallet…", "…to my team") can't be listed. */
-const INTENT_EXAMPLES = PRODUCT_EXAMPLES.map((e) => e.say);
+const INTENT_EXAMPLES = PRODUCT_EXAMPLES.map((e) => displayPrompt(e.say));
 
 export function IntentExamplesSection() {
   return (

@@ -154,8 +154,10 @@ describe("the hero states the product: intent → onchain execution", () => {
     expect(page).toMatch(/href="\/how-it-works"/);
   });
 
-  it("does not claim DeFi protocol support, guarantees, or zero risk", () => {
-    expect(code).not.toMatch(/\bDeFi\b|100% secure|zero risk|guarantee/i);
+  it("does not claim guarantees or zero risk", () => {
+    // DeFi is named now that it is live (Aave V3 supply/withdraw, WMON); the
+    // protocols themselves are named on /how-it-works, never "any protocol".
+    expect(code).not.toMatch(/100% secure|zero risk|guarantee|any (defi )?protocol/i);
   });
 
   it("states the non-custodial nuance: automations use a capped agent wallet", () => {

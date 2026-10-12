@@ -59,7 +59,7 @@ export default function LandingPage() {
           <SectionTitle eyebrow="What it does" title="One sentence in. Onchain execution out." />
           <div>
             <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms, and use Monad protocols — each from a plain-language request you review before anything runs.
+              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms, and use DeFi protocols — each from a plain-language request you review before anything runs.
             </p>
             <ul className="mt-6 flex flex-wrap gap-2" aria-label="Capabilities">
               {CAPABILITIES.map((c) => (
