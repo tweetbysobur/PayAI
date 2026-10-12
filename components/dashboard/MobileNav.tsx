@@ -1,5 +1,6 @@
 "use client";
 
+import { useLandingHref } from "@/lib/hooks/useLandingHref";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { Menu, X } from "lucide-react";
@@ -24,6 +25,7 @@ export function MobileNavTrigger({ onClick }: { onClick: () => void }) {
 /** Slide-in drawer with exactly the sidebar's navigation (the same NavList and
  *  NavFooter components, so the two can never drift apart). */
 export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const landing = useLandingHref();
   useModalA11y(open, onClose);
 
   // No AnimatePresence — see the note in components/dashboard/TemplatePicker.tsx.
@@ -45,7 +47,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex h-[61px] items-center justify-between border-b border-border px-5">
-              <Link href="/dashboard" onClick={onClose} className="flex items-center gap-2" title="Dashboard home">
+              <Link href={landing} onClick={onClose} className="flex items-center gap-2" title="PayAI home">
                 <Logo size={26} />
                 <p className="text-sm font-semibold text-foreground">PayAI</p>
               </Link>

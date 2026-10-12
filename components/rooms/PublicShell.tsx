@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LandingLink } from "@/components/LandingLink";
 import { Logo } from "@/components/Logo";
 
 /** Public chrome for shared Room links and Live Rooms: the brand, Live Rooms,
@@ -7,11 +8,11 @@ export function PublicShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-dvh bg-background">
       <header className="mx-auto flex w-full max-w-2xl items-center justify-between px-4 py-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2" aria-label="PayAI home">
+        <LandingLink className="flex items-center gap-2" aria-label="PayAI home">
           <Logo size={26} />
           <span className="text-sm font-semibold text-foreground">PayAI</span>
           <span className="text-sm text-muted-foreground">Rooms</span>
-        </Link>
+        </LandingLink>
         <nav className="flex items-center gap-4 text-sm">
           <Link href="/rooms" className="text-muted-foreground hover:text-foreground">Live Rooms</Link>
           <Link href="/dashboard/rooms" className="text-muted-foreground hover:text-foreground">My rooms</Link>

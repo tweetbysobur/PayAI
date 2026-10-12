@@ -1,5 +1,6 @@
 "use client";
 
+import { useLandingHref } from "@/lib/hooks/useLandingHref";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -68,6 +69,7 @@ function warmStatus() {
 }
 
 function AuthFlow() {
+  const landing = useLandingHref();
   const wallet = useWalletService();
   const router = useRouter();
   const params = useSearchParams();
@@ -211,7 +213,7 @@ function AuthFlow() {
         <div className="absolute bottom-[-8%] right-[-6%] h-72 w-72 rounded-full bg-secondary/15 blur-[110px]" />
       </div>
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href={landing} className="flex items-center gap-2" aria-label="PayAI home">
           <Logo size={28} />
           <span className="text-sm font-semibold text-foreground">PayAI</span>
         </Link>

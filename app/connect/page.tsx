@@ -1,5 +1,6 @@
 "use client";
 
+import { useLandingHref } from "@/lib/hooks/useLandingHref";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
@@ -36,6 +37,7 @@ const MORE_WALLETS = [
 type Step = "consent" | "wallets" | "status";
 
 export default function ConnectPage() {
+  const landing = useLandingHref();
   const wallet = useWallet();
   const identity = useIdentity(wallet.address);
   // A device that already has a PayAI Wallet (passkey) is ADDING a wallet to
@@ -153,7 +155,7 @@ export default function ConnectPage() {
   return (
     <main className="flex min-h-screen flex-col bg-background">
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href={landing} className="flex items-center gap-2" aria-label="PayAI home">
           <Logo size={28} />
           <span className="text-sm font-semibold text-foreground">PayAI</span>
         </Link>
