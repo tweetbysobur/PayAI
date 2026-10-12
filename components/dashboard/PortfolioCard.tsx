@@ -172,9 +172,12 @@ export function PortfolioCard({ address, locked }: { address: string | null; loc
                   </p>
                 </div>
                 {/* Contract actions, revealed on hover so the row stays calm —
-                    and always present for keyboard and touch. */}
+                    and always present for keyboard and touch. The slot has
+                    the same width on every row (empty for the native coin),
+                    so all amounts line up in one column. */}
+                <div className="flex w-[52px] shrink-0 items-center justify-end gap-0.5">
                 {!h.native && (
-                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 sm:opacity-0">
+                  <div className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 sm:opacity-0">
                     <button
                       onClick={() => void copy(h.address, "Contract address copied")}
                       aria-label={`Copy ${h.symbol} contract address`}
@@ -193,6 +196,7 @@ export function PortfolioCard({ address, locked }: { address: string | null; loc
                     </a>
                   </div>
                 )}
+                </div>
               </motion.li>
             ))}
           </AnimatePresence>
