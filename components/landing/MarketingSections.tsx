@@ -30,7 +30,7 @@ const SUB = "mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foregroun
 
 const USE_CASES = [
   { icon: Users, title: "Payroll", body: "Pay a team or contributors on a fixed cycle, automatically." },
-  { icon: Repeat, title: "Subscriptions", body: "Recurring dues and memberships that never miss a date." },
+  { icon: Repeat, title: "Subscriptions", body: "Recurring dues and memberships, paid on a schedule you set." },
   { icon: Landmark, title: "Treasury", body: "Scheduled transfers and payouts from a reserved balance." },
   { icon: Rocket, title: "Launchpads", body: "Time-based distributions to the right wallets, on schedule." },
   { icon: HandCoins, title: "Personal Payments", body: "Rent, allowances, or gifts that send themselves on time." },

@@ -335,16 +335,30 @@ export function HowPayAIWorksSection() {
  * otherwise it opens the builder. Neither case promises anything that is not
  * there when you arrive.
  */
-const OPERATIONS: { title: string; body: string; icon: typeof Wallet; template?: string }[] = [
-  { title: "Payroll", body: "Salaries on a fixed cycle, to one person or a whole team.", icon: Building2 },
-  { title: "Treasury", body: "Scheduled transfers and payouts from a reserved balance.", icon: Landmark },
-  { title: "Subscriptions", body: "Recurring dues and memberships that never miss a date.", icon: Repeat2 },
-  { title: "Vendor payments", body: "Suppliers and contractors paid on their own schedule.", icon: Store },
-  { title: "Community rewards", body: "Distribute a reward across many wallets in one run.", icon: Gift },
-  { title: "Airdrops", body: "A one-time token distribution to a list of addresses.", icon: Coins },
-  { title: "Creator payouts", body: "Revenue splits, affiliate commissions and sponsorships.", icon: Megaphone },
-  { title: "Launchpad distribution", body: "Allocations and vested releases, on schedule.", icon: Rocket },
-  { title: "Rent and personal", body: "Rent, allowances and savings that send themselves.", icon: Home, template: "personal-monthly-rent" },
+/**
+ * Each card states what PayAI does for that use case today, and what it
+ * doesn't. Audited against the code (Oct 2026):
+ *  - single-recipient automations: once/daily/weekly/monthly, funded from
+ *    the wallet or from funds set aside (AutomationVault);
+ *  - Bulk payment (Automations → Bulk payment): paste, CSV or manual list,
+ *    any Monad token, equal/fixed/percentage/custom amounts, one setup
+ *    signature, then ONE TRANSACTION PER RECIPIENT, sent in order from the
+ *    user's wallet — not one batched on-chain transaction;
+ *  - every Business, Bulk, Launchpad, DAO, NFT and Creator template is still
+ *    unfinished (status in lib/automation/templates.ts).
+ * test/use-case-claims.test.ts keeps the wording from drifting.
+ */
+type Readiness = "ready" | "partial";
+const OPERATIONS: { title: string; status: Readiness; works: string; notYet?: string; icon: typeof Wallet; template?: string }[] = [
+  { title: "Payroll", status: "partial", works: "Pay one person on a fixed cycle, or a whole team with a recurring Bulk payment.", notYet: "No payroll template, approver step or payslips.", icon: Building2 },
+  { title: "Treasury", status: "partial", works: "Scheduled transfers from funds set aside, one recipient per automation.", notYet: "No multi-approver (multisig) control.", icon: Landmark },
+  { title: "Subscriptions", status: "partial", works: "Pay a subscription or membership on a recurring schedule.", notYet: "Can't bill or collect from customers. A run is skipped if funds or limits fall short.", icon: Repeat2 },
+  { title: "Vendor payments", status: "ready", works: "Pay a supplier or contractor once, or on their own recurring schedule.", icon: Store },
+  { title: "Community rewards", status: "partial", works: "A Bulk payment to a pasted or CSV list of wallets, in any Monad token, set up and signed once.", notYet: "One transaction per recipient, not one batched transaction. Runs of hundreds aren't verified yet.", icon: Gift },
+  { title: "Airdrops", status: "partial", works: "Send any Monad token to a list of addresses with a one-time Bulk payment, signed once.", notYet: "One transaction per recipient, not one batched transaction. Runs of hundreds aren't verified yet.", icon: Coins },
+  { title: "Creator payouts", status: "partial", works: "Fixed or percentage splits to collaborators, once or recurring.", notYet: "Amounts aren't tied to your revenue — you set them.", icon: Megaphone },
+  { title: "Launchpad distribution", status: "partial", works: "Send allocations to a list with a one-time Bulk payment.", notYet: "No vesting contract, token sale or refund handling.", icon: Rocket },
+  { title: "Rent and personal", status: "ready", works: "Rent, allowances and savings on a weekly or monthly schedule.", icon: Home, template: "personal-monthly-rent" },
 ];
 
 export function PaymentOperationsSection() {
@@ -354,7 +368,7 @@ export function PaymentOperationsSection() {
         <Head
           eyebrow="Payments"
           title="From simple transfers to recurring payment operations."
-          body="One automation engine underneath, and enough control on top of it to run payroll, a treasury, a distribution or your own rent — as a use case of the same intent layer, not a separate product."
+          body="One automation engine underneath, and each card says plainly what works today and what doesn't yet."
         />
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -372,10 +386,17 @@ export function PaymentOperationsSection() {
                 <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
                   <o.icon size={22} />
                 </span>
-                <h3 className="text-sm font-semibold text-foreground">{o.title}</h3>
-                <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground">{o.body}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-foreground">{o.title}</h3>
+                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${o.status === "ready" ? "border-primary/40 text-primary-ink" : "border-border text-muted-foreground"}`}>
+                    {o.status === "ready" ? "Works today" : "Partly"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-foreground/85"><strong className="font-semibold text-foreground">Works today: </strong>{o.works}</p>
+                {o.notYet && <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground"><strong className="font-semibold text-foreground/80">Not yet: </strong>{o.notYet}</p>}
+                <span className="flex-1" />
                 <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-primary-ink">
-                  {o.template ? "Use the workflow" : "Build it"}
+                  {o.template ? "Use the workflow" : "Set it up"}
                   <ArrowRight size={11} className="transition-transform duration-200 group-hover:translate-x-0.5" />
                 </span>
               </Link>
@@ -384,7 +405,7 @@ export function PaymentOperationsSection() {
         </div>
 
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          Ready-made workflows for the most common of these are in the app, and more are added as they are finished.
+          A Bulk payment is one setup and one signature, then PayAI sends one transaction per recipient, in order. Ready-made templates for payroll, treasury, launchpad and creator payouts are still coming.
         </p>
       </div>
     </section>
