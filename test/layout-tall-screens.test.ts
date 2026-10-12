@@ -40,12 +40,12 @@ describe("How to ask lives on How it works", () => {
 });
 
 describe("landing close", () => {
-  it("reads 'Make intent. Get your onchain execution done' with Launch PayAI beside it, never stacked", () => {
+  it("reads 'Make intent. Get your onchain execution done' on one line, with Launch PayAI below it", () => {
     const page = read("app/page.tsx");
     const close = page.slice(page.indexOf("{/* Close */}"), page.indexOf("<SiteFooter />"));
     expect(close).toMatch(/Make intent\. Get your onchain execution done/);
-    expect(close).toMatch(/flex max-w-7xl flex-row items-center justify-between/);
-    expect(close).not.toMatch(/flex-col/);
-    expect(close).toMatch(/shrink-0[^"]*whitespace-nowrap/);
+    expect(close).toMatch(/flex max-w-7xl flex-col items-start/);
+    expect(close).toMatch(/<h2 className="whitespace-nowrap text-\[clamp\(/);
+    expect(close.indexOf("</h2>")).toBeLessThan(close.indexOf("Launch PayAI"));
   });
 });

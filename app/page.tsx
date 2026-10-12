@@ -83,12 +83,12 @@ export default function LandingPage() {
 
       {/* Close */}
       <section className="border-t border-border">
-        {/* One row at every width: the line, then the button beside it. */}
-        <div className="mx-auto flex max-w-7xl flex-row items-center justify-between gap-4 px-5 py-16 sm:gap-8 sm:px-6 sm:py-24">
-          <h2 className="min-w-0 flex-1 text-balance text-xl font-medium leading-[1.1] tracking-[-0.03em] text-foreground sm:text-4xl sm:leading-[1.02] sm:tracking-[-0.04em] lg:text-5xl">
+        {/* The line on one row, sized to fit the screen; the button below it. */}
+        <div className="mx-auto flex max-w-7xl flex-col items-start gap-6 px-5 py-16 sm:gap-8 sm:px-6 sm:py-24">
+          <h2 className="whitespace-nowrap text-[clamp(0.8rem,4.2vw,3.25rem)] font-medium leading-tight tracking-[-0.03em] text-foreground">
             Make intent. Get your onchain execution done
           </h2>
-          <Link href={LAUNCH} className="inline-flex h-11 shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-12 sm:px-6">
+          <Link href={LAUNCH} className="inline-flex h-12 shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             Launch PayAI <ArrowRight size={15} aria-hidden />
           </Link>
         </div>
