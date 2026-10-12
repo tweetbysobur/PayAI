@@ -174,7 +174,7 @@ describe("every shortcut label is actually understood, not just nice copy", () =
 
   for (const [label, kind] of LABELS) {
     it(`"${label}" resolves to ${kind}, never unclear`, async () => {
-      const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+      const { understand } = await import("@/lib/ask/intent/classify");
       const u = await understand(label, [], null);
       expect(u.kind).toBe(kind);
       expect(u.outcome).not.toBe("unclear");
@@ -182,7 +182,7 @@ describe("every shortcut label is actually understood, not just nice copy", () =
   }
 
   it("teaching the fallback these two words did not swallow neighbouring phrasings", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     // `automate` must not catch automation LISTING, and the anchored trade
     // clause must not catch tradability or market questions. None of these may
     // become a money-moving intent.

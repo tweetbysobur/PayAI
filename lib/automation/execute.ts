@@ -92,32 +92,14 @@ async function executeOnePayment(input: {
   return { outcome, txHash: tx.txHash, explorerUrl: tx.explorerUrl, detail: tx.detail, durationMs: Date.now() - startedAt };
 }
 
-/** Fired once per occurrence, before the compliance/risk/settlement pipeline
- *  runs — not inside executeOnePayment, which would fire once per RECIPIENT
- *  on a Bulk Payment and flood the feed for what is, from the user's point
- *  of view, one automation run. Best-effort: a notification failure must
- *  never block the actual payment it's announcing. */
-async function announceExecutionStarted(s: ScheduledPayment): Promise<void> {
-  const { recordAutomationEvent } = await import("@/lib/platform/automationEvents");
-  const label = s.purpose?.trim() || s.memo?.trim() || "Automation";
-  await recordAutomationEvent({
-    merchantId: s.merchantId, automationId: s.id, sender: s.sender,
-    type: "execution_started",
-    title: "Execution started",
-    detail: s.recipients?.length
-      ? `${label} is now sending to ${s.recipients.length} recipients.`
-      : `${label} is executing now.`,
-    amount: s.amount, token: s.token,
-  }).catch(() => {});
-}
-
 /**
  * Single-recipient path — unchanged behavior, now implemented as one call
  * to executeOnePayment. Does NOT advance nextRun or touch status — the
- * caller (recordRun) decides that.
+ * caller (recordRun) decides that. Nor does it post "Execution started":
+ * each caller (the cron runner, manual Execute Now) posts exactly one, once
+ * per occurrence, before calling in — posting here too sent it twice.
  */
 export async function executeScheduleNow(s: ScheduledPayment, requestId: string): Promise<ScheduleExecutionResult> {
-  await announceExecutionStarted(s);
   return executeOnePayment({
     merchantId: s.merchantId, sender: s.sender, automationId: s.id, requestId,
     amount: s.amount, token: s.token, tokenAddress: s.tokenAddress, tokenDecimals: s.tokenDecimals,
@@ -148,7 +130,6 @@ export interface BulkExecutionResult {
  * nonce/idempotency state that aren't safe to race against themselves.
  */
 export async function executeBulkScheduleNow(s: ScheduledPayment, baseRequestId: string): Promise<BulkExecutionResult> {
-  await announceExecutionStarted(s);
   const recipients = s.recipients ?? [];
   const results: BulkRecipientResult[] = [];
   const batchStartedAt = Date.now();

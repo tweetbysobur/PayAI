@@ -1230,17 +1230,6 @@ export async function understand(
   history: ConversationTurn[],
   pending: Understanding | null,
 ): Promise<Understanding> {
-  return declineScheduling(await understandWithScheduling(text, history, pending));
-}
-
-/** The full understanding, scheduling included — what Ask PayAI did before
- *  scheduling was switched off there. Kept (and tested) so the schedule
- *  parsing stays correct; the app itself only ever calls understand(). */
-export async function understandWithScheduling(
-  text: string,
-  history: ConversationTurn[],
-  pending: Understanding | null,
-): Promise<Understanding> {
   const routed = await routeRequest(text, pending, history);
   logRouterDecision(routed);
   if (!routed.anthropic) return routed.understanding!;
@@ -1251,24 +1240,6 @@ export async function understandWithScheduling(
   } catch {
     return routed.fallback;
   }
-}
-
-/** Ask PayAI's reply to any scheduled or recurring request. */
-export const SCHEDULING_DECLINED_REPLY =
-  "Scheduled and recurring payments aren't available in Ask PayAI right now. I can send it now instead — just ask without the timing. Nothing was prepared.";
-
-/**
- * Ask PayAI does not prepare scheduled or recurring payments (product
- * decision, Oct 2026). Whatever understood the request — the deterministic
- * router or the model — and whether it was complete or still asking for a
- * detail, a scheduling request gets one polite answer and nothing is
- * prepared. Automations themselves are unchanged in the backend.
- */
-export function declineScheduling(u: Understanding): Understanding {
-  const isScheduling = SCHEDULE_KINDS.has(u.kind as AskIntentKind)
-    || ("capability" in u && (u.capability === "schedule_timing" || u.capability === "compound_schedule"));
-  if (!isScheduling) return u;
-  return { kind: "unsupported", outcome: "unsupported", capability: "scheduling_unavailable", reply: SCHEDULING_DECLINED_REPLY };
 }
 
 const SCHEDULE_KINDS = new Set<AskIntentKind>(["schedule_payment", "recurring_payment"]);

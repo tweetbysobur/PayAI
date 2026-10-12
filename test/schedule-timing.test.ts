@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { unreadableTiming, SCHEDULE_RUN_TIME_UTC } from "@/lib/agent/scheduleTiming";
 import { parseScheduleIntent } from "@/lib/agent/brain";
-import { understandWithScheduling as understand } from "@/lib/ask/intent/classify";
+import { understand } from "@/lib/ask/intent/classify";
 import { advanceRun, advanceRunPast, monthlyAnchorDay } from "@/lib/platform/schedules";
 import { localDateInput, localTimeInput } from "@/components/dashboard/AutomationCreator";
 import { fmtRunTime } from "@/components/ask/OperationCard";

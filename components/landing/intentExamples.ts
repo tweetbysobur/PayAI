@@ -67,6 +67,14 @@ export const GUIDE: GuideGroup[] = [
     ],
   },
   {
+    title: "Schedule and automate",
+    body: "Add when it should happen: a day, a date, or how often.",
+    examples: [
+      { say: "Send 200 USDC to john.nad tomorrow", check: { kind: "schedule", cadence: "once" } },
+      { say: "Send 20 USDC to bob.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
+    ],
+  },
+  {
     title: "Rooms",
     body: "Say the total and how many people share it.",
     examples: [{ say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } }],
@@ -83,14 +91,14 @@ export const GUIDE: GuideGroup[] = [
 
 /** The "Start with an intent" examples and the core cards on /product. */
 export const PRODUCT_EXAMPLES: IntentExample[] = [
-  { say: "Send 100 USDC to alice.nad", check: { kind: "plan", actions: 1 } },
+  { say: "Send 100 USDC to alice.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
   { say: "Swap 0.1 MON to USDC", check: { kind: "plan", actions: 1 } },
   { say: "Send 5 USDC each to alice.nad and bob.nad", check: { kind: "plan", actions: 2 } },
   { say: "What's my USDC balance?", check: { kind: "route", intent: "token_balance" } },
 ];
 
 export const CORE_EXAMPLES: Record<"payments" | "trading" | "chain", IntentExample> = {
-  payments: { say: "Send 500 USDC to alice.nad", check: { kind: "plan", actions: 1 } },
+  payments: { say: "Send 500 USDC to alice.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
   trading: { say: "Swap 0.2 MON to USDC", check: { kind: "plan", actions: 1 } },
   chain: { say: "Swap 10 MON to USDC and send it to alice.nad", check: { kind: "plan", actions: 2 } },
 };

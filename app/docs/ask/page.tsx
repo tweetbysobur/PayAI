@@ -25,14 +25,12 @@ export default function AskPage() {
       <DocsSection id="how" index="01" title="How it works">
         <p>
           Examples: <code>send 10 USDC to alice.nad</code>, <code>swap 50 MON to USDC</code>,{" "}
-          <code>swap 10 MON to USDC and send it to alice.nad</code>. Parsing may call an LLM provider (Anthropic).
-          Scheduled and recurring payments aren&apos;t available in Ask PayAI right now — set
-          them up from <Link href="/docs/automations">Automations</Link> in the dashboard.
+          <code>pay the team every Friday</code>. Parsing may call an LLM provider (Anthropic).
           Deterministic facts — what PayAI is, what MON is — are answered locally.
         </p>
         <p>
           Ask PayAI does not get a blanket approval to move funds. Each action still goes through
-          the same payment or swap path as the rest of the dashboard.
+          the same payment, swap, or automation path as the rest of the dashboard.
         </p>
       </DocsSection>
 

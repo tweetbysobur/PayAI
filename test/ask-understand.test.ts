@@ -53,7 +53,7 @@ describe("understand — LLM path", () => {
 
   it("sends the security rules and the pending intent + recent history so a follow-up can be merged", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "swap", outcome: "complete", slots: { fromAsset: "USDC", toAsset: "MON", amount: "20" } }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "swap" as const, outcome: "incomplete" as const, slots: { fromAsset: "USDC", toAsset: "MON", amount: null }, question: "How much USDC?" };
     // A bare number here would be resolved locally by the router (see the
     // "deterministic follow-ups skip Anthropic entirely" describe block
@@ -75,14 +75,14 @@ describe("understand — LLM path", () => {
 
   it("returns exactly the coerced Understanding for a well-formed complete response", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "send_payment", outcome: "complete", slots: { amount: "50", asset: "USDC", recipient: "0x1234567890123456789012345678901234567890" } }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("send 50 usdc to 0x1234567890123456789012345678901234567890", [], null);
     expect(u).toEqual({ kind: "send_payment", outcome: "complete", slots: expect.objectContaining({ amount: "50", asset: "USDC", recipient: "0x1234567890123456789012345678901234567890" }) });
   });
 
   it("passes through an incomplete swap with its clarifying question", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "swap", outcome: "incomplete", slots: { fromAsset: "USDC", toAsset: null, amount: "20" }, question: "What token would you like to receive?" }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("I want to swap 20 USDC.", [], null);
     expect(u.outcome).toBe("incomplete");
     if (u.outcome === "incomplete") expect(u.question).toBe("What token would you like to receive?");
@@ -90,7 +90,7 @@ describe("understand — LLM path", () => {
 
   it("treats a recognized-but-unsupported capability as unsupported, not reinterpreted as a payment or swap", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "unsupported", outcome: "unsupported", capability: "staking", reply: "Staking isn't something PayAI supports yet." }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("Can you stake my MON?", [], null);
     expect(u.outcome).toBe("unsupported");
     if (u.outcome === "unsupported") {
@@ -101,35 +101,35 @@ describe("understand — LLM path", () => {
 
   it("asks a clarifying question instead of guessing when the goal itself is unclear", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "unclear", outcome: "unclear", reply: "What would you like to do with your money — send it, swap it, or something else?" }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("I want to move some money.", [], null);
     expect(u.outcome).toBe("unclear");
   });
 
   it("handles plain conversation without implying any operation", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "chat", outcome: "chat", reply: "I'm Ask PayAI — I can help you send, swap, or schedule payments on Monad." }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("hey what are you", [], null);
     expect(u.outcome).toBe("chat");
   });
 
   it("never trusts a malformed tool call into looking actionable — missing required slots degrade to incomplete with a safe fallback question", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "send_payment", outcome: "complete", slots: {} })); // claims complete but has nothing
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("send it", [], null);
     expect(u.outcome).toBe("incomplete"); // never "complete" without every required slot actually present
   });
 
   it("never trusts an unrecognized/adversarial kind — degrades to unclear with a safe reply", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "execute_transfer_now", outcome: "complete", slots: { amount: "999999", asset: "USDC", recipient: "0xdeadbeef" } }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("do it", [], null);
     expect(u.outcome).toBe("unclear");
   });
 
   it("falls back to the deterministic engine if the API call throws, rather than surfacing a raw error", async () => {
     mockCreate.mockRejectedValue(new Error("network down"));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("send 50 USDC to 0x1234567890123456789012345678901234567890", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("send_payment");
@@ -137,7 +137,7 @@ describe("understand — LLM path", () => {
 
   it("a follow-up ('what about MON?') is sent with the prior balance exchange as context for the model to resolve", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "token_balance", outcome: "complete", slots: { asset: "MON" } }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const history = [
       { role: "user" as const, content: "How much USDC do I have?" },
       { role: "assistant" as const, content: "You have 250 USDC." },
@@ -151,7 +151,7 @@ describe("understand — LLM path", () => {
 
   it("a follow-up ('was that successful?') is sent with the prior transaction reply as context so a txHash can be read back", async () => {
     mockCreate.mockResolvedValue(toolResponse({ kind: "transaction_status", outcome: "complete", slots: { txHash: "0xabc123" } }));
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const history = [
       { role: "user" as const, content: "Show me my latest transaction." },
       { role: "assistant" as const, content: "Here's what I found. Sent 50 USDC. Hash: 0xabc123" },
@@ -184,7 +184,7 @@ describe("understand — LLM path", () => {
     mockCreate.mockResolvedValue(
       toolResponse({ kind: "trade", outcome: "incomplete", slots: { tradeAction: "buy", toAsset: "MONCAT", amount: null, fromAsset: null }, question: "How much would you like to spend on MONCAT, and in what — MON, USDC, or a dollar amount?" }),
     );
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
     const history = [
       { role: "user" as const, content: MONCAT },
@@ -200,7 +200,7 @@ describe("understand — LLM path", () => {
     mockCreate.mockResolvedValue(
       toolResponse({ kind: "trade", outcome: "complete", slots: { tradeAction: "sell", fromAsset: "MONCAT", toAsset: "USDC", amount: "100", amountType: "exact_input" } }),
     );
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
     const u = await understand("Sell 100 of this for USDC", [], pending);
     expect(u.outcome).toBe("complete");
@@ -215,7 +215,7 @@ describe("understand — LLM path", () => {
     mockCreate.mockResolvedValue(
       toolResponse({ kind: "trade", outcome: "complete", slots: { tradeAction: "buy", toAsset: "WETH", fromAsset: "USDC", amount: "20", amountType: "exact_input" } }),
     );
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "token_lookup" as const, outcome: "complete" as const, slots: { tokenAddress: MONCAT } };
     const u = await understand("Actually get WETH instead", [], pending);
     expect(u.outcome).toBe("complete");
@@ -233,67 +233,67 @@ describe("understand — key-free deterministic fallback", () => {
   });
 
   it("still recognizes a clearly-keyworded swap", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("swap 20 USDC to MON", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("swap");
   });
 
   it("asks for the missing amount rather than guessing one", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("Send USDC to 0x1234567890123456789012345678901234567890", [], null);
     expect(u.outcome).toBe("incomplete");
   });
 
   it("recognizes a schedule request and asks only for what's missing", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("schedule 10 USDC to 0x1234567890123456789012345678901234567890 every friday", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("recurring_payment");
   });
 
   it("recognizes a whole-wallet balance check", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("what's my balance", [], null);
     expect(u).toEqual({ kind: "wallet_balance", outcome: "complete", slots: expect.any(Object) });
   });
 
   it("recognizes a single-token balance check as token_balance, not the whole wallet", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("what's my USDC balance?", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") { expect(u.kind).toBe("token_balance"); expect(u.slots.asset).toBe("USDC"); }
   });
 
   it("an unsupported token still classifies as token_balance so it gets an honest 'not tracked' answer, not the whole wallet", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("what's my ETH balance?", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") { expect(u.kind).toBe("token_balance"); expect(u.slots.asset).toBe("ETH"); }
   });
 
   it("recognizes a transaction-status question", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("did my last payment go through?", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("transaction_status");
   });
 
   it("recognizes a 'latest transaction' request as transaction_details", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("show me my latest transaction", [], null);
     expect(u.outcome).toBe("complete");
     if (u.outcome === "complete") expect(u.kind).toBe("transaction_details");
   });
 
   it("is honest that 'how much money is in my wallet' isn't a recognized keyword phrase — the gap the LLM path closes", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("How much money is in my wallet?", [], null);
     expect(u.outcome).toBe("unclear");
   });
 
   it("is honest about not understanding phrasing with no recognizable keyword, rather than misrouting it", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const u = await understand("yo, I need to get MON with my USDC", [], null);
     // No "swap/convert/exchange/trade" keyword and no "send/pay" verb — the
     // key-free engine is honest that it can't place this, rather than
@@ -302,7 +302,7 @@ describe("understand — key-free deterministic fallback", () => {
   });
 
   it("fills the one missing slot from a direct follow-up answer", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "swap" as const, outcome: "incomplete" as const, slots: { fromAsset: "USDC", toAsset: "MON", amount: null }, question: "How much?" };
     const u = await understand("20", [], pending);
     expect(u.outcome).toBe("complete");
@@ -313,7 +313,7 @@ describe("understand — key-free deterministic fallback", () => {
   // recipient/frequency — fromAsset, when, and recipientCount fell through
   // silently and the reply was misread as an unrelated new message.
   it("fills a missing fromAsset from a direct follow-up answer", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "swap" as const, outcome: "incomplete" as const, slots: { fromAsset: null, toAsset: "MON", amount: "20" }, question: "Swap from which token?" };
     const u = await understand("USDC", [], pending);
     expect(u.outcome).toBe("complete");
@@ -321,7 +321,7 @@ describe("understand — key-free deterministic fallback", () => {
   });
 
   it("fills a missing 'when' from a direct follow-up answer", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = {
       kind: "schedule_payment" as const, outcome: "incomplete" as const,
       slots: { amount: "10", asset: "USDC", recipient: "0x1234567890123456789012345678901234567890", when: null },
@@ -333,7 +333,7 @@ describe("understand — key-free deterministic fallback", () => {
   });
 
   it("fills a missing recipientCount from a direct follow-up answer", async () => {
-    const { understandWithScheduling: understand } = await import("@/lib/ask/intent/classify");
+    const { understand } = await import("@/lib/ask/intent/classify");
     const pending = { kind: "distribution" as const, outcome: "incomplete" as const, slots: { amount: "10", asset: "USDC", recipientCount: null }, question: "How many recipients?" };
     const u = await understand("50", [], pending);
     expect(u.outcome).toBe("complete");

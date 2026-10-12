@@ -682,7 +682,10 @@ export async function recordRun(
       detail:
         `The scheduler was behind, so ${skippedByBacklog === 1 ? "1 scheduled payment was" : `${skippedByBacklog} scheduled payments were`} ` +
         `skipped rather than all sent at once. Nothing was paid for ${skippedByBacklog === 1 ? "it" : "them"}. ` +
-        `The next run is ${new Date(row.nextRun).toLocaleString()} — use "Execute Now" if you want to send a missed one deliberately.`,
+        // Not "use Execute Now": that runs the NEXT payment early and moves
+        // the schedule on, so it would skip that one instead of making up a
+        // missed one.
+        `The next run is ${new Date(row.nextRun).toLocaleString()}. To make up a missed payment, send it from Send in Payments & Automations.`,
       amount: row.amount, token: row.token,
     });
   }
