@@ -12,9 +12,10 @@ const LINKS = [
   { href: "/docs/getting-started", title: "Getting started", body: "Connect a wallet and send the first payment." },
   { href: "/docs/payments", title: "Payments", body: "Send MON or any Monad token, including to a .nad name." },
   { href: "/docs/automations", title: "Automations", body: "Wallet Automation vs Reserved Funds, bulk, skip, execute now." },
+  { href: "/docs/trading", title: "Trading", body: "Swap, buy or sell any Monad token by symbol or contract address." },
   { href: "/docs/fees", title: "Fees", body: "PayAI charges fees on sends, automations, split payments, and trades routed through PayAI's trade executor. Trades routed directly to a DEX do not incur a PayAI trade-executor fee." },
   { href: "/docs/ask", title: "Ask PayAI", body: "Describe a payment in English, review it, then sign." },
-  { href: "/docs/sdk", title: "PayAI SDK", body: "Wrap and split actions in Ask PayAI, and how each is checked." },
+  { href: "/docs/sdk", title: "PayAI SDK", body: "Swap, wrap and split actions in Ask PayAI, and how each is checked." },
   { href: "/docs/contracts", title: "Contracts", body: "Live addresses and what each contract is allowed to do." },
   { href: "/security", title: "Security", body: "Keys, custody exceptions, Ultrafuzz, how to report a bug." },
 ];

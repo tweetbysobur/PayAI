@@ -5,7 +5,7 @@ import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
   title: "PayAI SDK · PayAI Docs",
-  description: "The protocol actions Ask PayAI can run on Monad, how each one is checked before you sign, and what the SDK is not.",
+  description: "The actions Ask PayAI can run on Monad — swap, wrap, split — how each one is checked before you sign, and what the SDK is not.",
 };
 
 const TOC = [
@@ -30,7 +30,7 @@ export default function SdkPage() {
     <DocsChrome
       kicker="Developers"
       title="PayAI SDK."
-      lede="The layer that lets Ask PayAI run specific on-chain protocol actions — wrapping MON and splitting a payment — with every transaction checked before your wallet sees it."
+      lede="The layer that lets Ask PayAI run specific on-chain actions — swapping MON and USDC, wrapping MON and splitting a payment — with every transaction checked before your wallet sees it."
       toc={TOC}
     >
       <DocsSection id="what" index="01" title="What it is">
@@ -51,6 +51,11 @@ export default function SdkPage() {
         <DocsTable
           headers={["Action", "What it does", "Try in Ask PayAI"]}
           rows={[
+            [
+              "Swap",
+              "Swap MON ⇄ USDC through PayAI's trade executor, as a step of a plan.",
+              <code key="sw">swap 10 MON to USDC and send it to 0x…</code>,
+            ],
             ["Wrap MON", "Wrap native MON into WMON, 1:1.", <code key="w">wrap 1 MON</code>],
             ["Unwrap WMON", "Unwrap WMON back into native MON, 1:1.", <code key="u">unwrap 1 WMON</code>],
             [
@@ -60,6 +65,14 @@ export default function SdkPage() {
             ],
           ]}
         />
+        <p>
+          <strong>Swap</strong> is the trade step inside a multi-step plan, so a swap can feed a
+          send in the same request. It covers MON → USDC and USDC → MON, exact input, and only
+          through PayAI&apos;s trade executor: a route the executor can&apos;t take is refused here,
+          never silently sent elsewhere. Trading any other Monad token — by symbol or contract
+          address, on Uniswap, Kuru or Nad.Fun — uses PayAI&apos;s trading engine directly; see{" "}
+          <Link href="/docs/trading">Trading</Link>.
+        </p>
         <p>
           These actions are offered on Monad mainnet. Split payment is only available where the
           Split Settlement contract is deployed, which is Monad mainnet. An action that
@@ -163,6 +176,7 @@ export default function SdkPage() {
         <DocsTable
           headers={["Action", "Contract", "Operated by"]}
           rows={[
+            ["Swap", <Link key="te" href="/docs/contracts">PayAITradeExecutor (see Contracts)</Link>, "PayAI"],
             ["Wrap / unwrap", explorer("0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A", "wmon"), "WMON (wrapped MON) token"],
             ["Split payment", explorer("0xaC98a844E0F9688EA9758Db05c134b8B4BCeAf6F", "split"), "PayAI (SplitSettlement)"],
           ]}
@@ -177,13 +191,15 @@ export default function SdkPage() {
           A split payment carries PayAI&apos;s standard 0.25% platform fee, added on top of the
           recipients&apos; total so each recipient receives exactly their amount. It is paid to
           PayAI&apos;s treasury as one extra leg of the same transaction, and shown before you
-          sign. Wrap and unwrap carry no platform fee. You pay Monad gas for each transaction
+          sign. A swap pays the trade executor&apos;s fee (0.25%), also added on top, so the amount
+          you set is swapped in full. Wrap and unwrap carry no platform fee. You pay Monad gas for each transaction
           you sign, including any approval. See <Link href="/docs/fees">Fees</Link>.
         </p>
       </DocsSection>
 
       <DocsSection id="limits" index="07" title="Limits">
         <ul>
+          <li>A swap step is MON ⇄ USDC only, exact input, at the trading engine&apos;s 0.5% slippage. To set your own slippage or trade another token, trade on its own — see <Link href="/docs/trading">Trading</Link>.</li>
           <li>A split takes 2–9 recipients per transaction, each one only once. The contract&apos;s tenth slot carries the platform fee.</li>
           <li>From Ask PayAI, a split is in MON or USDC, and runs once — scheduled splits aren&apos;t supported.</li>
           <li>There is no public HTTP API or package for these actions.</li>

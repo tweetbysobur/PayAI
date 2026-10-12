@@ -30,6 +30,7 @@ export const DOCS_NAV: DocsNavGroup[] = [
       { href: "/docs", label: "Overview", exact: true },
       { href: "/docs/getting-started", label: "Getting started" },
       { href: "/docs/payments", label: "Payments" },
+      { href: "/docs/trading", label: "Trading" },
       { href: "/docs/automations", label: "Automations" },
       { href: "/docs/fees", label: "Fees" },
       { href: "/docs/ask", label: "Ask PayAI" },

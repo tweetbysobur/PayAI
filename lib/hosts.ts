@@ -46,6 +46,7 @@ export function isMarketingPath(pathname: string): boolean {
 const DOCS_SLUGS = new Set([
   "getting-started",
   "payments",
+  "trading",
   "automations",
   "fees",
   "ask",
