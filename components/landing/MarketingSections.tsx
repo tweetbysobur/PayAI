@@ -4,7 +4,7 @@ import { motion } from "motion/react";
 import {
   Users, Repeat, Landmark, Rocket, HandCoins, Building2,
   Lock, ShieldHalf, Zap, Eye, Undo2, LifeBuoy, Wallet,
-  Coins, Vault, CalendarClock, Fingerprint, PlusCircle, BadgeCheck,
+  Coins, Fingerprint,
   CheckCircle2, Code2, ScrollText,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
@@ -156,66 +156,122 @@ export function FeatureGroupsSection() {
   );
 }
 
-/* ── The 7-stage automation timeline ────────────────────────────────────── */
+/* ── How an automation runs ─────────────────────────────────────────────── */
 
-const STAGES = [
-  { icon: PlusCircle, title: "Create automation", body: "Start from a template or from scratch, and set the recipient.", phase: "setup" as const },
-  { icon: Coins, title: "Choose token", body: "MON or any fungible Monad token. Decimals read from the contract.", phase: "setup" as const },
-  { icon: Vault, title: "Choose execution mode", body: "Wallet Automation keeps funds in your wallet; Reserved Funds sets them aside.", phase: "setup" as const },
-  { icon: CalendarClock, title: "Schedule", body: "One-time, daily, weekly, monthly, or a custom interval, in your timezone.", phase: "setup" as const },
-  { icon: Fingerprint, title: "Wallet verification", body: "You sign the exact terms once. PayAI can never exceed them.", phase: "setup" as const },
-  { icon: Zap, title: "Monad execution", body: "At each scheduled moment the payment fires on Monad Mainnet.", phase: "run" as const },
-  { icon: BadgeCheck, title: "Completed", body: "Settled, recorded, and receipted with a verifiable transaction hash.", phase: "run" as const },
+type Actor = "You" | "PayAI";
+interface Stage { n: string; stage: string; what: string; who: Actor }
+
+/** Every line here is checked against the product: funding modes
+ *  (lib/platform/schedules.ts, AutomationVault), the per-run re-check
+ *  (lib/automation/execute.ts runs validation and risk before each send and
+ *  records a stopped run without sending), and the capped agent wallet
+ *  (PaymentExecutor's on-chain per-transaction and daily caps). */
+const SETUP: Stage[] = [
+  { n: "01", stage: "Recipient", who: "You", what: "Choose who gets paid — a 0x address, a .nad name or a saved payee. Start in Automations, or from a request in Ask PayAI." },
+  { n: "02", stage: "Token and amount", who: "You", what: "MON, USDC or another Monad token, and the amount for each run. Decimals are read from the token contract, never assumed." },
+  { n: "03", stage: "Funding", who: "You", what: "Wallet Automation keeps funds in your wallet; each run draws only what is due. Reserved Funds sets the total aside in the AutomationVault contract, which can only pay that recipient or refund you." },
+  { n: "04", stage: "Schedule", who: "You", what: "One-time, daily, weekly, monthly or every few days, weeks or months — in your own timezone." },
+  { n: "05", stage: "Authorize", who: "You", what: "You sign the exact terms once. The agent wallet that runs it is capped per transaction and per day on-chain, so it cannot spend beyond them." },
+];
+const EVERY_RUN: Stage[] = [
+  { n: "06", stage: "Check", who: "PayAI", what: "Recipient, amount and limits are checked again before anything is sent. A run that fails is stopped, nothing moves, and you are told why." },
+  { n: "07", stage: "Execute", who: "PayAI", what: "The payment is sent on Monad from the capped agent wallet, at the scheduled time." },
+  { n: "08", stage: "Record", who: "PayAI", what: "The run is recorded with its transaction hash and shows up in your History and notifications." },
 ];
 
-export function AutomationTimelineSection() {
+function ActorTag({ who }: { who: Actor }) {
   return (
-    <section id="showcase" className="mx-auto max-w-5xl px-6 py-24 sm:py-28">
-      <motion.div initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }} className="mb-12 text-center">
-        <h2 className={H2}>Automation: one execution mode</h2>
-        <p className={SUB}>When an intent repeats on a schedule, the same lifecycle runs on your behalf. You approve the terms once; PayAI executes within them and proves each run on-chain.</p>
-      </motion.div>
+    <span className={`inline-flex h-6 items-center rounded-full border px-2.5 text-[11px] font-medium ${who === "You" ? "border-primary/40 text-primary-ink" : "border-border text-muted-foreground"}`}>
+      {who}
+    </span>
+  );
+}
 
-      {/* Vertical timeline, not a 4-across row: seven steps don't fit a row
-          without wrapping into an ambiguous reading order, and the sequence
-          IS the content here. */}
-      <ol className="relative mx-auto max-w-2xl">
-        <div aria-hidden className="absolute bottom-10 left-[19px] top-3 w-px bg-gradient-to-b from-primary/40 via-border to-border" />
+function PhaseRows({ label, note, rows }: { label: string; note: string; rows: Stage[] }) {
+  return (
+    <tbody>
+      <tr>
+        <th colSpan={4} scope="colgroup" className="border-t border-border bg-panel/50 px-5 py-3 text-left">
+          <span className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-foreground">{label}</span>
+          <span className="ml-3 text-xs font-normal text-muted-foreground">{note}</span>
+        </th>
+      </tr>
+      {rows.map((r) => (
+        <tr key={r.n} className="border-t border-border align-top">
+          <td className="w-16 px-5 py-4 font-mono text-xs text-primary-ink">{r.n}</td>
+          <th scope="row" className="w-44 px-5 py-4 text-left text-sm font-medium text-foreground">{r.stage}</th>
+          <td className="px-5 py-4 text-sm leading-relaxed text-muted-foreground">{r.what}</td>
+          <td className="w-24 px-5 py-4 text-right"><ActorTag who={r.who} /></td>
+        </tr>
+      ))}
+    </tbody>
+  );
+}
 
-        {STAGES.map((s, i) => {
-          const phaseStart = i === 0 || STAGES[i - 1].phase !== s.phase;
-          return (
-            <li key={s.title}>
-              {phaseStart && (
-                <motion.p
-                  initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
-                  viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.35 }}
-                  className={`relative z-10 ml-[52px] text-[10px] font-semibold uppercase tracking-wider text-muted-foreground ${i === 0 ? "mb-3" : "mb-3 mt-7"}`}
-                >
-                  {s.phase === "setup" ? "One-time setup" : "Repeats on every run"}
-                </motion.p>
-              )}
-              <motion.div
-                initial={{ opacity: 0, x: -8 }} whileInView={{ opacity: 1, x: 0 }}
-                viewport={{ once: true, margin: "-40px" }}
-                transition={{ delay: Math.min(i * 0.06, 0.3), duration: 0.4, ease: "easeOut" }}
-                className="group relative flex gap-4 pb-7 last:pb-0"
-              >
-                <span className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-background text-primary-ink transition-colors duration-200 group-hover:border-primary/60">
-                  <s.icon size={17} />
-                </span>
-                <div className="min-w-0 pt-1.5">
-                  <p className="flex flex-wrap items-baseline gap-x-2 text-sm font-semibold tracking-tight text-foreground">
-                    {s.title}
-                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">Step {i + 1}</span>
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{s.body}</p>
-                </div>
-              </motion.div>
-            </li>
-          );
-        })}
+function PhaseList({ label, note, rows }: { label: string; note: string; rows: Stage[] }) {
+  return (
+    <div>
+      <div className="border-t border-border bg-panel/50 px-4 py-3">
+        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-foreground">{label}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>
+      </div>
+      <ol>
+        {rows.map((r) => (
+          <li key={r.n} className="border-t border-border px-4 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-foreground"><span className="mr-2 font-mono text-xs text-primary-ink">{r.n}</span>{r.stage}</p>
+              <ActorTag who={r.who} />
+            </div>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">{r.what}</p>
+          </li>
+        ))}
       </ol>
+    </div>
+  );
+}
+
+export function AutomationTimelineSection() {
+  const setupNote = "Once, when you create it";
+  const runNote = "Automatically, at every scheduled time";
+  return (
+    <section id="automation" aria-labelledby="automation-title" className="border-t border-border">
+      <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-24">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-end lg:gap-16">
+          <div>
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">Automations</p>
+            <h2 id="automation-title" className="mt-3 text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
+              How a recurring payment runs.
+            </h2>
+          </div>
+          <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
+            You set the terms and sign them once. From then on PayAI carries out each run on schedule — checking it first, never going past the limits you signed — and records every one. You can pause, edit or cancel it at any time; cancelling Reserved Funds returns what was set aside.
+          </p>
+        </div>
+
+        <div className="mt-10 overflow-hidden rounded-xl border border-border">
+          {/* Desktop: one table, two phases. */}
+          <table className="hidden w-full border-collapse md:table">
+            <caption className="sr-only">The stages of a Payment Automation, who carries out each one, and when</caption>
+            <thead>
+              <tr className="text-left">
+                <th scope="col" className="px-5 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Step</th>
+                <th scope="col" className="px-5 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Stage</th>
+                <th scope="col" className="px-5 py-3 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">What happens</th>
+                <th scope="col" className="px-5 py-3 text-right font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Who</th>
+              </tr>
+            </thead>
+            <PhaseRows label="Set up once" note={setupNote} rows={SETUP} />
+            <PhaseRows label="Every run" note={runNote} rows={EVERY_RUN} />
+          </table>
+          {/* Phone: the same rows, stacked. */}
+          <div className="md:hidden">
+            <div className="-mt-px">
+              <PhaseList label="Set up once" note={setupNote} rows={SETUP} />
+            </div>
+            <PhaseList label="Every run" note={runNote} rows={EVERY_RUN} />
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
