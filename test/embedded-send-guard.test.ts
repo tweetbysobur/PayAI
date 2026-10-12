@@ -248,3 +248,31 @@ describe("embedded signing — approval on every signature", () => {
     expect(approvals).toBe(1);
   });
 });
+
+describe("the approval prompt isn't held back by a slow network", () => {
+  it("opens the passkey prompt after a short head start, and still refuses to sign if the slow check then fails", async () => {
+    vi.useFakeTimers();
+    try {
+      balance = 0n; // will fail — but only after a slow RPC
+      const mod = await import("@/lib/monad/browserClient");
+      const slow = vi.spyOn(mod, "getBrowserPublicClient").mockImplementation(async () => ({
+        getBalance: () => new Promise<bigint>((r) => setTimeout(() => r(0n), 5_000)),
+        estimateGas: async () => gasEstimate,
+        estimateFeesPerGas: async () => ({ maxFeePerGas: feePerGas }),
+      }) as never);
+      const before = approvals;
+      const h = await handle();
+      const p = h.sendTransaction({ to: "0x2222222222222222222222222222222222222222" });
+      p.catch(() => {});
+      await vi.advanceTimersByTimeAsync(500);
+      expect(approvals - before, "prompt must open without waiting 5 s for the RPC").toBe(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(p).rejects.toThrow(/no MON yet/i);
+      expect(sent).toHaveLength(0);
+      expect(endedSessions.length).toBeGreaterThan(0);
+      slow.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

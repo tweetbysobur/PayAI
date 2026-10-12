@@ -99,8 +99,19 @@ function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
       // something — hits a wallet with zero MON and no way to pay gas. Left
       // unguarded that surfaces as a raw RPC error ("insufficient funds for
       // gas * price + value"), which tells a new user nothing.
-      await assertCanAfford(wallet.address, tx);
+      // The affordability check gets a short head start. If it already knows
+      // the send will fail, no biometric is spent on it. If the network is
+      // slow (several RPC round trips with retries), the passkey prompt opens
+      // anyway and the check finishes while the user approves: waiting it out
+      // delayed the prompt by seconds on mobile networks, long enough for
+      // phone browsers to block a prompt that no longer follows the tap. An
+      // unaffordable transaction is still never signed — the check is awaited
+      // before signing, and the derived key is zeroed.
+      const affordable = assertCanAfford(wallet.address, tx);
+      affordable.catch(() => {}); // awaited below; avoid an unhandled rejection meanwhile
+      await Promise.race([affordable, new Promise<void>((r) => setTimeout(r, AFFORD_HEAD_START_MS))]);
       return approved(async (w) => {
+        await affordable;
         const client = await mera.walletClientFor(w);
         // `chain` is deliberately NOT passed. This is a local (Mera) account,
         // so viem signs the transaction here rather than handing it to a
@@ -135,6 +146,9 @@ function mon(wei: bigint): string {
  * estimate, the send proceeds and the RPC decides — a guard that fails closed
  * on a flaky connection would be worse than the error it replaces.
  */
+/** How long the affordability check may hold the passkey prompt back. */
+export const AFFORD_HEAD_START_MS = 400;
+
 async function assertCanAfford(address: `0x${string}`, tx: UnsignedTx): Promise<void> {
   const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
   const value = tx.value ? BigInt(tx.value) : 0n;

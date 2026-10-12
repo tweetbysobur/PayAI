@@ -15,6 +15,7 @@ import { MonadMark } from "@/components/MonadMark";
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
 import { SignInMark, glassSignInRow } from "@/components/auth/SignInMark";
 import { FirstRunSteps } from "@/components/onboarding/FirstRunSteps";
+import { inAppBrowserName, prfSupport, suggestedBrowser } from "@/lib/wallet-service/passkeyEnvironment";
 
 const CONSENT_KEY = "payai_tos_accepted_v1";
 
@@ -43,6 +44,29 @@ const WHY_POINTS_BASE = [
   "Works across every PayAI workflow",
 ];
 
+/** Tells the user, before they tap, when this browser can't make a passkey
+ *  wallet — and what to open instead. */
+function PasskeyEnvNotice({ env }: { env: { inApp: string | null; browser: string; prf: boolean | null } }) {
+  const msg = env.inApp
+    ? `You're in ${env.inApp}'s built-in browser, where passkeys often don't work. Open this page in ${env.browser} to create or unlock your PayAI Wallet.`
+    : env.prf === false
+      ? `This browser can't create a passkey wallet. Use the latest ${env.browser}, or connect an existing wallet below.`
+      : null;
+  if (!msg) return null;
+  return (
+    <p role="status" className="mt-2 flex items-start gap-1.5 text-pretty text-[11px] leading-relaxed text-warning">
+      <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+      {msg}
+    </p>
+  );
+}
+
+/** Fire-and-forget: wakes the status endpoint so the check that runs between
+ *  a tap and the passkey prompt answers quickly. */
+function warmStatus() {
+  fetch("/api/wallet-service/status", { cache: "no-store" }).catch(() => {});
+}
+
 function AuthFlow() {
   const wallet = useWalletService();
   const router = useRouter();
@@ -56,6 +80,18 @@ function AuthFlow() {
   const [pending, setPending] = useState<string | null>(null);
   const [showWhy, setShowWhy] = useState(false);
   const [newAddress, setNewAddress] = useState<string | null>(null);
+  // Why a passkey might not work in this browser — known before the tap.
+  const [env, setEnv] = useState<{ inApp: string | null; browser: string; prf: boolean | null }>({ inApp: null, browser: "Chrome", prf: null });
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    void prfSupport().then((prf) => setEnv({ inApp: inAppBrowserName(ua), browser: suggestedBrowser(ua), prf }));
+    // Warm the status check the wallet set-up makes before its passkey
+    // prompt. Mobile browsers only allow that prompt shortly after a tap; a
+    // cold server response could outlast that window and the browser would
+    // block the prompt (it then reads as "cancelled").
+    warmStatus();
+  }, []);
   const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
@@ -102,6 +138,17 @@ function AuthFlow() {
         setBlocked(code === "existing-account");
         setError(code === "existing-account" ? (e instanceof Error ? e.message : null) : null);
         setStep("choice");
+        warmStatus();
+        return;
+      }
+      // Creating didn't finish. On phones this is often the browser blocking
+      // the prompt (it reports that the same way as a cancel). Stay on the
+      // create screen so one more tap — now with a warm server — retries it.
+      if (opts?.create && code === "cancelled") {
+        setBlocked(false);
+        setError("The passkey prompt closed before a wallet was created. If you didn't cancel it, your browser may have blocked it — tap “I'm new — create a wallet” again.");
+        setStep("choice");
+        warmStatus();
         return;
       }
       setError(e instanceof Error ? e.message : wallet.error ?? "Couldn't open your wallet. Please try again.");
@@ -243,6 +290,7 @@ function AuthFlow() {
                           This device can&apos;t secure a wallet with a passkey. Connect an existing wallet below.
                         </p>
                       )}
+                      <PasskeyEnvNotice env={env} />
                     </div>
 
                     {/* Social + email — only methods this deployment can
@@ -466,6 +514,8 @@ function AuthFlow() {
                     <p className="mt-3 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-pretty text-xs leading-relaxed text-muted-foreground">
                       A new passkey creates a new, empty wallet. It doesn&apos;t move funds from an old one.
                     </p>
+                    {error && <p role="alert" className="mt-3 text-pretty text-xs leading-relaxed text-danger">{error}</p>}
+                    <PasskeyEnvNotice env={env} />
                   </>
                 )}
                 <button
