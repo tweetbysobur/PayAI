@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowRight, Wallet, Lock, CheckCircle2 } from "lucide-react";
+import { Wallet, Lock, CheckCircle2 } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
 import { AutomationTimelineSection, SecuritySection } from "@/components/landing/MarketingSections";
@@ -61,28 +61,6 @@ export default function HowItWorksPage() {
       style={{ "--font-mono": "var(--font-geist-mono)" } as React.CSSProperties}
     >
       <SiteNav />
-
-      <section className="border-b border-border">
-        <div className="mx-auto max-w-7xl px-5 pb-14 pt-10 sm:px-6 sm:pb-20 sm:pt-16">
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
-            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">How it works</p>
-            <h1 className="mt-4 max-w-3xl text-balance text-[clamp(2.1rem,8vw,3.6rem)] font-medium leading-[0.98] tracking-[-0.045em] text-foreground lg:text-[4.2rem]">
-              Intent in. Verified execution out.
-            </h1>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              You describe what you want. PayAI turns it into a plan, waits for your approval, then carries it out on Monad and checks every result on-chain.
-            </p>
-            <div className="mt-8 grid gap-3 min-[360px]:flex min-[360px]:flex-wrap min-[360px]:items-center">
-              <Link href="/auth" className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                Launch PayAI <ArrowRight size={15} aria-hidden />
-              </Link>
-              <Link href="/intents" className="inline-flex h-12 items-center justify-center rounded-md border border-border px-6 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                How to ask PayAI
-              </Link>
-            </div>
-          </motion.div>
-        </div>
-      </section>
 
       <HowItWorksSteps />
       <CapabilityGrid />
