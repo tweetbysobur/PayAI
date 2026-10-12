@@ -382,7 +382,7 @@ export function AutomationCreator({ open, seed, onClose, onCreated }: { open: bo
                     />
                     <ModeCard
                       selected={fundingMode === "reserved"} disabled={!reservedAvailable}
-                      onSelect={() => setFundingMode("reserved")} badge="Guaranteed Execution" title="Reserved Funds"
+                      onSelect={() => setFundingMode("reserved")} badge="Funds set aside" title="Reserved Funds"
                       description="Set aside funds now, dedicated to this automation, so scheduled payments always go through."
                       pros={["Higher reliability", "Funds already reserved", "Best for important payments"]}
                       note="Reserved funds stay dedicated until spent or released back to you."

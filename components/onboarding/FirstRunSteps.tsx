@@ -40,7 +40,7 @@ const STARTERS: { id: string; name: string; blurb: string; icon: typeof Building
  *  with almost nothing to actually click. These work today. */
 const QUICK_ACTIONS: { id: string; name: string; blurb: string; icon: typeof Send; href: string }[] = [
   { id: "send", name: "Send Payment", blurb: "Pay any wallet or .nad name.", icon: Send, href: "/dashboard/payments" },
-  { id: "swap", name: "Swap Tokens", blurb: "MON ↔ USDC instantly.", icon: ArrowLeftRight, href: "/dashboard/payments" },
+  { id: "swap", name: "Swap Tokens", blurb: "MON ↔ USDC instantly.", icon: ArrowLeftRight, href: "/dashboard/swap" },
   { id: "explore", name: "Explore Dashboard", blurb: "See balances, activity, and more.", icon: LayoutDashboard, href: "/dashboard" },
 ];
 
