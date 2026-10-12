@@ -34,6 +34,7 @@ const GOOD_TO_KNOW = [
   "A swap's output can be sent on when it's USDC. MON received from a swap can't be passed to the next step yet.",
   "Scheduled and recurring payments go in their own message — they can't be combined with other actions yet.",
   "Sends in chat are MON or USDC. Trades work with other Monad tokens too.",
+  "DeFi protocols aren't available from Ask yet — they're coming through partner integrations.",
   "If PayAI can't do something yet — staking or bridging, for example — it says so instead of guessing.",
 ];
 

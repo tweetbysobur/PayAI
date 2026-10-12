@@ -8,11 +8,10 @@ import {
   Repeat2, Wallet, Users, Hash, FileCheck, CheckCircle2, Lock, Eye,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
+import { DOCS_ORIGIN } from "@/lib/hosts";
 import { EXECUTION_VENUES } from "@/components/landing/PlatformOverview";
 import { CORE_EXAMPLES, PRODUCT_EXAMPLES, displayPrompt } from "@/components/landing/intentExamples";
 
-/** The protocols PayAI's own actions call today, besides trading venues. */
-const PROTOCOLS = ["Aave V3", "WMON"] as const;
 
 /**
  * /product's core-positioning sections: PayAI as one natural-language intent
@@ -23,11 +22,10 @@ const PROTOCOLS = ["Aave V3", "WMON"] as const;
  * panels) rather than giving each capability its own distinct card style the
  * way an actual product bundle would.
  *
- * Nothing here claims a capability the codebase doesn't have. Protocol
- * support today is exactly: wrap/unwrap MON (WMON) and supply/withdraw USDC on
- * Aave V3 (lib/sdk/actions/wmon, aave-v3-monad), plus trades through the
- * supported venues. There is no staking, borrowing or bridging, and the
- * protocols section names what exists rather than "supported protocols".
+ * Nothing here claims a capability that isn't offered. No DeFi protocol is
+ * integrated as a partner yet: the DeFi section says integrations are coming
+ * and how a protocol joins (/docs/sdk#integrate) — it names none as live.
+ * Trading covers any Monad token, by its contract address.
  * Every example prompt comes from intentExamples.ts and is checked against the
  * product in test/intent-examples.test.ts.
  */
@@ -77,7 +75,7 @@ function MiniFlow() {
 const CORE_CARDS = [
   { icon: Send, label: "PAYMENTS", intent: displayPrompt(CORE_EXAMPLES.payments.say) },
   { icon: ArrowLeftRight, label: "TRADING", intent: displayPrompt(CORE_EXAMPLES.trading.say) },
-  { icon: Layers, label: "DEFI", intent: displayPrompt(CORE_EXAMPLES.protocols.say) },
+  { icon: Layers, label: "PLANS", intent: displayPrompt(CORE_EXAMPLES.chain.say) },
 ];
 
 export function CoreProductSection() {
@@ -131,7 +129,7 @@ type ExecutionRow =
   | { brand?: false; icon: typeof ShieldCheck; label: string; value: string };
 
 const EXECUTION_ROWS: ExecutionRow[] = [
-  { brand: true, label: "Supported Monad protocol", value: EXECUTION_VENUES.join(" · ") },
+  { brand: true, label: "Supported Monad venue", value: EXECUTION_VENUES.join(" · ") },
   { icon: ShieldCheck, label: "PayAI execution contract", value: "Executes exactly what was approved" },
   { icon: Wallet, label: "User wallet", value: "Signs before anything moves" },
 ];
@@ -220,8 +218,8 @@ export function IntentToExecutionSection() {
 
 const CAPABILITIES = [
   { icon: Send, title: "Payments", body: "Send, schedule and automate transfers, or pay several people at once." },
-  { icon: ArrowLeftRight, title: "Trading", body: "Swap, buy or sell tokens across supported Monad venues." },
-  { icon: Layers, title: "DeFi protocols", body: "Wrap MON, and supply or withdraw USDC on Aave V3. More DeFi protocols are on the way." },
+  { icon: ArrowLeftRight, title: "Trading", body: "Swap, buy or sell any Monad token by its contract address." },
+  { icon: Layers, title: "DeFi protocols", body: "Coming soon, through partner integrations." },
   { icon: Repeat2, title: "Plans", body: "Several actions from one request, reviewed together and run in order." },
   { icon: Users, title: "Rooms", body: "Split a shared cost; each person pays the recipient directly." },
   { icon: Wallet, title: "Wallet & activity", body: "Create or connect a wallet you control, and see every execution verified on-chain." },
@@ -259,7 +257,7 @@ export function CapabilitiesSection() {
   );
 }
 
-/* ── Monad protocols — exactly what's integrated today ───────────────────── */
+/* ── DeFi protocols — coming through partner integrations ────────────────── */
 
 /**
  * Venues are rendered as typographic wordmarks, not logos, and that is a
@@ -278,17 +276,16 @@ export function DeFiSection() {
     <section id="defi" className={SECTION}>
       <div className="mx-auto max-w-2xl px-6 text-center">
         <Head
-          eyebrow="DeFi protocols"
-          title="Use DeFi protocols by saying what you want."
-          body="Today that means wrapping and unwrapping MON, and supplying or withdrawing USDC on Aave V3. Trades route through supported Monad venues. More protocols are added as they're built and tested — never listed ahead of that."
+          eyebrow="DeFi protocols · coming soon"
+          title="DeFi, by intent."
+          body="PayAI is opening to DeFi protocols on Monad through partner integrations. Once a protocol is integrated, its actions become something you can ask for in a sentence — PayAI checks every transaction against what the protocol declared, and your wallet signs it. No protocol is live yet."
         />
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          {[...PROTOCOLS, ...EXECUTION_VENUES].map((v) => (
-            <span key={v} className="rounded-full border border-border bg-input/50 px-3 py-1.5 text-xs font-medium text-foreground">
-              {v}
-            </span>
-          ))}
-        </div>
+        <a
+          href={`${DOCS_ORIGIN}/sdk#integrate`}
+          className="inline-flex items-center gap-1.5 rounded-sm text-sm font-medium text-primary-ink transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          Integrate your protocol <ArrowRight size={14} aria-hidden />
+        </a>
       </div>
     </section>
   );

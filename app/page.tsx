@@ -34,7 +34,7 @@ const LAUNCH = "/auth";
 
 const FAQS = [
   { q: "What is PayAI?", a: "PayAI turns what you want done into onchain execution on Monad. You describe the outcome in plain language; PayAI turns it into a plan you can review, approve and execute with your wallet." },
-  { q: "What can I ask it to do today?", a: "Send MON or USDC to an address, a .nad name or a saved payee; pay several people at once; trade Monad tokens; chain several actions into one plan; schedule or automate transfers; split a cost in a Room; wrap MON or supply USDC to Aave V3; and ask about your balances and activity. The How to ask page has examples of each." },
+  { q: "What can I ask it to do today?", a: "Send MON or USDC to an address, a .nad name or a saved payee; pay several people at once; trade any Monad token by its contract address; chain several actions into one plan; schedule or automate transfers; split a cost in a Room; and ask about your balances and activity. The How to ask page has examples of each." },
   { q: "What if PayAI misunderstands me?", a: "That's what the review step is for. You see exactly what PayAI understood — every action, amount and recipient, in order — before anything executes. If it's wrong, change it or cancel; nothing has moved." },
   { q: "Who controls my funds?", a: "You do. Actions you start are signed by your own wallet, and PayAI never holds your keys. Payment Automations run from a capped agent wallet, only within the limits you approve when you set them up." },
   { q: "What are the fees?", a: "PayAI charges a 0.25% fee on supported fee-bearing transactions. Network and protocol fees are separate." },
@@ -59,7 +59,7 @@ export default function LandingPage() {
           <SectionTitle eyebrow="What it does" title="One sentence in. Onchain execution out." />
           <div>
             <p className="max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms, and use DeFi protocols — each from a plain-language request you review before anything runs.
+              Send, trade, chain several actions into one plan, schedule and automate, split costs in Rooms — and soon, DeFi protocols — each from a plain-language request you review before anything runs.
             </p>
             <ul className="mt-6 flex flex-wrap gap-2" aria-label="Capabilities">
               {CAPABILITIES.map((c) => (

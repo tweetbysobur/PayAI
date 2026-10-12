@@ -16,6 +16,7 @@ const TOC = [
   { id: "contracts", title: "Contracts involved" },
   { id: "fees", title: "Fees" },
   { id: "limits", title: "Limits" },
+  { id: "integrate", title: "Integrate your protocol" },
 ];
 
 const explorer = (address: string, key: string) => (
@@ -40,9 +41,9 @@ export default function SdkPage() {
           <Link href="/docs/ask">Ask PayAI</Link> uses it when you ask for one of the actions below.
         </p>
         <DocsCallout tone="note" title="Not a published package">
-          The SDK runs inside PayAI. There is no package to install and no way for another
-          project to register a protocol with it yet. This page describes what it does for you
-          as a PayAI user, and what it checks — not a library you can build against.
+          The SDK runs inside PayAI. There is no package to install and no self-serve
+          registration: a DeFi protocol joins through a partner integration that PayAI reviews
+          and ships. See <a href="#integrate">Integrate your protocol</a>.
         </DocsCallout>
       </DocsSection>
 
@@ -186,8 +187,47 @@ export default function SdkPage() {
           <li>A split takes 2–9 recipients per transaction, each one only once. The contract&apos;s tenth slot carries the platform fee.</li>
           <li>From Ask PayAI, a split is in MON or USDC, and runs once — scheduled splits aren&apos;t supported.</li>
           <li>There is no public HTTP API or package for these actions.</li>
-          <li>Other projects can&apos;t add their own protocols yet.</li>
+          <li>Other protocols are added only through a reviewed partner integration — see below. None is live yet.</li>
         </ul>
+      </DocsSection>
+      <DocsSection id="integrate" index="08" title="Integrate your protocol">
+        <p>
+          DeFi protocols on Monad can integrate with PayAI so their users can run them from a
+          single sentence in Ask PayAI. Integration is a partnership: you describe your
+          protocol&apos;s actions, PayAI reviews and implements the adapter, and nothing is
+          offered to users until it has been tested and shipped. No DeFi protocol is live yet.
+        </p>
+
+        <h3>What your integration declares</h3>
+        <DocsTable
+          headers={["Part", "What it is"]}
+          rows={[
+            ["Protocol", "An id, a name, the chain (Monad mainnet, 143) and every contract address it may ever call."],
+            ["Actions", "Each action — supply, withdraw, stake, and so on — with an id and an exact version. A version change is a new action, never a silent upgrade."],
+            ["Inputs", "A typed schema for each action: amount, token, address, number, text or a list. Nothing untyped."],
+            ["Quote", "What the user sees before anything is built: a one-line summary and the details that matter (rate, what they receive)."],
+            ["Build", "The unsigned transactions for the action, plus any token approval it needs (token, spender, exact amount)."],
+            ["Result", "How to read the outcome from the confirmed receipt's events, so the user sees what actually happened, not the quote."],
+          ]}
+        />
+
+        <h3>What PayAI enforces</h3>
+        <ul>
+          <li><strong>Allowlisted contracts.</strong> A built transaction that calls anything outside the declared addresses is refused in full.</li>
+          <li><strong>Exact approvals.</strong> An approval is for this action&apos;s exact amount, to a declared contract. Never unlimited.</li>
+          <li><strong>Pinned chain and version.</strong> An action runs only on its chain, and only at the version the user previewed.</li>
+          <li><strong>Fixed matching.</strong> Requests are matched to an action by fixed rules. The AI model never chooses a protocol, a contract or an amount.</li>
+          <li><strong>The user signs.</strong> Every transaction is signed by the user&apos;s own wallet, after they review it.</li>
+          <li><strong>Verified results.</strong> What the user is told comes from the confirmed transaction on Monad.</li>
+        </ul>
+
+        <h3>How to apply</h3>
+        <ol>
+          <li>Email <a href="mailto:support@usepayai.xyz?subject=Protocol%20integration">support@usepayai.xyz</a> with the subject <em>Protocol integration</em>.</li>
+          <li>Include your contracts (verified on the Monad explorer), the actions you want users to run, and any audits.</li>
+          <li>PayAI reviews the contracts and actions, builds the adapter and tests it against Monad.</li>
+          <li>Once it ships, your actions appear in Ask PayAI with the exact wording users can say.</li>
+        </ol>
       </DocsSection>
     </DocsChrome>
   );

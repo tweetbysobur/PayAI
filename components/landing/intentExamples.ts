@@ -53,7 +53,7 @@ export const CAPABILITIES: Capability[] = [
   {
     id: "trade",
     name: "Trade",
-    body: "Swap, buy or sell Monad tokens on supported venues, with the quote shown before you sign.",
+    body: "Swap, buy or sell any Monad token — paste its contract address (CA) and say what to trade. The quote is shown before you sign.",
     examples: [{ say: "Swap 100 USDC to MON", check: { kind: "plan", actions: 1 } }],
   },
   {
@@ -82,9 +82,9 @@ export const CAPABILITIES: Capability[] = [
   },
   {
     id: "protocols",
-    name: "DeFi protocols",
-    body: "Wrap and unwrap MON, and supply or withdraw USDC on Aave V3. More DeFi protocols are on the way.",
-    examples: [{ say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } }],
+    name: "DeFi protocols — coming soon",
+    body: "DeFi protocols on Monad will integrate with PayAI as partners. Once a protocol is integrated, you use it by saying what you want; PayAI checks the transaction and your wallet signs it.",
+    examples: [],
   },
   {
     id: "wallet",
@@ -120,7 +120,7 @@ export const GUIDE: GuideGroup[] = [
   },
   {
     title: "Trade",
-    body: "Swap between tokens, or buy and sell by amount, dollar value or share of your balance.",
+    body: "Swap between tokens, or buy and sell by amount, dollar value or share of your balance. For any other Monad token, paste its contract address (CA) first, then say what to trade — \u201Cbuy $20 of it\u201D.",
     examples: [
       { say: "Swap 100 USDC to MON", check: { kind: "plan", actions: 1 } },
       { say: "Buy $20 of MON with USDC", check: { kind: "route", intent: "trade" } },
@@ -149,15 +149,6 @@ export const GUIDE: GuideGroup[] = [
     examples: [{ say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } }],
   },
   {
-    title: "DeFi protocols",
-    body: "Wrap MON, or put USDC to work on Aave V3. More protocols are on the way.",
-    examples: [
-      { say: "Wrap 1 MON", check: { kind: "route", intent: "protocol_action" } },
-      { say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
-      { say: "Withdraw 5 USDC from Aave", check: { kind: "route", intent: "protocol_action" } },
-    ],
-  },
-  {
     title: "Ask about your wallet",
     body: "Questions are answered from your own wallet and history. Nothing is prepared.",
     examples: [
@@ -184,10 +175,10 @@ export const PRODUCT_EXAMPLES: IntentExample[] = [
   { say: "What's my USDC balance?", check: { kind: "route", intent: "token_balance" } },
 ];
 
-export const CORE_EXAMPLES: Record<"payments" | "trading" | "protocols", IntentExample> = {
+export const CORE_EXAMPLES: Record<"payments" | "trading" | "chain", IntentExample> = {
   payments: { say: "Send 500 USDC to alice.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
   trading: { say: "Swap 0.2 MON to USDC", check: { kind: "plan", actions: 1 } },
-  protocols: { say: "Supply 10 USDC to Aave", check: { kind: "route", intent: "protocol_action" } },
+  chain: { say: "Swap 10 MON to USDC and send it to alice.nad", check: { kind: "plan", actions: 2 } },
 };
 
 
