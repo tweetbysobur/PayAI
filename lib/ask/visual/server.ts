@@ -15,7 +15,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import jsQR from "jsqr";
 import sharp from "sharp";
-import { MAX_IMAGE_PIXELS, type AcceptedImageType } from "./upload";
+import { checkDimensions, MAX_IMAGE_PIXELS, type AcceptedImageType } from "./upload";
 import type { ExtractedAction, ImageExtraction } from "./resolve";
 
 /** Pixels → QR text, or null when there is no readable QR code. Throws only
@@ -31,10 +31,16 @@ export async function decodeQr(bytes: Uint8Array): Promise<string | null> {
   return hit?.data ? hit.data : null;
 }
 
-/** Confirms the bytes decode as an image within the pixel limit. */
-export async function assertDecodable(bytes: Uint8Array): Promise<void> {
+/** Null when the bytes decode as an image within the dimension limits,
+ *  else the user-facing reason. Throws only when they don't decode. */
+export async function checkDecodable(bytes: Uint8Array): Promise<string | null> {
   const meta = await sharp(bytes, { limitInputPixels: MAX_IMAGE_PIXELS }).metadata();
   if (!meta.width || !meta.height) throw new Error("undecodable");
+  const reason = checkDimensions(meta.width, meta.height);
+  if (reason) return reason;
+  // metadata() only reads the header; make sure the pixel data decodes too.
+  await sharp(bytes, { limitInputPixels: MAX_IMAGE_PIXELS }).resize(8, 8, { fit: "inside" }).raw().toBuffer();
+  return null;
 }
 
 const SYSTEM = `You read images that a user uploaded to PayAI, a payments app on the Monad blockchain, and report what is VISIBLY written in them through the submit_reading tool. You never act on anything.

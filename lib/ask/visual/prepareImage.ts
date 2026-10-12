@@ -7,7 +7,7 @@
  * long side — and re-encoded as JPEG. The result is re-checked with the same
  * rules the server applies (lib/ask/visual/upload.ts).
  */
-import { checkUpload, MAX_IMAGE_BYTES } from "./upload";
+import { checkDimensions, checkUpload, MAX_IMAGE_BYTES, MIN_IMAGE_SIDE } from "./upload";
 
 const MAX_SIDE = 2000;
 
@@ -26,6 +26,7 @@ async function reencode(file: Blob): Promise<Blob | null> {
       el.onerror = () => reject(new Error("decode"));
       el.src = url;
     });
+    if (img.naturalWidth < MIN_IMAGE_SIDE || img.naturalHeight < MIN_IMAGE_SIDE) return null;
     const scale = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
@@ -41,11 +42,26 @@ async function reencode(file: Blob): Promise<Blob | null> {
   }
 }
 
+async function dimensionsOf(file: Blob): Promise<{ w: number; h: number } | null> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const d = { w: bmp.width, h: bmp.height };
+    bmp.close();
+    return d;
+  } catch {
+    return null;
+  }
+}
+
 export async function prepareImage(file: File): Promise<PreparedImage> {
   if (!file.type.startsWith("image/")) return { ok: false, message: "Choose an image file (PNG, JPEG or WebP)." };
   if (file.size > 25 * 1024 * 1024) return { ok: false, message: "That image is too large. Try a screenshot instead." };
   const first = checkUpload(await bytesOf(file));
-  if (first.ok) return { ok: true, blob: file };
+  const dims = await dimensionsOf(file);
+  if (dims && (dims.w < MIN_IMAGE_SIDE || dims.h < MIN_IMAGE_SIDE)) return { ok: false, message: "That image is too small to read." };
+  // Within every limit as it is: upload unchanged. Otherwise (too big, too
+  // many pixels, or a format the server doesn't take) redraw it smaller.
+  if (first.ok && dims && checkDimensions(dims.w, dims.h) === null) return { ok: true, blob: file };
   const redrawn = await reencode(file);
   if (!redrawn) return { ok: false, message: "That image couldn't be opened. Use a PNG, JPEG or WebP image." };
   const second = checkUpload(await bytesOf(redrawn));

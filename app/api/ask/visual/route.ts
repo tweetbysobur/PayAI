@@ -55,9 +55,10 @@ export async function POST(req: NextRequest) {
   if (rawCaption.length > MAX_INPUT_LENGTH) return fail(400, "caption_too_long", `Keep the caption to ${MAX_INPUT_LENGTH} characters.`);
   const caption = rawCaption ? sanitizeInput(rawCaption) : "";
 
-  const { assertDecodable, decodeQr, extractFromImage } = await import("@/lib/ask/visual/server");
+  const { checkDecodable, decodeQr, extractFromImage } = await import("@/lib/ask/visual/server");
   try {
-    await assertDecodable(bytes);
+    const reason = await checkDecodable(bytes);
+    if (reason) return fail(422, "bad_dimensions", reason);
   } catch {
     return fail(415, "undecodable", "That file couldn't be read as an image.");
   }

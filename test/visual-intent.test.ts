@@ -8,7 +8,7 @@ import {
   applyVisualAddress, readCaption, resolveVisualIntent,
   type ExtractedAction, type ImageExtraction, type VisualResolution,
 } from "@/lib/ask/visual/resolve";
-import { assertDecodable, coerceExtraction, decodeQr, extractFromImage, type VisionClient } from "@/lib/ask/visual/server";
+import { checkDecodable, coerceExtraction, decodeQr, extractFromImage, type VisionClient } from "@/lib/ask/visual/server";
 import { parseIntent } from "@/lib/plan-adapter/grammar";
 import { toPlanText, matchPlanRequest } from "@/lib/ask/planFastPath";
 
@@ -78,7 +78,7 @@ describe("upload validation", () => {
   it("a file with image magic bytes but a broken body fails decoding", async () => {
     const fake = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5]);
     expect(checkUpload(fake).ok).toBe(true);
-    await expect(assertDecodable(fake)).rejects.toThrow();
+    await expect(checkDecodable(fake)).rejects.toThrow();
   });
 });
 

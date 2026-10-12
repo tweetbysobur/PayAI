@@ -783,7 +783,14 @@ export function useAskChat(options?: { persist?: boolean }) {
     const v = res.resolution;
     visualAddressRef.current = v.kind === "clarify" && v.address ? v.address : null;
     if (v.kind !== "intent") { say(v.reply); return true; }
-    say(`${v.found.length ? `Here's what I read:\n${v.found.map((f) => `• ${f}`).join("\n")}\n\n` : ""}Preparing this for your review: “${v.text}”. Check every detail before you approve — if anything is wrong, cancel and type the correct request.`);
+    const fromImageText = v.found.some((f) => /from the (image text|invoice)$/.test(f));
+    say([
+      v.found.length ? `Here's what I read:\n${v.found.map((f) => `• ${f}`).join("\n")}` : "",
+      `Network: Monad`,
+      `Preparing this for your review: “${v.text}”.`,
+      fromImageText ? "Details read from image text are read by AI and can be wrong — check the recipient address character by character." : "",
+      "Nothing moves until you approve the plan and your wallet signs. If anything is wrong, cancel it and type the correct request.",
+    ].filter(Boolean).join("\n\n"));
     const history: ConversationTurn[] = [...messages, userMsg].slice(-7)
       .map((m) => ({ role: m.role, content: m.content }))
       .concat({ role: "user", content: v.text });

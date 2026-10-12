@@ -152,6 +152,31 @@ function missingReply(found: string[], missing: string[], example: string): stri
   return `${head}${found.length ? "\n" + found.map((f) => `• ${f}`).join("\n") : ""}\n\nI still need ${missing.join(" and ")}. Reply with the full request — for example “${example}” — and I'll prepare it for your review. Nothing was prepared.`;
 }
 
+/* ── deterministic red flags ─────────────────────────────────────────── */
+
+/** Wording that tries to steer PayAI rather than describe a payment. Checked
+ *  in code on every extracted field, so it holds even if the model was
+ *  manipulated into not flagging it. */
+const INJECTION_RE = /\b(ignore|disregard|override|bypass|skip|without)\b.{0,40}\b(instruction|rule|polic|confirm|approv|review|check|limit|security|prompt)|\b(system prompt|you are now|auto-?approve|pre-?approved|already approved|no confirmation|developer mode|jailbreak)\b|\b(approve|confirm|sign|execute)\s+(this|it|automatically|immediately|now)\b/i;
+/** "All funds", "max", "entire balance"… — never derived from an image. */
+const DRAIN_RE = /\b(all|max(imum)?|entire|everything|whole|full)\b.{0,20}\b(funds?|balance|tokens?|wallet|money|holdings|usdc|mon)?\b|\b100\s*%|\bbalance\b/i;
+
+function fieldsOf(img: ImageExtraction): string[] {
+  const out: string[] = [...img.addresses];
+  for (const a of img.actions) out.push(...[a.amount, a.token, a.toToken, a.recipient].filter((x): x is string => !!x));
+  if (img.invoice) out.push(...Object.values(img.invoice).filter((x): x is string => !!x));
+  return out;
+}
+
+/** True when any extracted field carries steering wording or asks to move
+ *  everything. */
+export function imageLooksManipulative(img: ImageExtraction): boolean {
+  const fields = fieldsOf(img);
+  if (fields.some((f) => INJECTION_RE.test(f))) return true;
+  const amounts = [...img.actions.map((a) => a.amount), img.invoice?.total ?? null].filter((x): x is string => !!x);
+  return amounts.some((a) => DRAIN_RE.test(a));
+}
+
 /* ── the resolver ────────────────────────────────────────────────────── */
 
 export function resolveVisualIntent(input: VisualInput): VisualResolution {
@@ -159,10 +184,10 @@ export function resolveVisualIntent(input: VisualInput): VisualResolution {
   const cap = readCaption(input.caption);
   const img = input.image;
 
-  if (img?.suspicious) {
+  if (img?.suspicious || (img && imageLooksManipulative(img))) {
     return {
       kind: "blocked", found,
-      reply: "That image contains instructions aimed at PayAI or an assistant. I don't act on instructions inside images. If you want to make a payment, type the request yourself — nothing was prepared.",
+      reply: "That image contains instructions aimed at PayAI or an assistant, or asks to move an unspecified amount such as “all funds”. I don't act on instructions inside images. If you want to make a payment, type the request yourself — nothing was prepared.",
     };
   }
 
