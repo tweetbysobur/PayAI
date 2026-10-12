@@ -19,6 +19,28 @@ export const dynamic = "force-dynamic";
 // four contract calls from RPC on every single request.
 const CACHE_HEADER = "public, s-maxage=8, stale-while-revalidate=30";
 
+/** Per-read time budget, well under the platform limit. */
+const READ_BUDGET_MS = 10_000;
+/** Most recent invoices / merchants returned (each is one RPC read). */
+const MAX_LISTED = 100;
+
+/** The read's value, or `fallback` (and its name in `unavailable`) when it
+ *  fails or takes longer than READ_BUDGET_MS. */
+async function withinBudget<T>(name: string, read: Promise<T>, fallback: T, unavailable: string[]): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), READ_BUDGET_MS); });
+  try {
+    const v = await Promise.race([read, timeout]);
+    if (v === "timeout") { unavailable.push(name); return fallback; }
+    return v as T;
+  } catch {
+    unavailable.push(name);
+    return fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function GET() {
   try {
     const { executorEnabled, getOnchainStats, getOnchainPayments, getOnchainMerchants, getOnchainRequests } =
@@ -32,11 +54,17 @@ export async function GET() {
       return res;
     }
 
+    // Each read gets its own time budget. A slow or rate-limited RPC used to
+    // hold this request until the platform killed it at 300 s — and the
+    // marketing footer calls this route on every page just for the contract
+    // addresses. A read that runs out of time comes back empty and is listed
+    // in `unavailable`; the addresses below never depend on the RPC.
+    const unavailable: string[] = [];
     const [stats, payments, merchants, requests] = await Promise.all([
-      getOnchainStats(),
-      getOnchainPayments(25),
-      getOnchainMerchants(),
-      getOnchainRequests(),
+      withinBudget("stats", getOnchainStats(), null, unavailable),
+      withinBudget("payments", getOnchainPayments(25), [], unavailable),
+      withinBudget("merchants", getOnchainMerchants().then((m) => m.slice(-MAX_LISTED)), [], unavailable),
+      withinBudget("requests", getOnchainRequests(MAX_LISTED), [], unavailable),
     ]);
 
     const res = NextResponse.json({
@@ -64,6 +92,7 @@ export async function GET() {
       payments,
       merchants,
       requests,
+      ...(unavailable.length ? { unavailable } : {}),
       explorerTxBase: explorerTx(""),
     });
     res.headers.set("Cache-Control", CACHE_HEADER);

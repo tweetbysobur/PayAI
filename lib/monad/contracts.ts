@@ -486,13 +486,16 @@ export interface OnchainRequest {
   id: number; merchant: string; amount: number; paid: boolean; paymentId: number; createdAt: number;
 }
 
-export async function getOnchainRequests(): Promise<OnchainRequest[]> {
+/** Payment requests, newest first. `limit` caps how many are read (one RPC
+ *  call each) — reading every request ever made grew without bound. */
+export async function getOnchainRequests(limit = Infinity): Promise<OnchainRequest[]> {
   const executor = getPaymentExecutor();
   if (!executor) return [];
   const pub = getPublicClient();
   const token = getStablecoin();
   const count = Number(await pub.readContract({ address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "requestsCount" }));
-  const ids = Array.from({ length: count }, (_, i) => i);
+  const start = Number.isFinite(limit) ? Math.max(0, count - limit) : 0;
+  const ids = Array.from({ length: count - start }, (_, i) => start + i);
   const rows = await Promise.all(
     ids.map(async (id) => {
       const r = (await pub.readContract({ address: executor, abi: PAYMENT_EXECUTOR_ABI, functionName: "getRequest", args: [BigInt(id)] })) as {

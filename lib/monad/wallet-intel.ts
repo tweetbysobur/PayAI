@@ -106,13 +106,17 @@ async function fetchPaymentEvents(address: `0x${string}`): Promise<WalletPayment
       );
     } catch {
       // Full-range scan failed (RPC block-range limit) — fall back to the most recent ~50k blocks.
+      // Bounded like the full-range scan above: with retries and backoff
+      // these two calls alone could otherwise run for minutes.
       try {
-        const latest = await pub.getBlockNumber();
-        const from = latest > 50_000n ? latest - 50_000n : 0n;
-        return (await pub.getLogs({
-          address: executorAddr, event: event as never, args: { [role]: address } as never,
-          fromBlock: from, toBlock: "latest",
-        })) as unknown as RawLog[];
+        return await withTimeout((async () => {
+          const latest = await pub.getBlockNumber();
+          const from = latest > 50_000n ? latest - 50_000n : 0n;
+          return (await pub.getLogs({
+            address: executorAddr, event: event as never, args: { [role]: address } as never,
+            fromBlock: from, toBlock: "latest",
+          })) as unknown as RawLog[];
+        })(), 8000, [] as RawLog[]);
       } catch {
         return [];
       }

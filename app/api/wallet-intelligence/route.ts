@@ -23,7 +23,16 @@ export async function GET(req: NextRequest) {
     if (!executorEnabled()) {
       return NextResponse.json({ ok: true, configured: false });
     }
-    const data = await getWalletIntelligence(address as `0x${string}`);
+    // An overall budget: a slow or rate-limited RPC used to hold this request
+    // until the platform killed it at 300 s, leaving the page spinning.
+    const { withTimeout } = await import("@/lib/monad/rpcTimeout");
+    const data = await withTimeout(getWalletIntelligence(address as `0x${string}`), 25_000, null);
+    if (!data) {
+      return NextResponse.json(
+        { ok: false, error: "The network is slow to answer right now. Try again in a moment." },
+        { status: 504 },
+      );
+    }
     return NextResponse.json({ ok: true, configured: true, ...data });
   } catch (e) {
     return NextResponse.json(
