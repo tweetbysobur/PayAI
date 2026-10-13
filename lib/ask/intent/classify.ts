@@ -1117,11 +1117,14 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // split or a specific clarification — never a pending-intent merge, never
   // the single-recipient send detector (which would read "send 50 USDC split
   // between A, B and C" as a send of everything to A), and never Anthropic.
-  // A room request is answered by the Rooms API through the room card, never
-  // by the model (lib/ask/intent/roomIntent.ts). Checked before split/compound:
-  // "a room for 100 USDC for 5 people" is one room, not a split.
-  const room = detectRoomRequest(text);
-  if (room) return { route: "actionable_operation", anthropic: false, understanding: room, fallback: room };
+  // Rooms were removed from PayAI. A room request still gets recognised
+  // (lib/ask/intent/roomIntent.ts) — checked before split/compound, since "a
+  // room for 100 USDC for 5 people" is one room, not a split — but only so it
+  // can be answered plainly. Nothing is prepared.
+  if (detectRoomRequest(text)) {
+    const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "rooms_removed", reply: ROOMS_REMOVED_REPLY };
+    return { route: "actionable_operation", anthropic: false, understanding: u, fallback: u };
+  }
 
   const split = await detectSplit(text);
   if (split) return { route: "actionable_operation", anthropic: false, understanding: split, fallback: split };
@@ -1243,6 +1246,10 @@ export async function understand(
 }
 
 const SCHEDULE_KINDS = new Set<AskIntentKind>(["schedule_payment", "recurring_payment"]);
+
+/** Ask PayAI's reply to a request for a Room — a feature that was removed. */
+export const ROOMS_REMOVED_REPLY =
+  "Rooms aren't part of PayAI anymore. To split a cost, send each person's share directly — for example \"send 20 USDC each to alice.nad and bob.nad\". Nothing was prepared.";
 
 /**
  * The model reads the request; it does not get to silently discard a

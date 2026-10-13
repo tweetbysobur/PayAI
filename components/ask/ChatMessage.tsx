@@ -6,7 +6,6 @@ import { RotateCw } from "lucide-react";
 import { AskMark } from "@/components/AskMark";
 import { OperationCard } from "@/components/ask/OperationCard";
 import { PlanCard } from "@/components/ask/PlanCard";
-import { RoomAskCard } from "@/components/ask/RoomAskCard";
 import type { AskMessage } from "@/lib/ask/types";
 
 export function ChatMessageRow({
@@ -34,7 +33,7 @@ export function ChatMessageRow({
   onEditPlan?: (text: string) => void;
 }) {
   const isUser = message.role === "user";
-  const hasCard = !!message.operation || !!message.plan || !!message.room;
+  const hasCard = !!message.operation || !!message.plan;
   if (isUser) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.12 }} className="flex justify-end">
@@ -64,7 +63,6 @@ export function ChatMessageRow({
           />
         )}
         {message.plan && <PlanCard planRef={message.plan} onEdit={onEditPlan} />}
-        {message.room && <RoomAskCard room={message.room} messageId={message.id} />}
       </div>
     </motion.div>
   );

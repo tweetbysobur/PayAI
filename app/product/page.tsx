@@ -89,7 +89,7 @@ export default function ProductPage() {
             Describe it. Review it. Approve it.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            Payments, trading, protocols and Rooms from one natural-language interface on Monad.
+            Payments, trading and protocols from one natural-language interface on Monad.
           </p>
           <div className="mt-8">
             <Link href="/auth" className="inline-flex rounded-lg bg-primary px-6 py-3.5 text-sm font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:bg-primary/90">

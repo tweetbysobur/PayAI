@@ -150,13 +150,6 @@ describe("Ask PayAI uses the same room services", () => {
     expect(detectRoomAction(`join ${id}`)).toEqual({ action: "join", roomId: id });
     expect(detectRoomAction("pay my share")).toEqual({ action: "contribute", roomId: null });
   });
-  it("the Ask escrow card calls the same client functions as the room page and never sends an amount it didn't get typed", () => {
-    const card = readFileSync(new URL("../components/ask/EscrowRoomAskCard.tsx", import.meta.url), "utf8");
-    const page = readFileSync(new URL("../components/rooms/escrow/EscrowRoom.tsx", import.meta.url), "utf8");
-    for (const fn of ["getEscrowRoom", "startEscrowAction", "confirmEscrowAction"]) { expect(card).toContain(fn); expect(page).toContain(fn); }
-    expect(card).toMatch(/startEscrowAction\(id, "contribute", room!\.kind === "target" \? amount\.trim\(\) : undefined\)/);
-    expect(card).not.toMatch(/sendTransaction|signMessage/);
-  });
 });
 
 describe("shared links and onboarding return", () => {
@@ -177,41 +170,3 @@ describe("shared links and onboarding return", () => {
   });
 });
 
-describe("honest copy", () => {
-  it("never claims escrow where there is none, and states the conditions where there is", () => {
-    const direct = readFileSync(new URL("../app/dashboard/rooms/page.tsx", import.meta.url), "utf8");
-    expect(direct).toMatch(/no escrow/);
-    const svc = readFileSync(new URL("../lib/rooms/escrowService.ts", import.meta.url), "utf8");
-    expect(svc).toMatch(/held by the PayAI Room escrow contract — not by PayAI and not by the creator/);
-    expect(svc).toMatch(/full refund \(no fee\)/);
-    const page = readFileSync(new URL("../components/rooms/escrow/EscrowRoom.tsx", import.meta.url), "utf8");
-    expect(page).toMatch(/A pending transaction is never counted/);
-    expect(page).not.toMatch(/guaranteed/i);
-  });
-
-  it("discloses the cancellation policy before contributing, and that anyone may release a completed room to its beneficiary only", () => {
-    const svc = readFileSync(new URL("../lib/rooms/escrowService.ts", import.meta.url), "utf8");
-    expect(svc).toMatch(/The creator can cancel the room at any time before it completes\. Once it has completed, it can't be cancelled\./);
-    expect(svc).toMatch(/anyone can release the payout — it always goes to/);
-    expect(svc).not.toMatch(/isClaimer/);
-    const page = readFileSync(new URL("../components/rooms/escrow/EscrowRoom.tsx", import.meta.url), "utf8");
-    // The contribute form repeats the cancellation policy next to the amount.
-    expect(page).toMatch(/The creator can cancel before the room completes; if that happens, or the deadline passes, you can take your contribution back in full\./);
-    expect(page).toMatch(/you receive nothing and only pay network gas/);
-    const sdk = readFileSync(new URL("../lib/sdk/actions/room-escrow/index.ts", import.meta.url), "utf8");
-    expect(sdk).not.toMatch(/creator or beneficiary/);
-  });
-
-  it("PA-05: the creation form, room page and Ask card state the minimum and the exact-remainder exception", async () => {
-    const { roomMinimumText } = await import("@/lib/rooms/escrowChain");
-    expect([roomMinimumText("USDC"), roomMinimumText("mon"), roomMinimumText("A-USDC")]).toEqual(["0.5 USDC", "1 MON", null]);
-    const form = readFileSync(new URL("../components/rooms/escrow/EscrowCreateForm.tsx", import.meta.url), "utf8");
-    expect(form).toMatch(/Each share must be at least \$\{platformMin\} — PayAI Rooms' minimum contribution\./);
-    expect(form).toMatch(/except the final amount that completes the room/);
-    expect(form).not.toMatch(/placeholder="None"/);
-    const page = readFileSync(new URL("../components/rooms/escrow/EscrowRoom.tsx", import.meta.url), "utf8");
-    expect(page).toMatch(/or exactly the amount still needed, if that's less/);
-    const ask = readFileSync(new URL("../components/ask/EscrowRoomAskCard.tsx", import.meta.url), "utf8");
-    expect(ask).toMatch(/at least \$\{room\.minContribution\} unless it's exactly the amount still needed/);
-  });
-});

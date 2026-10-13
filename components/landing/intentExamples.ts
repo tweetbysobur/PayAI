@@ -75,11 +75,6 @@ export const GUIDE: GuideGroup[] = [
     ],
   },
   {
-    title: "Rooms",
-    body: "Say the total and how many people share it.",
-    examples: [{ say: "Create a room for 100 USDC for 5 people", check: { kind: "route", intent: "room" } }],
-  },
-  {
     title: "Ask about your wallet",
     body: "Questions are answered from your own wallet and history. Nothing is prepared.",
     examples: [

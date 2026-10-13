@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import {
   ArrowRight, Sparkles, ShieldCheck, Send, ArrowLeftRight, Layers,
-  Repeat2, Wallet, Users, Hash, FileCheck, CheckCircle2, Lock, Eye,
+  Repeat2, Wallet, Hash, FileCheck, CheckCircle2, Lock, Eye,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
 import { DOCS_ORIGIN } from "@/lib/hosts";
@@ -16,7 +16,7 @@ import { CORE_EXAMPLES, PRODUCT_EXAMPLES, displayPrompt } from "@/components/lan
 /**
  * /product's core-positioning sections: PayAI as one natural-language intent
  * layer, not a bundle of separate products. Payments, trading, Monad protocols,
- * Rooms and automation are capabilities of the same intent → interpretation → approval
+ * and automation are capabilities of the same intent → interpretation → approval
  * → execution → verification model, not six unrelated tools — so these
  * sections build and reuse ONE shared visual language (stage chips, divided
  * panels) rather than giving each capability its own distinct card style the
@@ -221,7 +221,6 @@ const CAPABILITIES = [
   { icon: ArrowLeftRight, title: "Trading", body: "Swap, buy or sell any Monad token by its contract address." },
   { icon: Layers, title: "DeFi protocols", body: "Coming soon, through partner integrations." },
   { icon: Repeat2, title: "Plans", body: "Several actions from one request, reviewed together and run in order." },
-  { icon: Users, title: "Rooms", body: "Split a shared cost; each person pays the recipient directly." },
   { icon: Wallet, title: "Wallet & activity", body: "Create or connect a wallet you control, and see every execution verified on-chain." },
 ];
 
@@ -232,7 +231,7 @@ export function CapabilitiesSection() {
         <Head
           eyebrow="Built around your intent"
           title="One interface for on-chain actions."
-          body="Payments, trading, protocols, plans and Rooms are capabilities of the same intent layer — reachable from one interface, not separate products."
+          body="Payments, trading, protocols and plans are capabilities of the same intent layer — reachable from one interface, not separate products."
         />
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {CAPABILITIES.map((c, i) => (
