@@ -15,7 +15,9 @@
  *
  * What it shows before quoting is the server's review; "you pay" is an
  * ESTIMATE from PayAI's published rate (GET /api/fees), labelled as one, and
- * only when that rate is positive — otherwise "Shown on the quote". The exact
+ * only when that rate is positive — otherwise "Shown on the quote". A swap
+ * shows what it should return: a live estimate before it runs, the quote it
+ * ran on, then the confirmed amount once it settles. The exact
  * amounts come from the quote, which the user reviews here before anything
  * is signed. Nothing is shown as sent until the runner says so.
  *
@@ -44,6 +46,7 @@ import type { ApprovalSession } from "@/lib/wallet-service/types";
 import { approvalHint, quoteNeedsReview } from "@/lib/plans-client/approval";
 import { RecipientBlock } from "@/components/receipt/ReceiptKit";
 import { formatAmountText, formatDecimal, roundingForLabel } from "@/lib/format/tokenAmount";
+import { swapReceive, type SwapEstimate } from "@/lib/plans-client/swapReceive";
 
 /** Decimals of the tokens a plan can move, for the "you pay" estimate only.
  *  An unknown symbol simply gets no estimate. */
@@ -151,8 +154,59 @@ function RoomEscrowSummary({ step }: { step: Extract<ReviewStepDTO, { action: "r
   );
 }
 
+type SwapStep = Extract<ReviewStepDTO, { action: "swap" }>;
+type PlanNode = PlanViewDTO["nodes"][number];
+
+/**
+ * What a swap is expected to return, before it runs: a live, read-only quote
+ * from the same engine the run quotes with (POST /api/ask/trade — it never
+ * signs or moves anything), refreshed while the card waits. Only for an exact
+ * amount; a swap of "what the previous step returned" can't be priced yet.
+ */
+function useSwapEstimate(step: SwapStep, enabled: boolean): SwapEstimate | null {
+  const [est, setEst] = useState<SwapEstimate | null>(null);
+  const pay = step.pay;
+  const exact = pay.kind === "exact" ? pay : null;
+  const key = exact ? `${exact.decimal}|${exact.symbol}|${step.receiveToken.address ?? step.receiveToken.symbol}|${step.slippageBps}` : null;
+  useEffect(() => {
+    if (!enabled || !exact || !key) return;
+    let live = true;
+    const load = () =>
+      fetch("/api/ask/trade", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          // The engine's convention: spending MON is a "sell", acquiring MON a "buy".
+          action: exact.symbol === "MON" ? "sell" : "buy",
+          inputToken: exact.symbol,
+          outputToken: step.receiveToken.address ?? step.receiveToken.symbol,
+          amount: exact.decimal,
+          amountType: "exact_input",
+          slippage: String(step.slippageBps / 100),
+        }),
+      })
+        .then((r) => r.json())
+        .then((j) => {
+          if (!live || !j?.ok) return;
+          setEst({
+            receive: `${j.receive.amount} ${j.receive.token}`,
+            minimum: j.minimumReceived,
+            total: j.fee?.total ? `${j.fee.total} ${j.fee.token}` : null,
+          });
+        })
+        .catch(() => {});
+    void load();
+    const t = setInterval(() => { if (!document.hidden) void load(); }, 30_000);
+    return () => { live = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the swap's own terms
+  }, [key, enabled]);
+  return enabled ? est : null;
+}
+
 /** A single swap: what goes in, what comes out, the slippage it accepts. */
-function SwapSummary({ step }: { step: Extract<ReviewStepDTO, { action: "swap" }> }) {
+function SwapSummary({ step, node, quoted }: { step: SwapStep; node: PlanNode | undefined; quoted: Readonly<Record<string, string>> | undefined }) {
+  const live = useSwapEstimate(step, !quoted && node?.state !== "confirmed");
+  const out = swapReceive(step, node, quoted, live);
   return (
     <>
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Swap</p>
@@ -164,7 +218,15 @@ function SwapSummary({ step }: { step: Extract<ReviewStepDTO, { action: "swap" }
       <dl className="mt-3 divide-y divide-border/70 border-t border-border/70">
         <Detail label="Network">Monad</Detail>
         <Detail label="Max slippage">{`${(step.slippageBps / 100).toFixed(2)}%`}</Detail>
-        <Detail label="You receive">Shown on the quote</Detail>
+        {out ? (
+          <>
+            <Detail label={out.label} note={out.note}>{out.value}</Detail>
+            {out.minimum && <Detail label="At least">{out.minimum}</Detail>}
+            {out.total && <Detail label="You pay" note="incl. PayAI fee">{out.total}</Detail>}
+          </>
+        ) : (
+          <Detail label="You receive"><span className="text-muted-foreground">{step.pay.kind === "exact" ? "Getting a quote…" : "Shown on the quote"}</span></Detail>
+        )}
       </dl>
     </>
   );
@@ -193,7 +255,16 @@ function Mark({ m }: { m: StepMark }) {
  *  its own state once the plan is under way. Long plans (dozens or hundreds
  *  of actions) get a progress summary and a scrolling list that keeps the
  *  action under way in view — never a card the length of the plan. */
-export function StepList({ review, plan, activeNode, running }: { review: PlanReviewDTO; plan: PlanViewDTO; activeNode: string | null; running: boolean }) {
+/** "→ ≈ 0.86 USDC" for a swap in a list: received once confirmed, else the
+ *  quote it ran on, else a live estimate. */
+function SwapTo({ step, node, quoted }: { step: SwapStep; node: PlanNode | undefined; quoted: Readonly<Record<string, string>> | undefined }) {
+  const live = useSwapEstimate(step, !quoted && node?.state !== "confirmed");
+  const out = swapReceive(step, node, quoted, live);
+  const text = out ? (out.label === "You received" ? `${out.value} received` : out.value) : step.receiveToken.symbol;
+  return <span className="mt-0.5 block text-xs text-muted-foreground [overflow-wrap:anywhere] [font-variant-numeric:tabular-nums]">{`→ ${formatAmountText(text, { round: "down" })}`}</span>;
+}
+
+export function StepList({ review, plan, activeNode, running, quotes = {} }: { review: PlanReviewDTO; plan: PlanViewDTO; activeNode: string | null; running: boolean; quotes?: Readonly<Record<string, Readonly<Record<string, string>>>> }) {
   const n = review.steps.length;
   const width = Math.max(2, String(n).length);
   const num = (i: number) => String(i).padStart(width, "0");
@@ -251,7 +322,8 @@ export function StepList({ review, plan, activeNode, running }: { review: PlanRe
                 <span className="block text-sm text-foreground [overflow-wrap:anywhere]">
                   {s.action === "unsupported" ? <span className="text-warning">{"PayAI can't show this action in full."}</span> : <>{line.verb} <span className="font-medium [font-variant-numeric:tabular-nums]">{line.what}</span></>}
                 </span>
-                {line.to && <span className="mt-0.5 block text-xs text-muted-foreground [overflow-wrap:anywhere]" title={line.toTitle}>{`→ ${line.to}`}</span>}
+                {s.action === "swap" ? <SwapTo step={s} node={node} quoted={quotes[s.nodeId]} />
+                  : line.to && <span className="mt-0.5 block text-xs text-muted-foreground [overflow-wrap:anywhere]" title={line.toTitle}>{`→ ${line.to}`}</span>}
                 {node?.txHash && (
                   <a className="mt-1 inline-block rounded font-mono text-[11px] text-primary-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={`${MONAD_EXPLORER}/tx/${node.txHash}`} target="_blank" rel="noreferrer">
                     {`${node.txHash.slice(0, 10)}…`}<span className="sr-only"> (view transaction)</span>
@@ -361,6 +433,9 @@ export function PlanCard({ planRef, onEdit }: {
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [quote, setQuote] = useState<{ q: QuoteProjection; answer: (d: QuoteDecision) => void } | null>(null);
   const [last, setLast] = useState<OutcomeView | null>(null);
+  // Every quote a step ran on, so the card shows what a swap returns even
+  // when a clean quote went straight on without stopping.
+  const [quotes, setQuotes] = useState<Record<string, Readonly<Record<string, string>>>>({});
 
   const reload = useCallback(async (): Promise<boolean> => {
     const r = await getPlanWithReview(planId);
@@ -442,6 +517,7 @@ export function PlanCard({ planRef, onEdit }: {
           if (e.phase === "waiting_for_quote_review") timingFor(planId)?.mark("quote_ready");
         },
         confirmQuote: (q) => {
+          setQuotes((prev) => ({ ...prev, [q.nodeId]: q.details }));
           // The plan was approved as a whole, so a clean quote goes straight
           // on. One that carries a warning, or anything but low risk, still
           // stops here for the user to see before anything is signed.
@@ -561,9 +637,9 @@ export function PlanCard({ planRef, onEdit }: {
           <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} aria-hidden />
           <span>{status.label}</span>
         </p>
-        {multi ? <StepList review={review} plan={plan} activeNode={activeNode} running={running} />
+        {multi ? <StepList review={review} plan={plan} activeNode={activeNode} running={running} quotes={quotes} />
           : only?.action === "transfer" ? <TransferSummary step={only} bps={bps} />
-          : only?.action === "swap" ? <SwapSummary step={only} />
+          : only?.action === "swap" ? <SwapSummary step={only} node={plan.nodes.find((x) => x.nodeId === only.nodeId)} quoted={quotes[only.nodeId]} />
           : only?.action === "room_escrow" ? <RoomEscrowSummary step={only} />
           : <p className="text-sm text-warning">{"PayAI can't show this action in full, so it can't be approved."}</p>}
         {!multi && plan.nodes[0]?.txHash && (
