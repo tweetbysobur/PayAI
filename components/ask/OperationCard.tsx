@@ -9,7 +9,7 @@ import {
   Coins, ShieldCheck, TrendingUp, AlertTriangle, Lock, RefreshCw, Blocks,
 } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
-import { RecipientBlock, ReceiptTotal } from "@/components/receipt/ReceiptKit";
+import { AmountHero, Eyebrow, RecipientBlock, ReceiptTotal, StatusText, TxLink, type StatusTone } from "@/components/receipt/ReceiptKit";
 import { formatAmountText, roundingForLabel } from "@/lib/format/tokenAmount";
 import { isSafeToRetry } from "@/lib/ask/retryPolicy";
 import {
@@ -107,20 +107,18 @@ const REVIEW_NOUN: Record<Operation["intent"]["kind"], string> = {
   protocol_action: "action",
 };
 
-const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
-  preview: { label: "Preview", tone: "border-border bg-input text-muted-foreground" },
-  ready: { label: "Ready to approve", tone: "border-primary bg-primary text-primary-foreground" },
-  // "Executing"/"Verified" name the intent → plan → review → approve → execute
-  // → verify flow the product is built around. "Verified" is honest for every
-  // success state here: the card only ever reaches it with a confirmed
-  // on-chain transaction hash, which is the verification.
-  confirming: { label: "Executing", tone: "border-primary/30 bg-primary/10 text-primary-ink" },
-  // "Submitted" is neutral/in-progress, NOT the red failure treatment: the
-  // transaction is on-chain (real txHash) and awaiting confirmation — never
-  // a claim that it succeeded, never a claim that it failed.
-  submitted: { label: "Submitted", tone: "border-border bg-input/40 text-muted-foreground" },
-  success: { label: "Verified", tone: "border-success/30 bg-success/10 text-success" },
-  error: { label: "Failed", tone: "border-danger/30 bg-danger/10 text-danger" },
+/** The card's status, said plainly (dot + word, no tinted pill). "Confirmed"
+ *  is honest for every success state here: the card only reaches it with a
+ *  confirmed on-chain transaction hash. "Submitted" is neutral, never a claim
+ *  that it succeeded or failed — the transaction is on-chain, awaiting
+ *  confirmation. */
+const STATUS_TEXT: Record<OperationStatus, { label: string; tone: StatusTone }> = {
+  preview: { label: "Preview", tone: "neutral" },
+  ready: { label: "Ready to approve", tone: "active" },
+  confirming: { label: "Executing", tone: "active" },
+  submitted: { label: "Submitted", tone: "neutral" },
+  success: { label: "Confirmed", tone: "success" },
+  error: { label: "Failed", tone: "danger" },
 };
 
 /** The execution lifecycle as four legible steps, derived ONLY from state
@@ -139,8 +137,7 @@ const STATUS_CHIP: Record<OperationStatus, { label: string; tone: string }> = {
 const EXEC_STEPS = [
   { label: "Request", doneAt: 0 },
   { label: "Signed", doneAt: 2 },
-  { label: "On-chain", doneAt: 3 },
-  { label: "Verified", doneAt: 3 },
+  { label: "Confirmed", doneAt: 3 },
 ] as const;
 
 function ExecutionSteps({ phase }: { phase: number }) {
@@ -234,11 +231,11 @@ export function OperationCard({
   // A created automation isn't a settled single transaction — it's a live
   // schedule — so it gets its own "Active" chip rather than the confirm
   // funnel's "Verified".
-  const chip = operation.automation && status === "success"
-    ? { label: "Active", tone: "border-success/30 bg-success/10 text-success" }
+  const chip: { label: string; tone: StatusTone } = operation.automation && status === "success"
+    ? { label: "Active", tone: "success" }
     : intent.kind === "trade_preview" && isInfo
-    ? { label: "Pre-execution", tone: "border-border bg-input/40 text-muted-foreground" }
-    : isInfo ? { label: "Live", tone: "border-border bg-input text-muted-foreground" } : STATUS_CHIP[status];
+    ? { label: "Quote", tone: "neutral" }
+    : isInfo ? { label: "Live", tone: "neutral" } : STATUS_TEXT[status];
 
   return (
     <motion.div
@@ -251,7 +248,7 @@ export function OperationCard({
           <Icon size={18} />
         </span>
         <p className="flex-1 text-sm font-semibold text-foreground">{title}</p>
-        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${chip.tone}`}>{chip.label}</span>
+        <StatusText tone={chip.tone}>{chip.label}</StatusText>
       </div>
 
       <div className="px-4 py-3">
@@ -859,67 +856,6 @@ function TradePreviewBody({ intent }: { intent: Extract<Operation["intent"], { k
   );
 }
 
-/** What actually happened, in one line — the whole reason this exists is
- *  that a bare tx hash doesn't tell anyone what they just did. Only
- *  payment and swap ever reach "success" with a result (scheduled/
- *  recurring hand off to Automations instead of executing in-chat, and
- *  distribution isn't executable from chat at all yet — see
- *  dispatchDistribution) — every other kind falls through to null and the
- *  card shows just the transaction, which is still honest, just terser. */
-function ResultSummary({ intent }: { intent: Operation["intent"] }) {
-  if (intent.kind === "payment") {
-    return (
-      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <TokenLogo token={intent.token} size={20} />
-        <span className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-lg">{intent.amount}</span>
-        <span className="text-sm font-medium text-muted-foreground">{intent.token}</span>
-        <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate text-sm font-medium text-foreground">
-          {intent.recipientDomain ?? short(intent.recipient)}
-        </span>
-      </div>
-    );
-  }
-  if (intent.kind === "swap") {
-    return (
-      <div className="mb-3 flex items-center justify-center gap-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
-          <TokenLogo token={intent.fromToken} size={18} /> {intent.fromAmount} {intent.fromToken}
-        </span>
-        <ArrowLeftRight size={14} className="shrink-0 text-muted-foreground" />
-        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
-          <TokenLogo token={intent.toToken} size={18} /> ≈ {intent.toAmountEstimate ?? "—"} {intent.toToken}
-        </span>
-      </div>
-    );
-  }
-  if (intent.kind === "trade_preview") {
-    const d = intent.data;
-    return (
-      <div className="mb-3 flex items-center justify-center gap-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
-          <TokenLogo token={d.spend.token} size={18} /> {d.spend.amount} {d.spend.token}
-        </span>
-        <ArrowLeftRight size={14} className="shrink-0 text-muted-foreground" />
-        <span className="flex items-center gap-1.5 text-base font-semibold tracking-tight text-foreground">
-          <TokenLogo token={d.receive.token} size={18} /> ≈ {d.receive.amount} {d.receive.token}
-        </span>
-      </div>
-    );
-  }
-  if (intent.kind === "protocol_action") {
-    const d = intent.data;
-    return (
-      <div className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary-ink"><Blocks size={12} /></span>
-        <span className="text-sm font-semibold text-foreground">{d.protocol.name}</span>
-        <span className="text-sm text-muted-foreground">· {d.action.name}</span>
-      </div>
-    );
-  }
-  return null;
-}
-
 /** The single, opt-in next action offered after a result — never more than
  *  one, never auto-triggered, and only for an action PayAI genuinely
  *  supports from here. After a completed BUY it's "Sell what you received";
@@ -942,64 +878,68 @@ function SuccessFollowUp({ intent, onQuickAction }: { intent: Operation["intent"
   );
 }
 
+/** Past-tense eyebrow for a confirmed result. */
+function doneLabel(intent: Operation["intent"]): string {
+  switch (intent.kind) {
+    case "swap": return "Swapped";
+    case "trade_preview": return intent.data.action === "sell" ? "Sold" : intent.data.action === "buy" ? "Bought" : "Traded";
+    case "protocol_action": return `${intent.data.action.name} · done`;
+    case "distribution": return "Distributed";
+    case "recurring_payment": return "Automation set up";
+    case "scheduled_payment": return "Scheduled";
+    default: return "Sent";
+  }
+}
+
+/** A confirmed result, laid out as a receipt: what moved, to whom, what it
+ *  cost, and the transaction. Everything shown comes from the intent the
+ *  user approved and the confirmed result — nothing is estimated here except
+ *  where the row says so. */
 function SuccessBody({ intent, result, onQuickAction }: { intent: Operation["intent"]; result: NonNullable<Operation["result"]>; onQuickAction?: (text: string) => void }) {
+  const eyebrow = doneLabel(intent);
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/12 text-success"><CheckCircle2 size={18} /></span>
-        <div>
-          <p className="text-sm font-semibold text-foreground">
-            {intent.kind === "swap" ? "Swap complete"
-              : intent.kind === "trade_preview" ? "Trade completed"
-              : intent.kind === "protocol_action" ? `${intent.data.action.name} complete`
-              : intent.kind === "distribution" ? "Distribution sent"
-              : intent.kind === "recurring_payment" ? "Automation created"
-              : intent.kind === "scheduled_payment" ? "Payment scheduled"
-              : "Payment sent"}
-          </p>
-          {/* The verification claim is exactly the evidence we hold and no
-              more: a confirmed transaction on Monad, linked below. Scheduled/
-              recurring don't settle here (they hand off to Automations), so
-              they don't make the on-chain claim. */}
-          <p className="flex items-center gap-1 text-xs text-success">
-            <ShieldCheck size={11} className="shrink-0" />
-            {intent.kind === "scheduled_payment" || intent.kind === "recurring_payment"
-              ? "Set up — runs on-chain on schedule"
-              : "Executed and verified on-chain"}
-          </p>
+      {intent.kind === "payment" || intent.kind === "scheduled_payment" || intent.kind === "recurring_payment" ? (
+        <AmountHero eyebrow={eyebrow} amount={intent.amount} token={intent.token} />
+      ) : intent.kind === "distribution" ? (
+        <AmountHero eyebrow={eyebrow} amount={intent.totalAmount} token={intent.token} />
+      ) : intent.kind === "swap" ? (
+        <AmountHero eyebrow={eyebrow} amount={intent.fromAmount} token={intent.fromToken} />
+      ) : intent.kind === "trade_preview" ? (
+        <AmountHero eyebrow={eyebrow} amount={intent.data.spend.amount} token={intent.data.spend.token} />
+      ) : intent.kind === "protocol_action" ? (
+        <><Eyebrow>{eyebrow}</Eyebrow><p className="mt-1.5 text-base font-semibold text-foreground">{intent.data.protocol.name}</p></>
+      ) : (
+        <Eyebrow>{eyebrow}</Eyebrow>
+      )}
 
-        </div>
-      </div>
-      <ResultSummary intent={intent} />
-      {intent.kind === "trade_preview" && (
-        <div className="mb-2.5 divide-y divide-border/60">
-          <Row label="Route">{intent.data.route.path.join(" → ")}</Row>
-          <Row label="DEX">{intent.data.route.provider}</Row>
-          <Row label="Network">{intent.data.network}</Row>
-        </div>
-      )}
-      {/* CONFIRMED on-chain figures only — result.confirmedDetails comes from
-          the action's own parseResult() over the real, receipt-verified
-          logs (see orchestrate.ts's executeProtocolActionIntent), never from
-          the pre-execution quote (intent.data.details, which this success
-          view deliberately never renders). Absent when parseResult had
-          nothing to report, so nothing is ever invented to fill the gap. */}
-      {intent.kind === "protocol_action" && result.confirmedDetails && Object.keys(result.confirmedDetails).length > 0 && (
-        <div className="mb-2.5 divide-y divide-border/60">
-          {Object.entries(result.confirmedDetails)
-            .filter(([k]) => k !== "status")
-            .map(([k, v]) => (
-              <Row key={k} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
-            ))}
-        </div>
-      )}
-      <div className="divide-y divide-border/60 border-t border-border/60">
+      <div className="mt-3 divide-y divide-border/60 border-t border-border/60">
+        {(intent.kind === "payment" || intent.kind === "scheduled_payment" || intent.kind === "recurring_payment") && (
+          <RecipientBlock domain={intent.recipientDomain} address={intent.recipient} />
+        )}
+        {intent.kind === "swap" && <Row label="Received (est.)">{`${intent.toAmountEstimate ?? "—"} ${intent.toToken}`}</Row>}
+        {intent.kind === "trade_preview" && (
+          <>
+            <Row label="Received (est.)">{`${intent.data.receive.amount} ${intent.data.receive.token}`}</Row>
+            <Row label="Route">{intent.data.route.path.join(" → ")}</Row>
+            <Row label="Venue">{intent.data.route.provider}</Row>
+          </>
+        )}
+        {intent.kind === "protocol_action" && <Row label="Action">{intent.data.action.name}</Row>}
+        {/* CONFIRMED on-chain figures only — result.confirmedDetails comes from
+            the action's own parseResult() over the real, receipt-verified
+            logs (see orchestrate.ts's executeProtocolActionIntent), never from
+            the pre-execution quote (intent.data.details, which this success
+            view deliberately never renders). Absent when parseResult had
+            nothing to report, so nothing is ever invented to fill the gap. */}
+        {intent.kind === "protocol_action" && result.confirmedDetails && Object.entries(result.confirmedDetails)
+          .filter(([k]) => k !== "status")
+          .map(([k, v]) => (
+            <Row key={k} label={k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}>{v}</Row>
+          ))}
+        <Row label="Network">Monad</Row>
         {result.gasFee && <Row label="Network fee">{result.gasFee}</Row>}
-        <Row label="Transaction">
-          <a href={result.explorerUrl} target="_blank" rel="noreferrer" title={result.txHash} className="inline-flex items-center gap-1 font-mono text-[12px] text-primary-ink hover:underline">
-            {`${result.txHash.slice(0, 10)}…${result.txHash.slice(-8)}`} <ExternalLink size={11} aria-hidden />
-          </a>
-        </Row>
+        <Row label="Transaction"><TxLink hash={result.txHash} href={result.explorerUrl} /></Row>
       </div>
       <SuccessFollowUp intent={intent} onQuickAction={onQuickAction} />
     </div>
@@ -1024,29 +964,16 @@ const CADENCE_LABEL: Record<string, string> = { once: "One-time", daily: "Daily"
  *  invented, and this never claims a single settled transaction, because
  *  creating an automation is a signature + approval, not one on-chain send. */
 function AutomationCreatedBody({ automation }: { automation: NonNullable<Operation["automation"]> }) {
+  const cadence = CADENCE_LABEL[automation.cadence] ?? automation.cadence;
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-success/12 text-success"><CheckCircle2 size={18} /></span>
-        <div>
-          <p className="text-sm font-semibold text-foreground">Automation created</p>
-          <p className="flex items-center gap-1 text-xs text-success">
-            <ShieldCheck size={11} className="shrink-0" /> Runs on-chain on your schedule
-          </p>
-        </div>
-      </div>
-      <div className="mb-3 flex items-center gap-2 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <TokenLogo token={automation.token} size={20} />
-        <span className="text-base font-semibold tracking-tight text-foreground [font-variant-numeric:tabular-nums] sm:text-lg">{automation.amount}</span>
-        <span className="text-sm font-medium text-muted-foreground">{automation.token}</span>
-        <ArrowUpRight size={13} className="mx-0.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate text-sm font-medium text-foreground">{automation.domain ?? short(automation.recipient)}</span>
-      </div>
-      <div className="divide-y divide-border/60">
-        <Row label="Frequency">{CADENCE_LABEL[automation.cadence] ?? automation.cadence}</Row>
+      <AmountHero eyebrow="Automation set up" amount={automation.amount} token={automation.token} suffix={automation.cadence === "once" ? undefined : `/ ${cadence.toLowerCase()}`} />
+      <div className="mt-3 divide-y divide-border/60 border-t border-border/60">
+        <RecipientBlock domain={automation.domain} address={automation.recipient} />
+        <Row label="Frequency">{cadence}</Row>
         <Row label="Next run">{fmtDateTime(automation.nextRun)}</Row>
       </div>
-      <Link href="/dashboard/automations" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline">
+      <Link href="/dashboard/automations" className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary-ink hover:underline">
         Manage in Automations <ExternalLink size={11} />
       </Link>
     </div>
@@ -1083,35 +1010,17 @@ function SubmittedBody({
     : "Checking confirmation on Monad…";
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-input text-muted-foreground"><Clock3 size={17} /></span>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-foreground">{headline}</p>
-          <p className="text-xs text-muted-foreground">{subline}</p>
-        </div>
+      <Eyebrow>{headline}</Eyebrow>
+      <p className="mt-1 text-sm text-foreground">{subline}</p>
+      <div className="mt-3 divide-y divide-border/60 border-t border-border/60">
+        {submitted.approvalTx && !approvalPending && (
+          <Row label="Approval · confirmed"><TxLink hash={submitted.approvalTx.txHash} href={submitted.approvalTx.explorerUrl} /></Row>
+        )}
+        <Row label={approvalPending ? "Approval" : noun}><TxLink hash={submitted.txHash} href={submitted.explorerUrl} /></Row>
       </div>
-
-      {submitted.approvalTx && !approvalPending && (
-        <div className="mb-2 rounded-lg border border-success/25 bg-success/[0.06] p-3">
-          <p className="mb-1 text-[11px] text-muted-foreground">Approval transaction · Confirmed</p>
-          <a href={submitted.approvalTx.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-success hover:underline">
-            {submitted.approvalTx.txHash}
-          </a>
-          <p className="mt-1 text-[11px] text-muted-foreground">Already happened — no need to approve again.</p>
-        </div>
-      )}
-
-      <div className="rounded-lg border border-border bg-input/40 p-3">
-        <p className="mb-1 text-[11px] text-muted-foreground">{approvalPending ? "Approval transaction" : `${noun} transaction`}</p>
-        <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-foreground hover:underline">
-          {submitted.txHash}
-        </a>
-      </div>
-      <a href={submitted.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline">
-        View on Monad Explorer <ExternalLink size={11} />
-      </a>
-      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-        It may already be on-chain — we&apos;ll update this once it confirms. No need to resend.
+      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+        {submitted.approvalTx && !approvalPending ? "The approval already happened — no need to approve again. " : ""}
+        It may already be on-chain — this updates once it confirms. No need to resend.
       </p>
     </div>
   );
@@ -1130,26 +1039,17 @@ function ErrorBody({ error, intent }: { error: OperationError; intent: Operation
         <XCircle size={15} className="mt-0.5 shrink-0 text-danger" />
         <p className="text-sm leading-relaxed text-foreground">{error.message}</p>
       </div>
-      {error.approvalTx && (
-        <div className="mt-2 rounded-lg border border-success/25 bg-success/[0.06] p-3">
-          <p className="mb-1 text-[11px] text-muted-foreground">Approval transaction · Confirmed</p>
-          <a href={error.approvalTx.explorerUrl} target="_blank" rel="noreferrer" className="block break-all font-mono text-xs text-success hover:underline">
-            {error.approvalTx.txHash}
-          </a>
-          <p className="mt-1 text-[11px] text-muted-foreground">Already happened — no need to approve again.</p>
+      {(error.approvalTx || (error.txHash && error.explorerUrl)) && (
+        <div className="mt-2 divide-y divide-border/60">
+          {error.approvalTx && (
+            <Row label="Approval · confirmed"><TxLink hash={error.approvalTx.txHash} href={error.approvalTx.explorerUrl} /></Row>
+          )}
+          {error.txHash && error.explorerUrl && (
+            <Row label={error.approvalTx ? noun : "Transaction"}><TxLink hash={error.txHash} href={error.explorerUrl} /></Row>
+          )}
         </div>
       )}
-      {error.txHash && error.explorerUrl && (
-        <div className="mt-2 rounded-lg border border-border bg-input/30 p-3">
-          {error.approvalTx && <p className="mb-1 text-[11px] text-muted-foreground">{noun} transaction</p>}
-          <a
-            href={error.explorerUrl} target="_blank" rel="noreferrer"
-            className="flex items-center gap-1 break-all font-mono text-xs text-primary-ink hover:underline"
-          >
-            {error.approvalTx ? error.txHash : short(error.txHash)} <ExternalLink size={11} className="shrink-0" />
-          </a>
-        </div>
-      )}
+      {error.approvalTx && <p className="mt-1 text-xs text-muted-foreground">The approval already happened — no need to approve again.</p>}
     </div>
   );
 }

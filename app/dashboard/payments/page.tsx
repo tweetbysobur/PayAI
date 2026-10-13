@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  ArrowRight, CheckCircle2, AlertTriangle, Clock3, XCircle,
+  ArrowRight,
   ChevronDown, ShieldCheck, ExternalLink, Wallet as WalletIcon, Loader2,
   Copy, Check, Share2, Fingerprint,
 } from "lucide-react";
@@ -11,7 +11,7 @@ import { Badge, Button, Card, Input } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { PipelineStepper } from "@/components/PipelineStepper";
 import { ConfirmDetails } from "@/components/dashboard/ConfirmDetails";
-import { AmountHero, RecipientBlock, ReceiptRow, ReceiptRows, ReceiptTotal, REVIEW_PRIMARY, REVIEW_SECONDARY } from "@/components/receipt/ReceiptKit";
+import { AmountHero, RecipientBlock, ReceiptRow, ReceiptRows, ReceiptTotal, StatusText, REVIEW_PRIMARY, REVIEW_SECONDARY } from "@/components/receipt/ReceiptKit";
 import { PageHeader } from "@/components/dashboard/primitives";
 import { AskEntry } from "@/components/dashboard/AskEntry";
 import { useAgentConsole, DECISION, friendlyError, phraseSummary } from "@/lib/hooks/useAgentConsole";
@@ -25,14 +25,6 @@ const NEXT_STEP: Record<string, string> = {
   blocked: "This payment did not clear compliance and was not sent.",
   refused: "This payment was declined before settlement.",
   error: "Something interrupted settlement. No funds were moved.",
-};
-
-const STATUS_ICON: Record<string, typeof CheckCircle2> = {
-  executed: CheckCircle2,
-  needs_review: Clock3,
-  blocked: XCircle,
-  refused: XCircle,
-  error: AlertTriangle,
 };
 
 /**
@@ -54,14 +46,6 @@ function maxSendable(available: string | null, token: "MON" | "USDC"): string {
   const spendable = balance - GAS_RESERVE_MON;
   return spendable > 0 ? String(Number(spendable.toFixed(6))) : "0";
 }
-
-const STATUS_COLOR: Record<string, string> = {
-  executed: "text-success bg-success/12",
-  needs_review: "text-warning bg-warning/12",
-  blocked: "text-danger bg-danger/12",
-  refused: "text-danger bg-danger/12",
-  error: "text-muted-foreground bg-input",
-};
 
 export default function Payments() {
   const c = useAgentConsole();
@@ -137,7 +121,6 @@ export default function Payments() {
       await copy(lines, "Receipt copied");
     }
   }
-  const StatusIcon = c.res ? STATUS_ICON[c.res.decision] ?? AlertTriangle : null;
 
   // Reached once the pipeline has a final answer — success or not. From here
   // the only way forward is an explicit "New payment"/"Try again", never an
@@ -379,19 +362,14 @@ export default function Payments() {
             {c.res && !c.pendingConfirm && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
                 <div className="rounded-xl border border-border bg-panel p-5 sm:p-6">
-                  {/* Status — icon, what happened, and the next step if any. */}
-                  <div className="flex items-center gap-3">
-                    <motion.div
-                      initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1, duration: 0.35, ease: "easeOut" }}
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${STATUS_COLOR[c.res.decision] ?? "bg-input text-muted-foreground"}`}
-                    >
-                      {StatusIcon && <StatusIcon size={20} />}
-                    </motion.div>
-                    <div className="min-w-0">
-                      <p className="text-base font-semibold tracking-tight text-foreground">{DECISION[c.res.decision].label}</p>
-                      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
-                    </div>
+                  {/* Status — said plainly: what happened, then the summary. */}
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-base font-semibold tracking-tight text-foreground">{DECISION[c.res.decision].label}</p>
+                    <StatusText tone={c.res.decision === "executed" ? "success" : c.res.decision === "needs_review" ? "neutral" : "danger"}>
+                      {c.res.decision === "executed" ? "Confirmed" : c.res.decision === "needs_review" ? "In review" : "Not sent"}
+                    </StatusText>
                   </div>
+                  <p className="mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">{phraseSummary(c.res.intent.summary, c.res.decision)}</p>
                   {NEXT_STEP[c.res.decision] && <p className="mt-3 text-xs text-muted-foreground">{NEXT_STEP[c.res.decision]}</p>}
                   {c.res.guardrail.violations.length > 0 && <p className="mt-3 text-xs text-danger">{c.res.guardrail.violations.join(" ")}</p>}
 
@@ -422,7 +400,7 @@ export default function Payments() {
                         <>
                           <ReceiptRow label="Payment amount" value={`${c.res.receipt.paymentAmount} ${c.res.receipt.token}`} round="nearest" />
                           <ReceiptRow label="PayAI fee">
-                            <span className={c.res.receipt.platformFee.isFree ? "text-primary-ink" : ""}>{c.res.receipt.platformFee.label}</span>
+                            <span>{c.res.receipt.platformFee.label.replace(/ — verified on-chain$/, "")}</span>
                           </ReceiptRow>
                           {c.res.receipt.recipientReceives && <ReceiptRow label="Recipient received" value={c.res.receipt.recipientReceives} />}
                           {c.res.receipt.gasFee && <ReceiptRow label="Network fee" value={`${c.res.receipt.gasFee} MON`} />}

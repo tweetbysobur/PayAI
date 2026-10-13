@@ -274,7 +274,7 @@ describe("Scenario 8 — the UI renders the submitted state as a clickable, hone
     // Warning and danger are both red now (app/globals.css): either would make
     // a payment that is merely confirming look failed, inviting a retry.
     const chip = src.slice(src.indexOf("submitted:"), src.indexOf("submitted:") + 120);
-    expect(chip).toMatch(/text-muted-foreground/);
+    expect(chip).toMatch(/tone: "neutral"/);
     expect(chip).not.toMatch(/warning|danger|destructive|text-error\b/);
   });
 
@@ -284,7 +284,8 @@ describe("Scenario 8 — the UI renders the submitted state as a clickable, hone
     // hash must be surfaced for the user to click through.
     expect(src).toMatch(/submitted\.explorerUrl/);
     expect(src).toMatch(/submitted\.txHash/);
-    expect(src).toMatch(/Monad Explorer/i);
+    // The hash itself is the explorer link (TxLink opens it in a new tab).
+    expect(src).toMatch(/<TxLink hash=\{submitted\.txHash\} href=\{submitted\.explorerUrl\}/);
   });
 
   it("never labels the submitted state as failed, and never shows the retry/confirm footer for it", () => {

@@ -16,7 +16,7 @@
  * builds a transaction.
  */
 import { useState } from "react";
-import { Check, Copy, ShieldCheck } from "lucide-react";
+import { Check, Copy, ExternalLink, ShieldCheck } from "lucide-react";
 import { TokenLogo } from "@/components/TokenLogo";
 import { formatAmountText, formatDecimal, roundingForLabel, type Rounding } from "@/lib/format/tokenAmount";
 
@@ -134,4 +134,45 @@ export function ReceiptTotal({ label, value, note }: { label: string; value: str
 /** The row list: hairlines between rows. */
 export function ReceiptRows({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <dl className={`divide-y divide-border/70 ${className}`}>{children}</dl>;
+}
+
+export type StatusTone = "neutral" | "active" | "success" | "danger";
+
+const DOT: Record<StatusTone, string> = {
+  neutral: "bg-muted-foreground/60",
+  active: "bg-primary animate-pulse",
+  success: "bg-success",
+  danger: "bg-danger",
+};
+const TEXT: Record<StatusTone, string> = {
+  neutral: "text-muted-foreground",
+  active: "text-foreground",
+  success: "text-foreground",
+  danger: "text-danger",
+};
+
+/**
+ * A status as plain text with a small dot — "● Confirmed", "● Failed". Used
+ * instead of tinted pill badges and check-in-a-circle headers, which read as
+ * decoration rather than a statement of fact.
+ */
+export function StatusText({ tone, children }: { tone: StatusTone; children: React.ReactNode }) {
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1.5 text-xs font-medium ${TEXT[tone]}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${DOT[tone]}`} aria-hidden />
+      {children}
+    </span>
+  );
+}
+
+/** A transaction hash as a short explorer link: 0x8f3a1c9e…3b2c1d0e ↗ */
+export function TxLink({ hash, href }: { hash: string; href?: string }) {
+  const text = hash.length > 20 ? `${hash.slice(0, 10)}…${hash.slice(-8)}` : hash;
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" title={hash} className="inline-flex items-center gap-1 font-mono text-[12px] text-primary-ink hover:underline">
+      {text} <ExternalLink size={11} aria-hidden />
+    </a>
+  ) : (
+    <span title={hash} className="font-mono text-[12px]">{text}</span>
+  );
 }

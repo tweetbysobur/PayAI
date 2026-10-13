@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { ArrowDown, Check, ExternalLink, Fingerprint, KeyRound, Loader2, X } from "lucide-react";
+import { ArrowDown, Fingerprint, KeyRound, Loader2, X } from "lucide-react";
+import { AmountHero, ReceiptRow, StatusText, TxLink } from "@/components/receipt/ReceiptKit";
 import { parseEther, parseUnits, encodeFunctionData } from "viem";
 import { Badge } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
@@ -136,23 +137,16 @@ export function TopUpModal({ open, onClose }: { open: boolean; onClose: () => vo
         </div>
 
         {phase === "done" ? (
-          <div className="px-5 py-8 text-center">
-            <span className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-success/12 text-success">
-              <Check size={24} />
-            </span>
-            <p className="text-sm font-semibold text-foreground">
-              {amount} {token} is on its way
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">It&apos;s confirmed on {MONAD_CHAIN_NAME}.</p>
-            {txHash && (
-              <a
-                href={`${MONAD_EXPLORER}/tx/${txHash}`} target="_blank" rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline"
-              >
-                View transaction <ExternalLink size={11} />
-              </a>
-            )}
-            <div className="mt-5 flex gap-2">
+          <div className="px-5 py-5">
+            <div className="flex items-start justify-between gap-3">
+              <AmountHero eyebrow="Sent" amount={amount} token={token} />
+              <StatusText tone="success">Confirmed</StatusText>
+            </div>
+            <dl className="mt-3 divide-y divide-border/60 border-t border-border/60">
+              <ReceiptRow label="Network">{MONAD_CHAIN_NAME}</ReceiptRow>
+              {txHash && <ReceiptRow label="Transaction"><TxLink hash={txHash} href={`${MONAD_EXPLORER}/tx/${txHash}`} /></ReceiptRow>}
+            </dl>
+            <div className="mt-4 flex gap-2">
               <button onClick={reset} className="flex-1 rounded-lg border border-border px-3 py-2.5 text-sm font-medium text-foreground transition hover:bg-input/40">
                 Send more
               </button>
