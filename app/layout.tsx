@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans, Montserrat } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { WalletProvider } from "@/lib/wallet/useWallet";
 import { MotionPreference } from "@/components/MotionPreference";
@@ -7,23 +7,24 @@ import { WalletServiceProvider } from "@/lib/wallet-service/WalletServiceContext
 import { ToastProvider } from "@/components/Toast";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
 
-// Premium sans — self-hosted at build. Geometric, modern, sleek; a deliberate
-// step up from system-ui / generic Inter for a fintech-grade feel.
-const jakarta = Plus_Jakarta_Sans({
-  subsets: ["latin"],
+// Premium sans — self-hosted from app/fonts, so the build never depends on
+// reaching Google Fonts. Geometric, modern, sleek; a deliberate step up from
+// system-ui / generic Inter for a fintech-grade feel. Variable font: every
+// weight from one file.
+const jakarta = localFont({
+  src: "./fonts/PlusJakartaSans-Variable.woff2",
   variable: "--font-jakarta",
   display: "swap",
-  weight: ["400", "500", "600", "700", "800"],
+  weight: "200 800",
 });
 
 // Reserved for specific headings that call for it (see `font-montserrat` in
-// globals.css) — not the site's default type. Self-hosted the same way as
-// Jakarta so it never triggers a layout-shifting external font request.
-const montserrat = Montserrat({
-  subsets: ["latin"],
+// globals.css) — not the site's default type. Self-hosted the same way.
+const montserrat = localFont({
+  src: "./fonts/Montserrat-Variable.woff2",
   variable: "--font-montserrat",
   display: "swap",
-  weight: ["600", "700", "800"],
+  weight: "100 900",
 });
 
 const SITE_URL = process.env.VERIPAYAI_PUBLIC_URL || "https://usepayai.xyz";
