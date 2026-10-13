@@ -64,7 +64,7 @@ import { getPublicClient } from "@/lib/monad/wallet";
 import { explorerTx, getChain } from "@/lib/monad/config";
 import { resolveToken, trackedTokenAddresses } from "@/lib/monad/tokenRegistry";
 import { getRedis } from "@/lib/platform/kv";
-import { listWalletEvents, recordWalletEvent } from "@/lib/platform/walletEvents";
+import { listWalletEvents, recordWalletEvent, replaceWalletEvents } from "@/lib/platform/walletEvents";
 import { listTx } from "@/lib/platform/store";
 import type { WalletProviderId } from "./types";
 
@@ -408,14 +408,15 @@ async function pullNativeTransfers(
   address: `0x${string}`,
   fromBlock: bigint,
   toBlock: bigint,
-): Promise<{ transfers: Detected[]; complete: boolean }> {
-  if (toBlock - fromBlock + 1n > MAX_NATIVE_SCAN_BLOCKS) return { transfers: [], complete: false };
+): Promise<{ transfers: Detected[]; complete: boolean; calledContract: boolean }> {
+  if (toBlock - fromBlock + 1n > MAX_NATIVE_SCAN_BLOCKS) return { transfers: [], complete: false, calledContract: false };
 
   const numbers: bigint[] = [];
   for (let b = fromBlock; b <= toBlock; b++) numbers.push(b);
 
   const pub = getPublicClient();
   const transfers: Detected[] = [];
+  let calledContract = false;
 
   for (let i = 0; i < numbers.length; i += NATIVE_SCAN_CONCURRENCY) {
     const blocks = await Promise.all(
@@ -429,9 +430,10 @@ async function pullNativeTransfers(
         // A client configured without full transactions returns hashes; there
         // is nothing to inspect in that case.
         if (typeof tx === "string") continue;
+        const from = tx.from?.toLowerCase();
+        if (from === address && isContractCall(tx)) calledContract = true;
         const value = tx.value ?? 0n;
         if (value === 0n) continue; // a plain contract call, not a transfer
-        const from = tx.from?.toLowerCase();
         const to = tx.to?.toLowerCase();
         if (from !== address && to !== address) continue;
         // Moving MON to yourself is neither a deposit nor a withdrawal.
@@ -448,7 +450,14 @@ async function pullNativeTransfers(
       }
     }
   }
-  return { transfers, complete: true };
+  return { transfers, complete: true, calledContract };
+}
+
+/** A transaction that runs contract code (it carries call data), as opposed
+ *  to a plain value transfer. A swap, an unwrap or a claim is one of these,
+ *  and is what can pay MON back to the wallet from inside a contract. */
+function isContractCall(tx: { input?: string | null }): boolean {
+  return typeof tx.input === "string" && tx.input !== "0x" && tx.input.length > 2;
 }
 
 /* ── Catching up a long window by balance ─────────────────────────────── */
@@ -493,13 +502,17 @@ async function nativeBlock(
   const body = await pub.getBlock({ blockNumber: block, includeTransactions: true });
   let accounted = 0n;
   const ours: string[] = [];
+  let calledContract = false;
   for (const tx of body.transactions) {
     if (typeof tx === "string") continue;
     const from = tx.from?.toLowerCase();
     const to = tx.to?.toLowerCase();
     if (from !== address && to !== address) continue;
     const value = tx.value ?? 0n;
-    if (from === address) ours.push(tx.hash);
+    if (from === address) {
+      ours.push(tx.hash);
+      if (isContractCall(tx)) calledContract = true;
+    }
     if (from === to || value === 0n) continue;
     if (to === address) {
       out.push({ txHash: tx.hash.toLowerCase(), direction: "in", token: null, value });
@@ -519,7 +532,8 @@ async function nativeBlock(
     }
   }
   const residual = after - before - accounted;
-  if (residual <= 0n) return;
+  // Paid back by the wallet's own contract call: the user's own action.
+  if (residual <= 0n || calledContract) return;
   const traced = await traceInternalTransfers(address, block, block);
   if (traced && traced.length > 0) {
     out.push(...traced);
@@ -641,7 +655,10 @@ async function exactWindow(address: `0x${string}`, fromBlock: bigint, latest: bi
     if (traced) {
       internal = traced;
     } else {
-      const residual = await reconcileNativeByBalance(address, fromBlock, latest, native.transfers);
+      // MON that came back from the wallet's own contract call (a swap to
+      // MON, an unwrap, a refund it claimed) is the result of something the
+      // user did, not a deposit.
+      const residual = native.calledContract ? 0n : await reconcileNativeByBalance(address, fromBlock, latest, native.transfers);
       if (residual > 0n) {
         internal = [{
           // Not a transaction hash — a marker for the window the funds arrived
@@ -696,6 +713,160 @@ export interface ReconcileResult {
   nativeComplete?: boolean;
 }
 
+/* ── Only real deposits, once ──────────────────────────────────────────── */
+
+/** Longest a scan can hold the lock: past the scan timeout, so a scan that
+ *  died without releasing it never blocks the wallet for long. */
+const SCAN_LOCK_SECONDS = 20;
+/** Smaller than this is dust — the size used by airdrop spam and
+ *  address-poisoning sends — and is never announced. */
+const DUST = 0.001;
+/** How long "this transaction was already announced" is remembered. */
+const SEEN_SECONDS = 60 * 24 * 60 * 60;
+
+const memLocks = new Map<string, number>();
+const memSeen = new Set<string>();
+const lockKey = (m: string, a: string) => `payai:${m}:wallet-scan-lock:${a}`;
+const seenKey = (m: string, a: string, tx: string) => `payai:${m}:wallet-event-seen:${a}:${tx}`;
+
+async function takeScanLock(merchantId: string, address: string): Promise<boolean> {
+  const r = await getRedis();
+  if (r) return (await r.set(lockKey(merchantId, address), "1", { nx: true, ex: SCAN_LOCK_SECONDS }).catch(() => "1")) != null;
+  const k = lockKey(merchantId, address);
+  const held = memLocks.get(k);
+  if (held && held > Date.now()) return false;
+  memLocks.set(k, Date.now() + SCAN_LOCK_SECONDS * 1000);
+  return true;
+}
+
+async function releaseScanLock(merchantId: string, address: string): Promise<void> {
+  const r = await getRedis();
+  if (r) await r.del(lockKey(merchantId, address)).catch(() => {});
+  else memLocks.delete(lockKey(merchantId, address));
+}
+
+/** Claims the right to announce this transaction. False when it already
+ *  was — so however many scans or instances see it, it is announced once. */
+async function claimAnnouncement(merchantId: string, address: string, txHash: string): Promise<boolean> {
+  const r = await getRedis();
+  const k = seenKey(merchantId, address, txHash);
+  if (r) return (await r.set(k, "1", { nx: true, ex: SEEN_SECONDS }).catch(() => "1")) != null;
+  if (memSeen.has(k)) return false;
+  memSeen.add(k);
+  return true;
+}
+
+/** PayAI's own contracts: a transfer they make is PayAI's, never "a
+ *  transaction not made through PayAI". */
+async function payaiContracts(): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const cfg = await import("@/lib/monad/config");
+    for (const get of [cfg.getPaymentExecutor, cfg.getAutomationVault, cfg.getPayAIForwarder, cfg.getRoomEscrow, cfg.getPayAITradeExecutor, cfg.getPayAITradeExecutorV2]) {
+      try {
+        const a = get();
+        if (a) out.add(a.toLowerCase());
+      } catch {
+        /* not configured */
+      }
+    }
+  } catch {
+    /* config unavailable — rely on the tx log alone */
+  }
+  return out;
+}
+
+/** Who sent a transaction and what it called. Null when it can't be read;
+ *  the caller then decides without it. */
+async function txParties(hash: string): Promise<{ from: string; to: string | null } | null> {
+  if (!/^0x[0-9a-f]{64}$/i.test(hash)) return null;
+  try {
+    const tx = await getPublicClient().getTransaction({ hash: hash as `0x${string}` });
+    return { from: tx.from.toLowerCase(), to: tx.to ? tx.to.toLowerCase() : null };
+  } catch {
+    return null;
+  }
+}
+
+/** Feeds already cleaned of what earlier scanners wrongly recorded. */
+const cleanKey = (m: string, a: string) => `payai:${m}:wallet-events-clean-v1:${a}`;
+const memCleaned = new Set<string>();
+/** Recorded money events re-checked by the clean-up, newest first. */
+const CLEAN_LIMIT = 100;
+
+/**
+ * Once per wallet: drops deposits and withdrawals that earlier scanners
+ * recorded wrongly — the output of the wallet's own swaps reported as a
+ * deposit, PayAI's own transfers as "not made through PayAI", spam-token and
+ * dust transfers, and duplicates of one transaction. Each is re-read from the
+ * chain; anything that can't be read is kept.
+ */
+async function cleanRecordedOnce(merchantId: string, address: `0x${string}`, ownTxHashes: Set<string>): Promise<void> {
+  const r = await getRedis();
+  const k = cleanKey(merchantId, address);
+  if (r ? await r.get(k).catch(() => "1") : memCleaned.has(k)) return;
+
+  const events = await listWalletEvents(merchantId, address).catch(() => null);
+  if (!events) return;
+  const ours = await payaiContracts();
+  let tracked = new Set<string>();
+  try {
+    tracked = new Set(trackedTokenAddresses().map((a) => a.toLowerCase()));
+  } catch {
+    /* no list — token checks below are skipped */
+  }
+  const transferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const pad = (a: string) => `0x${a.slice(2).padStart(64, "0")}`;
+
+  // Read the transactions to check up front, ten at a time.
+  const toCheck = [...new Set(events
+    .filter((e) => (e.type === "deposit_received" || e.type === "withdrawal_completed") && e.txHash && !e.txHash.startsWith("internal:"))
+    .map((e) => e.txHash!.toLowerCase()))].slice(0, CLEAN_LIMIT);
+  const pub = getPublicClient();
+  const read = new Map<string, { tx: Awaited<ReturnType<typeof pub.getTransaction>>; receipt: Awaited<ReturnType<typeof pub.getTransactionReceipt>> } | null>();
+  for (let i = 0; i < toCheck.length; i += 10) {
+    await Promise.all(toCheck.slice(i, i + 10).map(async (hash) => {
+      const [tx, receipt] = await Promise.all([
+        pub.getTransaction({ hash: hash as `0x${string}` }).catch(() => null),
+        pub.getTransactionReceipt({ hash: hash as `0x${string}` }).catch(() => null),
+      ]);
+      read.set(hash, tx && receipt ? { tx, receipt } : null);
+    }));
+  }
+
+  const seen = new Set<string>();
+  const keep: typeof events = [];
+  for (const e of events) {
+    const money = e.type === "deposit_received" || e.type === "withdrawal_completed";
+    const hash = e.txHash?.toLowerCase();
+    if (!money || !hash) { keep.push(e); continue; }
+    if (seen.has(hash)) continue; // a duplicate of one already kept
+    seen.add(hash);
+    if (e.amount != null && e.amount < DUST) continue;
+    const got = read.get(hash);
+    if (!got) { keep.push(e); continue; } // not checked, or couldn't be read
+    const { tx, receipt } = got;
+    const from = tx.from.toLowerCase();
+    const to = tx.to?.toLowerCase() ?? null;
+    const role = e.type === "deposit_received" ? 2 : 1; // topic index: 1 = from, 2 = to
+    const moved =
+      ((role === 2 ? to === address : from === address) && (tx.value ?? 0n) > 0n) ||
+      receipt.logs.some((l) => l.topics[0] === transferTopic && l.topics[role]?.toLowerCase() === pad(address) && (tracked.size === 0 || tracked.has(l.address.toLowerCase())));
+    if (e.type === "deposit_received") {
+      if (from === address) continue; // the output of the wallet's own action
+      if (!moved && tracked.size > 0) continue; // a spam token, not a real deposit
+    } else {
+      if (ownTxHashes.has(hash) || (to && ours.has(to))) continue; // PayAI's own
+      if (!moved && tracked.size > 0) continue;
+    }
+    keep.push(e);
+  }
+
+  if (keep.length !== events.length) await replaceWalletEvents(merchantId, address, keep).catch(() => {});
+  if (r) await r.set(k, "1").catch(() => {});
+  else memCleaned.add(k);
+}
+
 /**
  * Catch up this wallet's transfer history and raise a notification for each
  * new one. Safe to call on every notification poll — it self-throttles, and
@@ -714,6 +885,13 @@ export async function reconcileWalletTransfers(input: {
     return { scanned: false, deposits: 0, withdrawals: 0 };
   }
 
+  // One scan per wallet at a time. The bell, History and Recent activity all
+  // read this feed on the same refresh; without a lock, scans started
+  // together each saw the same new transfer and each recorded it.
+  if (!(await takeScanLock(input.merchantId, address))) {
+    return { scanned: false, deposits: 0, withdrawals: 0 };
+  }
+
   // Stamp the attempt BEFORE doing any network work. If the scan then stalls
   // and gets abandoned, this is what stops the next poll 20s later from
   // starting another doomed 8-second scan. lastBlock is left untouched, so
@@ -724,9 +902,9 @@ export async function reconcileWalletTransfers(input: {
   // long after nobody is awaiting it. An unawaited rejection is an unhandled
   // promise rejection in the server process, which is a far worse outcome
   // than the missed scan it would be reporting. Swallow it at the source.
-  const running = scan(input, address, cp, now).catch(
-    (): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }),
-  );
+  const running = scan(input, address, cp, now)
+    .catch((): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }))
+    .finally(() => releaseScanLock(input.merchantId, address));
   return withTimeout(running, SCAN_TIMEOUT_MS, {
     scanned: false,
     deposits: 0,
@@ -780,6 +958,8 @@ async function scan(
       .map((t) => t.txHash?.toLowerCase())
       .filter(Boolean) as string[],
   );
+  await cleanRecordedOnce(input.merchantId, address, ownTxHashes).catch(() => {});
+
   // Guards against a concurrent scan having already recorded these.
   const alreadyRecorded = new Set(
     (await listWalletEvents(input.merchantId, address).catch(() => []))
@@ -788,6 +968,7 @@ async function scan(
   );
 
   const nativeCurrency = getChain().nativeCurrency;
+  const ours = await payaiContracts();
   let deposits = 0;
   let withdrawals = 0;
 
@@ -799,22 +980,31 @@ async function scan(
     if (alreadyRecorded.has(d.txHash) || selfTransfers.has(d.txHash)) continue;
     if (d.direction === "out" && ownTxHashes.has(d.txHash)) continue;
 
-    let symbol = d.token === null ? nativeCurrency.symbol : "tokens";
-    let amount: number | null = null;
+    // Only real, verified tokens. Spam tokens "send" fake transfers — often
+    // named after real ones — to make a wallet show a deposit that isn't
+    // there, or a withdrawal that never happened.
+    let symbol: string = nativeCurrency.symbol;
+    let amount: number;
     if (d.token === null) {
       amount = Number(formatUnits(d.value, nativeCurrency.decimals));
     } else {
-      try {
-        const token = await resolveToken(d.token);
-        symbol = token.symbol;
-        amount = Number(formatUnits(d.value, token.decimals));
-      } catch {
-        // Unresolvable token metadata — still a real transfer worth
-        // reporting, just without a formatted amount. Never invent one.
-      }
+      const token = await resolveToken(d.token).catch(() => null);
+      if (!token?.verified) continue;
+      symbol = token.symbol;
+      amount = Number(formatUnits(d.value, token.decimals));
     }
+    if (!(amount >= DUST)) continue;
 
-    const pretty = amount != null ? `${amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${symbol}` : symbol;
+    // Who caused it. Tokens or MON arriving in a transaction the wallet sent
+    // itself are the output of its own swap, unwrap or claim, not a deposit;
+    // a transfer out through one of PayAI's contracts is PayAI's own.
+    const parties = d.txHash.startsWith("internal:") ? null : await txParties(d.txHash);
+    if (d.direction === "in" && parties?.from === address) continue;
+    if (d.direction === "out" && parties?.to && ours.has(parties.to)) continue;
+
+    if (!(await claimAnnouncement(input.merchantId, address, d.txHash))) continue;
+
+    const pretty = `${amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${symbol}`;
     alreadyRecorded.add(d.txHash);
     await recordWalletEvent({
       merchantId: input.merchantId,

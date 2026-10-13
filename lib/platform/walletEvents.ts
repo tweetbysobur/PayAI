@@ -63,3 +63,17 @@ export async function listWalletEvents(merchantId: string, sender: string, limit
   const all = r ? ((await r.lrange(k, 0, MAX_EVENTS - 1)) as WalletNotification[]) : (mem.get(k) ?? []);
   return all.slice(0, limit);
 }
+
+/** Rewrites a wallet's feed — newest first, as listWalletEvents returns it.
+ *  Only for the reconciler's one-time clean-up, which holds the wallet's scan
+ *  lock so nothing is recorded in between. */
+export async function replaceWalletEvents(merchantId: string, sender: string, events: WalletNotification[]): Promise<void> {
+  const k = key(merchantId, sender);
+  const r = await getRedis();
+  if (r) {
+    await r.del(k);
+    for (let i = events.length - 1; i >= 0; i--) await r.lpush(k, events[i]);
+  } else {
+    mem.set(k, [...events]);
+  }
+}

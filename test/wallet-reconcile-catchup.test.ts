@@ -10,6 +10,8 @@ const WALLET = "0x1111111111111111111111111111111111111111";
 const OTHER = "0x2222222222222222222222222222222222222222";
 const DEX = "0x3333333333333333333333333333333333333333";
 const USDC = "0x754704bc059f8c67012fed69bc8a327a5aafb603";
+const SPAM = "0x5555555555555555555555555555555555555555";
+const EXEC = "0x6666666666666666666666666666666666666666";
 
 interface Move {
   block: bigint;
@@ -21,7 +23,14 @@ interface Move {
   hash: string;
   /** Paid out from inside a contract: changes the balance, no top-level tx. */
   internal?: boolean;
+  /** Who sent the transaction this move happened in, when not `from`. */
+  sender?: string;
+  /** What that transaction called, when not `to`. */
+  txTo?: string;
 }
+
+/** The wallet's own contract calls (a swap, an unwrap): value 0, with data. */
+let walletCalls: { block: bigint; hash: string; to: string }[] = [];
 
 let latestBlock = 0n;
 let moves: Move[] = [];
@@ -61,9 +70,14 @@ vi.mock("@/lib/monad/wallet", () => ({
       tick();
       return {
         number: blockNumber,
-        transactions: moves
-          .filter((m) => m.token === null && !m.internal && m.block === blockNumber)
-          .map((m) => ({ hash: m.hash, from: m.from, to: m.to, value: m.value })),
+        transactions: [
+          ...moves
+            .filter((m) => m.token === null && !m.internal && m.block === blockNumber)
+            .map((m) => ({ hash: m.hash, from: m.from, to: m.to, value: m.value, input: "0x" })),
+          ...walletCalls
+            .filter((c) => c.block === blockNumber)
+            .map((c) => ({ hash: c.hash, from: WALLET, to: c.to, value: 0n, input: "0x12345678" })),
+        ],
       };
     },
     getLogs: async ({ address, args, fromBlock, toBlock }: { address?: string; args: Record<string, string>; fromBlock: bigint; toBlock: bigint }) => {
@@ -77,10 +91,26 @@ vi.mock("@/lib/monad/wallet", () => ({
         .filter((m) => m[role] === args[role].toLowerCase())
         .map((m) => ({ transactionHash: m.hash, blockNumber: m.block, address: m.token, args: { from: m.from, to: m.to, value: m.value } }));
     },
+    getTransaction: async ({ hash }: { hash: string }) => {
+      tick();
+      const call = walletCalls.find((c) => c.hash === hash);
+      if (call) return { from: WALLET, to: call.to, value: 0n };
+      const m = moves.find((x) => x.hash === hash);
+      if (!m) throw new Error("unknown tx");
+      return { from: m.sender ?? m.from, to: m.txTo ?? m.to, value: m.token === null && !m.internal ? m.value : 0n };
+    },
     getTransactionReceipt: async ({ hash }: { hash: string }) => {
       tick();
-      if (gas[hash] === undefined) throw new Error("no receipt");
-      return { gasUsed: gas[hash], effectiveGasPrice: 1n };
+      const known = moves.some((m) => m.hash === hash) || walletCalls.some((c) => c.hash === hash);
+      if (gas[hash] === undefined && !known) throw new Error("no receipt");
+      const pad = (a: string) => `0x${a.slice(2).padStart(64, "0")}`;
+      return {
+        gasUsed: gas[hash] ?? 0n, effectiveGasPrice: 1n,
+        logs: moves.filter((m) => m.hash === hash && m.token !== null).map((m) => ({
+          address: m.token as string,
+          topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", pad(m.from), pad(m.to)],
+        })),
+      };
     },
     request: async () => { throw new Error("the method debug_traceBlockByNumber does not exist"); },
   }),
@@ -88,9 +118,16 @@ vi.mock("@/lib/monad/wallet", () => ({
 vi.mock("@/lib/monad/config", () => ({
   explorerTx: (h: string) => `https://explorer.monad.xyz/tx/${h}`,
   getChain: () => ({ nativeCurrency: { name: "Monad", symbol: "MON", decimals: 18 } }),
+  getPaymentExecutor: () => null,
+  getAutomationVault: () => null,
+  getPayAIForwarder: () => null,
+  getRoomEscrow: () => null,
+  getPayAITradeExecutor: () => EXEC,
+  getPayAITradeExecutorV2: () => null,
 }));
 vi.mock("@/lib/monad/tokenRegistry", () => ({
-  resolveToken: async () => ({ address: USDC, symbol: "USDC", name: "USD Coin", decimals: 6, verified: true }),
+  // A spam token names itself after a real one; only the curated one is verified.
+  resolveToken: async (a: string) => ({ address: a, symbol: "USDC", name: "USD Coin", decimals: 6, verified: a.toLowerCase() === USDC }),
   trackedTokenAddresses: () => [USDC],
 }));
 let ownTxs: { txHash?: string }[] = [];
@@ -122,7 +159,7 @@ const MON = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;
 describe("deposits made while the dashboard was closed", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = [];
+    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = []; walletCalls = [];
   });
   afterEach(() => vi.useRealTimers());
 
@@ -235,7 +272,7 @@ describe("deposits made while the dashboard was closed", () => {
 describe("wallets scanned before long gaps were caught up", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = [];
+    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = []; walletCalls = [];
   });
   afterEach(() => vi.useRealTimers());
 
@@ -267,5 +304,95 @@ describe("wallets scanned before long gaps were caught up", () => {
     const r = await scanOnce(m);
     expect(r.baseline).toBe(true);
     expect(r.deposits).toBe(0);
+  });
+});
+
+/** Only real deposits get announced — and each one once. */
+describe("no false or repeated deposit notifications", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = []; walletCalls = [];
+  });
+  afterEach(() => vi.useRealTimers());
+
+  /** First visit, then a short gap read exactly (the dashboard is open). */
+  async function openThenRefresh(m: M) {
+    latestBlock = 2_000_000n;
+    await scanOnce(m);
+    vi.advanceTimersByTime(21_000);
+    latestBlock = 2_000_060n;
+  }
+
+  it("does not call the output of the wallet's own swap a deposit", async () => {
+    const m = await fresh();
+    await openThenRefresh(m);
+    // MON -> USDC through PayAI: the wallet sent the tx, USDC came back from the executor.
+    moves.push({ block: 2_000_010n, token: USDC, from: EXEC, to: WALLET, value: 850_000n, hash: "0x" + "d".repeat(64), sender: WALLET, txTo: EXEC });
+    const r = await scanOnce(m);
+    expect(r.deposits).toBe(0);
+    expect(await m.listWalletEvents("demo", WALLET)).toHaveLength(0);
+  });
+
+  it("does not call MON paid back by the wallet's own contract call a deposit", async () => {
+    const m = await fresh();
+    await visitThenLeave(m);
+    // USDC -> MON: a call from the wallet, MON paid back from inside the contract.
+    walletCalls.push({ block: 1_100_000n, hash: "0xunwrap", to: EXEC });
+    moves.push({ block: 1_100_000n, token: null, from: EXEC, to: WALLET, value: MON(40), hash: "0xunwrap-inner", internal: true });
+    const r = await scanOnce(m);
+    expect(r.deposits).toBe(0);
+  });
+
+  it("ignores spam tokens dressed up as USDC, and dust", async () => {
+    const m = await fresh();
+    await openThenRefresh(m);
+    moves.push({ block: 2_000_010n, token: SPAM, from: OTHER, to: WALLET, value: 5_000_000n, hash: "0xspam" });
+    moves.push({ block: 2_000_020n, token: null, from: OTHER, to: WALLET, value: 10n ** 12n, hash: "0xdust" }); // 0.000001 MON
+    const r = await scanOnce(m);
+    expect(r.deposits).toBe(0);
+    expect(await m.listWalletEvents("demo", WALLET)).toHaveLength(0);
+  });
+
+  it("does not report PayAI's own transfer out as 'not made through PayAI'", async () => {
+    const m = await fresh();
+    await openThenRefresh(m);
+    moves.push({ block: 2_000_010n, token: USDC, from: WALLET, to: EXEC, value: 5_000_000n, hash: "0x" + "e".repeat(64), sender: OTHER, txTo: EXEC });
+    const r = await scanOnce(m);
+    expect(r.withdrawals).toBe(0);
+  });
+
+  it("still announces a real deposit from someone else", async () => {
+    const m = await fresh();
+    await openThenRefresh(m);
+    moves.push({ block: 2_000_010n, token: USDC, from: OTHER, to: WALLET, value: 25_000_000n, hash: "0xreal" });
+    const r = await scanOnce(m);
+    expect(r.deposits).toBe(1);
+    expect((await m.listWalletEvents("demo", WALLET))[0]).toMatchObject({ txHash: "0xreal", amount: 25 });
+  });
+
+  it("records a deposit once when several scans start at the same moment", async () => {
+    const m = await fresh();
+    await openThenRefresh(m);
+    moves.push({ block: 2_000_010n, token: USDC, from: OTHER, to: WALLET, value: 25_000_000n, hash: "0xonce" });
+    await Promise.all([scanOnce(m), scanOnce(m), scanOnce(m), scanOnce(m)]);
+    vi.advanceTimersByTime(21_000);
+    await scanOnce(m);
+    expect((await m.listWalletEvents("demo", WALLET)).filter((e) => e.txHash === "0xonce")).toHaveLength(1);
+  });
+
+  it("cleans up what earlier scans recorded wrongly, once, and keeps real deposits", async () => {
+    const m = await fresh();
+    moves.push({ block: 1_000n, token: USDC, from: EXEC, to: WALLET, value: 850_000n, hash: "0x" + "a".repeat(64), sender: WALLET, txTo: EXEC });
+    moves.push({ block: 1_001n, token: USDC, from: OTHER, to: WALLET, value: 25_000_000n, hash: "0x" + "b".repeat(64) });
+    const base = { merchantId: "demo", sender: WALLET, providerId: "mera" as const, type: "deposit_received" as const, title: "Deposit received", detail: "x", token: "USDC" };
+    await m.recordWalletEvent({ ...base, amount: 0.85, txHash: "0x" + "a".repeat(64) }); // own swap output
+    await m.recordWalletEvent({ ...base, amount: 25, txHash: "0x" + "b".repeat(64) }); // real
+    await m.recordWalletEvent({ ...base, amount: 25, txHash: "0x" + "b".repeat(64) }); // duplicate
+    await m.recordWalletEvent({ ...base, amount: 0.0000001, txHash: "0x" + "c".repeat(64) }); // dust
+
+    latestBlock = 2_000_000n;
+    await scanOnce(m);
+    const left = await m.listWalletEvents("demo", WALLET);
+    expect(left.map((e) => e.txHash)).toEqual(["0x" + "b".repeat(64)]);
   });
 });
