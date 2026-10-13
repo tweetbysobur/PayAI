@@ -231,3 +231,41 @@ describe("deposits made while the dashboard was closed", () => {
     expect(new Set(hashes).size).toBe(4);
   });
 });
+
+describe("wallets scanned before long gaps were caught up", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    latestBlock = 0n; moves = []; gas = {}; reads = 0; readCostMs = 0; ownTxs = []; logRangeRequests = [];
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("re-reads the last day once, recovering a deposit the old scan skipped", async () => {
+    const m = await fresh();
+    // The old scan had moved its checkpoint past this deposit without seeing it.
+    moves.push({ block: 4_900_000n, token: USDC, from: OTHER, to: WALLET, value: 12_000_000n, hash: "0xmissed" });
+    const legacy = `payai:demo:wallet-scan:${WALLET}`;
+    ((globalThis as Record<string, unknown>).__payaiWalletScan as Map<string, unknown>).set(legacy, { lastBlock: "5000000", lastScanAt: 0 });
+    latestBlock = 5_000_050n;
+
+    const r = await scanOnce(m);
+    expect(r.baseline).toBeUndefined();
+    expect(r.deposits).toBe(1);
+    expect((await m.listWalletEvents("demo", WALLET))[0].txHash).toBe("0xmissed");
+
+    // Once: the next scan carries on from the new checkpoint, no replay.
+    vi.advanceTimersByTime(61_000);
+    latestBlock = 5_000_100n;
+    const again = await scanOnce(m);
+    expect(again.deposits).toBe(0);
+    expect(await m.listWalletEvents("demo", WALLET)).toHaveLength(1);
+  });
+
+  it("a wallet never seen before still starts fresh, without replaying a day", async () => {
+    const m = await fresh();
+    moves.push({ block: 4_900_000n, token: USDC, from: OTHER, to: WALLET, value: 12_000_000n, hash: "0xold" });
+    latestBlock = 5_000_000n;
+    const r = await scanOnce(m);
+    expect(r.baseline).toBe(true);
+    expect(r.deposits).toBe(0);
+  });
+});

@@ -149,17 +149,34 @@ const g = globalThis as unknown as { __payaiWalletScan?: Map<string, Checkpoint>
 const mem = (g.__payaiWalletScan ??= new Map());
 
 const key = (merchantId: string, address: string) =>
+  `payai:${merchantId}:wallet-scan-v2:${address.toLowerCase()}`;
+/** Checkpoints from before long gaps were caught up. Those scans skipped
+ *  every gap the RPC refused, so a wallet carried over from them is re-read
+ *  for the last day once, to recover deposits that were missed. */
+const legacyKey = (merchantId: string, address: string) =>
   `payai:${merchantId}:wallet-scan:${address.toLowerCase()}`;
+/** ~24 h of Monad blocks. */
+const LEGACY_BACKFILL_BLOCKS = 288_000n;
 
-async function readCheckpoint(merchantId: string, address: string): Promise<Checkpoint | null> {
-  const r = await getRedis();
-  const raw = r ? await r.get(key(merchantId, address)) : mem.get(key(merchantId, address));
+function parseCheckpoint(raw: unknown): Checkpoint | null {
   if (!raw) return null;
   try {
     return typeof raw === "string" ? (JSON.parse(raw) as Checkpoint) : (raw as Checkpoint);
   } catch {
     return null;
   }
+}
+
+async function readCheckpoint(merchantId: string, address: string): Promise<Checkpoint | null> {
+  const r = await getRedis();
+  const read = (k: string) => (r ? r.get(k) : Promise.resolve(mem.get(k)));
+  const current = parseCheckpoint(await read(key(merchantId, address)));
+  if (current) return current;
+  const legacy = parseCheckpoint(await read(legacyKey(merchantId, address)));
+  if (!legacy?.lastBlock) return null;
+  // Already-recorded transfers are skipped by txHash, so re-reading is safe.
+  const from = BigInt(legacy.lastBlock) - LEGACY_BACKFILL_BLOCKS;
+  return { lastBlock: (from > 0n ? from : 0n).toString(), lastScanAt: 0 };
 }
 
 async function writeCheckpoint(merchantId: string, address: string, cp: Checkpoint): Promise<void> {
