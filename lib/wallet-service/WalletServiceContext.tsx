@@ -31,7 +31,7 @@ import {
 } from "@/lib/auth/ensureWalletGrant";
 import { linkGoogleMessage, openedWalletMatchesAccount, unlinkGoogleMessage } from "@/lib/auth/linkGoogleShared";
 import { linkMessage, unlinkMessage } from "@/lib/platform/linkMessages";
-import type { AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
+import type { ApprovalLimits, ApprovalSession, AuthMethod, EmbeddedWalletHandle, WalletProviderId, WalletProviderKind } from "./types";
 import type { EthProvider } from "@/lib/wallet/provider";
 
 /** The signed-in PayAI account. Identity only — the wallet address is NOT
@@ -171,6 +171,12 @@ export interface WalletServiceState extends ExternalWalletState {
     kind: WalletProviderKind,
     tx: { to: string; data?: string; value?: string },
   ) => Promise<string>;
+  /**
+   * One passkey approval for a whole approved plan (PayAI Wallet only — an
+   * external wallet confirms each transaction in its own pop-up, and this
+   * returns null for it). See openApprovalSession in ./registry.
+   */
+  openApprovalSession: (limits: ApprovalLimits) => Promise<ApprovalSession | null>;
 }
 
 export interface LinkedWalletView {
@@ -640,6 +646,14 @@ function useWalletServiceState(): WalletServiceState {
     [usingEmbedded, wallet, external],
   );
 
+  const openApprovalSession = useCallback(
+    async (limits: ApprovalLimits): Promise<ApprovalSession | null> => {
+      if (!usingEmbedded || !wallet) return null;
+      return wallet.openApprovalSession(limits);
+    },
+    [usingEmbedded, wallet],
+  );
+
   /**
    * Sends from a named wallet rather than whichever is active.
    *
@@ -842,6 +856,7 @@ function useWalletServiceState(): WalletServiceState {
     unlinkWallet: unlinkWalletFn,
     refreshLinkedWallets: () => refreshLinked(accountAddress),
     sendTransactionFrom,
+    openApprovalSession,
   };
 }
 

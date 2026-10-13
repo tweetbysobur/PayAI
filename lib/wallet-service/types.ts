@@ -131,7 +131,26 @@ export interface EmbeddedWalletHandle {
   credentialId: string;
   signMessage(message: string): Promise<string>;
   sendTransaction(tx: UnsignedTx): Promise<string>;
+  /**
+   * One passkey approval for a whole approved plan: prompts once, then signs
+   * up to `maxTransactions` transactions through the returned session —
+   * and only through it — until `ttlMs` passes or `end()` is called, which
+   * zeroes the key. Nothing else (the handle's own sendTransaction, any
+   * other screen) can use it; those still ask for the passkey every time.
+   */
+  openApprovalSession(limits: ApprovalLimits): Promise<ApprovalSession>;
   /** Zeroes the session's key material. */
+  end(): void;
+}
+
+export interface ApprovalLimits {
+  maxTransactions: number;
+  ttlMs: number;
+}
+
+export interface ApprovalSession {
+  sendTransaction(tx: UnsignedTx): Promise<string>;
+  /** Zeroes the key. Safe to call more than once. */
   end(): void;
 }
 

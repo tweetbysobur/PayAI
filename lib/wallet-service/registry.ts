@@ -15,7 +15,7 @@
 import * as mera from "./providers/mera";
 import { classifyPasskeyFailure, runPasskeyOpen } from "./passkey-plan";
 import { ensureWalletGrant } from "@/lib/auth/ensureWalletGrant";
-import type { EmbeddedWalletHandle, EmbeddedWalletProvider, UnsignedTx, WalletProviderId } from "./types";
+import type { ApprovalLimits, ApprovalSession, EmbeddedWalletHandle, EmbeddedWalletProvider, UnsignedTx, WalletProviderId } from "./types";
 
 /** Wraps Mera's module-level functions in the provider contract, so the rest
  *  of the Wallet Service never touches passkey APIs directly. */
@@ -86,9 +86,29 @@ function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
     }
   }
 
+  /** Signs and broadcasts one transaction with already-approved key material. */
+  async function send(w: mera.MeraWallet, tx: UnsignedTx): Promise<string> {
+    const client = await mera.walletClientFor(w);
+    // `chain` is deliberately NOT passed. This is a local (Mera) account,
+    // so viem signs the transaction here rather than handing it to a
+    // wallet — it needs the chain to put a chainId in the signature
+    // (EIP-155 replay protection). Passing `chain: null` would suppress
+    // that; omitting it inherits the client's configured Monad chain,
+    // which is what we want.
+    return client.sendTransaction({
+      account: w.account,
+      to: tx.to as `0x${string}`,
+      data: (tx.data ?? undefined) as `0x${string}` | undefined,
+      value: tx.value ? BigInt(tx.value) : undefined,
+    });
+  }
+
   return {
     address: wallet.address,
     credentialId: wallet.credentialId,
+    async openApprovalSession(limits: ApprovalLimits): Promise<ApprovalSession> {
+      return openApprovalSession(wallet.address, limits, send);
+    },
     async signMessage(message: string) {
       return approved((w) => w.account.signMessage({ message }));
     },
@@ -112,24 +132,75 @@ function toHandle(wallet: mera.MeraWallet): EmbeddedWalletHandle {
       await Promise.race([affordable, new Promise<void>((r) => setTimeout(r, AFFORD_HEAD_START_MS))]);
       return approved(async (w) => {
         await affordable;
-        const client = await mera.walletClientFor(w);
-        // `chain` is deliberately NOT passed. This is a local (Mera) account,
-        // so viem signs the transaction here rather than handing it to a
-        // wallet — it needs the chain to put a chainId in the signature
-        // (EIP-155 replay protection). Passing `chain: null` would suppress
-        // that; omitting it inherits the client's configured Monad chain,
-        // which is what we want.
-        return client.sendTransaction({
-          account: w.account,
-          to: tx.to as `0x${string}`,
-          data: (tx.data ?? undefined) as `0x${string}` | undefined,
-          value: tx.value ? BigInt(tx.value) : undefined,
-        });
+        return send(w, tx);
       });
     },
     end() {
       wallet.session.end();
     },
+  };
+}
+
+/**
+ * One passkey approval covering one approved plan.
+ *
+ * Every other signature in PayAI costs its own passkey check (see
+ * `approved` above). A plan is different: the user has just reviewed every
+ * action in it and tapped Approve once, and asking again for each step made
+ * a five-step plan five more fingerprints. So the plan gets one ceremony,
+ * and the key it derives is held — in memory only — for that run, bounded
+ * three ways:
+ *
+ *   - only the returned session can use it (the handle's sendTransaction,
+ *     and every other screen, still prompt every time);
+ *   - at most `maxTransactions` signatures (the plan's own steps and their
+ *     token approvals);
+ *   - at most `ttlMs`, and `end()` — called when the run finishes, fails or
+ *     is cancelled — zeroes it immediately.
+ *
+ * What gets signed is still decided by the plan runner, which only signs
+ * transactions the server built for this approved plan.
+ */
+export const APPROVAL_SESSION_MAX_TTL_MS = 10 * 60 * 1000;
+export const APPROVAL_SESSION_MAX_TRANSACTIONS = 64;
+
+export async function openApprovalSession(
+  address: `0x${string}`,
+  limits: ApprovalLimits,
+  send: (w: mera.MeraWallet, tx: UnsignedTx) => Promise<string>,
+  authorize: (address: `0x${string}`) => Promise<mera.MeraWallet> = mera.authorizeWallet,
+  now: () => number = Date.now,
+): Promise<ApprovalSession> {
+  const max = Math.max(1, Math.min(APPROVAL_SESSION_MAX_TRANSACTIONS, Math.floor(limits.maxTransactions)));
+  const ttl = Math.max(1, Math.min(APPROVAL_SESSION_MAX_TTL_MS, limits.ttlMs));
+  let w: mera.MeraWallet | null;
+  try {
+    w = await authorize(address);
+  } catch (e) {
+    throw new Error(mera.friendlyApprovalError(e));
+  }
+  const expires = now() + ttl;
+  let used = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const end = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (w) { w.session.end(); w = null; }
+  };
+  timer = setTimeout(end, ttl);
+  return {
+    async sendTransaction(tx: UnsignedTx): Promise<string> {
+      if (!w || now() > expires) {
+        end();
+        throw new Error("This approval has expired. Nothing more was signed — approve again to continue.");
+      }
+      if (used >= max) throw new Error("This approval covers no more transactions. Nothing more was signed.");
+      used += 1;
+      const key = w;
+      await assertCanAfford(address, tx);
+      if (w !== key) throw new Error("This approval ended before the transaction was signed. Nothing was sent.");
+      return send(key, tx);
+    },
+    end,
   };
 }
 

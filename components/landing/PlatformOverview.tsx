@@ -250,7 +250,7 @@ const STEPS: { title: string; body: string; icon: typeof Wallet; preview: React.
   },
   {
     title: "It executes on Monad",
-    body: "Your passkey or connected wallet confirms each transaction. What you approved is exactly what is submitted.",
+    body: "Your passkey confirms the plan once, or your connected wallet confirms each transaction. What you approved is exactly what is submitted.",
     icon: Fingerprint,
     preview: (
       <div className="flex items-center gap-2">
@@ -490,7 +490,7 @@ export function EmbeddedWalletSection() {
           <h2 className={H2}>A wallet in seconds, or the one you already have.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             The PayAI wallet is created from a passkey on your own device. There is no seed phrase, because there is nothing
-            for us to hold: the key is derived on your device, and every signature asks for the passkey again.
+            for us to hold: the key is derived on your device, and every send asks for the passkey again — once for a whole approved plan.
           </p>
           <ul className="mt-6 space-y-3">
             {[

@@ -247,7 +247,7 @@ const ARTICLES: Article[] = [
     category: "security",
     question: "Can anything move money from my PayAI Wallet without me?",
     answer: [
-      "No. Every transaction and every signature needs a fresh passkey check on your device — the same fingerprint, face, or device PIN you used to create the wallet. Unlocking the wallet does not authorise anything on its own; it only lets you see it.",
+      "No. Sending needs a fresh passkey check on your device — the same fingerprint, face, or device PIN you used to create the wallet. A plan of several actions in Ask PayAI takes one passkey check for the whole plan, used only for that plan's transactions and cleared when it finishes. Unlocking the wallet does not authorise anything on its own; it only lets you see it.",
       "That means an unlocked tab left open, a shared computer, or a script that got into the page still cannot send a payment: the key used to sign is derived for that one transaction and erased immediately afterwards, and PayAI's servers never hold anything that could sign for you.",
     ],
   },

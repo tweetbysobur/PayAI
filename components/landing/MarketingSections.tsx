@@ -280,7 +280,7 @@ export function AutomationTimelineSection() {
 
 const TECHNOLOGY = [
   { icon: Lock, title: "Your money stays yours", body: "Payments and trades you start are signed by your own wallet, and PayAI never holds its keys. Payment Automations are the exception in the app: they run from a capped agent wallet, only within the limits you approve when you set them up." },
-  { icon: Fingerprint, title: "Confirmation before execution", body: "Nothing you start signs itself. A PayAI wallet asks for your passkey on every transaction; a connected wallet asks you to sign. What you approve is what you were shown." },
+  { icon: Fingerprint, title: "Confirmation before execution", body: "Nothing you start signs itself. A PayAI wallet asks for your passkey — once per approved plan, used only for that plan's transactions; a connected wallet asks you to sign. What you approve is what you were shown." },
   { icon: Wallet, title: "Your wallet, or ours", body: "Create a PayAI wallet from a passkey — no seed phrase, because there is nothing for us to hold — or connect the wallet you already use. Link both to one account." },
   { icon: ShieldHalf, title: "Every payment is checked", body: "Before anything sends, we make sure it's going to the right place, for the right amount, within your limits." },
   { icon: Undo2, title: "Cancelled means refunded", body: "Cancel an automation backed by Reserved Funds and what was set aside is released back to you automatically — the same when a schedule finishes its last run." },

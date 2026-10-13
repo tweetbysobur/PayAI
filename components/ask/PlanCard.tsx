@@ -39,6 +39,8 @@ import type { PlanViewDTO, QuoteDecision, QuoteProjection, RunnerPhase, RunnerWa
 import { feeEstimate, sendFeeBps, takePrimed, timingFor, type PlanCardData } from "@/lib/ask/planCards";
 import type { AskPlanRef } from "@/lib/ask/types";
 import { feePercent } from "@/lib/rooms/escrowChain";
+import type { ApprovalSession } from "@/lib/wallet-service/types";
+import { approvalHint, quoteNeedsReview } from "@/lib/plans-client/approval";
 import { RecipientBlock } from "@/components/receipt/ReceiptKit";
 import { formatAmountText, formatDecimal, roundingForLabel } from "@/lib/format/tokenAmount";
 
@@ -329,10 +331,19 @@ export function PlanCard({ planRef, onEdit }: {
   useEffect(() => {
     walletRef.current = wallet;
   });
+  // The plan's one passkey approval (PayAI Wallet), live only while this
+  // card runs the plan. While it is open the runner signs through it, so the
+  // whole plan costs one approval instead of one per transaction.
+  const sessionRef = useRef<ApprovalSession | null>(null);
   const runnerWallet = useCallback((): RunnerWallet | null => {
     const w = walletRef.current;
     if (!w.address) return null;
-    return { address: w.address, chainId: w.chainId, isWrongNetwork: w.isWrongNetwork, sendTransaction: w.sendTransaction, waitForReceipt: w.waitForReceipt };
+    const session = sessionRef.current;
+    return {
+      address: w.address, chainId: w.chainId, isWrongNetwork: w.isWrongNetwork,
+      sendTransaction: session ? session.sendTransaction : w.sendTransaction,
+      waitForReceipt: w.waitForReceipt,
+    };
   }, []);
 
   // The creating turn hands over the server's create response, so the first
@@ -387,8 +398,23 @@ export function PlanCard({ planRef, onEdit }: {
   }, [quote]);
   useEffect(() => () => quoteRef.current?.answer("decline"), []);
 
-  async function run() {
-    if (runningRef.current) return;
+  /**
+   * Opens the plan's one passkey approval, straight from the tap (phone
+   * browsers refuse a passkey prompt that doesn't follow one closely). Null
+   * for an external wallet, which confirms each transaction in its own
+   * pop-up. Throws — with nothing approved or signed — when the user cancels.
+   */
+  async function openSession(): Promise<ApprovalSession | null> {
+    if (!data) return null;
+    // Each action can need a token approval as well as its own transaction.
+    return walletRef.current.openApprovalSession({
+      maxTransactions: data.review.steps.length * 3,
+      ttlMs: 10 * 60 * 1000,
+    });
+  }
+
+  async function run(session?: ApprovalSession | null) {
+    if (runningRef.current) { session?.end(); return; }
     runningRef.current = true;
     setRunning(true);
     setLast(null);
@@ -396,6 +422,15 @@ export function PlanCard({ planRef, onEdit }: {
     setPhase(null);
     setConfirmCancel(false);
     try {
+      if (session === undefined) {
+        try {
+          session = await openSession();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Not approved. Nothing was signed.");
+          return;
+        }
+      }
+      sessionRef.current = session;
       const result = await runPlanInApp({
         planId,
         wallet: runnerWallet,
@@ -405,12 +440,20 @@ export function PlanCard({ planRef, onEdit }: {
           setActiveNode(e.nodeId);
           if (e.phase === "waiting_for_quote_review") timingFor(planId)?.mark("quote_ready");
         },
-        confirmQuote: (q) => new Promise<QuoteDecision>((resolve) => {
-          setQuote({ q, answer: (d) => { setQuote(null); resolve(d); } });
-        }),
+        confirmQuote: (q) => {
+          // The plan was approved as a whole, so a clean quote goes straight
+          // on. One that carries a warning, or anything but low risk, still
+          // stops here for the user to see before anything is signed.
+          if (quoteNeedsReview(q) === false) return Promise.resolve<QuoteDecision>("continue");
+          return new Promise<QuoteDecision>((resolve) => {
+            setQuote({ q, answer: (d) => { setQuote(null); resolve(d); } });
+          });
+        },
       });
       setLast(describeOutcome(result));
     } finally {
+      sessionRef.current = null;
+      session?.end();
       runningRef.current = false;
       setRunning(false);
       setPhase(null);
@@ -420,20 +463,29 @@ export function PlanCard({ planRef, onEdit }: {
     }
   }
 
-  /** Approve, then go straight on to the run: the quote review inside the
-   *  run is still the last stop before the wallet. */
+  /** One tap: the passkey approval opens first (from the tap), then the plan
+   *  is approved and runs to the end on that one approval. */
   async function approveAndRun() {
     if (busy || runningRef.current) return;
     setBusy("approve");
     setError(null);
+    let session: ApprovalSession | null;
+    try {
+      session = await openSession();
+    } catch (e) {
+      setBusy(null);
+      setError(e instanceof Error ? e.message : "Not approved. Nothing was signed.");
+      return;
+    }
     const r = await approvePlan(planId);
     setBusy(null);
     if (r.status !== 200) {
+      session?.end();
       await reload();
       setError(replyError(r).message);
       return;
     }
-    await run();
+    await run(session);
   }
 
   async function cancel() {
@@ -573,7 +625,7 @@ export function PlanCard({ planRef, onEdit }: {
               {multi ? `Approve ${review.steps.length} actions` : "Approve"}
             </button>
           ) : showRun ? (
-            <button onClick={run} disabled={busy !== null} className={PRIMARY}>
+            <button onClick={() => void run()} disabled={busy !== null} className={PRIMARY}>
               {last?.canResume ? last.resumeLabel : "Continue"}
             </button>
           ) : null}
@@ -585,7 +637,7 @@ export function PlanCard({ planRef, onEdit }: {
           )}
           {approvable && (
             <p className="mt-1 text-center text-[11px] text-muted-foreground">
-              {multi ? "One approval covers every action above. You review each exact quote, then sign in your wallet." : "Next: the exact quote, then your wallet."}
+              {approvalHint(multi, wallet.kind === "embedded")}
             </p>
           )}
         </div>
