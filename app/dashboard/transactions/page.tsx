@@ -1,9 +1,11 @@
 "use client";
 
 import { STOPPED_LABEL } from "@/lib/hooks/stoppedPayments";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, ArrowUpRight, ArrowLeftRight } from "lucide-react";
+import { Search, ArrowUpRight, ArrowLeftRight, ArrowDownLeft } from "lucide-react";
+import { fetchWalletMoves, mergeByTime } from "@/lib/hooks/walletMoves";
+import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { Input, SkeletonRows } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { SyncButton } from "@/components/dashboard/SyncButton";
@@ -12,16 +14,18 @@ import { ActivityTabContent } from "@/components/dashboard/ActivityTabContent";
 import { AnalyticsTabContent } from "@/components/dashboard/AnalyticsTabContent";
 import { ComplianceTabContent } from "@/components/dashboard/ComplianceTabContent";
 
-interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string }
+interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string; direction?: "in" | "out" }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 const DECISION_TONE: Record<string, "success" | "warning" | "danger" | "neutral"> = {
   executed: "success", needs_review: "warning", blocked: "danger", refused: "danger", error: "danger",
+  received: "success", sent_out: "neutral",
 };
 const DECISION_LABEL: Record<string, string> = {
   executed: "Settled", needs_review: STOPPED_LABEL, blocked: "Blocked", refused: "Declined", error: "Failed",
+  received: "Received", sent_out: "Sent",
 };
-const STATUS_FILTERS = ["all", "executed", "needs_review", "blocked", "refused"] as const;
+const STATUS_FILTERS = ["all", "received", "executed", "needs_review", "blocked", "refused"] as const;
 const PAGE_SIZE = 12;
 
 /** Compact relative time — "just now", "3m", "2h", "5d". */
@@ -34,7 +38,7 @@ function ago(ms: number): string {
 }
 
 const TABS = [
-  { key: "transactions", label: "Transactions", blurb: "What PayAI has executed for you, and whether it settled." },
+  { key: "transactions", label: "Transactions", blurb: "Payments, swaps and deposits on your wallet, and whether they settled." },
   { key: "activity", label: "All activity", blurb: "Transactions, automation runs, swaps and wallet events in one feed." },
   { key: "analytics", label: "Analytics", blurb: "Volume and settlement totals for your wallet." },
   { key: "compliance", label: "Checks", blurb: "The checks every transaction goes through, and a manual address check." },
@@ -123,13 +127,23 @@ function TransactionsTabContent() {
   });
   const [page, setPage] = useState(1);
 
+  // Scoped to the connected wallet — only the user's own transactions come
+  // back. Without a wallet there's no identity to scope to, so it stays empty.
+  // What PayAI executed, plus deposits (and sends made elsewhere), which
+  // PayAI's own log never holds.
+  const load = useCallback(() => {
+    const payai = fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
+      .then((r) => r.json()).then((j) => (j.history ?? []) as HistoryRow[]).catch(() => [] as HistoryRow[]);
+    return Promise.all([payai, fetchWalletMoves(wallet.address, wallet.providerId)])
+      .then(([rows, moves]) => setHistory(mergeByTime<HistoryRow>(rows, moves)))
+      .finally(() => setLoading(false));
+  }, [wallet.address, wallet.providerId]);
   useEffect(() => {
-    // Scoped to the connected wallet — only the user's own transactions come
-    // back. Without a wallet there's no identity to scope to, so it stays empty.
     setLoading(true);
-    fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "Show my transaction history", walletAddress: wallet.address }) })
-      .then((r) => r.json()).then((j) => setHistory(j.history ?? [])).finally(() => setLoading(false));
-  }, [wallet.address]);
+    void load();
+  }, [load]);
+  // A new deposit appears without leaving the page.
+  useSyncRefresher(load);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -174,7 +188,7 @@ function TransactionsTabContent() {
         ) : !wallet.address ? (
           <EmptyState title="Connect your wallet" hint="Your history is private to your wallet. Connect it to see what PayAI has executed for you." />
         ) : history.length === 0 ? (
-          <EmptyState title="No activity yet." hint="What PayAI executes for you shows up here once it settles on Monad." action={{ label: "Tell PayAI what you want done", href: "/dashboard" }} />
+          <EmptyState title="No activity yet." hint="Payments, swaps and deposits show up here once they settle on Monad." action={{ label: "Tell PayAI what you want done", href: "/dashboard" }} />
         ) : filtered.length === 0 ? (
           <EmptyState title="No matches" hint="Nothing matches your search or filter." />
         ) : (
@@ -184,14 +198,15 @@ function TransactionsTabContent() {
                 // Swaps and protocol actions (wrap, Aave) have no recipient: their row
                 // is titled by what happened.
                 const swap = h.feature === "swap" || h.feature === "trade" || h.feature === "protocol" || h.action === "swap";
+                const received = h.direction === "in";
                 return (
                   <ActivityRow
                     key={`${h.at}-${i}`}
-                    icon={swap ? ArrowLeftRight : ArrowUpRight}
-                    title={swap ? (h.summary || "Swap") : <>To {h.domain ?? <span className="font-mono">{short(h.recipient)}</span>}</>}
+                    icon={received ? ArrowDownLeft : swap ? ArrowLeftRight : ArrowUpRight}
+                    title={received ? "Deposit received" : h.direction === "out" ? "Sent outside PayAI" : swap ? (h.summary || "Swap") : <>To {h.domain ?? <span className="font-mono">{short(h.recipient)}</span>}</>}
                     status={{ tone: DECISION_TONE[h.decision] ?? "neutral", label: DECISION_LABEL[h.decision] ?? h.decision }}
                     meta={<span title={new Date(h.at).toLocaleString()}>{ago(h.at)} · Monad</span>}
-                    amount={h.amount != null ? <>{h.amount} <span className="text-xs font-normal text-muted-foreground">{h.token}</span></> : "—"}
+                    amount={h.amount != null ? <>{received ? "+" : ""}{h.amount} <span className="text-xs font-normal text-muted-foreground">{h.token}</span></> : "—"}
                     receipt={h.txHash && h.explorerUrl ? { href: h.explorerUrl, label: short(h.txHash) } : null}
                   />
                 );

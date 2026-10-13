@@ -90,6 +90,14 @@ function curatedList(): { address: string; symbol: string; name: string }[] {
   return CURATED_MAINNET;
 }
 
+/** The ERC-20s whose balance PayAI follows for deposits that land while
+ *  nobody is watching: the curated list for this network. */
+export function trackedTokenAddresses(): `0x${string}`[] {
+  return curatedList()
+    .map((c) => c.address)
+    .filter((a) => ADDR_RE.test(a)) as `0x${string}`[];
+}
+
 /**
  * Resolve ANY address (native sentinel or ERC-20) to real, on-chain-verified
  * metadata. This is what makes new Monad tokens "automatically supported":

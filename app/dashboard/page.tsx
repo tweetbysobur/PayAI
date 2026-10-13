@@ -2,7 +2,8 @@
 
 import { stoppedNotice, STOPPED_LABEL } from "@/lib/hooks/stoppedPayments";
 import { fetchHistory } from "@/lib/hooks/historyFetch";
-import { useCallback, useMemo, useState } from "react";
+import { fetchWalletMoves, mergeByTime } from "@/lib/hooks/walletMoves";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, AlertTriangle } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -32,7 +33,7 @@ const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal")
  *        hands the exact words to Ask PayAI, which plans and asks for review
  *        and approval — the Dashboard executes nothing.
  *   4    Needs attention — wallet state, failing automations, payments the risk check stopped.
- *   5    Recent activity — this wallet's own executed transactions.
+ *   5    Recent activity — this wallet's own transactions, deposits included.
  *   6    Coming up — the next scheduled and recurring actions.
  *   7    Wallet — balance and top holdings, last: supporting information,
  *        not the identity of the page.
@@ -43,7 +44,7 @@ const ReceiveModal = dynamic(() => import("@/components/dashboard/ReceiveModal")
  * and is scoped to the connected wallet. Unknown values read "—".
  */
 
-interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string }
+interface HistoryRow { at: number; decision: string; summary: string; amount: number | null; token: string; recipient?: string | null; domain?: string | null; txHash?: string; explorerUrl?: string; action?: string; feature?: string; direction?: "in" | "out" }
 interface Automation { id: string; amount: number; token: string; recipient: string; domain?: string | null; cadence: string; nextRun: number; status: string; purpose?: string; failureCount?: number; lastError?: string | null }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 6)}…${s.slice(-4)}` : "—");
@@ -54,6 +55,8 @@ const DECISION: Record<string, { label: string; tone: StatusTone }> = {
   blocked: { label: "Blocked", tone: "danger" },
   refused: { label: "Refused", tone: "danger" },
   error: { label: "Failed", tone: "danger" },
+  received: { label: "Received", tone: "success" },
+  sent_out: { label: "Sent", tone: "neutral" },
 };
 
 /** No recipient to show: swaps and protocol actions (wrap, Aave) are titled by their summary. */
@@ -85,14 +88,21 @@ export default function Dashboard() {
     // so these come back empty by design.
     return Promise.all([
       fetch(`/api/automations${wallet.address ? `?wallet=${wallet.address}` : ""}`).then((r) => r.json()).then((j) => setAutomations(j.automations ?? [])).catch(() => {}),
-      fetchHistory(wallet.address)
-        .then((j) => setHistory((j.history ?? []) as HistoryRow[])).catch(() => {}),
+      Promise.all([
+        // Each on its own: one failing read must not hide the other.
+        fetchHistory(wallet.address).then((j) => (j.history ?? []) as HistoryRow[]).catch(() => [] as HistoryRow[]),
+        fetchWalletMoves(wallet.address, wallet.providerId),
+      ]).then(([rows, moves]) => setHistory(mergeByTime<HistoryRow>(rows, moves))),
     ]).finally(() => setLoaded(true));
-  }, [wallet.address]);
+  }, [wallet.address, wallet.providerId]);
 
   // Joins the dashboard's single sync (lib/hooks/useSync.tsx): the Refresh
   // button, a completed payment and the background heartbeat all land here.
   useSyncRefresher(refresh);
+  // And straight away when the page opens or the wallet changes, rather than
+  // waiting for the next heartbeat (which may have run before the wallet was
+  // known).
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const upcoming = useMemo(
     () => automations
@@ -232,21 +242,22 @@ export default function Dashboard() {
               <EmptyState
                 compact
                 title="No activity yet"
-                hint="What PayAI executes for you shows up here once it settles on Monad."
+                hint="Payments, swaps and deposits show up here once they settle on Monad."
               />
             ) : (
               <ul className="divide-y divide-border">
                 {history.slice(0, 6).map((h, i) => {
                   const d = DECISION[h.decision] ?? { label: h.decision, tone: "neutral" as const };
                   const swap = isSwap(h);
+                  const received = h.direction === "in";
                   return (
                     <ActivityRow
                       key={`${h.at}-${i}`}
-                      icon={swap ? ArrowLeftRight : ArrowUpRight}
-                      title={swap ? (h.summary || "Swap") : <>To {h.domain ?? short(h.recipient)}</>}
+                      icon={received ? ArrowDownLeft : swap ? ArrowLeftRight : ArrowUpRight}
+                      title={received ? "Deposit received" : h.direction === "out" ? "Sent outside PayAI" : swap ? (h.summary || "Swap") : <>To {h.domain ?? short(h.recipient)}</>}
                       status={d}
                       meta={timeAgo(h.at)}
-                      amount={h.amount != null ? <>{h.amount} <span className="text-xs font-normal text-muted-foreground">{h.token}</span></> : "—"}
+                      amount={h.amount != null ? <>{received ? "+" : ""}{h.amount} <span className="text-xs font-normal text-muted-foreground">{h.token}</span></> : "—"}
                       receipt={h.txHash && h.explorerUrl ? { href: h.explorerUrl, label: short(h.txHash) } : null}
                     />
                   );

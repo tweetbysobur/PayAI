@@ -16,6 +16,7 @@ let blocksRead: string[] = [];
 let traceByBlock: Record<string, unknown[]> | null = null;
 let balances: Record<string, bigint> = {};
 let receipts: Record<string, { gasUsed: bigint; effectiveGasPrice: bigint }> = {};
+const trackedTokens: string[] = [];
 
 vi.mock("@/lib/monad/wallet", () => ({
   getPublicClient: () => ({
@@ -50,6 +51,7 @@ vi.mock("@/lib/monad/config", () => ({
 }));
 vi.mock("@/lib/monad/tokenRegistry", () => ({
   resolveToken: async () => ({ address: "0xtok", symbol: "USDC", name: "USD Coin", decimals: 6, verified: true }),
+  trackedTokenAddresses: () => trackedTokens,
 }));
 vi.mock("@/lib/platform/store", () => ({
   listTx: async () => ownTxs,

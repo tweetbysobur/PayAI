@@ -22,18 +22,36 @@
  * native transfer on an RPC without tracing, where the amount is exact but no
  * transaction can be attributed — reported as such rather than guessed at.
  *
+ * Two ways to cover a window, chosen by its size:
+ *
+ *   - **Short windows** (the dashboard open, polling every 20 s) are read
+ *     exactly: every Transfer log in and out — any token — and every block
+ *     body. Monad's public RPC refuses eth_getLogs over 100 blocks, so logs
+ *     are read in 100-block pieces.
+ *   - **Long windows** (the wallet was away) can't be read block by block, so
+ *     the wallet's balance of MON and of each tracked token is compared
+ *     across the gap and bisected only where it changed, down to the exact
+ *     block (MON) or 100-block piece (tokens), which is then read for the
+ *     transaction. A deposit made while nobody was looking is found when they
+ *     come back, instead of the window being skipped. Progress is saved as it
+ *     goes, so a long catch-up carries on over the next polls.
+ *
  * Known gaps, reported rather than papered over (same convention as
  * lib/monad/wallet-intel.ts):
+ *   - **In a long window only MON and the tracked tokens are followed**
+ *     (tokenRegistry's curated list). Any other token is caught when it
+ *     arrives while the dashboard is open. And a deposit fully cancelled out
+ *     by an equal send inside the same unchanged-looking stretch nets to no
+ *     balance change and is not seen.
  *   - **Native sends from inside a contract** ARE detected — by tracing where
  *     the RPC supports it, otherwise by exact balance reconciliation, which
  *     yields the right amount but a block range instead of a txHash. What
  *     remains undetectable is an internal transfer in a window too wide to
  *     scan (below), since the reconciliation needs the top-level movements
  *     from that same window to subtract.
- *   - **A window wider than MAX_NATIVE_SCAN_BLOCKS** skips native detection
- *     for that window (ERC-20 still scans, being range-independent), rather
- *     than issuing tens of thousands of block reads. Surfaced as
- *     `nativeComplete: false`.
+ *   - **No historical state** for the start of a long window (an RPC that
+ *     prunes it) means that window can't be checked; nothing is invented and
+ *     it is surfaced as `nativeComplete: false`.
  *   - **The first scan only establishes a baseline.** It records no events,
  *     otherwise a wallet with years of history would fire hundreds of
  *     "deposit received" notifications the first time its owner signed in.
@@ -44,7 +62,7 @@ import "server-only";
 import { parseAbiItem, formatUnits } from "viem";
 import { getPublicClient } from "@/lib/monad/wallet";
 import { explorerTx, getChain } from "@/lib/monad/config";
-import { resolveToken } from "@/lib/monad/tokenRegistry";
+import { resolveToken, trackedTokenAddresses } from "@/lib/monad/tokenRegistry";
 import { getRedis } from "@/lib/platform/kv";
 import { listWalletEvents, recordWalletEvent } from "@/lib/platform/walletEvents";
 import { listTx } from "@/lib/platform/store";
@@ -60,10 +78,22 @@ const TRANSFER_EVENT = parseAbiItem(
  *  (several tabs, a manual refresh) inside the window don't scan again. Each
  *  scan only reads the blocks since the last one. */
 const SCAN_THROTTLE_MS = 15_000;
-/** Hard cap on how far back a single scan reaches. A wallet dormant for
- *  months skips the gap (and says so via the advanced checkpoint) instead of
- *  issuing an unbounded getLogs the RPC will reject anyway. */
-const MAX_SCAN_BLOCKS = 50_000n;
+/** Hard cap on how far back a scan reaches: ~3.5 days of Monad's ~0.3 s
+ *  blocks, within the historical state the public RPC serves. A wallet
+ *  dormant for longer starts from there. */
+const MAX_SCAN_BLOCKS = 1_000_000n;
+/** Monad's public RPC refuses eth_getLogs over more than 100 blocks. */
+const LOG_RANGE = 100n;
+/** Windows up to this size are read exactly (logs in 100-block pieces, and
+ *  every block body); wider ones are caught up by balance. Covers the first
+ *  scan's lookback and a dashboard that was hidden for a minute or two. */
+const EXACT_WINDOW_BLOCKS = 400n;
+/** A long window is first split into this many stretches, each compared on
+ *  its own, so a deposit and a send in different stretches can't cancel. */
+const CATCHUP_SEGMENTS = 4n;
+/** Time a catch-up may spend before saving progress and leaving the rest to
+ *  the next poll. Under SCAN_TIMEOUT_MS so progress is always written. */
+const CATCHUP_BUDGET_MS = 4_500;
 /** How far the very first scan for a wallet looks back, instead of treating
  *  everything before "now" as pre-existing history. Without this, a deposit
  *  that lands moments before (or during) someone's first-ever dashboard
@@ -73,11 +103,8 @@ const MAX_SCAN_BLOCKS = 50_000n;
  *  from right before first sign-in, nowhere near enough to replay a dormant
  *  wallet's real history and flood a new user with old activity. */
 const BASELINE_LOOKBACK_BLOCKS = 300n;
-/** Native detection costs one block read per block, so it gets a much
- *  tighter cap than the log scan. Monad's sub-second blocks put a normal
- *  60s catch-up at ~150 blocks, so this leaves ~10x headroom for a user who
- *  was away a little longer, while refusing to melt the RPC for one who was
- *  away for days. */
+/** Native detection in an exact window costs one block read per block.
+ *  Exact windows are capped well below this; kept as a guard. */
 const MAX_NATIVE_SCAN_BLOCKS = 1_500n;
 /** Parallel block reads. High enough that a 150-block window is ~12 rounds,
  *  low enough not to look like an attack to the RPC. */
@@ -169,19 +196,27 @@ async function pullTransfers(
   fromBlock: bigint,
   toBlock: bigint,
 ): Promise<TransferLog[]> {
-  try {
-    return (await getPublicClient().getLogs({
-      event: TRANSFER_EVENT,
-      args: { [role]: address } as never,
-      fromBlock,
-      toBlock,
-    })) as unknown as TransferLog[];
-  } catch {
-    // RPC refused the range or the unfiltered query — report nothing rather
-    // than guessing. The checkpoint still advances, so this is a skipped
-    // window, not a stuck one.
-    return [];
+  // In pieces the RPC accepts. One request for the whole window used to be
+  // refused outright past 100 blocks, silently dropping every token deposit
+  // in it.
+  const pieces: [bigint, bigint][] = [];
+  for (let b = fromBlock; b <= toBlock; b += LOG_RANGE) {
+    pieces.push([b, b + LOG_RANGE - 1n < toBlock ? b + LOG_RANGE - 1n : toBlock]);
   }
+  const results = await Promise.all(
+    pieces.map(([from, to]) =>
+      (getPublicClient().getLogs({
+        event: TRANSFER_EVENT,
+        args: { [role]: address } as never,
+        fromBlock: from,
+        toBlock: to,
+      }) as unknown as Promise<TransferLog[]>).catch(
+        // RPC refused this piece — report nothing for it rather than guess.
+        () => [] as TransferLog[],
+      ),
+    ),
+  );
+  return results.flat();
 }
 
 /* ── Internal (contract-originated) native transfers ──────────────────────
@@ -399,83 +434,181 @@ async function pullNativeTransfers(
   return { transfers, complete: true };
 }
 
-export interface ReconcileResult {
-  scanned: boolean;
-  deposits: number;
-  withdrawals: number;
-  /** True on the very first scan for a wallet, which only sets the baseline. */
-  baseline?: boolean;
-  /** False when the window was too wide for native detection — native
-   *  transfers in it were not looked for. Absent when nothing was scanned. */
-  nativeComplete?: boolean;
+/* ── Catching up a long window by balance ─────────────────────────────── */
+
+const ERC20_BALANCE_ABI = [
+  { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ type: "uint256" }] },
+] as const;
+
+/** null is the chain's native asset. */
+type Asset = `0x${string}` | null;
+
+async function balanceAt(asset: Asset, address: `0x${string}`, blockNumber: bigint): Promise<bigint> {
+  const pub = getPublicClient();
+  if (asset === null) return pub.getBalance({ address, blockNumber });
+  return (await pub.readContract({
+    address: asset, abi: ERC20_BALANCE_ABI, functionName: "balanceOf", args: [address], blockNumber,
+  })) as bigint;
+}
+
+class OutOfBudget extends Error {}
+
+interface CatchUp {
+  detected: Detected[];
+  /** Transactions that moved a token from the wallet to itself. */
+  self: string[];
+  /** Every block up to here has been checked; the checkpoint may move here. */
+  resolvedTo: bigint;
+  complete: boolean;
+}
+
+/** What one block did to the wallet's native balance. Top-level transfers
+ *  come with their transaction; whatever is left after them and the gas the
+ *  wallet paid arrived from inside a contract. */
+async function nativeBlock(
+  address: `0x${string}`,
+  block: bigint,
+  before: bigint,
+  after: bigint,
+  out: Detected[],
+): Promise<void> {
+  const pub = getPublicClient();
+  const body = await pub.getBlock({ blockNumber: block, includeTransactions: true });
+  let accounted = 0n;
+  const ours: string[] = [];
+  for (const tx of body.transactions) {
+    if (typeof tx === "string") continue;
+    const from = tx.from?.toLowerCase();
+    const to = tx.to?.toLowerCase();
+    if (from !== address && to !== address) continue;
+    const value = tx.value ?? 0n;
+    if (from === address) ours.push(tx.hash);
+    if (from === to || value === 0n) continue;
+    if (to === address) {
+      out.push({ txHash: tx.hash.toLowerCase(), direction: "in", token: null, value });
+      accounted += value;
+    } else {
+      out.push({ txHash: tx.hash.toLowerCase(), direction: "out", token: null, value });
+      accounted -= value;
+    }
+  }
+  for (const hash of ours) {
+    try {
+      const r = await pub.getTransactionReceipt({ hash: hash as `0x${string}` });
+      const price = (r as unknown as { effectiveGasPrice?: bigint }).effectiveGasPrice ?? 0n;
+      accounted -= (r.gasUsed ?? 0n) * price;
+    } catch {
+      return; // gas unknown: an internal deposit can't be told apart, so none is claimed
+    }
+  }
+  const residual = after - before - accounted;
+  if (residual <= 0n) return;
+  const traced = await traceInternalTransfers(address, block, block);
+  if (traced && traced.length > 0) {
+    out.push(...traced);
+    return;
+  }
+  out.push({ txHash: `internal:${block}-${block}`, direction: "in", token: null, value: residual, internal: true });
 }
 
 /**
- * Catch up this wallet's transfer history and raise a notification for each
- * new one. Safe to call on every notification poll — it self-throttles, and
- * de-dupes by txHash so a concurrent double-call can't double-notify.
+ * Follows one asset's balance across [from, to]: compared at a few points,
+ * then bisected only where it changed. Native changes are narrowed to the
+ * exact block; token changes to a 100-block piece read by log.
  */
-export async function reconcileWalletTransfers(input: {
-  merchantId: string;
-  address: string;
-  providerId: WalletProviderId;
-}): Promise<ReconcileResult> {
-  const address = input.address.toLowerCase() as `0x${string}`;
-  const now = Date.now();
+async function catchUpAsset(
+  asset: Asset,
+  address: `0x${string}`,
+  from: bigint,
+  to: bigint,
+  deadline: number,
+): Promise<CatchUp> {
+  const result: CatchUp = { detected: [], self: [], resolvedTo: from - 1n, complete: false };
+  const start = from - 1n;
+  const span = to - start;
+  const n = span < CATCHUP_SEGMENTS ? span : CATCHUP_SEGMENTS;
+  const points: bigint[] = [];
+  for (let i = 0n; i <= n; i++) points.push(start + (span * i) / n);
 
-  const cp = await readCheckpoint(input.merchantId, address);
-  if (cp && now - cp.lastScanAt < SCAN_THROTTLE_MS) {
-    return { scanned: false, deposits: 0, withdrawals: 0 };
+  let bals: bigint[];
+  try {
+    bals = await Promise.all(points.map((b) => balanceAt(asset, address, b)));
+  } catch {
+    // No historical state for this window. Nothing can be said about it, so
+    // nothing is invented; the window is passed rather than retried forever.
+    return { ...result, resolvedTo: to };
   }
 
-  // Stamp the attempt BEFORE doing any network work. If the scan then stalls
-  // and gets abandoned, this is what stops the next poll 20s later from
-  // starting another doomed 8-second scan. lastBlock is left untouched, so
-  // no range is ever skipped as a result.
-  await writeCheckpoint(input.merchantId, address, { lastBlock: cp?.lastBlock ?? "", lastScanAt: now });
+  const tokenPiece = async (lo: bigint, hi: bigint) => {
+    const pub = getPublicClient();
+    const read = (role: "from" | "to") =>
+      pub.getLogs({
+        address: asset as `0x${string}`,
+        event: TRANSFER_EVENT,
+        args: { [role]: address } as never,
+        fromBlock: lo,
+        toBlock: hi,
+      }) as unknown as Promise<TransferLog[]>;
+    const [inLogs, outLogs] = await Promise.all([read("to"), read("from")]);
+    for (const [logs, direction] of [[inLogs, "in"], [outLogs, "out"]] as const) {
+      for (const l of logs) {
+        const txHash = (l.transactionHash ?? "").toLowerCase();
+        if (l.args?.from?.toLowerCase() === l.args?.to?.toLowerCase()) { result.self.push(txHash); continue; }
+        result.detected.push({ txHash, direction, token: l.address, value: l.args?.value ?? 0n });
+      }
+    }
+  };
 
-  // The scan is abandoned on timeout, not cancelled — so it can still reject
-  // long after nobody is awaiting it. An unawaited rejection is an unhandled
-  // promise rejection in the server process, which is a far worse outcome
-  // than the missed scan it would be reporting. Swallow it at the source.
-  const running = scan(input, address, cp, now).catch(
-    (): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }),
-  );
-  return withTimeout(running, SCAN_TIMEOUT_MS, {
-    scanned: false,
-    deposits: 0,
-    withdrawals: 0,
-  });
+  // Depth-first, left to right, so everything before the current position is
+  // settled and progress can be saved exactly there.
+  const descend = async (lo: bigint, hi: bigint, bLo: bigint, bHi: bigint): Promise<void> => {
+    if (bLo !== bHi) {
+      if (Date.now() > deadline) throw new OutOfBudget();
+      if (asset !== null && hi - lo <= LOG_RANGE) {
+        await tokenPiece(lo + 1n, hi);
+      } else if (asset === null && hi - lo === 1n) {
+        await nativeBlock(address, hi, bLo, bHi, result.detected);
+      } else {
+        const mid = lo + (hi - lo) / 2n;
+        const bMid = await balanceAt(asset, address, mid);
+        await descend(lo, mid, bLo, bMid);
+        await descend(mid, hi, bMid, bHi);
+        return;
+      }
+    }
+    result.resolvedTo = hi;
+  };
+
+  try {
+    for (let i = 0; i < points.length - 1; i++) await descend(points[i], points[i + 1], bals[i], bals[i + 1]);
+    result.complete = true;
+  } catch {
+    // Out of time, or a read failed: keep what was found, save progress up to
+    // the last settled block, and pick up from there on the next poll.
+  }
+  return result;
 }
 
-async function scan(
-  input: { merchantId: string; address: string; providerId: WalletProviderId },
-  address: `0x${string}`,
-  cp: Checkpoint | null,
-  now: number,
-): Promise<ReconcileResult> {
-  let latest: bigint;
+async function catchUp(address: `0x${string}`, from: bigint, to: bigint, deadline: number) {
+  let tokens: `0x${string}`[] = [];
   try {
-    latest = await getPublicClient().getBlockNumber();
+    tokens = trackedTokenAddresses();
   } catch {
-    return { scanned: false, deposits: 0, withdrawals: 0 };
+    /* no token list — MON is still followed */
   }
+  const assets: Asset[] = [null, ...tokens];
+  const runs = await Promise.all(assets.map((a) => catchUpAsset(a, address, from, to, deadline)));
+  return {
+    detected: runs.flatMap((r) => r.detected),
+    self: new Set(runs.flatMap((r) => r.self)),
+    resolvedTo: runs.reduce((m, r) => (r.resolvedTo < m ? r.resolvedTo : m), to),
+    nativeComplete: runs[0].complete,
+  };
+}
 
-  // First sight of this wallet (or a previous first attempt that never got a
-  // block number): rather than a blank baseline that ignores everything up
-  // to this instant, start the window a short lookback behind "now" so a
-  // deposit from just before this first scan still gets caught below.
-  const baseline = !cp?.lastBlock;
-  const since = baseline
-    ? (latest > BASELINE_LOOKBACK_BLOCKS ? latest - BASELINE_LOOKBACK_BLOCKS : 0n)
-    : BigInt(cp!.lastBlock);
-
-  if (!baseline && latest <= since) {
-    await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
-    return { scanned: true, deposits: 0, withdrawals: 0, nativeComplete: true };
-  }
-  const fromBlock = latest - since > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : since + 1n;
-
+/** A short window, read exactly: every Transfer log in and out (any
+ *  token) and every block body, plus contract-originated MON. */
+async function exactWindow(address: `0x${string}`, fromBlock: bigint, latest: bigint) {
   const [incoming, outgoing, native] = await Promise.all([
     pullTransfers("to", address, fromBlock, latest),
     pullTransfers("from", address, fromBlock, latest),
@@ -531,6 +664,96 @@ async function scan(
       .filter((l) => l.args?.from?.toLowerCase() === l.args?.to?.toLowerCase())
       .map((l) => (l.transactionHash ?? "").toLowerCase()),
   );
+
+  return { detected, self: selfTransfers, nativeComplete: native.complete };
+}
+
+export interface ReconcileResult {
+  scanned: boolean;
+  deposits: number;
+  withdrawals: number;
+  /** True on the very first scan for a wallet, which only sets the baseline. */
+  baseline?: boolean;
+  /** False when the window was too wide for native detection — native
+   *  transfers in it were not looked for. Absent when nothing was scanned. */
+  nativeComplete?: boolean;
+}
+
+/**
+ * Catch up this wallet's transfer history and raise a notification for each
+ * new one. Safe to call on every notification poll — it self-throttles, and
+ * de-dupes by txHash so a concurrent double-call can't double-notify.
+ */
+export async function reconcileWalletTransfers(input: {
+  merchantId: string;
+  address: string;
+  providerId: WalletProviderId;
+}): Promise<ReconcileResult> {
+  const address = input.address.toLowerCase() as `0x${string}`;
+  const now = Date.now();
+
+  const cp = await readCheckpoint(input.merchantId, address);
+  if (cp && now - cp.lastScanAt < SCAN_THROTTLE_MS) {
+    return { scanned: false, deposits: 0, withdrawals: 0 };
+  }
+
+  // Stamp the attempt BEFORE doing any network work. If the scan then stalls
+  // and gets abandoned, this is what stops the next poll 20s later from
+  // starting another doomed 8-second scan. lastBlock is left untouched, so
+  // no range is ever skipped as a result.
+  await writeCheckpoint(input.merchantId, address, { lastBlock: cp?.lastBlock ?? "", lastScanAt: now });
+
+  // The scan is abandoned on timeout, not cancelled — so it can still reject
+  // long after nobody is awaiting it. An unawaited rejection is an unhandled
+  // promise rejection in the server process, which is a far worse outcome
+  // than the missed scan it would be reporting. Swallow it at the source.
+  const running = scan(input, address, cp, now).catch(
+    (): ReconcileResult => ({ scanned: false, deposits: 0, withdrawals: 0 }),
+  );
+  return withTimeout(running, SCAN_TIMEOUT_MS, {
+    scanned: false,
+    deposits: 0,
+    withdrawals: 0,
+  });
+}
+
+async function scan(
+  input: { merchantId: string; address: string; providerId: WalletProviderId },
+  address: `0x${string}`,
+  cp: Checkpoint | null,
+  now: number,
+): Promise<ReconcileResult> {
+  const scanStartedAt = Date.now();
+  let latest: bigint;
+  try {
+    latest = await getPublicClient().getBlockNumber();
+  } catch {
+    return { scanned: false, deposits: 0, withdrawals: 0 };
+  }
+
+  // First sight of this wallet (or a previous first attempt that never got a
+  // block number): rather than a blank baseline that ignores everything up
+  // to this instant, start the window a short lookback behind "now" so a
+  // deposit from just before this first scan still gets caught below.
+  const baseline = !cp?.lastBlock;
+  const since = baseline
+    ? (latest > BASELINE_LOOKBACK_BLOCKS ? latest - BASELINE_LOOKBACK_BLOCKS : 0n)
+    : BigInt(cp!.lastBlock);
+
+  if (!baseline && latest <= since) {
+    await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
+    return { scanned: true, deposits: 0, withdrawals: 0, nativeComplete: true };
+  }
+  const fromBlock = latest - since > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : since + 1n;
+
+  // A long gap is caught up by balance, the rest of the way on later polls
+  // if it doesn't fit in one; a short one is read exactly.
+  const long = latest - fromBlock + 1n > EXACT_WINDOW_BLOCKS;
+  const found = long
+    ? await catchUp(address, fromBlock, latest, scanStartedAt + CATCHUP_BUDGET_MS)
+    : { ...(await exactWindow(address, fromBlock, latest)), resolvedTo: latest };
+  const detected = found.detected.filter((d) => d.txHash && d.value > 0n);
+  const selfTransfers = found.self;
 
   // Everything PayAI itself settled is already in the tx log and has already
   // produced a "Payment sent" notification — re-reporting those as
@@ -597,6 +820,8 @@ async function scan(
     else withdrawals++;
   }
 
-  await writeCheckpoint(input.merchantId, address, { lastBlock: latest.toString(), lastScanAt: now });
-  return { scanned: true, deposits, withdrawals, nativeComplete: native.complete, ...(baseline ? { baseline: true } : {}) };
+  // Only as far as was actually checked: a catch-up that ran out of time
+  // carries on from here next poll instead of skipping the rest.
+  await writeCheckpoint(input.merchantId, address, { lastBlock: found.resolvedTo.toString(), lastScanAt: now });
+  return { scanned: true, deposits, withdrawals, nativeComplete: found.nativeComplete, ...(baseline ? { baseline: true } : {}) };
 }
