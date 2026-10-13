@@ -62,7 +62,7 @@ export default function GettingStartedPage() {
           <li><Link href="/docs/payments">Payments</Link> — tokens, .nad names, bulk.</li>
           <li><Link href="/docs/automations">Automations</Link> — payroll, rent, recurring.</li>
           <li><Link href="/docs/fees">Fees</Link> — what 0.25% actually means.</li>
-          <li><Link href="/security">Security</Link> — keys, automations, Telegram.</li>
+          <li><Link href="/security">Security</Link> — keys and automations.</li>
         </ul>
       </DocsSection>
     </DocsChrome>

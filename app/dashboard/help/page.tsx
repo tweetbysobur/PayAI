@@ -238,8 +238,7 @@ const ARTICLES: Article[] = [
     category: "security",
     question: "Does PayAI ever hold my funds?",
     answer: [
-      "Not by default in the web app. Wallet Automation never takes custody — funds stay in your wallet until the exact moment of execution. Reserved Funds does hold a deposit, but only in an on-chain vault contract that can only ever pay your intended recipient or refund back to you.",
-      "The Telegram trading bot is different: it generates a hot wallet and stores the key encrypted so it can sign from chat. That path is custodial. Don't deposit more than you're willing to trust to a bot.",
+      "No. Wallet Automation never takes custody — funds stay in your wallet until the exact moment of execution. Reserved Funds does hold a deposit, but only in an on-chain vault contract that can only ever pay your intended recipient or refund back to you.",
     ],
   },
   {
@@ -273,16 +272,7 @@ const ARTICLES: Article[] = [
     id: "sec-page",
     category: "security",
     question: "Where can I read more about PayAI's security model?",
-    answer: ["The full Security & Trust page covers the non-custodial design, the automation and Telegram exceptions, on-chain invariants, and the Ultrafuzz review in more depth."],
-  },
-  {
-    id: "sec-telegram",
-    category: "security",
-    question: "Is the Telegram trading bot non-custodial too?",
-    answer: [
-      "No. The Telegram bot generates a hot wallet per Telegram user and stores the private key encrypted at rest so /buy, /sell, and /withdraw can sign from chat. That is custody.",
-      "The /start command says this every time. Don't send that address more than you're comfortable trusting to a bot. You can withdraw everything with /withdraw. The web app's passkey and external wallets are a different, non-custodial model.",
-    ],
+    answer: ["The full Security & Trust page covers the non-custodial design, the automation exception, on-chain invariants, and the Ultrafuzz review in more depth."],
   },
 
   // ── FAQ ───────────────────────────────────────────────────────────────

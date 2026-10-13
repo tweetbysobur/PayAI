@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { DocsCallout, DocsSection, DocsTable } from "@/components/docs/DocsShell";
+import { DocsSection, DocsTable } from "@/components/docs/DocsShell";
 import { DocsChrome } from "@/components/docs/DocsChrome";
 
 export const metadata: Metadata = {
@@ -74,10 +74,6 @@ export default function AutomationsPage() {
           stablecoins and native MON. Every payment carries a unique request id. These limits
           hold even if the application layer were compromised.
         </p>
-        <DocsCallout tone="note" title="Not the Telegram bot">
-          Automations are the scheduled-payments exception. The Telegram trading bot is a
-          different, custodial exception. See <Link href="/security">Security</Link>.
-        </DocsCallout>
       </DocsSection>
     </DocsChrome>
   );
