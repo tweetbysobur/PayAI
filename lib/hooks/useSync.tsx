@@ -42,6 +42,17 @@ const SyncContext = createContext<SyncState | null>(null);
 
 /** How often the dashboard refreshes itself without being asked. */
 const AUTO_SYNC_MS = 20_000;
+const TX_EVENT = "payai:transaction";
+const TX_FOLLOW_UP_MS = 5_000;
+
+/**
+ * Tells the dashboard a transaction just confirmed, so balances, history and
+ * notifications refresh now instead of on the next 20 s tick. Fire-and-forget;
+ * a no-op outside the browser.
+ */
+export function announceTransaction(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(TX_EVENT));
+}
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   // A ref, not state: registering must not re-render every consumer, and a
@@ -88,9 +99,21 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     const timer = setInterval(() => { if (!document.hidden) void sync(); }, AUTO_SYNC_MS);
     const onVisible = () => { if (!document.hidden) void sync(); };
     document.addEventListener("visibilitychange", onVisible);
+    // A transaction confirmed somewhere in the app: refresh now so it shows
+    // (and pops up) straight away, and once more shortly after for records
+    // the server writes a moment after the receipt.
+    let followUp: ReturnType<typeof setTimeout> | undefined;
+    const onTransaction = () => {
+      void sync();
+      clearTimeout(followUp);
+      followUp = setTimeout(() => void sync(), TX_FOLLOW_UP_MS);
+    };
+    window.addEventListener(TX_EVENT, onTransaction);
     return () => {
       clearInterval(timer);
+      clearTimeout(followUp);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener(TX_EVENT, onTransaction);
     };
   }, [sync]);
 

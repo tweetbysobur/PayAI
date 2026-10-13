@@ -1,5 +1,6 @@
 "use client";
 
+import { announceTransaction } from "@/lib/hooks/useSync";
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { ArrowDown, Fingerprint, KeyRound, Loader2, X } from "lucide-react";
@@ -95,6 +96,7 @@ export function TopUpModal({ open, onClose }: { open: boolean; onClose: () => vo
       await wallet.waitForReceipt(hash);
       setPhase("done");
       balances.refresh();
+      announceTransaction();
       toast(`${amount} ${token} sent to your PayAI Wallet`);
     } catch (e) {
       setPhase("error");

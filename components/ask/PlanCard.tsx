@@ -24,6 +24,7 @@
  * with its own state once the plan is under way. One Approve covers the
  * whole plan — exactly what the server will let the runner execute.
  */
+import { announceTransaction } from "@/lib/hooks/useSync";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { AlertTriangle, Check, Circle, Loader2, X } from "lucide-react";
@@ -460,6 +461,7 @@ export function PlanCard({ planRef, onEdit }: {
       setActiveNode(null);
       setQuote(null);
       await reload();
+      announceTransaction();
     }
   }
 

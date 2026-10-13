@@ -1,4 +1,5 @@
 import { keccak256, stringToHex, type Hex } from "viem";
+import { announceTransaction } from "@/lib/hooks/useSync";
 import type { WalletState } from "@/lib/wallet/useWallet";
 import type { TemplateCategory } from "@/lib/automation/templates";
 
@@ -88,6 +89,7 @@ export async function confirmTx(wallet: WalletState, to: string, data: string, v
   const hash = await wallet.sendTransaction({ to, data, value: value != null ? `0x${value.toString(16)}` : undefined });
   const receipt = (await wallet.waitForReceipt(hash)) as { status?: string } | null;
   if (receipt && receipt.status !== "success") throw new Error("The on-chain transaction failed. Nothing was created.");
+  announceTransaction();
   return hash;
 }
 

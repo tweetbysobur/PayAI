@@ -1,5 +1,6 @@
 "use client";
 
+import { announceTransaction } from "@/lib/hooks/useSync";
 import { useState } from "react";
 import { decodeEventLog, encodeFunctionData, isHex, keccak256, stringToHex, type Hex } from "viem";
 import { LifeBuoy, ExternalLink } from "lucide-react";
@@ -42,6 +43,7 @@ async function confirmTx(wallet: WalletState, to: string, data: string): Promise
   const hash = await wallet.sendTransaction({ to, data });
   const receipt = (await wallet.waitForReceipt(hash)) as { status?: string } | null;
   if (receipt && receipt.status !== "success") throw new Error("The refund transaction failed on-chain.");
+  announceTransaction();
   return hash;
 }
 
