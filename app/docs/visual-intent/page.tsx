@@ -70,7 +70,7 @@ export default function VisualIntentPage() {
         />
         <p>
           QR codes are read by PayAI itself. Reading invoices, written instructions and printed
-          text uses a language model (Anthropic&apos;s Claude), the same one Ask PayAI uses for
+          text uses a language model from Anthropic, the same one Ask PayAI uses for
           open-ended wording — see{" "}
           <Link href="/docs/ask#understanding">How Ask understands you</Link>. Where that is
           turned off, QR codes still work and other images get a message asking you to type the

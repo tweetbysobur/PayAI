@@ -14,7 +14,8 @@ npm run dev                  # http://localhost:3100
 Out of the box it runs in `simulation` mode — the full pipeline executes but
 settlement is mocked, so you don't need a wallet key or an API key to work on
 most of the app. See the [README](README.md#configuration) for real on-chain
-setup.
+setup, and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for the architecture and
+the guardrails every change has to respect.
 
 ## Before you open a pull request
 

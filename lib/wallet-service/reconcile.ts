@@ -54,10 +54,12 @@ const TRANSFER_EVENT = parseAbiItem(
   "event Transfer(address indexed from, address indexed to, uint256 value)",
 );
 
-/** Don't re-scan more often than this, however often the client polls. The
- *  notification feed refreshes every 20s; a chain scan every 20s per user
- *  would be wasteful and rate-limit the RPC for no benefit. */
-const SCAN_THROTTLE_MS = 60_000;
+/** Don't re-scan more often than this, however often the client polls. Just
+ *  under the dashboard's 20 s refresh, so each refresh while the page is open
+ *  looks for new deposits and one is announced within a refresh; extra polls
+ *  (several tabs, a manual refresh) inside the window don't scan again. Each
+ *  scan only reads the blocks since the last one. */
+const SCAN_THROTTLE_MS = 15_000;
 /** Hard cap on how far back a single scan reaches. A wallet dormant for
  *  months skips the gap (and says so via the advanced checkpoint) instead of
  *  issuing an unbounded getLogs the RPC will reject anyway. */

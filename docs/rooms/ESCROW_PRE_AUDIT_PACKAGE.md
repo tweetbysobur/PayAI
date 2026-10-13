@@ -40,7 +40,7 @@ internal review and its fixes, D1–D6).
 | `contracts/hardhat.config.js` | `83484a0e9656aba62ae5b806ec2a0dd799277ff4bdfaf8fc4e5c13d9f7098e91` |
 | `contracts/package-lock.json` | `de4aae160defc3f3d674ebb3882a8dea43dd944d7b8405ca085c539b86ddfcbc` |
 
-These files are **uncommitted** on branch `claude/bitv-s3ctfc` (HEAD
+These files are **uncommitted** on branch a feature branch (HEAD
 `1afbd29`). Before engaging an auditor, commit them and give the auditor the
 commit hash. The audit must cover exactly that commit, and the hashes above
 must match it.

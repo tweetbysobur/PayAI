@@ -51,6 +51,9 @@ function historyListHref(decision: string): string {
 export function useNotifications(walletAddress?: string | null, providerId?: string | null) {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
   const [unread, setUnread] = useState(0);
+  // True once the first feed for this wallet has arrived — lets the pop-up
+  // tell "nothing yet" from "not loaded yet".
+  const [loaded, setLoaded] = useState(false);
   // Held so the global refresh can trigger the same load the interval does,
   // without this hook needing to know what triggered it.
   const loadRef = useRef<() => void>(() => {});
@@ -60,6 +63,7 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
     // Notifications are the user's OWN activity — scope every fetch to the
     // connected wallet (the server returns nothing without it, by design), so
     // the bell reflects your activity, not an empty/shared feed.
+    setLoaded(false);
     if (!walletAddress) { setNotifications([]); setUnread(0); return; }
     let cancelled = false;
     function load() {
@@ -165,6 +169,7 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
         // unseen ones drive the unread badge.
         setNotifications(all.map((n) => ({ ...n, read: n.at <= seenAt })));
         setUnread(all.filter((n) => n.at > seenAt).length);
+        setLoaded(true);
       });
     }
     loadRef.current = load;
@@ -183,5 +188,5 @@ export function useNotifications(walletAddress?: string | null, providerId?: str
     setUnread(0);
   }
 
-  return { notifications, unread, markSeen };
+  return { notifications, unread, loaded, markSeen };
 }

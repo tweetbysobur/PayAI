@@ -9,7 +9,7 @@
 > Cleanverse integration. Update it before (not after) any code changes that
 > diverge from it.
 >
-> **Date:** 2026-09-29 · **Repo baseline:** `claude/bitv-s3ctfc` @ `e648d7f`
+> **Date:** 2026-09-29 · **Repo baseline:** a feature branch @ `e648d7f`
 
 ## How to read this document
 
@@ -691,7 +691,7 @@ any interface in this document.
 
 ## 16. Implementation v0.2 — what is built, and what is still blocked
 
-**Date:** 2026-10-09 · branch `claude/bitv-s3ctfc` (uncommitted working tree).
+**Date:** 2026-10-09 · branch a feature branch (uncommitted working tree).
 Written before the code it describes, as §0 requires.
 
 Nothing in §7/§8's Cleanverse questions has been answered, so the **verified

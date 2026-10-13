@@ -386,7 +386,7 @@ the actual contract fix each address corresponds to:
 No sandbox session executed any of this — none has ever had
 `MONAD_AGENT_PRIVATE_KEY` or live mainnet write access. This was a real
 deploy + cutover run by whoever holds the actual keys, from the
-`claude/bitv-s3ctfc` branch these fixes originated on (per PR #13's own
+a feature branch branch these fixes originated on (per PR #13's own
 note: the contract-level fixes "need a real mainnet deploy session with
 signing keys" and were deliberately kept off the app-layer-only PR).
 

@@ -1,6 +1,7 @@
-# CLAUDE.md
+# Development notes
 
-Context for AI assistants and contributors working in this repo.
+Context for contributors working in this repo: commands, architecture, and
+the guardrails every change has to respect.
 
 ## What this is
 

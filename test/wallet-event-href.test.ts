@@ -77,9 +77,9 @@ describe("every surface that renders a wallet-event notification uses walletEven
     expect(src).toMatch(/href:\s*walletEventHref\(e\.type/);
   });
 
-  it("the deposit pop-up follows the notification's own href instead of a second hardcoded page", () => {
-    const src = read("../components/dashboard/DepositAlert.tsx");
-    expect(src).toMatch(/router\.push\(shown\.href\)/);
+  it("the transaction pop-up follows the notification's own href instead of a second hardcoded page", () => {
+    const src = read("../components/dashboard/ActivityAlert.tsx");
+    expect(src).toMatch(/onOpen\(item\.href\)/);
     expect(src).not.toMatch(/router\.push\("\/dashboard\/wallets"\)/);
   });
 });

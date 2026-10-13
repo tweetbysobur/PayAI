@@ -44,7 +44,6 @@ COLD_OWNER_WALLET_KEY.txt
 # local coding-agent tool configs/caches — not project source
 /.agents/
 /.codex/
-/.claude/
 /.github/hooks/
 /.github/skills/
 /.impeccable/

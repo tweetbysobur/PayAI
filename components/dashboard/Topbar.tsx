@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
-import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight, Plus } from "lucide-react";
+import { Bell, Wallet as WalletIcon, CheckCircle2, Clock3, XCircle, ExternalLink, CheckCheck, ArrowDownLeft, Repeat, PauseCircle, PlayCircle, Ban, Sparkles, ChevronRight, Copy, LogOut, ChevronDown, AlertTriangle, Lock, ArrowLeftRight, Plus, Volume2, VolumeX } from "lucide-react";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
 import { useIdentity } from "@/lib/hooks/useIdentity";
@@ -11,6 +11,7 @@ import { useUsername } from "@/lib/hooks/useUsername";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import { timeAgo } from "@/lib/hooks/useAgentConsole";
 import type { NotifItem } from "@/lib/hooks/useNotifications";
+import { onSoundPreferenceChange, previewNotificationSound, setSoundEnabled, soundEnabled } from "@/lib/notify/sound";
 import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
@@ -315,14 +316,17 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
                       <span className="rounded-full bg-primary/12 px-2 py-0.5 text-[11px] font-medium text-primary-ink">{unread} new</span>
                     )}
                   </div>
-                  {unread > 0 && (
-                    <button
-                      onClick={() => onOpenNotifications?.()}
-                      className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                    >
-                      <CheckCheck size={12} /> Mark all read
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    <SoundToggle />
+                    {unread > 0 && (
+                      <button
+                        onClick={() => onOpenNotifications?.()}
+                        className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-primary-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      >
+                        <CheckCheck size={12} /> Mark all read
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {notifications.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
@@ -382,5 +386,33 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
       <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
       <AddWalletModal open={addWalletOpen} onClose={() => setAddWalletOpen(false)} />
     </header>
+  );
+}
+
+/** Sounds on/off for transaction pop-ups, remembered in this browser. Turning
+ *  sound on plays the deposit chime once, so it's clear what you'll hear. */
+function SoundToggle() {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    setOn(soundEnabled());
+    return onSoundPreferenceChange(() => setOn(soundEnabled()));
+  }, []);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        const next = !on;
+        setSoundEnabled(next);
+        setOn(next);
+        if (next) previewNotificationSound("deposit");
+      }}
+      aria-pressed={on}
+      aria-label={on ? "Turn notification sounds off" : "Turn notification sounds on"}
+      title={on ? "Sounds on" : "Sounds off"}
+      className="flex items-center gap-1 rounded-sm text-[11px] font-medium text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {on ? <Volume2 size={13} aria-hidden /> : <VolumeX size={13} aria-hidden />}
+      {on ? "Sound on" : "Sound off"}
+    </button>
   );
 }

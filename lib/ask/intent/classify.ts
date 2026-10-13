@@ -18,7 +18,7 @@
  * even when the deterministic engine thinks it already has every field) or
  * anything the deterministic engine can't confidently place at all.
  *
- * When Anthropic IS needed, understandWithLLM makes a real Claude call
+ * When Anthropic IS needed, understandWithLLM makes a real model call
  * (forced tool output), given the conversation so far and any in-flight
  * (pending) intent so it can merge a follow-up ("20", "make it 30") into
  * what's already being built. If no key is configured, or a live call

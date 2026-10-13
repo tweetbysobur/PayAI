@@ -62,7 +62,7 @@ PayAI AI Engine ─────────► Intent Parser
 
 - **Next.js (App Router) + TypeScript + Tailwind** — app, dashboard, and API routes.
 - **viem** — Monad wallet abstraction, transaction building, and settlement.
-- **Anthropic Claude** — the intent engine (natural-language → structured payment).
+- **Anthropic language model** — optional fallback for the intent engine (natural-language → structured payment).
 - **Solidity (Monad Mainnet)** — `PaymentExecutor` + registry contracts for on-chain
   settlement, idempotent execution, and per-tx/daily/merchant spend limits.
 
@@ -87,7 +87,7 @@ PayAI/
 │   ├── page.tsx                  # landing page
 │   └── layout.tsx
 ├── lib/
-│   ├── agent/                    # Intent Engine (Claude parsing + decision loop)
+│   ├── agent/                    # Intent Engine (parsing + decision loop)
 │   ├── payment/                  # Validation, Risk, Execution engines + payment types
 │   ├── monad/                    # viem settlement, contracts, config
 │   └── platform/                 # analytics, store, auth, idempotency

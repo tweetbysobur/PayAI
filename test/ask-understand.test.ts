@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *  - the key-free deterministic fallback behaves exactly as documented for
  *    the keyword-matchable subset it promises, and is honest (asks rather
  *    than guesses) for anything beyond that.
- * Whether a live Claude call actually understands open-ended slang is a
+ * Whether a live model call actually understands open-ended slang is a
  * live-model behavioral question, not something a mocked unit test can
  * prove — that's exercised by hand against the real API, not here.
  */

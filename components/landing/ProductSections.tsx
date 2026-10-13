@@ -296,7 +296,7 @@ export function DeFiSection() {
  *  interactive action is signed by the user's own wallet, but Payment
  *  Automations run from a capped server agent wallet — stating "non-custodial"
  *  flat, with no qualifier, is the one claim this repo treats as off-limits
- *  (see CLAUDE.md). Shortening it back to the bare sentence would be a
+ *  (see docs/DEVELOPMENT.md). Shortening it back to the bare sentence would be a
  *  regression, not a copy tidy-up. */
 const VERIFICATION_CARDS = [
   { icon: Lock, title: "Non-custodial", body: "You remain in control of your wallet and assets. Interactive actions are signed by your own wallet; only Payment Automations run from a capped agent wallet you authorize up front." },

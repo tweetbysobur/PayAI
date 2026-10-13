@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   // Catch up on-chain deposits/withdrawals before reading the feed, so a
   // transfer that landed while the user was away shows up the moment they
   // come back. Self-throttling (see reconcile.ts), so the 20s notification
-  // poll triggers a real chain scan at most once a minute — and never fails
+  // poll triggers a real chain scan at most every 15 s — and never fails
   // the request: a chain hiccup should degrade to "no new deposits", not to
   // an empty notification list.
   await reconcileWalletTransfers({

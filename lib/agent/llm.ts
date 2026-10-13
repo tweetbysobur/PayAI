@@ -2,7 +2,7 @@
  * Optional LLM refinement for intent parsing.
  *
  * Only loaded (via dynamic import) when ANTHROPIC_API_KEY is present. It takes
- * the deterministic parse as a strong prior and lets Claude correct/normalize
+ * the deterministic parse as a strong prior and lets the model correct/normalize
  * fields it may have missed. Kept isolated so the core product has zero hard
  * dependency on an LLM — PayAI runs fully on the deterministic engine.
  */

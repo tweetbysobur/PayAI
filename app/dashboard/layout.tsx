@@ -9,7 +9,7 @@ import { CommandBar } from "@/components/dashboard/CommandBar";
 import { MobileNavDrawer } from "@/components/dashboard/MobileNav";
 import { OnboardingFlow } from "@/components/onboarding/OnboardingFlow";
 import { TourOverlay } from "@/components/onboarding/TourOverlay";
-import { DepositAlert } from "@/components/dashboard/DepositAlert";
+import { ActivityAlert } from "@/components/dashboard/ActivityAlert";
 import { AccountReturnBanner } from "@/components/dashboard/AccountReturnBanner";
 import { useNotifications } from "@/lib/hooks/useNotifications";
 import { SyncProvider } from "@/lib/hooks/useSync";
@@ -54,7 +54,7 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
   const onAskPage = usePathname() === "/dashboard/ask";
   // readAddress, not address: a locked wallet still has history and can still
   // receive money — the feed shouldn't go blind just because the key is gone.
-  const { notifications, markSeen } = useNotifications(wallet.readAddress, wallet.providerId);
+  const { notifications, loaded: notificationsLoaded, markSeen } = useNotifications(wallet.readAddress, wallet.providerId);
 
   useEffect(() => {
     fetch("/api/health").then((r) => r.json()).then(setHealth).catch(() => {});
@@ -91,9 +91,9 @@ function DashboardChrome({ children }: { children: React.ReactNode }) {
       <CommandBar />
       <OnboardingFlow />
       <TourOverlay />
-      {/* Money arriving is the one event worth interrupting for — it gets its
-          own alert rather than a quiet row under the bell. */}
-      <DepositAlert notifications={notifications} address={wallet.readAddress} />
+      {/* Every new transaction pops up while the page is open; a deposit gets
+          a celebration. See components/dashboard/ActivityAlert.tsx. */}
+      <ActivityAlert notifications={notifications} address={wallet.readAddress} loaded={notificationsLoaded} />
     </div>
   );
 }

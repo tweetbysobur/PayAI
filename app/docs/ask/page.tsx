@@ -178,7 +178,7 @@ export default function AskPage() {
           <strong>Open-ended wording uses a language model.</strong> When a request isn&apos;t in a
           form the engine can read on its own — &ldquo;twenty bucks of USDC&rdquo;, &ldquo;sell
           about a third of my MON&rdquo;, most buy/sell and scheduling requests — the text is sent
-          to Anthropic&apos;s Claude model to work out the action, amount, token and recipient.
+          to a language model from Anthropic to work out the action, amount, token and recipient.
           Reading an invoice image works the same way. The model only fills in those fields: it
           can&apos;t approve, sign or pick a contract, and everything it returns goes through the
           same checks and your review. If the model is unavailable, the engine answers on its own

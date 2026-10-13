@@ -6,6 +6,7 @@ people working on the code.
 
 | Document | What it covers |
 | --- | --- |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Commands, architecture map and the project's guardrails |
 | [architecture.md](architecture.md) | System overview and the main design decisions |
 | [backend/http-api.md](backend/http-api.md) | HTTP endpoints (backend reference, not a public developer API) |
 | [backend/telegram-bot.md](backend/telegram-bot.md) | The optional, custodial Telegram trading bot |
