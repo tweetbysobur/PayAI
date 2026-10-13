@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Menu, X } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { DOCS_NAV, DOCS_UPDATED, docsNavIsActive } from "@/lib/docs/nav";
@@ -72,10 +73,15 @@ export function DocsShell({
         <aside className="border-b border-border lg:border-b-0 lg:border-r">
           <div className="lg:sticky lg:top-14 lg:h-[calc(100vh-3.5rem)] lg:overflow-y-auto">
             <details className="group lg:hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-foreground">
+              <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                 Documentation
-                <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
-                <span className="hidden text-xs text-muted-foreground group-open:inline">Hide</span>
+                {/* Menu icon when closed, close icon when open. */}
+                <span className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors group-hover:text-foreground">
+                  <Menu size={16} aria-hidden className="group-open:hidden" />
+                  <X size={16} aria-hidden className="hidden group-open:block" />
+                  <span className="sr-only group-open:hidden">Open documentation menu</span>
+                  <span className="sr-only hidden group-open:inline">Close documentation menu</span>
+                </span>
               </summary>
               <DocsNav pathname={pathname} onDocsHost={onDocsHost} className="px-4 pb-4" />
             </details>
