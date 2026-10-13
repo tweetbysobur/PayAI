@@ -95,10 +95,9 @@ export default function SecurityPage() {
 
       <DocsSection id="contracts" index="05" title="Live contracts">
         <p>
-          Deployed PayAI contracts are verified on the Monad explorer. The application source
-          repository is private — we will not link a 404 and call it public. What you can verify
-          today is every live contract and every transaction. Addresses are read live from this
-          deployment, not copied from a screenshot.
+          Deployed PayAI contracts are verified on the Monad explorer, so you can check every live
+          contract and every transaction yourself. Addresses are read live from this deployment,
+          not copied from a screenshot.
         </p>
         <LiveContracts />
         <p>

@@ -82,19 +82,9 @@ funds move — safe for local dev) or `monad` (real on-chain). Production runs
 
 ## Deploy
 
-`npx vercel deploy --prod --yes`. DNS to vercel.com is flaky in some
-environments — wrap deploys in a retry loop. Pushing to `main` also triggers a
-Vercel build via the git integration (Vercel project `veripayai`, scope
-`omnichatdev`). The public URL comes from `VERIPAYAI_PUBLIC_URL`.
-
-> The git integration is worth sanity-checking when a merge doesn't appear on
-> `usepayai.xyz`. It was disconnected for a stretch in Aug 2026, during which
-> pushes to `main` landed in GitHub and silently never built — production
-> served a days-old deployment while `main` moved on, with nothing surfaced as
-> an error anywhere. Vercel → project → Settings → Git shows the current state;
-> the tell that it's live is a Vercel check appearing on new PRs.
->
-> Some sandboxes (including Claude Code's) cannot reach `api.vercel.com` at all,
-> so a deploy or a deployment-status check may be impossible from there rather
-> than merely flaky. `deployment_status` events are enabled on the repo, so
-> GitHub's deployments API is a usable fallback for confirming a deploy landed.
+Production is hosted on Vercel; pushes to `main` deploy through the Vercel git
+integration, and `npx vercel deploy --prod --yes` deploys by hand. Secrets and
+the live contract addresses are set in the host's environment, never in the
+repo. If a merge doesn't appear on `usepayai.xyz`, check the git integration
+first (Vercel → project → Settings → Git); GitHub's deployments API also
+reports whether a deploy landed.

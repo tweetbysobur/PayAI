@@ -1,5 +1,8 @@
 # PayAI Rooms + Cleanverse
 
+> **Archived.** Rooms were removed from PayAI in October 2026. This document
+> describes the removed feature and is kept as a record only.
+
 > **Status:** Specification v0.1, with an **implementation (v0.2) of the
 > verification-independent core** — see [§16](#16-implementation-v02--what-is-built-and-what-is-still-blocked).
 > This is the source-of-truth architecture document for PayAI Rooms and its

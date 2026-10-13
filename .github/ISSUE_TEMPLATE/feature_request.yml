@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest something PayAI should do.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+      description: How would you ask PayAI for it? An example request helps.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

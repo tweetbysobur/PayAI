@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: mailto:security@usepayai.xyz
+    about: Please report security issues privately by email, not as a public issue.
+  - name: Support
+    url: mailto:support@usepayai.xyz
+    about: Help with your account or a payment.

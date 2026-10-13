@@ -4,6 +4,26 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
+- **Public repository.** MIT `LICENSE`, a rewritten README, contributor and
+  security guides, issue and pull-request templates, read-only CI permissions,
+  and index pages for `docs/` and `contracts/`. Every branch's full history was
+  scanned for secrets before publishing; none were found.
+- **Rooms removed.** No navigation entry or pages (old links redirect), Ask
+  PayAI declines room requests, and the Rooms API answers 410. The backend and
+  escrow contract stay in the repository, unused.
+- **One approval runs a whole plan.** A multi-action plan takes one passkey
+  approval, scoped to that plan's transactions, capped in count and time, and
+  cleared when the run ends. Clean quotes no longer stop at each step; a quote
+  with a warning still does.
+- **Receipts and reviews.** One layout for every review and receipt: the
+  amount first, the full recipient address, readable amounts (what you pay
+  rounds up, what you receive rounds down), the fee and a total.
+- **Scheduling back in Ask PayAI**, plus automation fixes: one "Execution
+  started" notice per run, and a missed-payment notice that no longer
+  suggests a step that would skip the next payment.
+- **Recipient-first multi-sends** ("pay alice.nad 1 MON and bob.nad 2 MON")
+  become a plan.
+
 - **An existing passkey wallet can link Google without becoming a new account.**
   Settings offers it as optional. The passkey still opens the wallet on its
   own. Once Gmail is linked, signing in with that Google account opens the
@@ -27,8 +47,9 @@ All notable changes to PayAI are documented here.
   none and that sign-in has no wallet yet. "Use a different passkey" lists
   every passkey for the domain, which is how the original wallet is opened
   if a newer empty one was saved on this browser.
-  source is public (the repo is private; contracts stay verified on the explorer).
-  Security, Privacy, and Terms now name the two custody exceptions (Payment
+- **Honest trust pages.** Public pages no longer overstate what can be
+  verified; contracts are verified on the explorer. Security, Privacy, and
+  Terms now name the two custody exceptions (Payment
   Automations and the Telegram hot-wallet bot), the 0.25% platform fee, the
   DeltaV × Ultrafuzz protocol review as a review rather than a full audit, and
   that UsePayAI is not PayAI Network. Help Center fees copy no longer says $0.

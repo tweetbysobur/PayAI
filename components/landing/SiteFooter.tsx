@@ -25,10 +25,9 @@ import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
  * and a role address rather than anyone's personal inbox.
  */
 
-/* The source repository is private, so it is deliberately NOT linked from any
-   public surface: every such link 404s for a visitor, and the URL also
-   discloses the owner's personal account. Support runs through the in-app
-   Support Center and a role address instead. */
+/* The source repository is not linked from public pages until it is public —
+   a link that 404s for a visitor is worse than none. Support runs through the
+   in-app Support Center and a role address. */
 const SUPPORT_EMAIL = "support@usepayai.xyz";
 const X_URL = "https://x.com/usepayAI";
 

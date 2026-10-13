@@ -1,5 +1,8 @@
 # PayAIRoomEscrow — pre-audit package
 
+> **Archived.** Rooms were removed from PayAI in October 2026. This document
+> describes the removed feature and is kept as a record only.
+
 Prepared 2026-10-10 for an **independent** smart-contract security audit.
 Updated the same day for the PA-01 / PA-04 / PA-11 decisions, and then for the
 approved PA-05 minimum contribution policy (§K).

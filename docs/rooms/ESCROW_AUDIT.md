@@ -1,5 +1,8 @@
 # PayAI Rooms — escrow audit (Phase 1)
 
+> **Archived.** Rooms were removed from PayAI in October 2026. This document
+> describes the removed feature and is kept as a record only.
+
 Date: 2026-10-09. Scope: everything Rooms touches today, read from this
 repository. Nothing here was inferred from a deploy log or an env var that
 couldn't be read.

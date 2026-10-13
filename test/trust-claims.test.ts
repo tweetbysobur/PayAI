@@ -35,8 +35,8 @@ describe("public pages do not claim the source is public", () => {
     }
   });
 
-  it("security page says the application repository is private", () => {
-    expect(read("../app/security/page.tsx")).toMatch(/repository is private/);
+  it("security page points to what anyone can verify: the contracts on the explorer", () => {
+    expect(read("../app/security/page.tsx")).toMatch(/verified on the Monad explorer/);
   });
 });
 

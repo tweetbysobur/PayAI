@@ -9,6 +9,9 @@ name: Verify deployed contracts on MonadVision
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

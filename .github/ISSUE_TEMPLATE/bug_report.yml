@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in PayAI doesn't work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security issues: please email security@usepayai.xyz instead of opening an issue.**
+        Never paste a private key, seed phrase or passkey export here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Ask "send 1 MON to …"
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Page URL, or "local" if you're running from source.
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: e.g. iPhone 15, Safari 18 / Windows, Chrome 130
+  - type: input
+    id: tx
+    attributes:
+      label: Transaction hash (if any)
+      description: Public on-chain hash only.

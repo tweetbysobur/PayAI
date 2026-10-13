@@ -1,5 +1,8 @@
 # Escrow Rooms — design, semantics and status
 
+> **Archived.** Rooms were removed from PayAI in October 2026. This document
+> describes the removed feature and is kept as a record only.
+
 Companion to `ESCROW_AUDIT.md` (Phase 1). This file records what was built,
 exactly how it behaves, and what has to happen before it can be switched on.
 

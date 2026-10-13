@@ -1,5 +1,8 @@
 # PayAIRoomEscrow — internal security review (2026-10-09)
 
+> **Archived.** Rooms were removed from PayAI in October 2026. This document
+> describes the removed feature and is kept as a record only.
+
 **This is an internal review, not an audit.** It was done by the same team
 that wrote the contract. An independent audit is still required before any
 deployment.

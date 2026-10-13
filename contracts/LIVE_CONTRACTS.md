@@ -1,5 +1,9 @@
 # Live contract addresses — read this first
 
+> **For the current live addresses, see [`MAINNET.md`](../MAINNET.md).** This
+> file is the deployment and verification history; addresses below marked
+> "live" were live on the date shown and several have since been replaced.
+
 **The `deployed-*.json` files in this directory are a historical deploy
 LOG, not the current live configuration.** There are five of them (v2, v3,
 v3-fresh, payment-executor-v4, v4-ultrafuzz), each recording a real deploy

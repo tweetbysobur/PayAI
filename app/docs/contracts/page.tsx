@@ -107,10 +107,10 @@ export default function ContractsPage() {
       </DocsSection>
 
       <DocsSection id="source" index="04" title="Source">
-        <DocsCallout tone="note" title="Application source is private">
-          The application repository is private. Deployed contracts are verified on the Monad
-          explorer. We will not link a GitHub 404 and call the product public. Independent
-          review of the protocol: <Link href="/security">Security</Link>.
+        <DocsCallout tone="note" title="Verified on the explorer">
+          Every deployed contract is source-verified on the Monad explorer, so what runs on-chain
+          can be read and checked there. Independent review of the protocol:{" "}
+          <Link href="/security">Security</Link>.
         </DocsCallout>
       </DocsSection>
     </DocsChrome>

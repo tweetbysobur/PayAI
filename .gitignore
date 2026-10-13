@@ -33,17 +33,18 @@ yarn-error.log*
 *.tsbuildinfo
 
 .vercel
+.env*
+!.env.example
+
+# local key files — must never be committed
 .mainnet-pk.tmp
 MAINNET_WALLET_KEY.txt
 COLD_OWNER_WALLET_KEY.txt
 
-.vercel
-.env*
-
 # local coding-agent tool configs/caches — not project source
 /.agents/
 /.codex/
-/.claude/skills/
+/.claude/
 /.github/hooks/
 /.github/skills/
 /.impeccable/

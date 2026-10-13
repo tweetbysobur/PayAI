@@ -6,6 +6,16 @@ If you find a security issue, please email **security@usepayai.xyz** with detail
 and steps to reproduce. Do not open a public issue for anything exploitable.
 We aim to acknowledge within 48 hours.
 
+Please include the affected URL or file, what an attacker could do, and the
+smallest steps that reproduce it. Testing must not move other people's funds,
+access other users' data, or degrade the live service — use simulation mode
+(`PAYAI_MODE=simulation`, the default) or your own wallets and small amounts.
+
+In scope: this repository, the deployed PayAI contracts, and
+usepayai.xyz / app.usepayai.xyz / docs.usepayai.xyz. Out of scope: third-party
+services PayAI integrates with (Monad, Uniswap, Kuru, Nad.Fun, Mera, wallet
+apps), denial-of-service, and social engineering.
+
 ## Model
 
 PayAI is non-custodial for **interactive** payments and trades: the connected
@@ -79,15 +89,19 @@ browser from the passkey and is never sent to the server.
 
 ## Secrets
 
-No secrets are committed to this repository, at any point in its history. The
+No secrets are committed to this repository, at any point in its history
+(every branch was scanned for keys, tokens and credentials before the
+repository was made public; the only private keys present are the well-known
+public Hardhat test keys used in unit tests). The
 agent private key, Telegram master key, and API keys live only in the
 deployment host's environment (`.env.local` is gitignored; only `.env.example`,
 a template, is tracked).
 
 ## Source
 
-The application repository is private. Deployed contracts are verified on the
-Monad explorer. Public pages must not claim the full source is public.
+The application and contract source are in this repository. Deployed
+contracts are verified on the Monad explorer, so the bytecode running on-chain
+can be matched against the Solidity here.
 
 ## Disclosure note
 

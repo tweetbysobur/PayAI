@@ -2,6 +2,12 @@
   "name": "payai",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://usepayai.xyz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tweetbysobur/PayAI.git"
+  },
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "next build",
@@ -20,7 +26,7 @@
     "jsqr": "^1.4.0",
     "lucide-react": "^1.21.0",
     "motion": "^12.40.0",
-    "next": "16.2.9",
+    "next": "16.4.0",
     "qrcode.react": "^4.2.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -34,7 +40,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.4.0",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4",
     "typescript": "^5",
