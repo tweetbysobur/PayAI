@@ -56,9 +56,36 @@ const POLITE_TAIL_RE = /[,]?\s*(?:please|pls|thanks|thank you)\s*$/i;
  *  Only framing words and trailing "?"s are dropped — never an amount, token
  *  or recipient — and the server's grammar still decides whether what is left
  *  is a plan. Whitespace runs collapse. */
+/** A line that starts a new action: an action verb, after an optional list
+ *  marker ("-", "•", "1." or "1)"). */
+const ACTION_LINE = /^(?:[-*•]\s+|\d{1,3}[.)]\s+)?(?:send|pay|transfer|swap|convert|exchange|buy|sell|wrap|unwrap|split)\b/i;
+const ENDS_WITH_CONNECTOR = /(?:,|;|\band|\bthen)\s*$/i;
+
+/**
+ * One action per line → one request. "swap 1 USDC to MON\nsend 1 MON to
+ * 0x…\nsend 2 MON to 0x…" reads as three actions joined by commas, as if the
+ * user had typed the commas. A list marker in front of a line is dropped, and a
+ * line that doesn't start with an action verb (a sentence wrapped onto the
+ * next line) is joined back with a space. Never changes an amount, token or
+ * recipient.
+ */
+export function joinActionLines(text: string): string {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length < 2) return text;
+  let out = "";
+  for (const raw of lines) {
+    const startsAction = ACTION_LINE.test(raw);
+    const line = startsAction ? raw.replace(/^(?:[-*•]\s+|\d{1,3}[.)]\s+)/, "") : raw;
+    if (!out) { out = line; continue; }
+    const prev = out.replace(/[.;]+$/, "");
+    out = startsAction && !ENDS_WITH_CONNECTOR.test(prev) ? `${prev}, ${line}` : `${out} ${line}`;
+  }
+  return out;
+}
+
 export function stripPoliteFraming(text: string): string {
   if (typeof text !== "string") return text;
-  let t = text.trim().replace(/\s+/g, " ");
+  let t = joinActionLines(text.trim()).replace(/\s+/g, " ");
   t = t.replace(/\?+$/, "").trim().replace(POLITE_TAIL_RE, "").trim();
   t = t.replace(POLITE_LEAD_RE, "").trim();
   return t;

@@ -177,6 +177,6 @@ export function detectCompoundRequest(text: string): Understanding | null {
 
   return {
     kind: "unsupported", outcome: "unsupported", capability: "compound_request",
-    reply: `That's ${shape.actions.length} actions in one request. PayAI can plan several transfers and swaps together when each one is written out exactly — for example "send 10 USDC to alice.nad, then swap 5 MON to USDC" — with each recipient as a 0x address, a .nad name or a saved payee. Nothing was prepared.`,
+    reply: `That's ${shape.actions.length} actions in one request, but I couldn't read every one of them exactly. Write each action in full — an amount, a token (MON or USDC) and who it goes to — on its own line or separated by commas, for example "swap 1 USDC to MON, send 1 MON to bob.nad". Recipients can be 0x addresses, .nad names or saved payees. Nothing was prepared.`,
   };
 }
