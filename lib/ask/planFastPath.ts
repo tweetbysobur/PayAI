@@ -163,5 +163,33 @@ export function expandEachRequest(text: string): string | null {
  *  or recipient. */
 export function toPlanText(text: string): string {
   const stripped = stripPoliteFraming(text);
-  return expandEachRequest(stripped) ?? stripped;
+  return expandEachRequest(stripped) ?? reorderRecipientFirst(stripped) ?? stripped;
+}
+
+/** A recipient that is unmistakably one: a 0x address or a .nad name. */
+const STRICT_RECIPIENT = String.raw`(?:0x[0-9a-f]{40}|[a-z0-9][a-z0-9-]*\.nads?)`;
+const RECIPIENT_FIRST_LEAD = new RegExp(String.raw`^(?:send|pay) (${STRICT_RECIPIENT}) (${AMOUNT}) (${SYMBOL})$`, "i");
+const RECIPIENT_FIRST_NEXT = new RegExp(String.raw`^(?:(?:send|pay) )?(${STRICT_RECIPIENT}) (${AMOUNT}) (${SYMBOL})$`, "i");
+
+/**
+ * "pay alice.nad 1 MON and bob.nad 2 MON" → "send 1 MON to alice.nad, 2 MON
+ * to bob.nad" — the same transfers with the recipient moved after the amount,
+ * which is the order the Plan API's grammar reads. Only when there are at
+ * least two transfers, every one names a 0x address or a .nad name (never a
+ * bare word) followed by an amount and a token, and nothing is left over.
+ * Never changes an amount, token or recipient; anything else returns null.
+ */
+export function reorderRecipientFirst(text: string): string | null {
+  if (typeof text !== "string") return null;
+  let t = text.trim().replace(/\s+/g, " ");
+  if (t.endsWith(".") || t.endsWith("!")) t = t.slice(0, -1);
+  const parts = t.split(CONNECTOR);
+  if (parts.length < 2 || parts.length > MAX_ACTIONS) return null;
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const m = (i === 0 ? RECIPIENT_FIRST_LEAD : RECIPIENT_FIRST_NEXT).exec(parts[i]);
+    if (!m) return null;
+    out.push(`${m[2]} ${m[3]} to ${m[1]}`);
+  }
+  return `send ${out.join(", ")}`;
 }

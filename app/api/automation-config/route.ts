@@ -12,7 +12,14 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const { getPaymentExecutor, getAutomationVault, getWrappedNative, getStablecoin, getChain } = await import("@/lib/monad/config");
-  const stable = getStablecoin();
+  let stable: ReturnType<typeof getStablecoin>;
+  try {
+    stable = getStablecoin();
+  } catch {
+    // A deployment without its stablecoin configured can't size any
+    // automation — say so plainly instead of failing with a 500.
+    return NextResponse.json({ error: "Automation settings are unavailable right now." }, { status: 503 });
+  }
   // The live PayAI fee rates of the two automation contracts (public on-chain
   // values). The creator sizes approvals/reservations as amount + this fee on
   // top (lib/payment/feeOnTop.ts). Null when unreadable — the creator then
