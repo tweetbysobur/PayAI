@@ -26,7 +26,10 @@ const product = read("../app/product/page.tsx");
 
 describe("Montserrat is loaded and opt-in only", () => {
   it("self-hosts Montserrat via next/font, the same way as the default typeface", () => {
-    expect(layout).toMatch(/Montserrat\s*}\s*from\s*"next\/font\/google"/);
+    // Bundled in app/fonts and loaded with next/font/local, so the build
+    // never depends on reaching Google Fonts.
+    expect(layout).toMatch(/from\s*"next\/font\/local"/);
+    expect(layout).toMatch(/src:\s*"\.\/fonts\/Montserrat-Variable\.woff2"/);
     expect(layout).toMatch(/variable:\s*"--font-montserrat"/);
   });
 
