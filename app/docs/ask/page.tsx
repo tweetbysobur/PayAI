@@ -25,8 +25,24 @@ export default function AskPage() {
       <DocsSection id="how" index="01" title="How it works">
         <p>
           Examples: <code>send 10 USDC to alice.nad</code>, <code>swap 50 MON to USDC</code>,{" "}
-          <code>pay the team every Friday</code>. Parsing may call an LLM provider (Anthropic).
-          Deterministic facts — what PayAI is, what MON is — are answered locally.
+          <code>pay the team every Friday</code>.
+        </p>
+        <p>
+          <strong>PayAI&apos;s own engine reads every request first.</strong> Clearly written
+          sends, swaps and multi-action plans — including &ldquo;each&rdquo; and
+          &ldquo;then&rdquo; — are turned into a plan by PayAI&apos;s deterministic grammar, and
+          balances, history, token lookups and facts about PayAI are answered the same way. None of
+          that leaves PayAI.
+        </p>
+        <p>
+          <strong>Open-ended wording uses a language model.</strong> When a request isn&apos;t in a
+          form the engine can read on its own — &ldquo;twenty bucks of USDC&rdquo;, &ldquo;sell
+          about a third of my MON&rdquo;, most buy/sell and scheduling requests — the text is sent
+          to Anthropic&apos;s Claude model to work out the action, amount, token and recipient.
+          Reading an invoice image works the same way. The model only fills in those fields: it
+          can&apos;t approve, sign or pick a contract, and everything it returns goes through the
+          same checks and your review. If the model is unavailable, the engine answers on its own
+          or asks you to rephrase.
         </p>
         <p>
           Ask PayAI does not get a blanket approval to move funds. Each action still goes through
@@ -45,7 +61,7 @@ export default function AskPage() {
       <DocsSection id="secrets" index="03" title="Do not paste secrets">
         <DocsCallout tone="danger" title="Ask PayAI is not a keystore">
           Do not paste seed phrases, private keys, or API secrets into the composer. The text may
-          be sent to an LLM provider to parse intent. Keys belong in your wallet, never in chat.
+          be sent to a language model provider (Anthropic) to work out what you meant. Keys belong in your wallet, never in chat.
         </DocsCallout>
         <p>
           More on the signing model: <Link href="/security">Security</Link>.
