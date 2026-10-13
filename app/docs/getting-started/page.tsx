@@ -26,8 +26,8 @@ export default function GettingStartedPage() {
       <DocsSection id="connect" index="01" title="Connect a wallet">
         <p>
           Open <Link href="/auth">Launch PayAI</Link>. You can create a PayAI Wallet with a
-          passkey (email, phone, or social login establishes the account; the key is derived on
-          your device), or connect an external wallet you already use.
+          passkey (the key is derived on your device), or connect an external wallet you already
+          use.
         </p>
         <p>
           There is no KYC step to send a payment. Terms and Privacy have to be accepted on first

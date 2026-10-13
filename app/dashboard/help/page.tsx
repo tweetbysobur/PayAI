@@ -45,7 +45,7 @@ const ARTICLES: Article[] = [
     category: "getting_started",
     question: "How do I get started with PayAI?",
     answer: [
-      "Connect a wallet from the top of the dashboard — either an embedded wallet (email, phone, passkey, or a social login) or an external wallet you already use, like MetaMask.",
+      "Connect a wallet from the top of the dashboard — either a PayAI Wallet created with a passkey or an external wallet you already use, like MetaMask.",
       "There's no signup form and no KYC step to send a payment. Once your wallet is connected on Monad, you can send, schedule, or automate a payment right away.",
     ],
   },
