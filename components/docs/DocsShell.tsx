@@ -227,25 +227,40 @@ export function DocsTable({
   rows: React.ReactNode[][];
 }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full min-w-[28rem] text-left text-[13px]">
-        <thead className="border-b border-border bg-panel/60 text-[11px] uppercase tracking-wider text-muted-foreground">
-          <tr>
-            {headers.map((h) => (
-              <th key={h} className="px-3 py-2 font-medium">{h}</th>
+    <>
+      {/* Phones: each row as a small labelled card, so nothing scrolls sideways. */}
+      <div role="list" className="divide-y divide-border/80 rounded-lg border border-border sm:hidden">
+        {rows.map((row, i) => (
+          <div role="listitem" key={i} className="space-y-2 px-3 py-3 text-[13px] leading-5 text-foreground/90">
+            {row.map((cell, j) => (
+              <div key={j} className="[overflow-wrap:anywhere]">
+                <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{headers[j]}</div>
+                <div className="mt-0.5">{cell}</div>
+              </div>
             ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border/80">
-          {rows.map((row, i) => (
-            <tr key={i} className="text-foreground/90">
-              {row.map((cell, j) => (
-                <td key={j} className="px-3 py-2.5 align-top leading-5">{cell}</td>
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto rounded-lg border border-border sm:block">
+        <table className="w-full min-w-[28rem] text-left text-[13px]">
+          <thead className="border-b border-border bg-panel/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <tr>
+              {headers.map((h) => (
+                <th key={h} className="px-3 py-2 font-medium">{h}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-border/80">
+            {rows.map((row, i) => (
+              <tr key={i} className="text-foreground/90">
+                {row.map((cell, j) => (
+                  <td key={j} className="px-3 py-2.5 align-top leading-5">{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }

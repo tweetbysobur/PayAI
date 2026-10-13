@@ -50,6 +50,7 @@ const DOCS_SLUGS = new Set([
   "automations",
   "fees",
   "ask",
+  "visual-intent",
   "contracts",
   "sdk",
 ]);
