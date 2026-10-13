@@ -46,3 +46,44 @@ describe("multi-action requests written one per line", () => {
     expect(joined).toContain("0.5 MON to bob.nad");
   });
 });
+
+/** The everyday ways of writing the same actions all reach the same plan. */
+describe("separators, verbs and number formats people actually type", () => {
+  const steps = (msg: string) => {
+    const r = parseIntent(toPlanText(msg), tokens);
+    if (!r.ok) throw new Error(`${msg} -> ${r.code}`);
+    return r.steps.map((s) =>
+      s.kind === "swap" ? `swap ${s.amountIn} ${s.tokenIn}->${s.tokenOut}`
+        : `send ${s.amount.kind === "units" ? s.amount.units : "output"} ${s.token} to ${s.recipient.display}`);
+  };
+  const ONE = "1000000000000000000", TWO = "2000000000000000000";
+
+  for (const [label, msg] of [
+    ["no separator", `swap 1 USDC to MON send 1 MON to ${A} send 2 MON to ${B}`],
+    ["semicolons", `swap 1 USDC to MON; send 1 MON to ${A}; send 2 MON to ${B}`],
+    ["full stops", `Swap 1 USDC to MON. Send 1 MON to ${A}. Send 2 MON to ${B}.`],
+    ["ampersands and also", `swap 1 USDC to MON & send 1 MON to ${A} also send 2 MON to ${B}`],
+    ["convert and transfer", `convert 1 USDC to MON then transfer 1 MON to ${A} and transfer 2 MON to ${B}`],
+  ] as const) {
+    it(`${label}: same swap and two sends`, () => {
+      expect(steps(msg)).toEqual([`swap 1000000 STABLE->MON`, `send ${ONE} MON to ${A}`, `send ${TWO} MON to ${B}`]);
+    });
+  }
+
+  it("number formats keep their exact value", () => {
+    expect(steps(`send .5 MON to ${A}`)).toEqual([`send 500000000000000000 MON to ${A}`]);
+    expect(steps(`send 1,000 MON to ${A}`)).toEqual([`send 1000000000000000000000 MON to ${A}`]);
+    expect(steps(`send 1mon to ${A}`)).toEqual([`send ${ONE} MON to ${A}`]);
+  });
+
+  it("recipient wording and arrows", () => {
+    expect(steps(`send 1 MON to address ${A}`)).toEqual([`send ${ONE} MON to ${A}`]);
+    expect(steps(`send 1 MON to wallet ${B}`)).toEqual([`send ${ONE} MON to ${B}`]);
+    expect(steps(`send 1 MON → ${A}`)).toEqual([`send ${ONE} MON to ${A}`]);
+  });
+
+  it("a list in a sentence is not split, and an amount is never split by a comma", () => {
+    // "1,5" is not a thousands group: left alone, so the grammar refuses it rather than guess.
+    expect(parseIntent(toPlanText(`send 1,5 MON to ${A}`), tokens).ok).toBe(false);
+  });
+});

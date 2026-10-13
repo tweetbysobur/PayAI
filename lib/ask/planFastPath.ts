@@ -83,11 +83,58 @@ export function joinActionLines(text: string): string {
   return out;
 }
 
+const ACTION_VERB = String.raw`(?:send|pay|transfer|swap|convert|exchange)`;
+/** What follows a verb when it really starts a new action: an amount, or a
+ *  recipient (for "send 0x… 1 MON"). */
+const ACTION_START = new RegExp(String.raw`^${ACTION_VERB}\s+(?:\d|\.\d|0x[0-9a-f]{40}\b|[a-z0-9][a-z0-9-]*\.nads?\b|it\b|them\b)`, "i");
+/** Words after which a verb is already part of the same phrase. */
+const NO_COMMA_AFTER = new Set(["and", "then", "please", "to", "i", "we", "can", "could", "would", "will", "kindly", "just", "now", "also"]);
+
+/**
+ * The everyday ways people separate and phrase actions, rewritten into the
+ * form the plan grammar reads. Only connecting words, verbs and number
+ * formatting change — never an amount's value, a token or a recipient:
+ *
+ *   ";" · "&" · "also" · "plus" · ". " between actions  → "," / "and"
+ *   "swap 1 USDC to MON send 1 MON to 0x…"             → a comma before each new action
+ *   "transfer" → "send";  "convert" / "exchange" → "swap"
+ *   "to address 0x…" / "to wallet 0x…"                 → "to 0x…"
+ *   "→" / "->"                                          → "to"
+ *   "1mon" → "1 mon";  ".5" → "0.5";  "1,000" → "1000"
+ */
+export function canonicalizeActions(text: string): string {
+  let s = text;
+  s = s.replace(/\s*(?:→|->|=>)\s*/g, " to ");
+  s = s.replace(/\bto (?:the )?(?:wallet address|address|wallet|account)\s+(?=0x[0-9a-f]{40}\b|[a-z0-9][a-z0-9-]*\.nads?\b)/gi, "to ");
+  s = s.replace(/\b(\d+(?:\.\d+)?)(mon|wmon|usdc)\b/gi, "$1 $2");
+  s = s.replace(/(^|[\s(])\.(\d+)\b/g, "$10.$2");
+  s = s.replace(/\b(\d{1,3}(?:,\d{3})+)(\.\d+)?(?![\d,])/g, (_m, whole: string, frac?: string) => whole.replace(/,/g, "") + (frac ?? ""));
+  s = s.replace(/\s*;\s*/g, ", ");
+  s = s.replace(/\s+&\s+/g, " and ");
+  s = s.replace(/\s+(?:also|plus|as well as)\s+/gi, " and ");
+  s = s.replace(new RegExp(String.raw`\.\s+(?=${ACTION_VERB}\b)`, "gi"), ", ");
+
+  // A new action with nothing before it: add the comma the user left out.
+  const words = s.split(" ");
+  for (let i = 1; i < words.length; i++) {
+    const prev = words[i - 1];
+    if (prev.endsWith(",") || NO_COMMA_AFTER.has(prev.toLowerCase())) continue;
+    if (ACTION_START.test(words.slice(i, i + 3).join(" "))) words[i - 1] = `${prev},`;
+  }
+  s = words.join(" ");
+
+  s = s.replace(/(^|,\s*|\b(?:and|then)\s+)transfer\b/gi, "$1send");
+  s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:convert|exchange)\b/gi, "$1swap");
+  return s;
+}
+
 export function stripPoliteFraming(text: string): string {
   if (typeof text !== "string") return text;
   let t = joinActionLines(text.trim()).replace(/\s+/g, " ");
   t = t.replace(/\?+$/, "").trim().replace(POLITE_TAIL_RE, "").trim();
   t = t.replace(POLITE_LEAD_RE, "").trim();
+  t = canonicalizeActions(t);
+  if (t.endsWith(".")) t = t.slice(0, -1);
   return t;
 }
 
