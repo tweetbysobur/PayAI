@@ -387,10 +387,12 @@ describe("a trade never puts the same asset on both sides", () => {
   it("buy/sell resolves across MON, WMON and USDC, with WMON normalized to MON", async () => {
     const { understand } = await import("@/lib/ask/intent/classify");
     const cases: [string, string, string, string][] = [
-      ["buy 10 MON with USDC", "buy", "MON", "USDC"],
-      ["buy 10 WMON with USDC", "buy", "MON", "USDC"],
+      // fromAsset is what's SPENT, toAsset what's RECEIVED — for a buy, the
+      // token after "with" is spent and the one after "buy" is received.
+      ["buy 10 MON with USDC", "buy", "USDC", "MON"],
+      ["buy 10 WMON with USDC", "buy", "USDC", "MON"],
       ["sell 5 WMON for USDC", "sell", "MON", "USDC"],
-      ["buy 100 USDC with MON", "buy", "USDC", "MON"],
+      ["buy 100 USDC with MON", "buy", "MON", "USDC"],
       ["sell 100 USDC for MON", "sell", "USDC", "MON"],
     ];
     for (const [text, action, from, to] of cases) {

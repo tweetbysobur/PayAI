@@ -97,7 +97,7 @@ const NO_COMMA_AFTER = new Set(["and", "then", "please", "to", "i", "we", "can",
  *
  *   ";" · "&" · "also" · "plus" · ". " between actions  → "," / "and"
  *   "swap 1 USDC to MON send 1 MON to 0x…"             → a comma before each new action
- *   "transfer" → "send";  "convert" / "exchange" → "swap"
+ *   "transfer" / "tip" → "send";  "convert" / "exchange" → "swap"
  *   "to address 0x…" / "to wallet 0x…"                 → "to 0x…"
  *   "→" / "->"                                          → "to"
  *   "1mon" → "1 mon";  ".5" → "0.5";  "1,000" → "1000"
@@ -125,7 +125,7 @@ export function canonicalizeActions(text: string): string {
 
   // "…and send that / them / the proceeds to bob.nad" after a swap = "send it".
   s = s.replace(/\b(send|pay|transfer)\s+(?:that|them|those|the (?:output|proceeds|result))(?=\s+to\s)/gi, "$1 it");
-  s = s.replace(/(^|,\s*|\b(?:and|then)\s+)transfer\b/gi, "$1send");
+  s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:transfer|tip)\b/gi, "$1send");
   s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:convert|exchange)\b/gi, "$1swap");
   return s;
 }

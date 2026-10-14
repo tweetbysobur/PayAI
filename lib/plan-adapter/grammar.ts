@@ -108,13 +108,13 @@ export type ParseResult = ParsedIntent | AdapterError;
 
 const MESSAGES: Record<AdapterErrorCode, string> = {
   UNSUPPORTED_REQUEST: "That request isn't supported. Try \"send 10 USDC to alice.nad\", \"swap 10 MON to USDC\", or \"swap 10 MON to USDC and send it to alice.nad\".",
-  UNSUPPORTED_TOKEN: "Only MON and PayAI's configured stablecoin are supported.",
+  UNSUPPORTED_TOKEN: "Payments and plans support MON and USDC. To trade another verified Monad token, ask to buy or sell it by its name or contract address.",
   UNSUPPORTED_CHAIN: "Plans run on Monad only.",
   UNSUPPORTED_AMOUNT: "Give an exact amount — \"all\", \"the rest\" and amounts taken from an earlier step aren't supported yet.",
   INVALID_AMOUNT: "Give a plain positive amount, like 10 or 2.5.",
   TOO_PRECISE: "That amount has more decimal places than the token supports.",
   INVALID_RECIPIENT: "Give the recipient as a 0x address, a .nad name, or a saved payee name.",
-  NATIVE_OUTPUT_NOT_BINDABLE: "MON received from a swap can't be passed to the next step — only the stablecoin can.",
+  NATIVE_OUTPUT_NOT_BINDABLE: "MON received from a swap can't be passed on as \"it\" — write the amount to send instead, like \"swap 1 USDC to MON, then send 1 MON to bob.nad\".",
   ACTION_UNAVAILABLE: "That action isn't available right now.",
   TOO_MANY_ACTIONS: `A plan can have up to ${MAX_ACTIONS} actions. Split the request in two.`,
   TOO_LONG: `Keep the request under ${MAX_REQUEST_LENGTH} characters.`,

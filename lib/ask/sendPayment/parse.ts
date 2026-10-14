@@ -18,7 +18,7 @@ import type { SendPaymentCandidate } from "./types";
  *  happens to contain "send") is lib/ask/intent/classify.ts's job. */
 export function looksLikeSendPayment(text: string): boolean {
   const t = text.toLowerCase();
-  return /\bsend\b/.test(t) || /\bpay\s/.test(t);
+  return /\bsend\b/.test(t) || /\bpay\s/.test(t) || /\btip\s/.test(t);
 }
 
 const ADDR_RE = /0x[a-fA-F0-9]{40}/;

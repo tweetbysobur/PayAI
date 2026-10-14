@@ -485,6 +485,16 @@ const TOKEN_ASSET_MENTION_RE = /\b(USDC|W?MON)\b/i;
  *  key-free fallback copes with one specific button. */
 const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)\b|\$\s*\d|\bhalf\b[^.!?]*\bmy\b|\ball\s+my\b|\bmy\s+(?:entire|whole)\b|\b(can\s+i\s+get|get\s+me)\b|^\s*(?:trade|swap)\s+(?:a\s+|an\s+|some\s+)?(?:tokens?|crypto|coins?)\s*[.!?]?\s*$|^\s*(?:trade|swap)\s*[.!?]*\s*$/i;
 
+/** A number written with a minus sign ("-1", "− 5", "-$10") — not a range
+ *  ("1-2") or a date, which have a digit before the dash. */
+const NEGATIVE_AMOUNT_RE = /(?:^|[\s(:,])[-−–]\s?\$?\d/;
+const MONEY_VERB_RE = /\b(send|pay|transfer|tip|swap|convert|exchange|buy|sell|trade)\b/i;
+
+/** A send/pay verb with a recipient named — "send $10 to bob.nad". */
+function looksLikeSendTo(t: string): boolean {
+  return /\b(send|pay|transfer|tip)\b/i.test(t) && /\b0x[0-9a-f]{40}\b|\b[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.nads?\b/i.test(t);
+}
+
 function tryMergePending(text: string, pending: Understanding | null): Understanding | null {
   // Conversation context for an already-identified token — "What's the
   // price?" right after a token_lookup card means THIS token, not a fresh
@@ -701,9 +711,19 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
   if (!TRADE_SIGNAL_RE.test(text)) return null;
   const t = text.trim();
 
+  // "send $10 to bob.nad", "pay all my MON to 0x…": a payment to a named
+  // recipient, not a trade — "$10" and "all my" are trade signals only when
+  // nothing is being sent to anyone. Left to the send path, which asks for
+  // what's missing instead of quoting a trade that drops the recipient.
+  if (!/\b(buy|purchase|sell|swap|trade)\b/i.test(t) && looksLikeSendTo(t)) return null;
+
   const isSell = /\bsell\b/i.test(t);
   const isBuy = !isSell && (/\b(buy|purchase)\b/i.test(t) || /\bswap\b/i.test(t) || /\b(can\s+i\s+get|get\s+me)\b/i.test(t));
   const action: "buy" | "sell" | null = isSell ? "sell" : isBuy ? "buy" : null;
+  // "buy 10 USDC with MON": the token after buy is the one RECEIVED; the one
+  // after with/using is SPENT. (A swap names the spent token first, so only a
+  // buy/purchase/get-me phrasing is read this way.)
+  const buyWord = action === "buy" && !/\bswap\b/i.test(t);
 
   let amount: string | null = null;
   let amountType: NonNullable<AskSlots["amountType"]> | null = null;
@@ -727,7 +747,19 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
   const [namedAsset, secondAsset] = assetMatches;
 
   let slots: AskSlots = { ...emptySlots(), tradeAction: action, amount, amountType };
-  if (action === "buy" || action === "sell") {
+  if (buyWord) {
+    const spent = /\b(?:with|using|for)\s+(?:\$?\d+(?:\.\d+)?\s*)?(?:my\s+)?(USDC|W?MON)\b/i.exec(t)
+      ?? /\b\d+(?:\.\d+)?\s*(USDC|W?MON)\s+(?:worth|of)\b/i.exec(t);
+    const spentAsset = spent ? (spent[1].toUpperCase() === "WMON" ? "MON" : spent[1].toUpperCase()) : null;
+    const bought = assetMatches.find((a) => a !== spentAsset) ?? null;
+    if (spentAsset) slots.fromAsset = spentAsset;
+    if (bought) slots.toAsset = bought;
+    // An amount written on the token being bought ("buy 10 USDC") is what
+    // they want to RECEIVE — never silently spent as if it were the input.
+    if (amountType === "exact_input" && bought && new RegExp(String.raw`\b\d+(?:\.\d+)?\s*${bought === "MON" ? "W?MON" : bought}\b`, "i").test(t)) {
+      slots.amountType = "exact_output";
+    }
+  } else if (action === "buy" || action === "sell") {
     if (namedAsset) slots.fromAsset = namedAsset;
     if (secondAsset) slots.toAsset = secondAsset;
   }
@@ -1123,6 +1155,14 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // can be answered plainly. Nothing is prepared.
   if (detectRoomRequest(text)) {
     const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "rooms_removed", reply: ROOMS_REMOVED_REPLY };
+    return { route: "actionable_operation", anthropic: false, understanding: u, fallback: u };
+  }
+
+  // "send -1 MON": a minus sign is never dropped to read it as a positive
+  // amount (the number parsers below match the digits alone). Answered here,
+  // before any model, and nothing is prepared.
+  if (NEGATIVE_AMOUNT_RE.test(text) && MONEY_VERB_RE.test(text)) {
+    const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "negative_amount", reply: "Amounts have to be positive — a payment can't be negative. Write the amount you want to send, like “send 1 MON to bob.nad”. Nothing was prepared." };
     return { route: "actionable_operation", anthropic: false, understanding: u, fallback: u };
   }
 
