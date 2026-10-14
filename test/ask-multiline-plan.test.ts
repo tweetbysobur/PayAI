@@ -87,3 +87,20 @@ describe("separators, verbs and number formats people actually type", () => {
     expect(parseIntent(toPlanText(`send 1,5 MON to ${A}`), tokens).ok).toBe(false);
   });
 });
+
+describe("sending what a swap returned, however it's said", () => {
+  for (const m of [
+    "Swap 1 MON to USDC and send the usdc to gentle.nad",
+    "Swap 1 MON to USDC and send it to gentle.nad",
+    "swap 1 MON to USDC and send that to gentle.nad",
+    "swap 1 MON to USDC then send them to gentle.nad",
+    "swap 1 MON to USDC and send the proceeds to gentle.nad",
+  ]) {
+    it(m, () => {
+      const r = parseIntent(toPlanText(m), tokens);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.steps[1]).toMatchObject({ kind: "transfer", token: "STABLE", amount: { kind: "output", step: 0 }, recipient: { display: "gentle.nad" } });
+    });
+  }
+});

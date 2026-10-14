@@ -123,6 +123,8 @@ export function canonicalizeActions(text: string): string {
   }
   s = words.join(" ");
 
+  // "…and send that / them / the proceeds to bob.nad" after a swap = "send it".
+  s = s.replace(/\b(send|pay|transfer)\s+(?:that|them|those|the (?:output|proceeds|result))(?=\s+to\s)/gi, "$1 it");
   s = s.replace(/(^|,\s*|\b(?:and|then)\s+)transfer\b/gi, "$1send");
   s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:convert|exchange)\b/gi, "$1swap");
   return s;
