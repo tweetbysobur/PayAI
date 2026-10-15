@@ -18,12 +18,11 @@ const TOC = [
 export default function GettingStartedPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Getting started."
+      title="Getting started"
       lede="PayAI runs on Monad mainnet. You need a wallet that can sign on Monad, a little MON for gas, and a recipient — an 0x address or a .nad name."
       toc={TOC}
     >
-      <DocsSection id="connect" index="01" title="Connect a wallet">
+      <DocsSection id="connect" title="Connect a wallet">
         <p>
           Open <Link href="/auth">Launch PayAI</Link>. You can create a PayAI Wallet with a
           passkey (the key is derived on your device), or connect an external wallet you already
@@ -35,7 +34,7 @@ export default function GettingStartedPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="network" index="02" title="You are on Monad">
+      <DocsSection id="network" title="You are on Monad">
         <p>
           Chain ID <code>143</code>. Every payment, swap, and automation settles as a real Monad
           transaction. If your external wallet is on another network, switch it — PayAI will not
@@ -43,7 +42,7 @@ export default function GettingStartedPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="first" index="03" title="Send the first payment">
+      <DocsSection id="first" title="Send the first payment">
         <p>
           From the dashboard, open Payments — or type it in{" "}
           <Link href="/docs/ask">Ask PayAI</Link>, for example{" "}
@@ -57,7 +56,7 @@ export default function GettingStartedPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="next" index="04" title="What next">
+      <DocsSection id="next" title="What next">
         <ul>
           <li><Link href="/docs/payments">Payments</Link> — tokens, .nad names, bulk.</li>
           <li><Link href="/docs/automations">Automations</Link> — payroll, rent, recurring.</li>

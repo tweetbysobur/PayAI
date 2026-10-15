@@ -95,7 +95,6 @@ export function OnboardingFlow() {
                   </li>
                 ))}
               </ol>
-              <p className="mt-auto hidden pt-10 text-xs leading-relaxed text-white/75 md:block">Make an intent and get your onchain execution done in seconds.</p>
             </aside>
 
             {/* Content — the page canvas, light or dark. */}
@@ -107,7 +106,7 @@ export function OnboardingFlow() {
                     {step === 0 && (
                       <>
                         <h1 id="onboarding-title" className="mt-1.5 text-xl font-semibold tracking-tight text-foreground sm:mt-2 sm:text-3xl">Welcome to PayAI</h1>
-                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Make an intent and get your onchain execution done in seconds — on {MONAD_CHAIN_NAME}, from your own wallet.</p>
+                        <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground sm:mt-2 sm:text-sm">Say what you want done on {MONAD_CHAIN_NAME}. PayAI prepares it, and your own wallet approves it.</p>
                         <Numbered items={[
                           ["Say what you want", "In plain English."],
                           ["Review the plan", "Every action, amount and recipient, in order, before anything runs."],

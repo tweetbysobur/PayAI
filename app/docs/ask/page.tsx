@@ -33,12 +33,11 @@ const TOC = [
 export default function AskPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Ask PayAI."
+      title="Ask PayAI"
       lede="Say what you want done on Monad — one action or a whole list of them. PayAI turns it into a plan, shows you every step, and runs it on one approval. Nothing moves until you approve and your wallet signs."
       toc={TOC}
     >
-      <DocsSection id="what" index="01" title="What you can ask">
+      <DocsSection id="what" title="What you can ask">
         <DocsTable
           headers={["You say", "What happens"]}
           rows={[
@@ -59,7 +58,7 @@ export default function AskPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="many" index="02" title="Many actions, one request">
+      <DocsSection id="many" title="Many actions, one request">
         <p>
           You don&apos;t have to send one message per payment. Write everything you want done in
           one request and PayAI builds a single plan with every action in the order you wrote it.
@@ -97,7 +96,7 @@ export default function AskPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="approval" index="03" title="One approval">
+      <DocsSection id="approval" title="One approval">
         <p>
           <strong>One approval covers the whole plan.</strong> With a PayAI Wallet, tapping
           Approve opens one passkey prompt, and every action in the plan runs on it. You are not
@@ -122,7 +121,7 @@ export default function AskPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="run" index="04" title="How a plan runs">
+      <DocsSection id="run" title="How a plan runs">
         <ol>
           <li><strong>In order.</strong> Actions run in the order you wrote them. Each one is quoted, built, signed and confirmed on Monad before the next one starts.</li>
           <li><strong>Checked before signing.</strong> Every transaction is built by PayAI for the plan you approved and checked against it — the contract it calls, the amounts, the recipient, the network. A transaction that doesn&apos;t match is refused before your wallet sees it.</li>
@@ -132,7 +131,7 @@ export default function AskPage() {
         </ol>
       </DocsSection>
 
-      <DocsSection id="images" index="05" title="Images and QR codes">
+      <DocsSection id="images" title="Images and QR codes">
         <p>
           Attach a picture instead of typing: a wallet&apos;s QR code, a payment request QR, or
           (where enabled) an invoice or a screenshot of payment instructions. PayAI reads the
@@ -145,7 +144,7 @@ export default function AskPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="sdk" index="06" title="Protocol actions">
+      <DocsSection id="sdk" title="Protocol actions">
         <p>
           Some on-chain actions run through the PayAI SDK, a layer that only lets each action
           call the contract it was reviewed for:
@@ -166,7 +165,7 @@ export default function AskPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="understanding" index="07" title="How Ask understands you">
+      <DocsSection id="understanding" title="How Ask understands you">
         <p>
           <strong>PayAI&apos;s own engine reads every request first.</strong> Clearly written
           sends, swaps and multi-action plans — including &ldquo;each&rdquo; and
@@ -186,7 +185,7 @@ export default function AskPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="limits" index="08" title="Limits">
+      <DocsSection id="limits" title="Limits">
         <ul>
           <li>Payments in a plan are MON or USDC. Swaps in a plan are MON ⇄ USDC. Other tokens are traded on their own — see <Link href="/docs/trading">Trading</Link>.</li>
           <li>&ldquo;Send it&rdquo; works after a swap to USDC. MON received from a swap can&apos;t be passed to the next step yet.</li>
@@ -197,7 +196,7 @@ export default function AskPage() {
         </ul>
       </DocsSection>
 
-      <DocsSection id="secrets" index="09" title="Do not paste secrets">
+      <DocsSection id="secrets" title="Do not paste secrets">
         <DocsCallout tone="danger" title="Ask PayAI is not a keystore">
           Do not paste seed phrases, private keys, or API secrets into the composer. The text may
           be sent to a language model provider (Anthropic) to work out what you meant. Keys belong

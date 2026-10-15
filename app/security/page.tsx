@@ -24,12 +24,11 @@ const TOC = [
 export default function SecurityPage() {
   return (
     <DocsChrome
-      kicker="Security"
-      title="How PayAI keeps funds and keys honest."
+      title="How PayAI keeps funds and keys honest"
       lede="PayAI, operated by UsePayAI at usepayai.xyz, is non-custodial for interactive payments and trades: you hold the keys, you approve the transaction, and settlement is a real Monad transaction anyone can look up. This page is the model — including the two places it is not that simple."
       toc={TOC}
     >
-      <DocsSection id="model" index="01" title="The model">
+      <DocsSection id="model" title="The model">
         <p>
           You connect a wallet you control. For interactive payments and trades, PayAI proposes a
           transaction; your wallet signs it; Monad settles it. PayAI never asks for a seed phrase.
@@ -42,7 +41,7 @@ export default function SecurityPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="exceptions" index="02" title="Two exceptions">
+      <DocsSection id="exceptions" title="Two exceptions">
         <p>
           Two paths cannot wait for you to click Approve. We do not pretend they are the same as
           the rest of the app.
@@ -68,7 +67,7 @@ export default function SecurityPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="safeguards" index="03" title="Safeguards">
+      <DocsSection id="safeguards" title="Safeguards">
         <ul>
           <li><strong>Your signature</strong> — interactive payments cannot move without it.</li>
           <li><strong>Plan review</strong> — Ask PayAI shows the whole plan, every action, amount and recipient in order, before anything is prepared for signing. A multi-step plan quotes each step only after the one before it has confirmed, and a step that may already have been sent is never sent again automatically.</li>
@@ -80,7 +79,7 @@ export default function SecurityPage() {
         </ul>
       </DocsSection>
 
-      <DocsSection id="review" index="04" title="Independent review">
+      <DocsSection id="review" title="Independent review">
         <p>
           In August 2026 the PayAI contracts completed the DeltaV × Ultrafuzz protocol security
           program. That review found no critical vulnerability that could drain user funds.
@@ -93,7 +92,7 @@ export default function SecurityPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="contracts" index="05" title="Live contracts">
+      <DocsSection id="contracts" title="Live contracts">
         <p>
           Deployed PayAI contracts are verified on the Monad explorer, so you can check every live
           contract and every transaction yourself. Addresses are read live from this deployment,
@@ -105,7 +104,7 @@ export default function SecurityPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="browser" index="06" title="Browser security">
+      <DocsSection id="browser" title="Browser security">
         <p>
           Every response sets <code>frame-ancestors none</code>, HSTS, and a Content-Security-Policy
           that pins <code>connect-src</code> to this origin and the Monad RPCs so injected script
@@ -116,7 +115,7 @@ export default function SecurityPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="never" index="07" title="What PayAI never does">
+      <DocsSection id="never" title="What PayAI never does">
         <ul>
           <li>Ask for your seed phrase</li>
           <li>Move interactive funds without your signature</li>
@@ -125,7 +124,7 @@ export default function SecurityPage() {
         </ul>
       </DocsSection>
 
-      <DocsSection id="report" index="08" title="Report a vulnerability">
+      <DocsSection id="report" title="Report a vulnerability">
         <p>
           If you find a security issue, email{" "}
           <a href="mailto:security@usepayai.xyz">security@usepayai.xyz</a> with details and steps

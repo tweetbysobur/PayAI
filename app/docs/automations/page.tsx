@@ -19,12 +19,11 @@ const TOC = [
 export default function AutomationsPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Automations."
+      title="Automations"
       lede="Recurring payments cannot wait for you to click Approve every Friday. PayAI uses a dedicated agent wallet for those runs, bounded on-chain. You choose how each automation is funded."
       toc={TOC}
     >
-      <DocsSection id="why" index="01" title="Why two modes">
+      <DocsSection id="why" title="Why two modes">
         <DocsTable
           headers={["", "Wallet Automation", "Reserved Funds"]}
           rows={[
@@ -40,7 +39,7 @@ export default function AutomationsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="wallet" index="02" title="Wallet Automation">
+      <DocsSection id="wallet" title="Wallet Automation">
         <p>
           You approve PaymentExecutor to pull an ERC-20 from your wallet, up to a limit. Each
           scheduled run pulls exactly what is due. Native MON uses WMON — you wrap, then approve.
@@ -51,7 +50,7 @@ export default function AutomationsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="reserved" index="03" title="Reserved Funds">
+      <DocsSection id="reserved" title="Reserved Funds">
         <p>
           You deposit the budget into AutomationVault for that automation. The vault can only pay
           the recipient you committed to, or refund you. A later balance change in your wallet
@@ -59,7 +58,7 @@ export default function AutomationsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="runs" index="04" title="Runs">
+      <DocsSection id="runs" title="Runs">
         <p>
           Execute Now runs the next payment immediately. Skip advances past the next occurrence
           without sending. Cancel stops future runs. Those actions still require a signed
@@ -68,7 +67,7 @@ export default function AutomationsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="limits" index="05" title="On-chain limits">
+      <DocsSection id="limits" title="On-chain limits">
         <p>
           PaymentExecutor enforces a per-transaction cap and a rolling daily cap, separately for
           stablecoins and native MON. Every payment carries a unique request id. These limits

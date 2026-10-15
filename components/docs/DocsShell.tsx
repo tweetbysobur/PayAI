@@ -14,7 +14,6 @@ export interface DocsTocItem {
 }
 
 export interface DocsShellProps {
-  kicker: string;
   title: string;
   lede: string;
   updated?: string;
@@ -25,7 +24,6 @@ export interface DocsShellProps {
 }
 
 export function DocsShell({
-  kicker,
   title,
   lede,
   updated = DOCS_UPDATED,
@@ -93,8 +91,7 @@ export function DocsShell({
 
         <div className="min-w-0 px-4 py-10 sm:px-8 sm:py-14 lg:px-12">
           <article className="mx-auto max-w-2xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary-ink">{kicker}</p>
-            <h1 className="mt-3 font-montserrat text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-foreground sm:text-4xl">
+            <h1 className="font-montserrat text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-foreground sm:text-4xl">
               {title}
             </h1>
             <p className="mt-4 text-[15px] leading-7 text-muted-foreground">{lede}</p>
@@ -174,19 +171,16 @@ function DocsNav({ pathname, onDocsHost, className }: { pathname: string; onDocs
 
 export function DocsSection({
   id,
-  index,
   title,
   children,
 }: {
   id: string;
-  index?: string;
   title: string;
   children: React.ReactNode;
 }) {
   return (
     <section id={id} className="scroll-mt-24">
-      <h2 className="flex items-baseline gap-3 text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-        {index ? <span className="font-mono text-[11px] font-medium text-primary-ink">{index}</span> : null}
+      <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
         {title}
       </h2>
       <div className="mt-3 space-y-3 text-[15px] leading-7 text-muted-foreground [&_a]:text-primary-ink [&_a]:underline-offset-2 hover:[&_a]:underline [&_code]:rounded [&_code]:bg-glass/[0.04] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-foreground [&_strong]:font-medium [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-5">

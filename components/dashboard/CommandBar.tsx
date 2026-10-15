@@ -162,18 +162,14 @@ export function CommandBar() {
         }}
         onClick={() => { if (draggedRef.current) return; setOpen(true); }}
         style={{ x, y, opacity: positioned ? 1 : 0 }}
-        className={`fixed left-0 top-0 z-40 flex cursor-grab items-center gap-2 touch-none rounded-full bg-primary p-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/30 transition-opacity hover:opacity-90 active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-4 ${positioned ? "" : "pointer-events-none"}`}
+        className={`fixed left-0 top-0 z-40 flex cursor-grab items-center touch-none rounded-full bg-primary p-3 text-primary-foreground shadow-sm transition-opacity hover:opacity-90 active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:hidden ${positioned ? "" : "pointer-events-none"}`}
         title="Ask PayAI — drag to move"
         aria-label="Ask PayAI"
       >
         <AskMark size={16} />
-        {/* Icon-only below sm: on a phone-width viewport this pill's default
-            (never-dragged) corner position already overlaps real page
-            content often enough to be its own bug -- a narrower footprint
-            shrinks how much it can cover, on top of the safe-area fix
-            above. ⌘K is desktop-only already; the label goes the same way. */}
-        <span className="hidden sm:inline">Ask PayAI</span>
-        <kbd className="ml-1 hidden rounded border border-primary-foreground/30 px-1.5 py-0.5 text-[10px] opacity-80 sm:inline-block">⌘K</kbd>
+        {/* A plain round button, no label and no glow. Hidden on desktop:
+            the sidebar's Ask PayAI is always on screen there, and ⌘K still
+            opens this quick chat from any page. */}
       </motion.button>
       )}
 

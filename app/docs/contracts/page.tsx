@@ -19,12 +19,11 @@ const TOC = [
 export default function ContractsPage() {
   return (
     <DocsChrome
-      kicker="Developers"
-      title="Contracts."
+      title="Contracts"
       lede="Settlement is the contracts on Monad, not this website. The table is read from the running deployment. PayAIForwarder and PayAITradeExecutor are what your wallet actually pays and trades through. PaymentExecutor is the automation path."
       toc={TOC}
     >
-      <DocsSection id="live" index="01" title="In production now">
+      <DocsSection id="live" title="In production now">
         <p>
           Interactive payments go through <strong>PayAIForwarder</strong>. Interactive trades go
           through <strong>PayAITradeExecutor</strong>. PaymentExecutor, AutomationVault, and
@@ -38,7 +37,7 @@ export default function ContractsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="roles" index="02" title="What each live contract does">
+      <DocsSection id="roles" title="What each live contract does">
         <p>
           <strong>PayAIForwarder</strong> is the interactive-payment path: your wallet pays the
           forwarder, the forwarder pays the recipient. You sign. The automation agent is not in
@@ -63,7 +62,7 @@ export default function ContractsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="unused" index="03" title="Deployed, not in the app">
+      <DocsSection id="unused" title="Deployed, not in the app">
         <p>
           These exist on Monad. They are not what the live product routes through today. Listed
           so an explorer search for “PayAI” is not a mystery.
@@ -106,7 +105,7 @@ export default function ContractsPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="source" index="04" title="Source">
+      <DocsSection id="source" title="Source">
         <DocsCallout tone="note" title="Verified on the explorer">
           Every deployed contract is source-verified on the Monad explorer, so what runs on-chain
           can be read and checked there. Independent review of the protocol:{" "}

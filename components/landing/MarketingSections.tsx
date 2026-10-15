@@ -238,8 +238,7 @@ export function AutomationTimelineSection() {
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-24">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-end lg:gap-16">
           <div>
-            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">Automations</p>
-            <h2 id="automation-title" className="mt-3 text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
+            <h2 id="automation-title" className="text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
               How a recurring payment runs.
             </h2>
           </div>

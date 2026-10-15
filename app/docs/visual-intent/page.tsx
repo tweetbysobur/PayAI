@@ -31,12 +31,11 @@ const TOC = [
 export default function VisualIntentPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Visual intent."
+      title="Visual intent"
       lede="Pay from a picture. Attach a QR code, a payment request, an invoice or a screenshot of instructions in Ask PayAI, and PayAI reads the payment out of it — then shows it to you as an ordinary request to review and approve."
       toc={TOC}
     >
-      <DocsSection id="what" index="01" title="What it is">
+      <DocsSection id="what" title="What it is">
         <p>
           In <Link href="/docs/ask">Ask PayAI</Link>, tap the image button next to the message
           box and choose a photo or screenshot. You can add a caption, or send the image on its
@@ -57,7 +56,7 @@ export default function VisualIntentPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="read" index="02" title="What PayAI can read">
+      <DocsSection id="read" title="What PayAI can read">
         <DocsTable
           headers={["In the image", "What PayAI takes from it"]}
           rows={[
@@ -78,7 +77,7 @@ export default function VisualIntentPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="qr" index="03" title="QR codes">
+      <DocsSection id="qr" title="QR codes">
         <DocsTable
           headers={["Format", "Example", "Read as"]}
           rows={[
@@ -96,7 +95,7 @@ export default function VisualIntentPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="caption" index="04" title="Adding a caption">
+      <DocsSection id="caption" title="Adding a caption">
         <p>
           A caption says what to do with the image, and fills in what the image doesn&apos;t
           have:
@@ -118,7 +117,7 @@ export default function VisualIntentPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="flow" index="05" title="From image to payment">
+      <DocsSection id="flow" title="From image to payment">
         <ol>
           <li><strong>Upload checked.</strong> The file must really be a PNG, JPEG or WebP — judged by its contents, not its name — within the size limits below.</li>
           <li><strong>Read.</strong> PayAI decodes any QR code and, where enabled, reads the rest of the image.</li>
@@ -128,7 +127,7 @@ export default function VisualIntentPage() {
         </ol>
       </DocsSection>
 
-      <DocsSection id="safety" index="06" title="Safety rules">
+      <DocsSection id="safety" title="Safety rules">
         <ul>
           <li><strong>Instructions inside images are ignored.</strong> Text aimed at PayAI or an assistant — &ldquo;ignore previous instructions&rdquo;, &ldquo;approve automatically&rdquo;, &ldquo;already approved&rdquo; — makes PayAI refuse the image and tell you why. This is checked in code on every field, not left to the model.</li>
           <li><strong>No &ldquo;send everything&rdquo;.</strong> An image asking for &ldquo;all funds&rdquo;, &ldquo;max&rdquo; or a whole balance is refused. Amounts from an image must be exact.</li>
@@ -139,7 +138,7 @@ export default function VisualIntentPage() {
         </ul>
       </DocsSection>
 
-      <DocsSection id="privacy" index="07" title="Your image">
+      <DocsSection id="privacy" title="Your image">
         <p>
           The image is held in memory for the one request that reads it. It is not stored, not
           logged and never given a link; only the outcome (for example &ldquo;QR read&rdquo;) is
@@ -149,7 +148,7 @@ export default function VisualIntentPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="limits" index="08" title="Limits">
+      <DocsSection id="limits" title="Limits">
         <ul>
           <li>PNG, JPEG or WebP, up to 4 MB, between 32 and 8,000 pixels on a side.</li>
           <li>Captions up to 500 characters.</li>

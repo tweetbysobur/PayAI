@@ -17,12 +17,11 @@ const TOC = [
 export default function FeesPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Fees."
+      title="Fees"
       lede="PayAI's fee is 0.25% of the gross amount handled by the contract, rounded down, and is added on top of the amount you set. Monad gas is separate and always paid by the signer."
       toc={TOC}
     >
-      <DocsSection id="today" index="01" title="What we charge today">
+      <DocsSection id="today" title="What we charge today">
         <DocsTable
           headers={["Feature", "Platform fee"]}
           rows={[
@@ -92,7 +91,7 @@ export default function FeesPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="gas" index="02" title="Network gas">
+      <DocsSection id="gas" title="Network gas">
         <p>
           Every on-chain action — a payment, an approval, a vault deposit or refund, a swap —
           costs gas paid to Monad. That is not a PayAI fee. Failed or reverted transactions can
@@ -100,7 +99,7 @@ export default function FeesPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="where" index="03" title="Where you see it">
+      <DocsSection id="where" title="Where you see it">
         <p>
           The confirmation screen itemizes the platform fee before you sign. Receipts show it
           after. If any screen disagrees with the contract&apos;s on-chain rate, the contract is

@@ -16,9 +16,10 @@ const src = readFileSync(new URL("../app/dashboard/page.tsx", import.meta.url), 
 const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 describe("Dashboard: intent first, wallet last", () => {
-  it("leads with the welcome, the promise and the intent box", () => {
+  it("leads with the welcome, one line on what it does, and the intent box", () => {
     expect(code).toMatch(/Welcome to PayAI/);
-    expect(code).toMatch(/Turn intent into onchain execution in seconds\./);
+    // The landing page's slogan is said once, there — not repeated here.
+    expect(code).not.toMatch(/onchain execution in seconds/);
     expect(code).toMatch(/Tell PayAI what you want done\. It understands your intent, prepares the action, and lets you review it before execution\./);
     expect(code).toMatch(/placeholder="What do you want to do\?"/);
   });

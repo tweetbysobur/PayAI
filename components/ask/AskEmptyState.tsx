@@ -45,9 +45,9 @@ export function AskEmptyState() {
       >
         <AskLogo size={26} className="mt-0.5 shrink-0 text-primary" />
         <div className="min-w-0">
-          <p className="text-[15px] font-medium tracking-tight text-foreground sm:text-base">Turn a sentence into onchain execution.</p>
+          <p className="text-[15px] font-medium tracking-tight text-foreground sm:text-base">Say what you want done.</p>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground sm:text-sm">
-            Describe what you want done on Monad. PayAI turns it into a plan you review before anything runs.
+            Send, swap or schedule on Monad in plain words. You review the plan before anything runs.
           </p>
         </div>
       </motion.div>

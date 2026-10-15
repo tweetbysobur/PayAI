@@ -28,8 +28,7 @@ export function HowItWorksSteps() {
   return (
     <section id="steps" aria-labelledby="steps-title" className="scroll-mt-6">
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-24">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">How PayAI works</p>
-        <h2 id="steps-title" className="mt-3 max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
+        <h2 id="steps-title" className="max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
           You say what you want. You approve what runs.
         </h2>
         <ol className="mt-12 border-b border-border">

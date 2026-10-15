@@ -37,16 +37,13 @@ const SUB = "mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foregroun
 const SECTION = "border-t border-border py-24 sm:py-28";
 
 /** Shared section heading — centred, restrained, same rhythm as the rest. */
-function Head({ title, body, eyebrow }: { title: string; body: string; eyebrow?: string }) {
+function Head({ title, body }: { title: string; body: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
       className="mb-12 text-center"
     >
-      {eyebrow && (
-        <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">{eyebrow}</p>
-      )}
       <h2 className={H2}>{title}</h2>
       <p className={SUB}>{body}</p>
     </motion.div>
@@ -110,7 +107,6 @@ export function ProductOverviewSection() {
     <section id="platform" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="The PayAI Experience"
           title="One Intent Layer. Multiple On-Chain Actions."
           body="Use natural-language intent to make payments, trade tokens, automate workflows, and interact with DeFi on Monad from one interface."
         />
@@ -283,7 +279,6 @@ export function HowPayAIWorksSection() {
     <section id="how" className={`${SECTION} bg-panel/20`}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="How it works"
           title="From intent to verified execution"
           body="Every action PayAI takes follows the same six stages — whether it is a payment, a trade, or a DeFi interaction."
         />
@@ -365,7 +360,6 @@ export function PaymentOperationsSection() {
     <section id="workflows" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Payments"
           title="From simple transfers to recurring payment operations."
           body="One automation engine underneath, and each card says plainly what works today and what doesn't yet."
         />
@@ -629,7 +623,6 @@ export function AnalyticsSection() {
     <section id="analytics" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Your on-chain activity"
           title="See what PayAI did."
           body="Balances, executions, payments, trades and automation runs — one dashboard, scoped to your wallet, with a verifiable on-chain record behind every entry."
         />

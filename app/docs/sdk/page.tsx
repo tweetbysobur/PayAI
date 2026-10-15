@@ -29,12 +29,11 @@ const explorer = (address: string, key: string) => (
 export default function SdkPage() {
   return (
     <DocsChrome
-      kicker="Developers"
-      title="PayAI SDK."
+      title="PayAI SDK"
       lede="The layer that lets Ask PayAI run specific on-chain actions — swapping MON and USDC inside a plan, wrapping and unwrapping MON, and splitting one payment between several people — with every transaction checked before your wallet sees it."
       toc={TOC}
     >
-      <DocsSection id="what" index="01" title="What it is">
+      <DocsSection id="what" title="What it is">
         <p>
           The PayAI SDK is the protocol-action layer inside PayAI. Each supported protocol
           declares a small set of actions. An action&apos;s own transaction can only go to the
@@ -48,7 +47,7 @@ export default function SdkPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="actions" index="02" title="Available actions">
+      <DocsSection id="actions" title="Available actions">
         <DocsTable
           headers={["Action", "What it does", "Try in Ask PayAI"]}
           rows={[
@@ -107,7 +106,7 @@ export default function SdkPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="plans" index="03" title="SDK actions and plans">
+      <DocsSection id="plans" title="SDK actions and plans">
         <p>
           <Link href="/docs/ask#many">Ask PayAI plans</Link> run several actions from one request
           on one approval. How each SDK action fits:
@@ -127,7 +126,7 @@ export default function SdkPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="flow" index="04" title="How an action runs">
+      <DocsSection id="flow" title="How an action runs">
         <ol>
           <li>
             <strong>Recognised by fixed rules, not guessed.</strong> Protocol actions are matched
@@ -159,7 +158,7 @@ export default function SdkPage() {
         </ol>
       </DocsSection>
 
-      <DocsSection id="safety" index="05" title="Safety rules">
+      <DocsSection id="safety" title="Safety rules">
         <ul>
           <li>
             <strong>Allowlisted contracts only.</strong> The action itself may only call the
@@ -193,7 +192,7 @@ export default function SdkPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="contracts" index="06" title="Contracts involved">
+      <DocsSection id="contracts" title="Contracts involved">
         <DocsTable
           headers={["Action", "Contract", "Operated by"]}
           rows={[
@@ -207,7 +206,7 @@ export default function SdkPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="fees" index="07" title="Fees">
+      <DocsSection id="fees" title="Fees">
         <p>
           A split payment carries PayAI&apos;s standard 0.25% platform fee, added on top of the
           recipients&apos; total so each recipient receives exactly their amount. It is paid to
@@ -218,7 +217,7 @@ export default function SdkPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="limits" index="08" title="Limits">
+      <DocsSection id="limits" title="Limits">
         <ul>
           <li>A swap step is MON ⇄ USDC only, exact input, at the trading engine&apos;s 0.5% slippage. To set your own slippage or trade another token, trade on its own — see <Link href="/docs/trading">Trading</Link>.</li>
           <li>A split takes 2–9 recipients per transaction, each one only once. The contract&apos;s tenth slot carries the platform fee.</li>
@@ -227,7 +226,7 @@ export default function SdkPage() {
           <li>Other protocols are added only through a reviewed partner integration — see below. None is live yet.</li>
         </ul>
       </DocsSection>
-      <DocsSection id="integrate" index="09" title="Integrate your protocol">
+      <DocsSection id="integrate" title="Integrate your protocol">
         <p>
           DeFi protocols on Monad can integrate with PayAI so their users can run them from a
           single sentence in Ask PayAI. Integration is a partnership: you describe your

@@ -23,19 +23,18 @@ const TOC = [
 export default function TermsPage() {
   return (
     <DocsChrome
-      kicker="Terms"
-      title="Terms of use."
+      title="Terms of use"
       lede="These terms cover the PayAI product at usepayai.xyz, operated by UsePayAI. By using the app you agree to them. They are written to match how the product actually works."
       toc={TOC}
     >
-      <DocsSection id="who" index="01" title="Who this is">
+      <DocsSection id="who" title="Who this is">
         <p>
           UsePayAI operates PayAI at usepayai.xyz. PayAI is not affiliated with PayAI Network,
           payai.network, or the $PAYAI token.
         </p>
       </DocsSection>
 
-      <DocsSection id="as-is" index="02" title="Provided as-is, your responsibility">
+      <DocsSection id="as-is" title="Provided as-is, your responsibility">
         <p>
           PayAI is provided as-is, without warranty of any kind. You are solely responsible for
           the wallet you connect and every transaction it signs. Smart-contract execution is
@@ -44,7 +43,7 @@ export default function TermsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="final" index="03" title="On-chain execution is final">
+      <DocsSection id="final" title="On-chain execution is final">
         <p>
           Settlement is governed by the contracts deployed on Monad (PaymentExecutor,
           PayAIForwarder, AutomationVault, MerchantRegistry, PayAITradeExecutor, and their current
@@ -53,7 +52,7 @@ export default function TermsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="custody" index="04" title="Custody">
+      <DocsSection id="custody" title="Custody">
         <p>
           Interactive payments and trades in the web app are non-custodial: your wallet signs.
           Payment Automations use a capped on-chain agent and, for Reserved Funds, an isolated
@@ -66,7 +65,7 @@ export default function TermsPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="fees" index="05" title="Fees">
+      <DocsSection id="fees" title="Fees">
         <p>
           PayAI currently charges a <strong>0.25% platform fee</strong> (25 basis points) of the
           gross amount handled by the contract, rounded down, on send-payment, Wallet Automation,
@@ -87,7 +86,7 @@ export default function TermsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="advice" index="06" title="No advice, no guaranteed uptime">
+      <DocsSection id="advice" title="No advice, no guaranteed uptime">
         <p>
           PayAI does not provide investment, legal, or tax advice, and does not guarantee uptime
           of third-party RPC providers, wallets, LLM providers, Telegram, or the Monad network
@@ -95,7 +94,7 @@ export default function TermsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="compliance" index="07" title="Your compliance">
+      <DocsSection id="compliance" title="Your compliance">
         <p>
           You are responsible for complying with the laws that apply to you when sending,
           receiving, automating, or trading on-chain. Recipients are screened against the OFAC SDN
@@ -104,7 +103,7 @@ export default function TermsPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="liability" index="08" title="Limitation of liability">
+      <DocsSection id="liability" title="Limitation of liability">
         <p>
           To the maximum extent permitted by law, UsePayAI is not liable for lost funds, failed
           or delayed transactions, smart-contract bugs, key compromise (including of a Telegram

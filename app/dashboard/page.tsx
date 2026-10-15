@@ -195,7 +195,6 @@ export default function Dashboard() {
       {/* 1–3: what PayAI is, and the one thing to do here — tell it. */}
       <section aria-labelledby="welcome-title" className="mb-10 sm:mb-14">
         <h1 id="welcome-title" className="text-2xl font-semibold tracking-tight text-foreground sm:text-4xl">Welcome to PayAI</h1>
-        <p className="mt-2 text-base font-medium text-foreground sm:text-xl">Turn intent into onchain execution in seconds.</p>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
           Tell PayAI what you want done. It understands your intent, prepares the action, and lets you review it before execution.
         </p>

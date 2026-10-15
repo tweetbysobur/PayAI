@@ -28,12 +28,11 @@ const TOC = [
 export default function TradingPage() {
   return (
     <DocsChrome
-      kicker="Product"
-      title="Trading."
+      title="Trading"
       lede="Swap, buy or sell any Monad token by saying what you want. PayAI quotes it live, shows you exactly what you'll receive, and your wallet signs. Nothing trades until you confirm."
       toc={TOC}
     >
-      <DocsSection id="what" index="01" title="What you can trade">
+      <DocsSection id="what" title="What you can trade">
         <p>
           MON, USDC and the other tokens in PayAI&apos;s verified list can be named by symbol.
           Any other token on Monad is traded by its <strong>contract address (CA)</strong>: paste
@@ -47,7 +46,7 @@ export default function TradingPage() {
         </DocsCallout>
       </DocsSection>
 
-      <DocsSection id="ask" index="02" title="How to ask">
+      <DocsSection id="ask" title="How to ask">
         <DocsTable
           headers={["You say", "What happens"]}
           rows={[
@@ -64,7 +63,7 @@ export default function TradingPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="flow" index="03" title="How a trade runs">
+      <DocsSection id="flow" title="How a trade runs">
         <ol>
           <li>
             <strong>Quote.</strong> PayAI finds a route and shows the amount you spend, the amount
@@ -87,7 +86,7 @@ export default function TradingPage() {
         </ol>
       </DocsSection>
 
-      <DocsSection id="venues" index="04" title="Venues">
+      <DocsSection id="venues" title="Venues">
         <DocsTable
           headers={["Venue", "Used for"]}
           rows={[
@@ -104,7 +103,7 @@ export default function TradingPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="protection" index="05" title="Price protection">
+      <DocsSection id="protection" title="Price protection">
         <ul>
           <li><strong>Slippage:</strong> 0.5% by default. You can name your own — <code>use 1% slippage</code> — up to 50%.</li>
           <li><strong>Minimum received:</strong> the transaction carries a minimum output; if the price moves past your slippage limit before it lands, it reverts instead of filling worse.</li>
@@ -113,7 +112,7 @@ export default function TradingPage() {
         </ul>
       </DocsSection>
 
-      <DocsSection id="fees" index="06" title="Fees">
+      <DocsSection id="fees" title="Fees">
         <p>
           A trade that goes through PayAI&apos;s trade executor pays PayAI&apos;s 0.25% fee, added
           on top so the amount you set is traded in full. A trade that goes straight to a venue
@@ -122,7 +121,7 @@ export default function TradingPage() {
         </p>
       </DocsSection>
 
-      <DocsSection id="limits" index="07" title="Limits">
+      <DocsSection id="limits" title="Limits">
         <ul>
           <li>Trades are exact-input: you say what to spend. &ldquo;Receive exactly 100 tokens&rdquo; isn&apos;t supported yet.</li>
           <li>A token with no route on Uniswap, Kuru or Nad.Fun can&apos;t be traded.</li>

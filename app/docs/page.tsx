@@ -24,8 +24,7 @@ const LINKS = [
 export default function DocsIndexPage() {
   return (
     <DocsChrome
-      kicker="Documentation"
-      title="PayAI, in writing."
+      title="PayAI, in writing"
       lede="PayAI turns natural-language intent into on-chain execution on Monad. These pages describe what the product actually does today — including the limits."
     >
       <DocsSection id="start" title="Start here">

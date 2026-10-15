@@ -30,8 +30,7 @@ export function HowToAskSection() {
   return (
     <section id="how-to-ask" aria-labelledby="how-to-ask-title" className="scroll-mt-6 border-t border-border">
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-24">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">How to ask</p>
-        <h2 id="how-to-ask-title" className="mt-3 max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
+        <h2 id="how-to-ask-title" className="max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
           Say what you want done.
         </h2>
 

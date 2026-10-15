@@ -43,8 +43,10 @@ describe("Ask PayAI's empty chat", () => {
   const src = code("components/ask/AskEmptyState.tsx");
   const welcome = src.slice(src.indexOf("export function AskEmptyState("));
   it("is just the heading and the one describe line", () => {
-    expect(welcome).toContain("Turn a sentence into onchain execution.");
-    expect(welcome).toContain("Describe what you want done on Monad. PayAI turns it into a plan you review before anything runs.");
+    expect(welcome).toContain("Say what you want done.");
+    expect(welcome).toContain("Send, swap or schedule on Monad in plain words. You review the plan before anything runs.");
+    // The slogan lives on the landing page only.
+    expect(welcome).not.toMatch(/onchain execution/);
     expect(welcome).not.toMatch(/How to ask|<ol|<button|<a |\.nad\b|\b\d+\s*(USDC|MON)\b/);
   });
 });

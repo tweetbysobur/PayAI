@@ -6,7 +6,6 @@ import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
 import { SiteNav } from "@/components/landing/SiteNav";
 import { SiteFooter } from "@/components/landing/SiteFooter";
-import { MonadMark } from "@/components/MonadMark";
 import { geist, geistMono } from "@/components/landing/fonts";
 import { ExecutionPath } from "@/components/landing/ExecutionPath";
 
@@ -50,7 +49,7 @@ export default function LandingPage() {
 
       {/* Execution model / trust */}
       <Section>
-        <SectionTitle eyebrow="The execution model" title="PayAI reads your intent. It doesn't get the last word." />
+        <SectionTitle title="PayAI reads your intent. It doesn't get the last word." />
         <div className="mt-10 grid gap-10 md:grid-cols-2 md:gap-16">
           <div>
             <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">What PayAI does</p>
@@ -74,7 +73,7 @@ export default function LandingPage() {
       {/* FAQ */}
       <Section id="faq">
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-16">
-          <SectionTitle eyebrow="FAQ" title="Questions" />
+          <SectionTitle title="Questions" />
           <div className="divide-y divide-border border-y border-border">
             {FAQS.map((f) => <FaqItem key={f.q} q={f.q} a={f.a} />)}
           </div>
@@ -139,14 +138,8 @@ function Hero() {
     <section key={reduce ? "still" : "moving"} className="relative border-b border-border">
       <div className="mx-auto grid max-w-7xl items-center gap-y-12 px-5 pb-14 pt-8 sm:px-6 sm:pb-20 sm:pt-14 lg:min-h-[min(calc(100svh-5.5rem),48rem)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-12 lg:pb-16 lg:pt-6">
         <div className="relative z-10">
-          <motion.p {...appear(0)} className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="text-primary-ink">PayAI</span>
-            <span aria-hidden className="h-px w-8 bg-border" />
-            <span className="inline-flex items-center gap-1.5"><MonadMark size={11} /> Built on Monad</span>
-          </motion.p>
-
           <h1 aria-label={HEADLINE}
-            className="mt-7 text-[clamp(2.15rem,10.2vw,3.6rem)] font-medium leading-[0.94] tracking-[-0.045em] text-foreground sm:text-[4.1rem] lg:text-[clamp(3.6rem,5.6vw,5.4rem)]"
+            className="text-[clamp(2.15rem,10.2vw,3.6rem)] font-medium leading-[0.94] tracking-[-0.045em] text-foreground sm:text-[4.1rem] lg:text-[clamp(3.6rem,5.6vw,5.4rem)]"
           >
             <span className="block">{lineOne.map((w, i) => rise(w, 0.1 + i * 0.08, `a${i}`)).flatMap((el) => [el, " "])}</span>
             <span className="block">
@@ -258,11 +251,10 @@ function Section({ id, children }: { id?: string; children: React.ReactNode }) {
   );
 }
 
-function SectionTitle({ eyebrow, title }: { eyebrow: string; title: string }) {
+function SectionTitle({ title }: { title: string }) {
   return (
     <div>
-      <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-primary-ink">{eyebrow}</p>
-      <h2 className="mt-3 max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">{title}</h2>
+      <h2 className="max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">{title}</h2>
     </div>
   );
 }
