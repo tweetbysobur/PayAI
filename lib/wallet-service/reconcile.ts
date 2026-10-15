@@ -950,6 +950,14 @@ async function scan(
   const detected = found.detected.filter((d) => d.txHash && d.value > 0n);
   const selfTransfers = found.self;
 
+  // Every token seen arriving — verified or not — becomes a candidate for the
+  // portfolio, which reads its real balance and shows it only if it's held
+  // and priced. Recorded before the verified-only notification filter below.
+  {
+    const { addKnownTokens } = await import("@/lib/portfolio/knownTokens");
+    await addKnownTokens(address, detected.filter((d) => d.direction === "in" && d.token).map((d) => d.token)).catch(() => {});
+  }
+
   // Everything PayAI itself settled is already in the tx log and has already
   // produced a "Payment sent" notification — re-reporting those as
   // withdrawals would notify twice for one transfer.

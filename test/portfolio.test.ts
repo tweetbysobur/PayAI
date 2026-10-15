@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { NextRequest } from "next/server";
 import { viewHoldings, resolveTokenMeta, warmPortfolioDiscovery, type Holding } from "@/lib/hooks/usePortfolio";
 import { syncAgo } from "@/lib/hooks/useSync";
-import { fetchIncomingTransferLogs } from "@/app/api/portfolio/discover/route";
+import { fetchRecentIncomingLogs } from "@/app/api/portfolio/discover/route";
 
 let getBlockNumberImpl: () => Promise<bigint> = async () => 0n;
 let requestImpl: (params: { params: [{ fromBlock: string; toBlock: string }] }) => Promise<{ address: string }[]> = async () => [];
@@ -233,148 +233,79 @@ describe("portfolio — token metadata is bounded", () => {
 });
 
 /**
- * A newly-bought token not appearing in the portfolio traced back to
- * /api/portfolio/discover's single, unscoped, un-timed `eth_getLogs` scan: it
- * matches Transfer events from EVERY contract on the chain (not just one),
- * which is exactly the query shape production RPC either rejects outright or
- * accepts and then takes minutes to answer — the same failure class already
- * fixed once in nadfun.ts/wallet-intel.ts, but this call had no timeout and
- * no fallback, so it just silently reported "no tokens found".
+ * Monad's public RPC serves eth_getLogs for at most 100 blocks and answers a
+ * wider range with "413 Request Entity Too Large" — filtered or not. The old
+ * multi-day scan sent hundreds of refused requests and found nothing, so only
+ * the recent stretch is read now, in pieces the RPC accepts.
  */
-describe("discover — transfer-log window fallback", () => {
-  it("uses the widest window's result when it answers", async () => {
-    const calls: bigint[] = [];
-    const logs = await fetchIncomingTransferLogs(
-      1_000_000n,
-      async (fromBlock) => { calls.push(fromBlock); return [{ address: "0xtoken" }]; },
-      50,
-    );
-    expect(logs).toEqual([{ address: "0xtoken" }]);
-    expect(calls).toHaveLength(1); // never fell back
+describe("discover — recent incoming logs, in pieces the RPC accepts", () => {
+  it("covers the last 400 blocks in pieces of at most 100", async () => {
+    const ranges: [bigint, bigint][] = [];
+    await fetchRecentIncomingLogs(1_000_000n, async (from, to) => { ranges.push([from, to]); return []; }, 50);
+    expect(ranges.every(([f, t]) => t - f + 1n <= 100n)).toBe(true);
+    const covered = ranges.reduce((n, [f, t]) => n + (t - f + 1n), 0n);
+    expect(covered).toBe(400n);
+    expect(ranges.some(([, t]) => t === 1_000_000n)).toBe(true);
   });
 
-  it("falls back to a narrower window when the provider rejects the wide one outright", async () => {
-    const windows: bigint[] = [];
-    const logs = await fetchIncomingTransferLogs(
-      1_000_000n,
-      async (fromBlock) => {
-        windows.push(fromBlock);
-        if (windows.length === 1) throw new Error("query returned more than 10000 results");
-        return [{ address: "0xfound" }];
-      },
-      50,
-    );
-    expect(logs).toEqual([{ address: "0xfound" }]);
-    expect(windows.length).toBeGreaterThan(1); // the wide attempt was retried narrower
-  });
-
-  it("falls back when the provider accepts the range but never answers in time — a hang, not an error", async () => {
+  it("one refused or stalled piece costs only that piece", async () => {
     const started = Date.now();
-    const logs = await fetchIncomingTransferLogs(
-      1_000_000n,
-      async (fromBlock): Promise<{ address: string }[]> => {
-        // The widest window hangs forever (mirrors the real "accepts the
-        // range and takes minutes" failure); a narrower one answers.
-        if (fromBlock === 1_000_000n - 200_000n) return new Promise(() => {});
-        return [{ address: "0xslowchain" }];
-      },
-      50,
-    );
-    expect(logs).toEqual([{ address: "0xslowchain" }]);
-    // Must not have waited out a real production-length timeout.
+    const logs = await fetchRecentIncomingLogs(1_000_000n, async (from): Promise<{ address: string }[]> => {
+      if (from === 1_000_000n - 399n) throw new Error("413 Request Entity Too Large");
+      if (from === 1_000_000n - 299n) return new Promise(() => {});
+      return [{ address: `0xpiece${from}` }];
+    }, 50);
+    expect(logs).toHaveLength(2);
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
-  it("returns an empty list, never throws, when every window fails", async () => {
-    const logs = await fetchIncomingTransferLogs(
-      1_000_000n,
-      async () => { throw new Error("rate limited"); },
-      50,
-    );
-    expect(logs).toEqual([]);
-  });
-
-  it("clamps the fromBlock at 0 for a chain younger than the window", async () => {
-    let seenFrom: bigint | null = null;
-    await fetchIncomingTransferLogs(
-      1_000n, // latest block is younger than LOOKBACK_BLOCKS (200_000)
-      async (fromBlock) => { seenFrom = fromBlock; return []; },
-      50,
-    );
-    expect(seenFrom).toBe(0n);
+  it("clamps at block 0 for a chain younger than the window", async () => {
+    const ranges: bigint[] = [];
+    await fetchRecentIncomingLogs(150n, async (from) => { ranges.push(from); return []; }, 50);
+    expect(ranges[0]).toBe(0n);
   });
 });
 
-/**
- * Monad's real block interval (~0.4s) means a single LOOKBACK_BLOCKS-wide
- * window only ever covers ~22 hours of history — a token bought earlier in
- * the week was outside it entirely, with no error to explain why (a real
- * production report, not a hypothetical). GET now scans several windows,
- * anchored at progressively older blocks, in parallel — these tests confirm
- * a token that only shows up in an OLDER window still gets found.
- */
-describe("GET /api/portfolio/discover — scans multiple history windows, not just the newest", () => {
+describe("GET /api/portfolio/discover — known tokens and recent arrivals", () => {
   afterEach(() => {
     getBlockNumberImpl = async () => 0n;
     requestImpl = async () => [];
     resolveTokenImpl = async (address) => ({ address, symbol: "TKN", name: "Token", decimals: 18, verified: false });
+    const g = globalThis as unknown as { __veripayRL?: Map<string, unknown> };
+    g.__veripayRL?.clear();
   });
 
-  function req(address: string): NextRequest {
-    return new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${address}`);
-  }
-
-  it("finds a token whose only Transfer log falls in an OLDER window, beyond the first LOOKBACK_BLOCKS slice", async () => {
-    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1"; // distinct per test — GET caches per-wallet for 5 min
-    const OLD_TOKEN = "0x0000000000000000000000000000000000000ad1";
-    getBlockNumberImpl = async () => 500_000n; // 3 windows: [300k,500k], [100k,300k], [0,100k]
-    requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      const from = BigInt(fromBlock);
-      const to = BigInt(toBlock);
-      // Only the oldest window (covering block 50,000) has this token's log.
-      if (from <= 50_000n && to >= 50_000n) return [{ address: OLD_TOKEN }];
-      return [];
-    };
-    resolveTokenImpl = async (address) => ({ address, symbol: "OLD", name: "Old Token", decimals: 18, verified: false });
-
-    const { GET } = await import("@/app/api/portfolio/discover/route");
-    const r = await GET(req(WALLET));
-    const json = await r.json();
-    expect(json.tokens).toEqual([{ address: OLD_TOKEN, decimals: 18 }]);
-  });
-
-  it("merges tokens found across DIFFERENT windows into one result, not just the last one checked", async () => {
-    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa2";
-    const RECENT = "0x0000000000000000000000000000000000000a01";
-    const MIDDLE = "0x0000000000000000000000000000000000000a02";
-    const OLD = "0x0000000000000000000000000000000000000a03";
+  it("returns a token recorded for the wallet earlier, with nothing in the recent window", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab1";
+    const MEME = "0x0000000000000000000000000000000000000e01";
+    const { addKnownTokens } = await import("@/lib/portfolio/knownTokens");
+    await addKnownTokens(WALLET, [MEME]);
     getBlockNumberImpl = async () => 500_000n;
-    requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      const from = BigInt(fromBlock);
-      const to = BigInt(toBlock);
-      if (from === 300_000n && to === 500_000n) return [{ address: RECENT }];
-      if (from === 100_000n && to === 300_000n) return [{ address: MIDDLE }];
-      if (from === 0n && to === 100_000n) return [{ address: OLD }];
-      return [];
-    };
-
     const { GET } = await import("@/app/api/portfolio/discover/route");
-    const r = await GET(req(WALLET));
-    const json = await r.json();
-    const addresses = (json.tokens as { address: string }[]).map((t) => t.address.toLowerCase()).sort();
-    expect(addresses).toEqual([RECENT, MIDDLE, OLD].map((a) => a.toLowerCase()).sort());
+    const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
+    expect(json.tokens.map((t: { address: string }) => t.address.toLowerCase())).toEqual([MEME]);
   });
 
-  it("a young chain (latest well under one window) still makes exactly one request, unchanged from before", async () => {
-    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa3";
-    getBlockNumberImpl = async () => 1_000n;
-    let callCount = 0;
-    requestImpl = async () => { callCount += 1; return []; };
+  it("remembers a token seen arriving, so it stays listed after it leaves the recent window", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab2";
+    const MEME = "0x0000000000000000000000000000000000000e02";
+    getBlockNumberImpl = async () => 500_000n;
+    requestImpl = async ({ params }) => (BigInt(params[0].toBlock) === 500_000n ? [{ address: MEME }] : []);
     const { GET } = await import("@/app/api/portfolio/discover/route");
-    await GET(req(WALLET));
-    expect(callCount).toBe(1);
+    await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`));
+    const { getKnownTokens } = await import("@/lib/portfolio/knownTokens");
+    expect(await getKnownTokens(WALLET)).toContain(MEME);
+  });
+
+  it("never asks the RPC for more than 100 blocks at once", async () => {
+    const WALLET = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab3";
+    getBlockNumberImpl = async () => 500_000n;
+    const spans: bigint[] = [];
+    requestImpl = async ({ params }) => { spans.push(BigInt(params[0].toBlock) - BigInt(params[0].fromBlock) + 1n); return []; };
+    const { GET } = await import("@/app/api/portfolio/discover/route");
+    await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`));
+    expect(spans.length).toBeGreaterThan(0);
+    expect(spans.every((n) => n <= 100n)).toBe(true);
   });
 });
 
@@ -407,8 +338,8 @@ describe("GET /api/portfolio/discover — one stalled token's metadata must not 
     const STALLED = "0x0000000000000000000000000000000000000b02";
     getBlockNumberImpl = async () => 500_000n;
     requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+      const [{ toBlock }] = params;
+      if (BigInt(toBlock) === 500_000n) {
         return [{ address: FAST }, { address: STALLED }];
       }
       return [];
@@ -453,8 +384,8 @@ describe("GET /api/portfolio/discover — ?fresh=1 bypasses the cache for one ex
     getBlockNumberImpl = async () => 500_000n;
     let scanCount = 0;
     requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+      const [{ toBlock }] = params;
+      if (BigInt(toBlock) === 500_000n) {
         scanCount += 1;
         return scanCount === 1 ? [{ address: OLD }] : [{ address: OLD }, { address: NEW }];
       }
@@ -480,8 +411,8 @@ describe("GET /api/portfolio/discover — ?fresh=1 bypasses the cache for one ex
     getBlockNumberImpl = async () => 500_000n;
     let scanCount = 0;
     requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+      const [{ toBlock }] = params;
+      if (BigInt(toBlock) === 500_000n) {
         scanCount += 1;
         return scanCount === 1 ? [{ address: OLD }] : [{ address: OLD }, { address: NEW }];
       }
@@ -543,7 +474,7 @@ describe("GET /api/portfolio/discover — a bought token survives a failing chai
     const { GET } = await import("@/app/api/portfolio/discover/route");
     const json = await (await GET(new NextRequest(`https://usepayai.xyz/api/portfolio/discover?address=${WALLET}`))).json();
     expect(json.tokens.map((t: { address: string }) => t.address.toLowerCase())).toEqual([BOUGHT]);
-    expect(json.degraded, "the caller should be able to tell this was the fallback half").toBe(true);
+    expect(json.tokens[0].bought, "a token bought through PayAI is marked as such").toBe(true);
   });
 
   it("returns the just-bought token when the scan succeeds but finds nothing (logs outside the window)", async () => {
@@ -562,8 +493,8 @@ describe("GET /api/portfolio/discover — a bought token survives a failing chai
     const AIRDROPPED = "0x0000000000000000000000000000000000000d02";
     getBlockNumberImpl = async () => 500_000n;
     requestImpl = async ({ params }) => {
-      const [{ fromBlock, toBlock }] = params;
-      if (BigInt(fromBlock) === 300_000n && BigInt(toBlock) === 500_000n) {
+      const [{ toBlock }] = params;
+      if (BigInt(toBlock) === 500_000n) {
         return [{ address: BOUGHT }, { address: AIRDROPPED }]; // scan sees the bought one too
       }
       return [];

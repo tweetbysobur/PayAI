@@ -176,8 +176,41 @@ export async function getUsdPrice(address: string, decimals: number): Promise<nu
     }
   }
 
+  // Most Monad memecoins have no Uniswap pool: they trade on Nad.Fun's
+  // bonding curve, or its own pool once graduated. Priced there instead, so
+  // a held memecoin shows what it's worth rather than nothing.
+  if (usd === null && !isNative(address)) usd = await nadFunUsdPrice(routeAddress, decimals);
+
   cache.set(key, { usd, at: Date.now() });
   return usd;
+}
+
+/**
+ * USD price of one unit of a Nad.Fun token: what selling it on Nad.Fun returns
+ * in MON, times MON's own USD price. Two sizes are quoted, as for Uniswap
+ * above, and a large gap between them (a pool too thin to trust) gives null.
+ */
+async function nadFunUsdPrice(token: Address, decimals: number): Promise<number | null> {
+  try {
+    const { nadFunQuote } = await import("./nadfun");
+    const probed = await withTimeout<[number | null, number | null] | typeof TIMED_OUT>(
+      Promise.all(["1", "100"].map(async (units) => {
+        const q = await nadFunQuote(token, decimals, units, false).catch(() => null);
+        const mon = q ? Number(q.amountOut) : NaN;
+        return Number.isFinite(mon) && mon > 0 ? mon / Number(units) : null;
+      })) as Promise<[number | null, number | null]>,
+      PRICE_TIMEOUT_MS,
+      TIMED_OUT,
+    );
+    if (probed === TIMED_OUT) return null;
+    const [small, large] = probed;
+    if (small == null || large == null) return null;
+    if (Math.abs(small - large) / small > MAX_PRICE_IMPACT) return null;
+    const monUsd = await getUsdPrice(NATIVE, 18);
+    return monUsd != null && monUsd > 0 ? small * monUsd : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Price several tokens at once, sharing the cache. Quotes run in parallel. */

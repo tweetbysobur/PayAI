@@ -6,7 +6,7 @@ import { Check, Copy, ExternalLink, Eye, EyeOff, Search, Wallet } from "lucide-r
 import { Card, Skeleton } from "@/components/ui";
 import { TokenLogo } from "@/components/TokenLogo";
 import { formatUsd } from "@/lib/hooks/useTokenPrices";
-import { usePortfolio, viewHoldings, type SortKey } from "@/lib/hooks/usePortfolio";
+import { formatBalance, usePortfolio, viewHoldings, type SortKey } from "@/lib/hooks/usePortfolio";
 import { MONAD_EXPLORER } from "@/lib/monad/public";
 import { useCopy } from "@/lib/hooks/useCopy";
 
@@ -32,14 +32,18 @@ const SORTS: { key: SortKey; label: string }[] = [
 /** An unknown balance reads as "—", never as 0: printing a zero we never
  *  measured is the kind of wrong number a user acts on. */
 function amount(n: number | null): string {
-  if (n == null) return "—";
-  if (n === 0) return "0";
-  if (n < 0.0001) return n.toExponential(2);
-  return n.toLocaleString(undefined, { maximumFractionDigits: n < 1 ? 6 : 4 });
+  return formatBalance(n);
 }
 
-export function PortfolioCard({ address, locked }: { address: string | null; locked?: boolean }) {
-  const { holdings, loading, totalUsd } = usePortfolio(address, locked);
+export function PortfolioCard({ address, locked, portfolio }: {
+  address: string | null;
+  locked?: boolean;
+  /** The page's own usePortfolio result, when it already has one — so the
+   *  card and the page's totals come from the same reads and always agree. */
+  portfolio?: ReturnType<typeof usePortfolio>;
+}) {
+  const own = usePortfolio(portfolio ? null : address, locked);
+  const { holdings, loading, totalUsd } = portfolio ?? own;
   const { copy, copied } = useCopy();
   const [hideZero, setHideZero] = useState(true);
   const [query, setQuery] = useState("");

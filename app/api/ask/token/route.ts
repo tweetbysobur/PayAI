@@ -31,6 +31,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await inspectAddress(address, body.walletAddress ?? null, quoteRequest);
+    // A token this wallet already holds becomes a portfolio candidate.
+    const held = result.kind === "token" ? Number(result.data.userBalance ?? 0) : 0;
+    if (body.walletAddress && held > 0) {
+      const { addKnownTokens } = await import("@/lib/portfolio/knownTokens");
+      await addKnownTokens(body.walletAddress, [address]).catch(() => {});
+    }
     if (result.kind === "invalid") {
       return NextResponse.json({ status: "invalid", error: "That doesn't look like a token address PayAI can check right now." });
     }

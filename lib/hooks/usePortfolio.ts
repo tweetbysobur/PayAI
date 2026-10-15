@@ -142,18 +142,44 @@ export async function warmPortfolioDiscovery(address: string): Promise<void> {
  * next background sync. Passing `isLocked` makes the true→false transition
  * trigger an immediate re-read.
  */
+/**
+ * Whether a token reads like a phishing airdrop rather than a coin: a name or
+ * symbol carrying a link, a domain, or "claim / visit / reward" bait. Such a
+ * token is never listed, whatever it claims to be worth.
+ */
+export function looksLikeSpam(meta: { symbol: string; name: string }): boolean {
+  const text = `${meta.symbol} ${meta.name}`;
+  return /https?:|www\.|t\.me\/|\.(?:com|io|xyz|net|org|app|fi|gg|site|online|top|live|link)\b|\b(?:claim|visit|reward|airdrop|voucher|redeem|gift)\b/i.test(text)
+    || meta.symbol.length > 16;
+}
+
+/**
+ * Which discovered tokens the portfolio lists. MON and USDC always. Any other
+ * token only while it is actually held — so a coin sold to zero leaves the
+ * list. A verified token with an unreadable balance stays (unknown is not
+ * zero). An unverified one — a memecoin — is listed when it's held AND either
+ * has a real market price or was bought through PayAI, and never when it
+ * reads like a phishing airdrop. Pure, for testing.
+ */
+export function isListed(h: Holding, opts: { base: boolean; bought: boolean }): boolean {
+  if (opts.base || h.native) return true;
+  if (h.verified) return h.balance == null || h.balance > 0;
+  if (!(h.balance != null && h.balance > 0)) return false;
+  if (looksLikeSpam(h)) return false;
+  return h.valueUsd != null || opts.bought;
+}
+
 export function usePortfolio(address: string | null, locked?: boolean) {
-  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [rows, setRows] = useState<Holding[]>([]);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
-  const [discovered, setDiscovered] = useState<{ address: string; decimals: number }[]>([]);
+  const [discovered, setDiscovered] = useState<{ address: string; decimals: number; bought?: boolean }[]>([]);
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
   useSyncRefresher(refresh);
 
-  // Which tokens this wallet has ever been sent. Discovering them from
-  // transfer history is what makes an unknown asset appear on its own — a
-  // swap output, an airdrop, a payment in something new.
+  // Tokens this wallet may hold: bought through PayAI, recorded as they
+  // arrived, or seen in the last few minutes (see /api/portfolio/discover).
   useEffect(() => {
     if (!address) { setDiscovered([]); return; }
     let cancelled = false;
@@ -167,15 +193,18 @@ export function usePortfolio(address: string | null, locked?: boolean) {
   const tracked = useMemo(() => {
     const seen = new Map<string, { address: string; decimals: number }>();
     for (const t of [...baseTokens(), ...discovered]) {
-      seen.set(t.address.toLowerCase(), t);
+      if (!seen.has(t.address.toLowerCase())) seen.set(t.address.toLowerCase(), { address: t.address, decimals: t.decimals });
     }
     return [...seen.values()];
   }, [discovered]);
+  const baseSet = useMemo(() => new Set(baseTokens().map((t) => t.address.toLowerCase())), []);
+  const boughtSet = useMemo(() => new Set(discovered.filter((t) => t.bought).map((t) => t.address.toLowerCase())), [discovered]);
 
-  const { usdValue } = useTokenPrices(tracked.map((t) => ({ address: t.address, decimals: t.decimals })));
+  const { prices, usdValue } = useTokenPrices(tracked.map((t) => ({ address: t.address, decimals: t.decimals })));
 
+  // Balances — read live from the chain for every tracked token.
   useEffect(() => {
-    if (!address) { setHoldings([]); return; }
+    if (!address) { setRows([]); return; }
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -183,7 +212,7 @@ export function usePortfolio(address: string | null, locked?: boolean) {
       const { getBrowserPublicClient } = await import("@/lib/monad/browserClient");
       const client = await getBrowserPublicClient();
 
-      const rows = await Promise.all(
+      const read = await Promise.all(
         tracked.map(async (t): Promise<Holding | null> => {
           const native = t.address.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
           let raw: bigint | null = null;
@@ -203,6 +232,10 @@ export function usePortfolio(address: string | null, locked?: boolean) {
             // dropped instead, since we have no evidence it is held at all.
             if (!native) return null;
           }
+          // Nothing held of a non-base token: no metadata read needed.
+          if (raw === 0n && !native && !baseSet.has(t.address.toLowerCase())) {
+            return { address: t.address, symbol: "?", name: "", decimals: t.decimals, logoURI: null, verified: false, balance: 0, valueUsd: null, native };
+          }
 
           const meta = await resolveTokenMeta(t.address, {
             symbol: native ? "MON" : "?",
@@ -212,7 +245,6 @@ export function usePortfolio(address: string | null, locked?: boolean) {
             verified: native,
           });
 
-          const balance = raw == null ? null : Number(formatUnits(raw, meta.decimals ?? t.decimals));
           return {
             address: t.address,
             symbol: meta.symbol,
@@ -220,22 +252,32 @@ export function usePortfolio(address: string | null, locked?: boolean) {
             decimals: meta.decimals ?? t.decimals,
             logoURI: meta.logoURI ?? null,
             verified: !!meta.verified,
-            balance,
-            valueUsd: balance == null ? null : usdValue(t.address, balance) ?? null,
+            balance: raw == null ? null : Number(formatUnits(raw, meta.decimals ?? t.decimals)),
+            valueUsd: null,
             native,
           };
         }),
       );
 
       if (cancelled) return;
-      setHoldings(rows.filter((r): r is Holding => r !== null));
+      setRows(read.filter((r): r is Holding => r !== null));
       setLoading(false);
     })().catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-    // usdValue is intentionally excluded: prices refresh on their own cadence
-    // and re-running every balance read on a price tick would hammer the RPC.
+  }, [address, tracked, nonce, baseSet]);
+
+  // Values — recomputed whenever prices arrive, so a price that lands after
+  // the balances (the usual order) shows at once instead of on the next sync.
+  // The total is the sum of exactly the rows listed, so the two always agree.
+  const priceSig = JSON.stringify(prices);
+  const holdings = useMemo(
+    () => rows
+      .map((r) => ({ ...r, valueUsd: r.balance == null ? null : usdValue(r.address, r.balance) ?? null }))
+      .filter((h) => isListed(h, { base: baseSet.has(h.address.toLowerCase()), bought: boughtSet.has(h.address.toLowerCase()) })),
+    // usdValue reads the same cache prices does; priceSig is its change signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, tracked, nonce]);
+    [rows, priceSig, baseSet, boughtSet],
+  );
 
   const totalUsd = useMemo(
     () => holdings.reduce((sum, h) => sum + (h.valueUsd ?? 0), 0),
@@ -243,6 +285,18 @@ export function usePortfolio(address: string | null, locked?: boolean) {
   );
 
   return { holdings, loading, refresh, totalUsd };
+}
+
+/** A held amount as people read it: "12.45M", "1,234.56", "0.000123".
+ *  Memecoin balances run to millions or billions; written out in full they
+ *  crowd a phone screen and stop being readable. */
+export function formatBalance(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  if (n >= 1e6) return n.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 });
+  if (n >= 1) return n.toLocaleString("en-US", { maximumFractionDigits: n >= 1000 ? 2 : 4 });
+  if (n < 0.000001) return n.toExponential(2);
+  return n.toLocaleString("en-US", { maximumSignificantDigits: 4 });
 }
 
 /** Filter and order a holdings list for display. Pure, so it is testable

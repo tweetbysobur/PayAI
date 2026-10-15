@@ -29,9 +29,25 @@ function fresh(address: string): { usd: number | null } | undefined {
   return hit && Date.now() - hit.at < TTL_MS ? hit : undefined;
 }
 
+/** /api/prices answers at most this many tokens per request. */
+const BATCH = 25;
+
 async function load(targets: PriceTarget[]): Promise<void> {
   const missing = targets.filter((t) => !fresh(t.address));
   if (missing.length === 0) return;
+  // Batched to the server's own cap. One request for everything used to get
+  // only the first 25 priced — the rest were cached as "no price" and a wallet
+  // holding many tokens showed most of them without a value.
+  if (missing.length > BATCH) {
+    const batches: PriceTarget[][] = [];
+    for (let i = 0; i < missing.length; i += BATCH) batches.push(missing.slice(i, i + BATCH));
+    await Promise.all(batches.map(loadBatch));
+    return;
+  }
+  return loadBatch(missing);
+}
+
+async function loadBatch(missing: PriceTarget[]): Promise<void> {
 
   const qs = missing.map((t) => `${t.address}:${t.decimals}`).join(",");
   if (inflight.has(qs)) return inflight.get(qs);

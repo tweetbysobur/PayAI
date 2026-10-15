@@ -53,12 +53,14 @@ describe("the hero card no longer duplicates Portfolio's balance", () => {
     expect(src).not.toMatch(/balances\.usdc \? Number\(balances\.usdc\)/);
   });
 
-  it("still uses balances for the Asset allocation chart further down the page", () => {
-    // Confirms the fix removed the DUPLICATE display, not the underlying
-    // hook — useWalletBalances still backs the donut chart in the Wallet
-    // Intelligence section.
-    expect(src).toMatch(/const balances = useWalletBalances\(wallet\.address\)/);
-    expect(src).toMatch(/const mon = Number\(balances\.mon \?\? 0\)/);
+  it("total, allocation and Portfolio card share one portfolio read, so they always agree", () => {
+    // Every holding — memecoins included — feeds the total and the donut,
+    // from the same usePortfolio result the Portfolio card renders.
+    expect(src).toMatch(/const portfolio = usePortfolio\(wallet\.readAddress, wallet\.isLocked\)/);
+    expect(src).toMatch(/value: formatUsd\(portfolio\.totalUsd\)/);
+    expect(src).toMatch(/portfolio\.holdings\s*\.filter\(\(h\) => h\.valueUsd != null && h\.valueUsd > 0\)/);
+    expect(src).toMatch(/<PortfolioCard address=\{wallet\.readAddress\} locked=\{wallet\.isLocked\} portfolio=\{portfolio\} \/>/);
+    expect(src).not.toMatch(/intel\.totalValueUsd\)/);
   });
 });
 

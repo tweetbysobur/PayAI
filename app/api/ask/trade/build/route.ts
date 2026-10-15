@@ -66,6 +66,12 @@ export async function POST(req: NextRequest) {
       slippage: body.slippage ?? null,
       walletAddress: body.walletAddress.trim(),
     }, previousQuote);
+    // The token being bought becomes a portfolio candidate for this wallet,
+    // so it shows up even if the trade settles while nobody is watching.
+    if (result.ok) {
+      const { addKnownTokens } = await import("@/lib/portfolio/knownTokens");
+      await addKnownTokens(body.walletAddress.trim(), [body.outputToken.trim(), body.inputToken.trim()]).catch(() => {});
+    }
     return NextResponse.json(result);
   } catch {
     return NextResponse.json({ ok: false, message: "Couldn't reach Monad to prepare that trade. Try again in a moment." }, { status: 502 });

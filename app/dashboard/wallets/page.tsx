@@ -10,7 +10,8 @@ import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServic
 import { LinkedWalletsCard } from "@/components/dashboard/LinkedWalletsCard";
 import { WalletManager } from "@/components/dashboard/WalletManager";
 import { PortfolioCard } from "@/components/dashboard/PortfolioCard";
-import { useWalletBalances } from "@/lib/hooks/useWalletBalances";
+import { usePortfolio } from "@/lib/hooks/usePortfolio";
+import { formatUsd } from "@/lib/hooks/useTokenPrices";
 import { useIdentity } from "@/lib/hooks/useIdentity";
 import { useUsername } from "@/lib/hooks/useUsername";
 import { useCopy } from "@/lib/hooks/useCopy";
@@ -52,7 +53,9 @@ interface ActivityRow {
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
 const fmt = (n?: number | null, d = 2) => (n != null ? n.toLocaleString(undefined, { maximumFractionDigits: d }) : "—");
-const fmtUsd = (n?: number | null) => (n != null ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : "—");
+
+/** Allocation segments: shades of the brand colour, largest first. */
+const ALLOCATION_OPACITY = [1, 0.7, 0.48, 0.32, 0.2];
 
 export default function Wallets() {
   const wallet = useWallet();
@@ -64,7 +67,9 @@ export default function Wallets() {
   // width was left, which is what wrapped the badge's own text onto three
   // lines. Same identity priority Topbar already uses.
   const handle = useUsername(wallet.address);
-  const balances = useWalletBalances(wallet.address);
+  // One read of every holding for the whole page: the Portfolio card, the
+  // total and the allocation all come from it, so they always agree.
+  const portfolio = usePortfolio(wallet.readAddress, wallet.isLocked);
   const { copy, copied } = useCopy();
   const [onchainContracts, setOnchainContracts] = useState<OnchainContracts | null>(null);
   const [intel, setIntel] = useState<WalletIntel | null>(null);
@@ -110,16 +115,20 @@ export default function Wallets() {
 
   useEffect(() => { loadIntel(); }, [loadIntel, wallet.chainId]);
 
-  const assetSplit = useMemo(() => {
-    const mon = Number(balances.mon ?? 0);
-    const usdc = Number(balances.usdc ?? 0);
-    const monUsd = intel?.monPriceUsd != null ? mon * intel.monPriceUsd : null;
-    const total = monUsd != null ? monUsd + usdc : mon + usdc;
+  // Allocation by USD value across every priced holding — memecoins
+  // included — the four largest by name, the rest together as "Other".
+  const allocation = useMemo(() => {
+    const priced = portfolio.holdings
+      .filter((h) => h.valueUsd != null && h.valueUsd > 0)
+      .sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
+    const total = priced.reduce((n, h) => n + (h.valueUsd ?? 0), 0);
     if (total <= 0) return null;
-    // Shares by USD value when MON can be priced — token counts aren't comparable.
-    const monShare = monUsd != null ? monUsd / total : mon / total;
-    return { mon, usdc, monUsd, monShare, priced: monUsd != null };
-  }, [balances, intel?.monPriceUsd]);
+    const top = priced.slice(0, 4).map((h) => ({ key: h.address, label: h.symbol, amount: h.balance, usd: h.valueUsd ?? 0 }));
+    const rest = priced.slice(4).reduce((n, h) => n + (h.valueUsd ?? 0), 0);
+    const parts = rest > 0 ? [...top, { key: "other", label: `Other (${priced.length - 4})`, amount: null, usd: rest }] : top;
+    return { total, parts: parts.map((p) => ({ ...p, share: p.usd / total })) };
+  }, [portfolio.holdings]);
+  const unpricedHeld = portfolio.holdings.filter((h) => (h.balance ?? 0) > 0 && h.valueUsd == null).length;
 
   const daily = activity?.summary.daily ?? [];
 
@@ -230,7 +239,7 @@ export default function Wallets() {
 
       {wallet.readAddress && (
         <div className="mb-4">
-          <PortfolioCard address={wallet.readAddress} locked={wallet.isLocked} />
+          <PortfolioCard address={wallet.readAddress} locked={wallet.isLocked} portfolio={portfolio} />
         </div>
       )}
 
@@ -373,7 +382,7 @@ export default function Wallets() {
 
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             {[
-              { label: "Total wallet value", value: fmtUsd(intel.totalValueUsd), sub: intel.monPriceUsd == null ? "USD price unavailable" : null, icon: TrendingUp },
+              { label: "Total wallet value", value: formatUsd(portfolio.totalUsd) ?? "—", sub: unpricedHeld > 0 ? `Excludes ${unpricedHeld} unpriced token${unpricedHeld === 1 ? "" : "s"}` : null, icon: TrendingUp },
               { label: "MON balance", value: `${fmt(Number(intel.nativeBalance), 4)} MON`, icon: WalletIcon },
               { label: "USDC balance", value: `${fmt(Number(intel.usdcBalance))} USDC`, icon: WalletIcon },
               { label: "PayAI transactions", value: activity ? fmt(activity.summary.transactions, 0) : "—", sub: activity ? null : "Unlock your wallet to see activity", icon: Activity },
@@ -432,38 +441,38 @@ export default function Wallets() {
             </Card>
 
             <Card title="Asset allocation">
-              {assetSplit ? (
+              {allocation ? (
                 <div className="flex items-center gap-6">
-                  <div className="relative h-28 w-28 shrink-0" title={`MON ${Math.round(assetSplit.monShare * 100)}% · USDC ${Math.round((1 - assetSplit.monShare) * 100)}%`}>
-                    <svg width="112" height="112" viewBox="0 0 112 112" className="-rotate-90">
-                      <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-muted-foreground)" strokeOpacity="0.3" strokeWidth="14" />
-                      <motion.circle
-                        cx="56" cy="56" r="44" fill="none" stroke="var(--color-primary)" strokeWidth="14"
-                        strokeDasharray={2 * Math.PI * 44}
-                        initial={{ strokeDashoffset: 2 * Math.PI * 44 }}
-                        animate={{ strokeDashoffset: 2 * Math.PI * 44 * (1 - assetSplit.monShare) }}
-                        transition={{ duration: 0.8, ease: "easeOut" }}
-                      />
-                    </svg>
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-2.5 text-sm">
-                    {[
-                      { sym: "MON", dot: "bg-primary", amt: fmt(assetSplit.mon, 4), usd: assetSplit.monUsd, share: assetSplit.monShare },
-                      { sym: "USDC", dot: "bg-muted-foreground/50", amt: fmt(assetSplit.usdc, 2), usd: assetSplit.usdc, share: 1 - assetSplit.monShare },
-                    ].map((r) => (
-                      <div key={r.sym} className="flex items-start justify-between gap-3">
-                        <span className="flex items-center gap-2 text-foreground"><span className={`h-2 w-2 shrink-0 rounded-full ${r.dot}`} />{r.sym}</span>
-                        <span className="text-right [font-variant-numeric:tabular-nums]">
-                          <span className="block text-foreground">{r.amt}</span>
-                          <span className="block text-[11px] text-muted-foreground">
-                            {assetSplit.priced ? `${fmtUsd(r.usd)} · ${Math.round(r.share * 100)}%` : "USD price unavailable"}
-                          </span>
+                  <svg width="112" height="112" viewBox="0 0 112 112" className="shrink-0 -rotate-90" aria-hidden>
+                    <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-muted-foreground)" strokeOpacity="0.15" strokeWidth="14" />
+                    {allocation.parts.reduce<{ offset: number; els: React.ReactNode[] }>((acc, p, i) => {
+                      const c = 2 * Math.PI * 44;
+                      acc.els.push(
+                        <circle
+                          key={p.key} cx="56" cy="56" r="44" fill="none" strokeWidth="14"
+                          stroke="var(--color-primary)" strokeOpacity={ALLOCATION_OPACITY[i] ?? 0.2}
+                          strokeDasharray={`${c * p.share} ${c}`} strokeDashoffset={-c * acc.offset}
+                        />,
+                      );
+                      acc.offset += p.share;
+                      return acc;
+                    }, { offset: 0, els: [] }).els}
+                  </svg>
+                  <div className="min-w-0 flex-1 space-y-2 text-sm">
+                    {allocation.parts.map((p, i) => (
+                      <div key={p.key} className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-2 text-foreground">
+                          <span className="h-2 w-2 shrink-0 rounded-full bg-primary" style={{ opacity: ALLOCATION_OPACITY[i] ?? 0.2 }} />
+                          <span className="truncate">{p.label}</span>
+                        </span>
+                        <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                          <span className="text-foreground">{formatUsd(p.usd)}</span> · {Math.round(p.share * 100)}%
                         </span>
                       </div>
                     ))}
                   </div>
                 </div>
-              ) : <p className="text-sm text-muted-foreground">No balance yet. Add MON or USDC to see your allocation.</p>}
+              ) : <p className="text-sm text-muted-foreground">No priced holdings yet.</p>}
             </Card>
           </div>
 

@@ -13,7 +13,7 @@ import { TokenLogo } from "@/components/TokenLogo";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
 import { AskEntry } from "@/components/dashboard/AskEntry";
 import { useIdentity } from "@/lib/hooks/useIdentity";
-import { usePortfolio, viewHoldings } from "@/lib/hooks/usePortfolio";
+import { formatBalance, usePortfolio, viewHoldings } from "@/lib/hooks/usePortfolio";
 import { formatUsd } from "@/lib/hooks/useTokenPrices";
 import { useSyncRefresher } from "@/lib/hooks/useSync";
 import { SyncButton } from "@/components/dashboard/SyncButton";
@@ -327,7 +327,7 @@ export default function Dashboard() {
                   <li key={h.address} className="flex items-center gap-3 py-2.5">
                     <TokenLogo token={h.symbol} logoURI={h.logoURI} size={24} />
                     <p className="min-w-0 flex-1 truncate text-sm text-foreground">{h.symbol}</p>
-                    <p className="shrink-0 text-xs tabular-nums text-muted-foreground">{h.balance == null ? "—" : h.balance.toLocaleString(undefined, { maximumFractionDigits: h.balance < 1 ? 6 : 4 })}</p>
+                    <p className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatBalance(h.balance)}</p>
                     <p className="w-20 shrink-0 text-right text-sm tabular-nums text-foreground">{formatUsd(h.valueUsd) ?? "—"}</p>
                   </li>
                 ))}
