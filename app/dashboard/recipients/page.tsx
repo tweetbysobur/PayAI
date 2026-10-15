@@ -87,7 +87,7 @@ export default function Recipients() {
 
       <section aria-labelledby="saved-title">
         <SectionHeader id="saved-title" title="Saved" right={savedLocal.length > 0 ? <span className="text-xs text-muted-foreground">{savedLocal.length}</span> : undefined} />
-        <div className="rounded-lg border border-border bg-panel">
+        <div className="rounded-xl surface-purple">
           <form
             onSubmit={(e) => { e.preventDefault(); addRecipient(); }}
             className="flex flex-col gap-2 border-b border-border p-3 sm:flex-row"
@@ -119,7 +119,7 @@ export default function Recipients() {
       <section aria-labelledby="merchants-title">
         <SectionHeader id="merchants-title" title="Registered merchants" />
         <p className="-mt-1 mb-3 text-sm text-muted-foreground">Wallets registered in PayAI&apos;s onchain merchant registry on Monad.</p>
-        <div className="rounded-lg border border-border bg-panel">
+        <div className="rounded-xl surface-purple">
           <form
             onSubmit={(e) => { e.preventDefault(); registerMerchant(); }}
             className="flex flex-col gap-2 border-b border-border p-3 sm:flex-row"

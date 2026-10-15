@@ -28,7 +28,7 @@ export function ConfirmDetails({
 
   return (
     <>
-      <div className="rounded-xl border border-border bg-panel px-4 pb-3 pt-4">
+      <div className="rounded-xl surface-purple px-4 pb-3 pt-4">
         <AmountHero eyebrow="You're sending" amount={pending.amount} token={pending.token} />
 
         <ReceiptRows className="mt-3 border-t border-border/70">

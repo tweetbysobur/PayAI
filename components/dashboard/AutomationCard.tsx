@@ -99,7 +99,7 @@ export function AutomationCard({ automation, busy, onAction, onView, onEdit, onD
   const last = lastResult(automation);
   const nextRun = hasNextRun(automation) ? fmt(automation.nextRun) : null;
   return (
-    <div className="rounded-lg border border-border bg-panel">
+    <div className="rounded-xl surface-purple">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 px-4 pt-4">
         <div className="min-w-0 flex-1 basis-56">
           <p className="break-words text-sm font-semibold text-foreground">{automation.purpose ?? automation.memo ?? "Automation"}</p>

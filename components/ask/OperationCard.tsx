@@ -235,7 +235,7 @@ export function OperationCard({
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       transition={{ duration: 0.15 }}
-      className={`w-full overflow-hidden rounded-xl border border-border bg-panel ${intent.kind === "token_intelligence" ? "max-w-sm" : "max-w-md"}`}
+      className={`w-full overflow-hidden rounded-xl surface-purple ${intent.kind === "token_intelligence" ? "max-w-sm" : "max-w-md"}`}
     >
       {/* A token card is headed by the token itself — no generic title row. */}
       {intent.kind !== "token_intelligence" && (

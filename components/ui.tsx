@@ -48,11 +48,11 @@ export function Card({
       initial={reduceMotion ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: "easeOut" }}
-      className={`rounded-lg border border-border bg-panel p-5 ${className}`}
+      className={`rounded-xl surface-purple p-5 sm:p-6 ${className}`}
     >
       {(title || right) && (
         <div className="mb-4 flex items-center justify-between">
-          {title && <h3 className="text-sm font-semibold text-foreground">{title}</h3>}
+          {title && <h3 className="text-base font-semibold tracking-tight text-foreground">{title}</h3>}
           {right}
         </div>
       )}

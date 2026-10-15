@@ -156,7 +156,7 @@ export default function Payments() {
           {/* LEFT — composer */}
           <div>
             {/* Sender context — trust: who is paying, from where */}
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-border bg-panel/60 px-4 py-2.5 text-xs">
+            <div className="mb-3 flex items-center justify-between rounded-xl surface-purple px-4 py-2.5 text-xs">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <WalletIcon size={13} className={wallet.address ? "text-primary-ink" : ""} />
                 {wallet.address ? (
@@ -361,7 +361,7 @@ export default function Payments() {
           <AnimatePresence>
             {c.res && !c.pendingConfirm && (
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
-                <div className="rounded-xl border border-border bg-panel p-5 sm:p-6">
+                <div className="rounded-xl surface-purple p-5 sm:p-6">
                   {/* Status — said plainly: what happened, then the summary. */}
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-base font-semibold tracking-tight text-foreground">{DECISION[c.res.decision].label}</p>

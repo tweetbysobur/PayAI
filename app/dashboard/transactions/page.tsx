@@ -182,7 +182,7 @@ function TransactionsTabContent() {
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-panel px-4">
+      <div className="rounded-xl surface-purple px-4">
         {loading ? (
           <div className="py-4"><SkeletonRows rows={5} /></div>
         ) : !wallet.address ? (

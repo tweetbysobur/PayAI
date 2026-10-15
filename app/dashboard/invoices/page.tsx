@@ -26,7 +26,7 @@ function InvoicesComingSoon() {
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title="Invoices" description="Payment requests you can share, settled onchain." actions={<StatusIndicator tone="neutral" label="Not available yet" />} />
-      <div className="rounded-lg border border-border bg-panel px-5 py-6">
+      <div className="rounded-xl surface-purple px-5 py-6">
         <p className="text-sm text-foreground">Invoices are being reworked and aren&apos;t available right now.</p>
         <p className="mt-1 text-sm text-muted-foreground">Shareable payment links and onchain payment requests will be back here when they&apos;re ready.</p>
       </div>

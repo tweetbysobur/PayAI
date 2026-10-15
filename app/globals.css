@@ -186,6 +186,13 @@ body {
   --frame: 0 0% 100%;
   --tick: 258 100% 96%;
   --spark: 0 0% 100%;
+  /* Status colours lightened so they stay readable on purple (≥4.5:1). */
+  --warning: 350 100% 95%;
+  --danger: 350 100% 95%;
+  --exec-failed: 350 100% 95%;
+  --exec-success: 152 70% 87%;
+  --exec-scheduled: 258 100% 96%;
+  --info: 205 100% 91%;
 }
 /* The Monad mark is drawn in its own purple, which vanishes on this card;
    use its white form here. */

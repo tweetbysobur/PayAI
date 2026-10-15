@@ -590,7 +590,7 @@ export function PlanCard({ planRef, onEdit }: {
     onEdit(data.review.request);
   }
 
-  const shell = "w-full max-w-md rounded-xl border border-border bg-panel";
+  const shell = "w-full max-w-md rounded-xl surface-purple";
 
   if (!data) {
     return (

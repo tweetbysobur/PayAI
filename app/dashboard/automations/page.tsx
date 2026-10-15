@@ -533,7 +533,7 @@ export default function AutomationsPage() {
       {Object.keys(reserved).length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-          className="rounded-lg border border-border bg-panel p-5"
+          className="rounded-xl surface-purple p-5"
         >
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-input text-muted-foreground">
@@ -600,17 +600,17 @@ export default function AutomationsPage() {
       )}
 
       {!wallet.address ? (
-        <div className="rounded-lg border border-border bg-panel px-4">
+        <div className="rounded-xl surface-purple px-4">
           <PEmptyState title="Connect your wallet" hint="Automations belong to your wallet. Connect it to see and manage yours." action={{ label: "Connect", href: "/auth" }} />
         </div>
       ) : loading ? (
-        <div className="rounded-lg border border-border bg-panel px-4 py-4"><SkeletonRows rows={4} /></div>
+        <div className="rounded-xl surface-purple px-4 py-4"><SkeletonRows rows={4} /></div>
       ) : (
         <>
           {/* What is scheduled to happen. */}
           <section aria-labelledby="coming-up">
             <SectionHeader id="coming-up" title="Coming up" />
-            <div className="rounded-lg border border-border bg-panel px-4">
+            <div className="rounded-xl surface-purple px-4">
               {upcoming.length === 0 ? (
                 <PEmptyState compact title="No upcoming actions." hint="Scheduled and recurring runs show up here." />
               ) : (
@@ -630,7 +630,7 @@ export default function AutomationsPage() {
           <section aria-labelledby="running">
             <SectionHeader id="running" title="Running" right={<span className="text-xs text-muted-foreground">{active.length}</span>} />
             {active.length === 0 ? (
-              <div className="rounded-lg border border-border bg-panel px-4">
+              <div className="rounded-xl surface-purple px-4">
                 <PEmptyState title="No automations yet." hint="Describe one above and PayAI will set it up for your approval." />
               </div>
             ) : (
@@ -687,7 +687,7 @@ export default function AutomationsPage() {
           {/* What happened. */}
           <section aria-labelledby="automation-activity">
             <SectionHeader id="automation-activity" title="What happened" right={runs.length > 0 ? <span className="text-xs text-muted-foreground">{runs.length} run{runs.length === 1 ? "" : "s"}</span> : undefined} />
-            <div className="rounded-lg border border-border bg-panel px-4 py-1">
+            <div className="rounded-xl surface-purple px-4 py-1">
               {runs.length === 0
                 ? <PEmptyState compact title="No activity yet." hint="Every run — sent, blocked or failed — appears here with its onchain receipt." />
                 : <div className="py-3"><ActivityFeed runs={runs} /></div>}
@@ -760,7 +760,7 @@ function AutomationTimeline({ a }: { a: Automation }) {
 
 
 function AnalyticsTile({ label, value }: { label: string; value: ReactNode }) {
-  return <div className="rounded-lg border border-border bg-panel p-4"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
+  return <div className="rounded-xl surface-purple p-4"><p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">{value}</p></div>;
 }
 
 /** One unified, chronological activity feed — every run across every

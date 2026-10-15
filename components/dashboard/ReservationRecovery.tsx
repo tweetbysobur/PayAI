@@ -163,7 +163,7 @@ export function ReservationRecovery({ vault, explorerBase }: { vault: string | n
   }
 
   return (
-    <div className="rounded-xl border border-border bg-panel/40 p-4">
+    <div className="rounded-xl surface-purple p-4">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

@@ -209,7 +209,7 @@ export default function Dashboard() {
       </section>
 
       {disconnected ? (
-        <section aria-labelledby="connect-title" className="rounded-lg border border-border bg-panel p-6 sm:p-8">
+        <section aria-labelledby="connect-title" className="rounded-xl surface-purple p-6 sm:p-8">
           <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><WalletIcon size={18} aria-hidden /></span>
           <h2 id="connect-title" className="mt-4 text-lg font-semibold tracking-tight text-foreground">Connect a wallet to get started</h2>
           <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
@@ -228,7 +228,7 @@ export default function Dashboard() {
         ) : attention.length === 0 ? (
           <StatusIndicator tone="neutral" label="Nothing needs your attention." className="text-sm" />
         ) : (
-          <ul className={`divide-y divide-border rounded-lg border bg-panel ${attention.some((i) => i.tone !== "neutral") ? "border-danger/40" : "border-border"}`}>
+          <ul className="divide-y divide-border rounded-xl surface-purple">
             {attention.map((item) => (
               <li key={item.key} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                 <AlertTriangle size={15} aria-hidden className={`shrink-0 ${item.tone === "neutral" ? "text-muted-foreground" : "text-danger"}`} />
@@ -311,7 +311,7 @@ export default function Dashboard() {
       {/* 7: supporting wallet information — last, and compact. */}
       <section aria-labelledby="wallet-title">
         <SectionHeader id="wallet-title" title="Wallet" href="/dashboard/wallets" linkLabel="All assets" />
-        <div className="rounded-lg border border-border bg-panel">
+        <div className="rounded-xl surface-purple">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">Balance</p>
