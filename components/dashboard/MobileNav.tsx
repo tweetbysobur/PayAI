@@ -37,7 +37,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           transition={{ duration: 0.15, ease: "easeOut" }}
-          className="fixed inset-0 z-50 bg-black/60 lg:hidden"
+          className="fixed inset-0 z-50 bg-contrast/60 lg:hidden"
           onClick={onClose}
         >
           <motion.aside

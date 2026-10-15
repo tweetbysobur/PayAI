@@ -127,7 +127,7 @@ export function TourOverlay() {
           animate={{ top: rect.top - pad, left: rect.left - pad, width: rect.width + pad * 2, height: rect.height + pad * 2 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
           className="pointer-events-none absolute rounded-lg"
-          style={{ boxShadow: "0 0 0 9999px rgba(0,0,0,0.75), 0 0 0 2px hsl(var(--primary))" }}
+          style={{ boxShadow: "0 0 0 9999px hsl(var(--contrast) / 0.75), 0 0 0 2px hsl(var(--primary))" }}
         />
       </motion.div>
 
@@ -150,11 +150,11 @@ export function TourOverlay() {
           <span className="text-[11px] tabular-nums text-white/70">{stepIndex + 1} of {STEPS.length}</span>
           <div className="flex items-center gap-1.5">
             {stepIndex > 0 && (
-              <button onClick={back} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-white/80 transition hover:bg-black/20 hover:text-white">
+              <button onClick={back} className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-white/80 transition hover:bg-contrast/20 hover:text-white">
                 <ArrowLeft size={12} /> Back
               </button>
             )}
-            <button onClick={next} className="flex items-center gap-1 rounded-md bg-black px-3 py-1.5 text-xs font-medium text-white transition hover:bg-black/80">
+            <button onClick={next} className="flex items-center gap-1 rounded-md bg-contrast px-3 py-1.5 text-xs font-medium text-white transition hover:bg-contrast/80">
               {stepIndex === STEPS.length - 1 ? "Done" : "Next"} <ArrowRight size={12} />
             </button>
           </div>

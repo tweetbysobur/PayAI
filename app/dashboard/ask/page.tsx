@@ -211,7 +211,7 @@ function AskPayAIChat() {
             <button
               aria-label="Close conversation history"
               onClick={() => setHistoryOpen(false)}
-              className="absolute inset-0 bg-black/40"
+              className="absolute inset-0 bg-contrast/40"
             />
             <motion.div
               initial={{ x: "-100%" }} animate={{ x: 0 }} exit={{ x: "-100%" }} transition={{ duration: 0.2, ease: "easeOut" }}
