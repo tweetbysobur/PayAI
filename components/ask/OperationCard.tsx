@@ -532,16 +532,6 @@ function WalletOperationBody({ intent }: { intent: Extract<Operation["intent"], 
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-input/30 px-3 py-2">
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-medium tabular-nums text-foreground">{value}</p>
-    </div>
-  );
-}
-
-const UNAVAILABLE = "Unavailable";
 
 /** Human-readable labels for lib/monad/tokenIntelligence's descriptive
  *  signal tags — never a verdict ("scam"/"safe"), just what was observed. */
@@ -574,120 +564,67 @@ function TokenIntelligenceBody({
   const d = intent.data;
   if (!d) return <p className="text-sm text-muted-foreground">No token data available.</p>;
 
+  const change = d.market.priceChange24h;
+  const changeTone = change == null ? "" : change.startsWith("-") ? "text-danger" : "text-success";
+  const providers = Array.from(new Set(d.market.routes.map((r) => r.provider)));
+
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2.5">
-        <TokenLogo token={d.symbol} size={34} />
+      {/* Identity and price */}
+      <div className="flex items-start gap-3">
+        <TokenLogo token={d.symbol} size={40} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-semibold text-foreground">{d.name}</p>
-            {d.verified && <ShieldCheck size={13} className="shrink-0 text-primary-ink" aria-label="Verified" />}
+            <p className="truncate text-[15px] font-semibold text-foreground">{d.name}</p>
+            {d.verified && <ShieldCheck size={14} className="shrink-0 text-primary-ink" aria-label="Verified" />}
           </div>
-          <p className="truncate font-mono text-xs text-muted-foreground">{d.symbol} · {short(intent.address)}</p>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/80">{d.symbol}</span>
+            <span className="mx-1">·</span>
+            <span className="font-mono">{short(intent.address)}</span>
+          </p>
         </div>
-        <span
-          className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-            d.isTradable ? "border-primary/30 bg-primary/10 text-primary-ink" : "border-border bg-input text-muted-foreground"
-          }`}
-        >
+        <div className="shrink-0 text-right">
+          <p className="text-[15px] font-semibold tabular-nums text-foreground">{d.market.price ? `$${d.market.price}` : "—"}</p>
+          {change ? (
+            <p className={`text-xs font-medium tabular-nums ${changeTone}`}>{change} <span className="font-normal text-muted-foreground">24h</span></p>
+          ) : d.market.priceMon ? (
+            <p className="text-xs tabular-nums text-muted-foreground">≈ {d.market.priceMon} MON</p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${d.isTradable ? "border-success/30 bg-success/10 text-success" : "border-border bg-input text-muted-foreground"}`}>
           {d.isTradable ? "Tradable" : "No route found"}
         </span>
+        {providers.map((p) => (
+          <span key={p} className="rounded-full border border-border bg-input/40 px-2 py-0.5 text-[11px] text-muted-foreground">{p}</span>
+        ))}
+        {d.nadFun && (
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
+            Nad.Fun · {NADFUN_STATUS_LABEL[d.nadFun.status]}
+          </span>
+        )}
+        <span className="ml-auto text-[10px] text-muted-foreground">Updated {agoLabel(d.market.lastUpdated)}</span>
       </div>
-
-      {/* Quick actions — same idea as a Telegram trading bot's inline
-          buttons: a fresh CA paste shouldn't require typing a follow-up.
-          Each button only ever calls onQuickAction (== useAskChat's send()),
-          the exact function the empty-state capability tiles already use —
-          it re-enters the normal classify -> confirm funnel, never signs
-          anything directly. Buy/Sell need a real route; Refresh re-runs
-          this same lookup regardless. */}
-      {onQuickAction && (
-        <div className="mb-2.5 flex items-center gap-2">
-          {d.isTradable && (
-            <>
-              <button
-                type="button"
-                onClick={() => onQuickAction("Buy this token")}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-xs font-semibold text-success transition hover:bg-success/20"
-              >
-                <ArrowUpRight size={13} /> Buy
-              </button>
-              <button
-                type="button"
-                onClick={() => onQuickAction("Sell this token")}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger transition hover:bg-danger/20"
-              >
-                <ArrowDownRight size={13} /> Sell
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => onQuickAction(intent.address)}
-            aria-label="Refresh token info"
-            className={`flex items-center justify-center gap-1.5 rounded-xl border border-border bg-input/30 px-3 py-2 text-xs font-medium text-muted-foreground transition hover:text-foreground ${d.isTradable ? "" : "flex-1"}`}
-          >
-            <RefreshCw size={13} /> Refresh
-          </button>
-        </div>
+      {!d.market.price && d.isTradable && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Price unavailable — the pool is too thin to price honestly, but a trading route was found.</p>
+      )}
+      {d.market.price && !d.isTradable && d.nadFun && (
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Price estimated from the Nad.Fun pool&apos;s reserves — no executable trade route was found yet.</p>
       )}
 
-      {d.nadFun && (
-        <div className="mb-2.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full border border-border bg-input px-2 py-0.5 text-[11px] font-medium text-muted-foreground">Nad.Fun</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
-              {NADFUN_STATUS_LABEL[d.nadFun.status]}
-            </span>
-            {d.nadFun.availableToBuy && (
-              <span className="text-[11px] text-muted-foreground">{d.nadFun.availableToBuy} {d.symbol} left on curve</span>
-            )}
-          </div>
-          {/* Progress only makes sense pre-graduation — a graduated token has
-              no curve left to fill, so this row simply doesn't render for one
-              (progressPct is null by construction; see tokenIntelligence.ts). */}
-          {d.nadFun.progressPct != null && (
-            <div className="mt-1.5">
-              <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                <span>Bonding Curve</span>
-                <span className="tabular-nums text-foreground">{d.nadFun.progressPct.toFixed(2)}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-input">
-                <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, d.nadFun.progressPct))}%` }} />
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Buy / Sell — only for a token with a real route, and only ever by
+          sending a chat message (onQuickAction == useAskChat's send()): the
+          trade then goes through the normal quote -> review -> wallet
+          confirm funnel. Nothing here signs or executes. */}
+      {onQuickAction && d.isTradable && (
+        <TokenTradePanel address={intent.address} symbol={d.symbol} balance={d.userBalance} onQuickAction={onQuickAction} />
       )}
-
-      <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-        <div className="mb-0.5 flex items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">Price</p>
-          <p className="text-[10px] text-muted-foreground">Updated {agoLabel(d.market.lastUpdated)}</p>
-        </div>
-        <p className="text-base font-semibold tabular-nums text-foreground sm:text-lg">
-          {d.market.price ? `$${d.market.price}` : UNAVAILABLE}
-          {d.market.priceMon && <span className="ml-1.5 text-xs font-normal text-muted-foreground">≈ {d.market.priceMon} MON</span>}
-        </p>
-        {/* A route can exist even when price is null (too thin to price
-            honestly) — say so, rather than let "Unavailable" read as "not
-            tradable" when the routes list right below says otherwise. */}
-        {!d.market.price && d.isTradable && (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Liquidity data unavailable, but a trading route was found.</p>
-        )}
-        {/* The mirror case: a real, indexed Nad.Fun pool (price and liquidity
-            both real) that this app still couldn't find an executable route
-            through — verified live against JAMES, where the Lens's own quote
-            fails for a reason unrelated to this app. Without this, the price
-            shown right above directly contradicts "No trade route found"
-            below. */}
-        {d.market.price && !d.isTradable && d.nadFun && (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Price estimated from the Nad.Fun pool&apos;s own reserves — no executable trade route was found yet.</p>
-        )}
-      </div>
 
       {d.quote?.route && (
-        <div className="mb-2.5 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+        <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
           <p className="mb-0.5 text-xs text-muted-foreground">{d.quote.amount} {d.symbol} ≈</p>
           <p className="text-base font-semibold tabular-nums text-foreground">
             {d.quote.route.estimatedOutput} {d.quote.route.outputToken}
@@ -696,80 +633,223 @@ function TokenIntelligenceBody({
         </div>
       )}
       {d.quote && !d.quote.route && (
-        <div className="mb-2.5 rounded-xl border border-border bg-input/30 px-3 py-2.5">
-          <p className="text-xs text-muted-foreground">No usable route to quote {d.quote.amount} {d.symbol} in {d.quote.quoteAsset}.</p>
-        </div>
+        <p className="mt-3 rounded-xl border border-border bg-input/30 px-3 py-2.5 text-xs text-muted-foreground">No usable route to quote {d.quote.amount} {d.symbol} in {d.quote.quoteAsset}.</p>
       )}
 
-      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
-        <MiniStat label="Market Cap" value={d.market.marketCapUsd ? `$${d.market.marketCapUsd}` : UNAVAILABLE} />
-        <MiniStat label="FDV" value={d.market.fdvUsd ? `$${d.market.fdvUsd}` : UNAVAILABLE} />
-        <MiniStat
-          label={d.market.liquidity?.label ?? "Liquidity"}
-          value={d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : UNAVAILABLE}
-        />
-        <MiniStat label="24h Change" value={d.market.priceChange24h ?? UNAVAILABLE} />
-        <MiniStat label="24h Volume" value={d.market.volume24h ? `$${d.market.volume24h}` : UNAVAILABLE} />
-        <MiniStat label="Total Supply" value={d.totalSupply ?? UNAVAILABLE} />
-        {d.market.transactions24h != null && (
-          <MiniStat
-            label="24h Transactions"
-            value={`${d.market.buys24h?.toLocaleString() ?? "—"} buys · ${d.market.sells24h?.toLocaleString() ?? "—"} sells`}
-          />
-        )}
-      </div>
-
-      {d.userBalance != null && (
-        <div className="mb-2.5 rounded-lg border border-border bg-input/30 px-3 py-2">
-          <p className="text-xs text-muted-foreground">Your balance</p>
-          <p className="text-sm font-semibold tabular-nums text-foreground">{d.userBalance} {d.symbol}</p>
-        </div>
-      )}
-
-      {d.market.routes.length > 0 && (
-        <div className="mb-2.5">
-          <p className="mb-1.5 text-xs text-muted-foreground">Trading routes</p>
-          <div className="space-y-1.5">
-            {d.market.routes.map((r, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-input/30 px-3 py-2 text-xs">
-                <span className="min-w-0 truncate font-medium text-foreground">{r.inputToken}/{r.outputToken}</span>
-                <span className="shrink-0 text-muted-foreground">{r.provider}</span>
-                <span className="shrink-0 tabular-nums text-foreground">≈ {r.estimatedOutput} {r.outputToken}</span>
-                {r.priceImpact && <span className="shrink-0 text-muted-foreground">{r.priceImpact} impact</span>}
-              </div>
-            ))}
+      {d.nadFun?.progressPct != null && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Bonding curve{d.nadFun.availableToBuy ? ` · ${d.nadFun.availableToBuy} ${d.symbol} left` : ""}</span>
+            <span className="tabular-nums text-foreground">{d.nadFun.progressPct.toFixed(2)}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-input">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, d.nadFun.progressPct))}%` }} />
           </div>
         </div>
       )}
 
+      {/* Market */}
+      <dl className="mt-3 grid grid-cols-3 overflow-hidden rounded-xl border border-border">
+        <TokenStat label="Market cap" value={d.market.marketCapUsd ? `$${d.market.marketCapUsd}` : "—"} />
+        <TokenStat label={d.market.liquidity?.label === "Bonding Curve Liquidity" ? "Curve liquidity" : "Liquidity"} value={d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : "—"} />
+        <TokenStat label="24h volume" value={d.market.volume24h ? `$${d.market.volume24h}` : "—"} />
+        <TokenStat label="FDV" value={d.market.fdvUsd ? `$${d.market.fdvUsd}` : "—"} border />
+        <TokenStat label="Supply" value={d.totalSupply ? compactNumber(d.totalSupply) : "—"} border />
+        <TokenStat label="24h trades" value={d.market.transactions24h != null ? `${d.market.buys24h ?? "—"} / ${d.market.sells24h ?? "—"}` : "—"} hint={d.market.transactions24h != null ? "buys / sells" : undefined} border />
+      </dl>
+
       {d.market.signals.length > 0 && (
-        <div className="mb-2.5 flex flex-wrap gap-1.5">
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
           {d.market.signals.map((s) => (
-            <span key={s} className="rounded-full border border-border bg-input px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span key={s} className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
               {SIGNAL_LABEL[s] ?? s.replace(/_/g, " ")}
             </span>
           ))}
         </div>
       )}
 
-      <div className="divide-y divide-border/60">
-        <Row label="Decimals">{d.decimals}</Row>
-        <Row label="Network">Monad</Row>
-        <Row label="Available markets">{d.market.quoteAssetsChecked.join(", ") || "None checked"}</Row>
-        <Row label="Route">{d.market.routes.length > 0 ? Array.from(new Set(d.market.routes.map((r) => r.provider))).join(", ") : "No active route"}</Row>
-        <Row label="Status">{d.isTradable ? "Tradable" : "Not tradable"}</Row>
-        {/* Creator/pool/created only ever come from a Nad.Fun CurveCreate
-            log (see tokenIntelligence.ts) -- absent, not "Unavailable", for
-            every other token rather than implying a lookup was attempted
-            and failed. */}
-        {d.createdAt != null && <Row label="Created">{new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Row>}
-        {d.creator && <Row label="Creator">{short(d.creator)}</Row>}
-        {d.pool && <Row label="Pool">{short(d.pool)}</Row>}
+      <details className="group mt-3 rounded-xl border border-border">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+          Token details
+          <span className="transition group-open:rotate-180">▾</span>
+        </summary>
+        <div className="divide-y divide-border/60 border-t border-border/70 px-3">
+          {d.market.routes.map((r, i) => (
+            <Row key={i} label={`${r.inputToken}/${r.outputToken} · ${r.provider}`}>{`≈ ${r.estimatedOutput} ${r.outputToken}${r.priceImpact ? ` · ${r.priceImpact} impact` : ""}`}</Row>
+          ))}
+          <Row label="Decimals">{String(d.decimals)}</Row>
+          <Row label="Network">Monad</Row>
+          <Row label="Markets checked">{d.market.quoteAssetsChecked.join(", ") || "None"}</Row>
+          {d.createdAt != null && <Row label="Created">{new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Row>}
+          {d.creator && <Row label="Creator">{short(d.creator)}</Row>}
+          {d.pool && <Row label="Pool">{short(d.pool)}</Row>}
+          <Row label="Contract">{short(intent.address)}</Row>
+        </div>
+      </details>
+
+      <div className="mt-3 flex items-center justify-between">
+        <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
+          View on explorer <ExternalLink size={11} />
+        </a>
+        {onQuickAction && (
+          <button
+            type="button"
+            onClick={() => onQuickAction(intent.address)}
+            aria-label="Refresh token info"
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+          >
+            <RefreshCw size={12} /> Refresh
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TokenStat({ label, value, hint, border }: { label: string; value: string; hint?: string; border?: boolean }) {
+  return (
+    <div className={`min-w-0 px-3 py-2 [&:not(:nth-child(3n+1))]:border-l [&:not(:nth-child(3n+1))]:border-border ${border ? "border-t border-border" : ""}`}>
+      <dt className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 truncate text-[13px] font-medium tabular-nums text-foreground">{value}</dd>
+      {hint && <dd className="truncate text-[10px] text-muted-foreground">{hint}</dd>}
+    </div>
+  );
+}
+
+/** "1234567.89" -> "1.23M" — a token's raw supply can run to 18 digits. */
+function compactNumber(v: string): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  return n.toLocaleString("en-US", { notation: n >= 1e6 ? "compact" : "standard", maximumFractionDigits: 2 });
+}
+
+const BUY_PRESETS: Record<"MON" | "USDC", string[]> = { MON: ["1", "5", "10", "25"], USDC: ["5", "10", "25", "50"] };
+const SELL_PRESETS = [25, 50, 75, 100];
+
+/**
+ * Buy / Sell for a token identified by its contract address. Bought with MON
+ * or USDC; sold into MON. Every action only SENDS a chat message — "Buy 0x…
+ * with 5 MON", "Sell 50% of 0x…" — which PayAI's deterministic trading rules
+ * turn into a live quote the user reviews and confirms with their wallet.
+ * Nothing here signs, approves or executes.
+ */
+export function tokenTradeMessage(
+  side: "buy" | "sell", address: string,
+  opts: { amount?: string; pay?: "MON" | "USDC"; percent?: number | null },
+): string | null {
+  const amt = (opts.amount ?? "").trim();
+  const validAmt = /^(?:\d+\.?\d*|\.\d+)$/.test(amt) && Number(amt) > 0;
+  if (side === "buy") return validAmt && opts.pay ? `Buy ${address} with ${amt} ${opts.pay}` : null;
+  if (opts.percent != null) return opts.percent >= 100 ? `Sell all of ${address}` : `Sell ${opts.percent}% of ${address}`;
+  return validAmt ? `Sell ${amt} of ${address}` : null;
+}
+
+function TokenTradePanel({ address, symbol, balance, onQuickAction }: {
+  address: string; symbol: string; balance: string | null; onQuickAction: (text: string) => void;
+}) {
+  const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [pay, setPay] = useState<"MON" | "USDC">("MON");
+  const [amount, setAmount] = useState("");
+  const [percent, setPercent] = useState<number | null>(null);
+  const held = balance != null ? Number(balance) : null;
+  const heldLabel = held != null && Number.isFinite(held) ? held.toLocaleString("en-US", { maximumFractionDigits: held < 1 ? 6 : 4 }) : null;
+  const cannotSell = side === "sell" && (held == null || !(held > 0));
+  const message = cannotSell ? null : tokenTradeMessage(side, address, { amount, pay, percent: side === "sell" ? percent : null });
+
+  const tab = (s: "buy" | "sell", label: string) => (
+    <button
+      type="button"
+      onClick={() => { setSide(s); setAmount(""); setPercent(null); }}
+      className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition ${side === s ? (s === "buy" ? "bg-success text-white shadow-sm" : "bg-danger text-white shadow-sm") : "text-muted-foreground hover:text-foreground"}`}
+    >
+      {label}
+    </button>
+  );
+  const chip = (label: string, active: boolean, onClick: () => void) => (
+    <button
+      key={label}
+      type="button"
+      onClick={onClick}
+      className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium tabular-nums transition ${active ? "border-primary bg-primary/10 text-primary-ink" : "border-border bg-input/30 text-foreground hover:border-primary/40"}`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="mt-3 rounded-xl border border-border bg-input/20 p-3">
+      <div className="flex gap-1 rounded-lg bg-input/60 p-0.5">
+        {tab("buy", "Buy")}
+        {tab("sell", "Sell")}
       </div>
 
-      <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
-        View contract <ExternalLink size={11} />
-      </a>
+      {side === "buy" ? (
+        <>
+          <div className="mt-3 flex items-center justify-between">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pay with</span>
+            <div className="flex gap-1">
+              {(["MON", "USDC"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => { setPay(p); setAmount(""); }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${pay === p ? "border-primary bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  <TokenLogo token={p} size={14} /> {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="mt-2.5 flex items-center rounded-lg border border-border bg-panel px-3 focus-within:border-primary">
+            <input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
+              inputMode="decimal"
+              placeholder="0.00"
+              aria-label={`Amount of ${pay} to spend`}
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-medium tabular-nums text-foreground outline-none placeholder:text-muted-foreground/60"
+            />
+            <span className="text-xs font-medium text-muted-foreground">{pay}</span>
+          </label>
+          <div className="mt-2 flex gap-1.5">
+            {BUY_PRESETS[pay].map((v) => chip(`${v} ${pay}`, amount === v, () => setAmount(v)))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-3 flex items-center justify-between text-[11px]">
+            <span className="font-medium uppercase tracking-wide text-muted-foreground">Sell into MON</span>
+            <span className="tabular-nums text-muted-foreground">{heldLabel != null ? `Balance ${heldLabel} ${symbol}` : "Balance —"}</span>
+          </div>
+          <div className="mt-2.5 flex gap-1.5">
+            {SELL_PRESETS.map((p) => chip(p === 100 ? "Max" : `${p}%`, percent === p, () => { setPercent(p); setAmount(""); }))}
+          </div>
+          <label className="mt-2 flex items-center rounded-lg border border-border bg-panel px-3 focus-within:border-primary">
+            <input
+              value={amount}
+              onChange={(e) => { setAmount(e.target.value.replace(/[^\d.]/g, "")); setPercent(null); }}
+              inputMode="decimal"
+              placeholder="Or an exact amount"
+              aria-label={`Amount of ${symbol} to sell`}
+              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-medium tabular-nums text-foreground outline-none placeholder:text-muted-foreground/60"
+            />
+            <span className="text-xs font-medium text-muted-foreground">{symbol}</span>
+          </label>
+          {cannotSell && (
+            <p className="mt-2 text-[11px] text-muted-foreground">{held == null ? "Connect your wallet to sell this token." : `You don't hold any ${symbol} yet.`}</p>
+          )}
+        </>
+      )}
+
+      <button
+        type="button"
+        disabled={!message}
+        onClick={() => message && onQuickAction(message)}
+        className={`mt-3 w-full rounded-lg py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${side === "buy" ? "bg-success hover:opacity-90" : "bg-danger hover:opacity-90"}`}
+      >
+        {side === "buy" ? `Review buy${message ? ` · ${amount} ${pay}` : ""}` : `Review sell${message ? (percent != null ? ` · ${percent === 100 ? "all" : `${percent}%`}` : ` · ${amount} ${symbol}`) : ""}`}
+      </button>
+      <p className="mt-2 text-center text-[10px] text-muted-foreground">You&apos;ll see the live quote and confirm with your wallet before anything is signed.</p>
     </div>
   );
 }

@@ -196,32 +196,27 @@ describe("router — Latency Task 6: market/token/trade follow-ups never spend a
     expect(r.understanding?.kind).toBe("token_lookup");
   });
 
-  // "Buy 2 MON of this" / "Sell 100 tokens" are deliberately NOT included
-  // here. The task brief listed them as expected to stay Anthropic-free, but
-  // this codebase's routeRequest() has an existing, deliberate, already-
-  // tested security rule (see the block above, "a fresh, unambiguous send/
-  // swap request still goes to Anthropic even when the deterministic engine
-  // could fully parse it", and classify.ts's own comment on the final
-  // actionable_operation branch): every FRESH money-moving request — a
-  // trade included, not just a payment — always gets a real Anthropic
-  // semantic read before being treated as actionable, specifically so a
-  // locally-guessed shortcut never authorizes moving funds. Making trade
-  // requests skip that here would be weakening the existing trade security
-  // model, which every latency task this session has been explicitly told
-  // not to do. That rule is confirmed intentional and preserved as-is —
-  // see test/ask-router.test.ts's existing "a fresh, unambiguous send/swap
-  // request..." block for the send_payment/swap precedent this trade
-  // behavior already matches.
-  it("a FRESH trade request (\"Buy 2 MON of this\") against a pending token still deliberately goes to Anthropic — a money-moving intent, never a locally-guessed shortcut", async () => {
+  // A trade of the token just looked up follows PayAI's deterministic trading
+  // rules (bought with MON or USDC, sold into MON) — the same rules a pasted
+  // contract address and the token card's Buy/Sell controls use. Nothing
+  // moves without the user confirming the trade preview with their wallet.
+  it("a trade of the looked-up token (\"Buy 2 MON of this\") is answered by the trading rules, without a model call", async () => {
     const r = await routeRequest("Buy 2 MON of this", pendingTokenLookup);
     expect(r.route).toBe("actionable_operation");
-    expect(r.anthropic).toBe(true);
+    expect(r.anthropic).toBe(false);
+    expect(r.understanding?.kind).toBe("trade");
   });
 
-  it('"Sell 100 tokens" is the same deliberate case — a fresh trade request, not a market-data question', async () => {
+  it('"Sell 100 tokens" sells 100 of the looked-up token into MON', async () => {
     const r = await routeRequest("Sell 100 tokens", pendingTokenLookup);
     expect(r.route).toBe("actionable_operation");
-    expect(r.anthropic).toBe(true);
+    expect(r.anthropic).toBe(false);
+    const u = r.understanding;
+    expect(u?.kind).toBe("trade");
+    if (u?.kind === "trade" && u.outcome === "complete") {
+      expect(u.slots.toAsset).toBe("MON");
+      expect(u.slots.amount).toBe("100");
+    }
   });
 });
 

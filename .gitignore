@@ -47,3 +47,6 @@ COLD_OWNER_WALLET_KEY.txt
 /.github/hooks/
 /.github/skills/
 /.impeccable/
+
+# written by `next dev`
+AGENTS.md

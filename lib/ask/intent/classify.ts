@@ -120,7 +120,7 @@ Capabilities PayAI supports today, and what each needs:
 - automation_management: nothing required — the user wants to review or manage an existing scheduled/recurring payment
 - distribution: amount, asset, recipientCount — paying many wallets in one go
 - token_lookup: tokenAddress — identifying an arbitrary Monad contract address the user pasted or named (e.g. "what is this token? 0x...", "check this CA: 0x...", "is 0x... tradable?"). This is normally handled deterministically before you're ever called, purely by regex — you'll only see it if a message mixes a real address with something else that genuinely needs judgment (e.g. "is this legit, 0x...?" alongside an unrelated question).
-- trade: tradeAction (buy or sell), fromAsset (what's being spent), toAsset (what's being acquired), amount, amountType — a real trade quote preview for ANY Monad token, not just MON/USDC. fromAsset/toAsset can be a symbol (USDC, MON) or, when the user means "this"/"it" referring to a token already identified earlier in the conversation, leave that field null — the system fills it in from context, you don't need to guess or invent an address. amountType must be exactly one of: "exact_input" (a plain amount of the asset being spent — "use 50 USDC", "spend 20 MON"), "usd" (a dollar amount — "$50 worth", "get me 50 dollars of this"), "percentage" (a fraction of the wallet's balance — "half my USDC", amount is the percent number as a string e.g. "50"), "balance_all" (the entire balance — "sell all my MON", "my whole balance" — amount can be left null), or "exact_output" (an exact amount of what they want to RECEIVE, e.g. "I want exactly 100 tokens") — exact_output is recognized but PayAI can't quote it yet, so still report it honestly as amountType "exact_output" rather than silently reinterpreting it as exact_input. A slippage tolerance the user explicitly names ("use 1% slippage") goes in the slippage field as a plain percent number ("1") — never invent one if not stated.
+- trade: tradeAction (buy or sell), fromAsset (what's being spent), toAsset (what's being acquired), amount, amountType — a real trade quote preview for ANY Monad token, not just MON/USDC. fromAsset/toAsset can be a symbol (USDC, MON) or, when the user means "this"/"it" referring to a token already identified earlier in the conversation, leave that field null — the system fills it in from context, you don't need to guess or invent an address. amountType must be exactly one of: "exact_input" (a plain amount of the asset being spent — "use 50 USDC", "spend 20 MON"), "usd" (a dollar amount — "$50 worth", "get me 50 dollars of this"), "percentage" (a fraction of the wallet's balance — "half my USDC", amount is the percent number as a string e.g. "50"), "balance_all" (the entire balance — "sell all my MON", "my whole balance" — amount can be left null), or "exact_output" (an exact amount of what they want to RECEIVE, e.g. "I want exactly 100 tokens") — exact_output is recognized but PayAI can't quote it yet, so still report it honestly as amountType "exact_output" rather than silently reinterpreting it as exact_input. A slippage tolerance the user explicitly names ("use 1% slippage") goes in the slippage field as a plain percent number ("1") — never invent one if not stated. Trading rules for a token identified by its contract address: it is bought with MON or USDC only (if the user names neither, leave fromAsset null so they're asked), and it is sold into MON unless the user names USDC (leave toAsset null for a sell and the system fills MON).
 
 Rules, no exceptions:
 1. Never invent or assume a value for amount, asset, recipient, or any other field. If it wasn't stated (in this message OR earlier in the conversation), it stays null.
@@ -199,6 +199,7 @@ function contextTokenFrom(pending: Understanding | null): string | null {
  *     relax rule 2's general "never default an unstated asset" instruction).
  *   - SELL with no fromAsset named -> the context token (what "this"/"it"
  *     means for a sell: the thing being disposed of).
+ *   - SELL of a contract-address token with no toAsset named -> MON.
  *   - SELL with no toAsset named at all -> USDC, PayAI's default settlement
  *     asset elsewhere in the product (Step 2's own quote-asset default,
  *     lib/monad/prices's numeraire) — easily corrected afterward ("actually
@@ -212,11 +213,12 @@ function contextTokenFrom(pending: Understanding | null): string | null {
  * ordinary sell. MON is the counter-asset in that one case (it is the chain's
  * native asset and the other half of the deepest pair).
  *
- * A contract address on the other side never matches "USDC", so it correctly
- * keeps the USDC default.
+ * A contract-address token is always sold into MON (its deepest market on
+ * Monad) unless USDC is named — the rule PayAI's token card follows too.
  */
 function counterAssetFor(otherSide: string | null | undefined): string {
-  return otherSide && otherSide.toUpperCase() === "USDC" ? "MON" : "USDC";
+  if (otherSide && (otherSide.toUpperCase() === "USDC" || /^0x[a-fA-F0-9]{40}$/.test(otherSide))) return "MON";
+  return "USDC";
 }
 
 /** The only symbols PayAI can resolve a trade side by NAME alone (mirrors —
@@ -252,9 +254,14 @@ function isUnresolvedBareSymbol(v: string | null | undefined): boolean {
 function applyTradeContext(slots: AskSlots, contextTokenAddress: string | null): AskSlots {
   if (slots.tradeAction !== "buy" && slots.tradeAction !== "sell") return slots;
   const next = { ...slots };
+  // "All" needs no number — the whole balance is the amount.
+  if (next.amountType === "balance_all" && !next.amount) next.amount = "100";
   if (next.tradeAction === "buy") {
     if ((!next.toAsset || isUnresolvedBareSymbol(next.toAsset)) && contextTokenAddress) next.toAsset = contextTokenAddress;
     if (!next.fromAsset && next.amountType === "usd") next.fromAsset = counterAssetFor(next.toAsset);
+    // A contract-address token is bought with MON or USDC only — anything
+    // else is cleared so the user is asked which of the two.
+    if (next.toAsset && EVM_ADDRESS_RE.test(next.toAsset) && next.fromAsset && !/^(?:W?MON|USDC)$/i.test(next.fromAsset)) next.fromAsset = null;
   } else {
     if ((!next.fromAsset || isUnresolvedBareSymbol(next.fromAsset)) && contextTokenAddress) next.fromAsset = contextTokenAddress;
     if (!next.toAsset) next.toAsset = counterAssetFor(next.fromAsset);
@@ -593,8 +600,10 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
     } else if (missing.includes("amount")) {
       const usdMatch = stripped.match(/^\$\s*(\d+(?:\.\d+)?)$/);
       if (usdMatch) { filled.amount = usdMatch[1]; filled.amountType = "usd"; filledOne = true; }
-      else if (/^(all|everything)$/i.test(stripped)) { filled.amountType = "balance_all"; filledOne = true; }
-      else if (/^half$/i.test(stripped)) { filled.amount = "50"; filled.amountType = "percentage"; filledOne = true; }
+      else if (/^(?:all|everything|max(?:imum)?|all of it|the whole thing|100\s*%|100 percent)$/i.test(stripped)) { filled.amount = "100"; filled.amountType = "balance_all"; filledOne = true; }
+      else if (/^(?:half|half of it)$/i.test(stripped)) { filled.amount = "50"; filled.amountType = "percentage"; filledOne = true; }
+      else if (/^(?:a\s+)?quarter(?: of it)?$/i.test(stripped)) { filled.amount = "25"; filled.amountType = "percentage"; filledOne = true; }
+      else if (/^\d+(?:\.\d+)?\s*(?:%|percent)$/i.test(stripped)) { const r = readTradeAmount(stripped); filled.amount = r.amount; filled.amountType = r.amountType; filledOne = true; }
       else if (/^\d+(?:\.\d+)?$/.test(stripped)) { filled.amount = stripped; filled.amountType = filled.amountType ?? "exact_input"; filledOne = true; }
     } else if (TOKEN_ASSET_MENTION_RE.test(stripped) && /^(USDC|W?MON)$/i.test(stripped)) {
       const asset = stripped.toUpperCase() === "WMON" ? "MON" : stripped.toUpperCase();
@@ -707,9 +716,28 @@ function tryMergePending(text: string, pending: Understanding | null): Understan
  *  never reaches detectSwapIntent at all — that detector also triggers on
  *  "swap"/"trade" and would otherwise capture "this" as a literal (bogus)
  *  token symbol. */
+/** How much a trade's words ask for. The token's contract address is removed
+ *  first, so its hex digits are never read as an amount. */
+export function readTradeAmount(text: string): { amount: string | null; amountType: NonNullable<AskSlots["amountType"]> | null } {
+  const t = text.replace(/0x[a-fA-F0-9]{40}/g, " ");
+  const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/) ?? t.match(/\b(\d+(?:\.\d+)?)\s*(?:usd|dollars?|bucks)\b/i);
+  if (usd) return { amount: usd[1], amountType: "usd" };
+  const pct = t.match(/(\d+(?:\.\d+)?)\s*(?:%|percent\b|pct\b)/i);
+  if (pct) return Number(pct[1]) >= 100 ? { amount: "100", amountType: "balance_all" } : { amount: pct[1], amountType: "percentage" };
+  if (/\b(all|everything|max(?:imum)?|entire|whole)\b/i.test(t)) return { amount: "100", amountType: "balance_all" };
+  if (/\bhalf\b/i.test(t)) return { amount: "50", amountType: "percentage" };
+  if (/\b(?:a\s+)?quarter\b/i.test(t)) return { amount: "25", amountType: "percentage" };
+  const num = t.match(/\b(\d+(?:\.\d+)?)\b/);
+  if (num) return { amount: num[1], amountType: "exact_input" };
+  return { amount: null, amountType: null };
+}
+
 function detectTradeFresh(text: string, contextTokenAddress: string | null): Understanding | null {
-  if (!TRADE_SIGNAL_RE.test(text)) return null;
   const t = text.trim();
+  const tokenInText = t.match(EVM_ADDRESS_RE)?.[0] ?? null;
+  // "buy 0x… with 10 MON", "sell 50% of 0x…": a buy/sell naming a contract
+  // address is a trade of THAT token even without any other trade wording.
+  if (!TRADE_SIGNAL_RE.test(text) && !(tokenInText && /\b(buy|purchase|sell)\b/i.test(t))) return null;
 
   // "send $10 to bob.nad", "pay all my MON to 0x…": a payment to a named
   // recipient, not a trade — "$10" and "all my" are trade signals only when
@@ -725,30 +753,54 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
   // buy/purchase/get-me phrasing is read this way.)
   const buyWord = action === "buy" && !/\bswap\b/i.test(t);
 
-  let amount: string | null = null;
-  let amountType: NonNullable<AskSlots["amountType"]> | null = null;
-  const usdMatch = t.match(/\$\s*(\d+(?:\.\d+)?)/);
-  const allMatch = /\ball\s+my\b|\bmy\s+(?:entire|whole)\b/i.test(t);
-  const halfMatch = /\bhalf\b/i.test(t) && /\bmy\b/i.test(t);
-  const numMatch = t.match(/\b(\d+(?:\.\d+)?)\b/);
-  if (usdMatch) { amount = usdMatch[1]; amountType = "usd"; }
-  else if (allMatch) { amountType = "balance_all"; }
-  else if (halfMatch) { amount = "50"; amountType = "percentage"; }
-  else if (numMatch) { amount = numMatch[1]; amountType = "exact_input"; }
+  const { amount, amountType } = readTradeAmount(t);
 
-  // The one curated asset explicitly named (if any) — assumed to be on the
-  // side the action implies (spend-side for buy, sold-side for sell) unless
-  // a second asset also appears (e.g. "Sell 20 MON for USDC"), which then
-  // names the OTHER side explicitly too. Anything this can't confidently
-  // place (multiple assets in an unclear order, no asset at all with no
-  // context either) stays null and gets asked about, or is resolved by
-  // Anthropic on the real pass.
-  const assetMatches = [...t.matchAll(/\b(USDC|W?MON)\b/gi)].map((m) => (m[1].toUpperCase() === "WMON" ? "MON" : m[1].toUpperCase()));
+  // The curated assets named, in order (the address itself is not one).
+  const noAddr = t.replace(/0x[a-fA-F0-9]{40}/g, " ");
+  const assetMatches = [...noAddr.matchAll(/\b(USDC|W?MON)\b/gi)].map((m) => (m[1].toUpperCase() === "WMON" ? "MON" : m[1].toUpperCase()));
   const [namedAsset, secondAsset] = assetMatches;
 
   let slots: AskSlots = { ...emptySlots(), tradeAction: action, amount, amountType };
+
+  // A contract-address token — pasted here, or the one just looked up when
+  // every MON/USDC named is on the paying (buy) or receiving (sell) side:
+  // "buy this with 10 MON", "buy 10 MON of it", "sell 50%", "sell all for USDC".
+  // ("buy 10 MON with USDC" after a lookup still buys MON.)
+  // Rules: the token is BOUGHT with MON or USDC (whichever is named, else
+  // asked) and SOLD into MON unless USDC is named.
+  const spendAssets = new Set([...noAddr.matchAll(/\b(?:with|using|use|spend|for|in)\s+(?:\$?\d+(?:\.\d+)?\s*%?\s*|(?:all|half|everything)\s+)?(?:of\s+)?(?:my\s+)?(USDC|W?MON)\b|\b\d+(?:\.\d+)?\s*(USDC|W?MON)\s+(?:worth|of)\b/gi)]
+    .map((m) => (m[1] ?? m[2]).toUpperCase().replace(/^WMON$/, "MON")));
+  const receiveAssets = new Set([...noAddr.matchAll(/\b(?:for|to|into|in)\s+(USDC|W?MON)\b/gi)].map((m) => m[1].toUpperCase().replace(/^WMON$/, "MON")));
+  const token = tokenInText ?? (
+    action === "buy" && contextTokenAddress && assetMatches.every((x) => spendAssets.has(x)) ? contextTokenAddress
+    : action === "sell" && contextTokenAddress && assetMatches.every((x) => receiveAssets.has(x)) ? contextTokenAddress
+    : null);
+  if (token && (action === "buy" || action === "sell")) {
+    if (action === "buy") {
+      slots.toAsset = token;
+      const pay = [...spendAssets][0] ?? assetMatches[0] ?? (amountType === "usd" ? "USDC" : null);
+      if (pay) slots.fromAsset = pay;
+      // A plain number with nothing to pay in ("buy 1000 of 0x…") is an amount
+      // of the token to RECEIVE — reported honestly, never spent as if it
+      // were MON or USDC.
+      if (amountType === "exact_input" && !pay && !/\b(?:with|using)\s+\d/i.test(noAddr)) slots.amountType = "exact_output";
+      // Paying with anything else ("with 1 WETH"): its amount isn't kept, so a
+      // later "MON" can never turn "1 WETH" into "1 MON".
+      const otherPay = /\b(?:with|using)\s+(?:\d+(?:\.\d+)?\s*)?([a-z][a-z0-9]{1,9})\b/i.exec(noAddr)?.[1];
+      if (otherPay && !/^(?:w?mon|usdc|my|half|all|everything|of|the|it|this|some)$/i.test(otherPay)) {
+        return { kind: "trade", outcome: "incomplete", slots: { ...slots, fromAsset: null, amount: null, amountType: null }, question: "You can buy it with MON or USDC — which one, and how much? For example “10 MON”." };
+      }
+    } else {
+      slots.fromAsset = token;
+      slots.toAsset = receiveAssets.has("USDC") ? "USDC" : "MON";
+    }
+    const missing = REQUIRED_SLOTS.trade.filter((k) => !slots[k]);
+    if (missing.length === 0) return { kind: "trade", outcome: "complete", slots };
+    return { kind: "trade", outcome: "incomplete", slots, question: tokenTradeQuestion(action, missing, slots.toAsset) };
+  }
+
   if (buyWord) {
-    const spent = /\b(?:with|using|for)\s+(?:\$?\d+(?:\.\d+)?\s*)?(?:my\s+)?(USDC|W?MON)\b/i.exec(t)
+    const spent = /\b(?:with|using|use|spend|for)\s+(?:\$?\d+(?:\.\d+)?\s*|(?:all|half|everything)\s+)?(?:of\s+)?(?:my\s+)?(USDC|W?MON)\b/i.exec(t)
       ?? /\b\d+(?:\.\d+)?\s*(USDC|W?MON)\s+(?:worth|of)\b/i.exec(t);
     const spentAsset = spent ? (spent[1].toUpperCase() === "WMON" ? "MON" : spent[1].toUpperCase()) : null;
     const bought = assetMatches.find((a) => a !== spentAsset) ?? null;
@@ -769,6 +821,16 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
   const missing = REQUIRED_SLOTS.trade.filter((k) => !slots[k]);
   if (missing.length === 0) return { kind: "trade", outcome: "complete", slots };
   return { kind: "trade", outcome: "incomplete", slots, question: tradeQuestionFor(missing) };
+}
+
+/** The one question a contract-address trade still needs answered. */
+function tokenTradeQuestion(action: "buy" | "sell", missing: (keyof AskSlots)[], receive: string | null | undefined): string {
+  if (action === "buy") {
+    if (missing.includes("fromAsset") && missing.includes("amount")) return "How much would you like to spend, and in MON or USDC? For example “10 MON”.";
+    if (missing.includes("fromAsset")) return "Pay with MON or USDC?";
+    return "How much would you like to spend? For example “10 MON” or “5 USDC”.";
+  }
+  return `How much would you like to sell — for example 25%, 50% or all of it? It's sold into ${receive === "USDC" ? "USDC" : "MON"}.`;
 }
 
 /**
@@ -1074,7 +1136,7 @@ function detectAaveAction(text: string, activeChainId: number): Understanding | 
 function detectTokenLookup(text: string): Understanding | null {
   const match = text.match(EVM_ADDRESS_RE);
   if (!match) return null;
-  if (MONEY_ACTION_VERBS_RE.test(text)) return null;
+  if (MONEY_ACTION_VERBS_RE.test(text) || /\b(buy|purchase|sell)\b/i.test(text)) return null;
   return { kind: "token_lookup", outcome: "complete", slots: { ...emptySlots(), tokenAddress: match[0] } };
 }
 
@@ -1197,6 +1259,14 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // (see detectTokenLookup below) — which still correctly wins over a
   // pending token_lookup itself, since TOKEN_FOLLOWUP_RE's merge branch
   // inside tryMergePending explicitly declines when a NEW address is present.
+  // "Buy 0x… with 5 MON", "Sell 50% of 0x…" (typed, or sent by a token
+  // card's Buy/Sell controls): the trading rules for a contract-address token
+  // are deterministic, so they never wait on a model or a pending question.
+  if (EVM_ADDRESS_RE.test(text) && /\b(buy|purchase|sell)\b/i.test(text)) {
+    const tokenTrade = detectTradeFresh(text, null);
+    if (tokenTrade) return { route: "actionable_operation", anthropic: false, understanding: tokenTrade, fallback: tokenTrade };
+  }
+
   const merged = tryMergePending(text, pending);
   if (merged) return { route: "follow_up", anthropic: false, understanding: merged, fallback: merged };
 
@@ -1227,6 +1297,14 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // model to interpret — the action, version, and amount were all resolved
   // mechanically. Returned as the authoritative understanding, no call spent.
   if (fresh.kind === "protocol_action") {
+    return { route: "actionable_operation", anthropic: false, understanding: fresh, fallback: fresh };
+  }
+  // A trade of the token just looked up ("buy this with 10 MON", "sell 50%")
+  // follows the same deterministic rules as one naming the address.
+  // A question ("how much of this can I get for 100 USDC?") still gets the
+  // model's read; nothing here ever executes without the user's confirm.
+  if (fresh.kind === "trade" && !QUESTION_START_RE.test(text) && !/\?\s*$/.test(text) &&
+      [fresh.slots.fromAsset, fresh.slots.toAsset].some((x) => !!x && EVM_ADDRESS_RE.test(x))) {
     return { route: "actionable_operation", anthropic: false, understanding: fresh, fallback: fresh };
   }
   // A FRESH send_payment/swap/schedule_payment/recurring_payment/

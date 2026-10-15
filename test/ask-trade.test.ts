@@ -7,23 +7,29 @@ const TOKEN = "0xaaaabbbbccccddddeeeeffff0000111122223333";
 const RECIPIENT = "0x1234567890abcdef1234567890abcdef12345678";
 const CONTEXT: Understanding = { kind: "token_lookup", outcome: "complete", slots: { tokenAddress: TOKEN } };
 
-describe("router — a fresh trade request always gets a real Anthropic pass", () => {
-  const cases = [
+describe("router — a trade of the looked-up token follows the deterministic trading rules", () => {
+  // The token card's Buy/Sell controls and typed follow-ups ("buy this with
+  // 50 USDC", "sell half") are answered by the same deterministic rules as a
+  // pasted contract address — nothing executes without the user's confirm.
+  const deterministic = [
     "Buy this token with 50 USDC.",
     "Swap 100 USDC into this token.",
-    "Sell 20 MON for USDC.",
     "Use half of my USDC to buy this.",
     "Get me $50 worth of this token.",
-    "How much of this token can I get for 100 USDC?",
     "Sell half of my balance.",
   ];
-  for (const text of cases) {
-    it(`"${text}" (with token context) resolves to a trade understanding via Anthropic`, async () => {
+  for (const text of deterministic) {
+    it(`"${text}" (with token context) is a trade answered without a model call`, async () => {
+      const r = await routeRequest(text, CONTEXT);
+      expect(r.anthropic).toBe(false);
+      expect(r.fallback.kind).toBe("trade");
+    });
+  }
+  // A question, or a trade of two curated assets, still gets a model read.
+  for (const text of ["How much of this token can I get for 100 USDC?", "Sell 20 MON for USDC."]) {
+    it(`"${text}" (with token context) still gets a real model pass`, async () => {
       const r = await routeRequest(text, CONTEXT);
       expect(r.anthropic).toBe(true);
-      // The deterministic fallback (used if Anthropic is unavailable) must
-      // still land on "trade", not get misrouted into the old swap/payment
-      // detectors -- see the collision this guards against below.
       expect(r.fallback.kind).toBe("trade");
     });
   }
@@ -97,12 +103,13 @@ describe("router — token context from a previous message resolves 'this'/'it'"
 
   it("'sell half of it' after a token_lookup resolves the sold side and the percentage amount", async () => {
     // The sell mirror: 'it' anchors fromAsset (what's being disposed of) and
-    // the receiving side falls back to the counter-asset.
+    // the receiving side is MON, the token-sell default.
     const r = await routeRequest("sell half of my tokens", CONTEXT);
     if (r.fallback.kind === "trade" && r.fallback.outcome === "complete") {
       expect(r.fallback.slots.tradeAction).toBe("sell");
       expect(r.fallback.slots.fromAsset).toBe(TOKEN);
-      expect(r.fallback.slots.toAsset).toBe("USDC");
+      // A contract-address token is sold into MON unless USDC is named.
+      expect(r.fallback.slots.toAsset).toBe("MON");
       expect(r.fallback.slots.amountType).toBe("percentage");
       expect(r.fallback.slots.amount).toBe("50");
     } else {
