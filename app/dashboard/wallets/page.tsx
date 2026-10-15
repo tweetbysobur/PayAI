@@ -322,27 +322,28 @@ export default function Wallets() {
           </div>
         </div>
         <div className="mt-4 border-t border-border pt-4">
-          <p className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground"><FileCheck2 size={12} /> Verified contracts</p>
+          <p className="mb-3 flex items-center gap-1.5 text-sm font-medium text-foreground"><FileCheck2 size={14} /> Verified contracts</p>
           {onchainContracts?.configured && onchainContracts.contracts ? (
-            <ul className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            <ul className="divide-y divide-border overflow-hidden rounded-lg bg-panel">
               {suiteFromOnchain(onchainContracts.contracts, MONAD_EXPLORER).map((row) => (
-                <li key={row.id}>
+                <li key={row.id} className="px-4 py-3.5">
+                  <p className="text-sm font-semibold text-foreground">{row.name}</p>
+                  <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{row.blurb}</p>
                   <a
                     href={row.explorer}
                     target="_blank"
                     rel="noreferrer"
-                    className="block text-xs hover:underline"
+                    aria-label={`${row.name} on the Monad explorer`}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-glass/10 px-2 py-1 font-mono text-xs text-foreground transition-colors hover:bg-glass/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="font-medium text-foreground">{row.name}</span>
-                    <span className="ml-2 font-mono text-primary-ink">{short(row.address)} ↗</span>
+                    {short(row.address)} <span aria-hidden>↗</span>
                   </a>
-                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{row.blurb}</p>
                 </li>
               ))}
             </ul>
-          ) : <p className="text-xs text-muted-foreground">Not configured on this network.</p>}
-          <p className="mt-3 text-[11px] text-muted-foreground">
-            Interactive payments go through <span className="text-foreground">PayAIForwarder</span>. Interactive trades go through <span className="text-foreground">PayAITradeExecutor</span>. PaymentExecutor is the automation path, not the contract your wallet pays.
+          ) : <p className="text-sm text-muted-foreground">Not configured on this network.</p>}
+          <p className="mt-3 text-[13px] leading-snug text-muted-foreground">
+            Your wallet pays <span className="text-foreground">PayAIForwarder</span> for payments and <span className="text-foreground">PayAITradeExecutor</span> for trades.
           </p>
         </div>
       </Card>
