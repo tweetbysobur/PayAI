@@ -31,7 +31,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
   const maxRev = Math.max(1, ...trend.map((t) => t.revenue));
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl">
+    <div className="overflow-hidden rounded-2xl surface-purple">
       <div className="flex items-center gap-2 border-b border-border bg-background px-4 py-2.5">
         <span className="h-2 w-2 rounded-full bg-border" />
         <span className="h-2 w-2 rounded-full bg-border" />

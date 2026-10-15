@@ -121,7 +121,7 @@ export function ProductOverviewSection() {
         >
           <Link
             href={ASK_PAYAI.href}
-            className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl border border-primary/40 bg-panel p-7 shadow-[0_1px_0_0_hsl(var(--primary)/0.25)_inset] transition-colors duration-200 hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
+            className="group relative flex flex-col gap-5 overflow-hidden rounded-2xl surface-purple p-7 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-row sm:items-center sm:justify-between"
           >
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-primary/40" />
             <div className="flex items-center gap-4">
@@ -150,7 +150,7 @@ export function ProductOverviewSection() {
             >
               <Link
                 href={p.href}
-                className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-glass/[0.02] transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-2xl surface-purple p-6 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
                   <p.icon size={23} />
@@ -289,7 +289,7 @@ export function HowPayAIWorksSection() {
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
-              className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-panel ring-1 ring-inset ring-glass/[0.02]"
+              className="flex h-full flex-col overflow-hidden rounded-2xl surface-purple"
             >
               <div className="flex-1 p-6">
                 <div className="mb-4 flex items-center gap-2.5">
@@ -374,7 +374,7 @@ export function PaymentOperationsSection() {
             >
               <Link
                 href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
-                className="group flex h-full flex-col rounded-xl border border-border bg-panel p-5 transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-xl surface-purple p-5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
                   <o.icon size={22} />
@@ -442,7 +442,7 @@ export function EmbeddedWalletSection() {
         <motion.div
           initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}
-          className="relative order-2 overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl lg:order-1"
+          className="relative order-2 overflow-hidden rounded-[22px] surface-purple lg:order-1"
         >
           <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
           <div className="space-y-2.5 p-6">
@@ -563,7 +563,7 @@ export function TradingSection() {
         <motion.div
           initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45, delay: 0.1 }}
-          className="overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
+          className="overflow-hidden rounded-2xl surface-purple"
         >
           <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           <div className="p-6">
@@ -633,7 +633,7 @@ export function AnalyticsSection() {
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
-              className="h-full rounded-xl border border-border bg-panel p-5 transition-colors hover:border-primary/30"
+              className="h-full rounded-xl surface-purple p-5 transition-colors"
             >
               <div className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
                 <a.icon size={22} />

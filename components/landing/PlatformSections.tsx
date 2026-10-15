@@ -74,7 +74,7 @@ export function SupportedTokens() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {tokens === null
             ? Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-xl border border-border bg-panel/50 p-4">
+                <div key={i} className="flex items-center gap-3 rounded-xl surface-purple p-4">
                   <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-border/70" />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="h-3 w-16 animate-pulse rounded bg-border/70" />
@@ -88,7 +88,7 @@ export function SupportedTokens() {
                   initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: "-40px" }}
                   transition={{ delay: Math.min(i * 0.05, 0.3), duration: 0.4, ease: "easeOut" }}
-                  className="group flex items-center gap-3 rounded-xl border border-border bg-panel/50 p-4 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
+                  className="group flex items-center gap-3 rounded-xl surface-purple p-4 transition-all duration-200"
                 >
                   <TokenLogo token={t.symbol} logoURI={t.logoURI} size={34} />
                   <div className="min-w-0 flex-1">
@@ -235,7 +235,7 @@ export function PlatformStatistics() {
         <motion.div
           initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.5, ease: "easeOut" }}
-          className="overflow-hidden rounded-2xl border border-border bg-panel/60 shadow-2xl shadow-black/20"
+          className="overflow-hidden rounded-2xl surface-purple"
         >
           {/* Hairline highlight along the top edge — the premium-surface tell. */}
           <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
@@ -468,7 +468,7 @@ export function DeveloperApi() {
           <motion.div
             initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true, margin: "-40px" }} transition={{ duration: 0.45, ease: "easeOut" }}
-            className="overflow-hidden rounded-xl border border-border bg-panel/60"
+            className="overflow-hidden rounded-xl surface-purple"
           >
             <div className="border-b border-border px-5 py-3">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Public endpoints</p>
@@ -508,7 +508,7 @@ export function DeveloperApi() {
 
 function DevPoint({ icon: Icon, title, body }: { icon: typeof Code2; title: string; body: string }) {
   return (
-    <div className="flex gap-3.5 rounded-xl border border-border bg-panel/40 p-5 transition-all duration-200 hover:border-primary/30">
+    <div className="flex gap-3.5 rounded-xl surface-purple p-5 transition-all duration-200">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink">
         <Icon size={16} />
       </span>
@@ -545,7 +545,7 @@ export function EcosystemIntegrations() {
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-40px" }}
               transition={{ delay: i * 0.07, duration: 0.45, ease: "easeOut" }}
-              className="group flex gap-4 rounded-xl border border-border bg-panel/50 p-6 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
+              className="group flex gap-4 rounded-xl surface-purple p-6 transition-all duration-200"
             >
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                 {it.brand ? <MonadMark size={18} /> : <it.icon size={18} />}

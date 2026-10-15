@@ -101,7 +101,7 @@ export function TemplateShowcase() {
             {shown.map((t) => (
               <div
                 key={t.id}
-                className="group flex gap-3.5 rounded-xl border border-border bg-panel/50 p-5 transition-all duration-200 hover:border-primary/35 hover:bg-panel"
+                className="group flex gap-3.5 rounded-xl surface-purple p-5 transition-all duration-200"
               >
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink transition-colors duration-200 group-hover:border-primary/30">
                   <t.icon size={16} />
