@@ -93,7 +93,7 @@ export function CoreProductSection() {
               key={c.label}
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.08, duration: 0.4 }}
-              className="rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:border-primary/30"
+              className="rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-glass/[0.02] transition-all duration-200 hover:border-primary/30"
             >
               <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
                 <c.icon size={23} />

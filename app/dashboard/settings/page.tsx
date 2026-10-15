@@ -9,12 +9,12 @@ import { ExportWalletCard } from "@/components/dashboard/ExportWalletCard";
 import { UsernameCard } from "@/components/dashboard/UsernameCard";
 import { GoogleLinkCard } from "@/components/dashboard/GoogleLinkCard";
 import { PageHeader, StatusIndicator } from "@/components/dashboard/primitives";
+import { ThemePicker } from "@/components/ThemeToggle";
 
 /** Settings is wallet-only, matching the rest of the product — there is no
  *  separate account/API-key system to sign into. It is grouped only by the
  *  categories that have real settings behind them today: Account, Sign-in,
- *  Wallet and Security. (There are no notification or display preferences
- *  to configure yet, so there is no empty section pretending otherwise.)
+ *  Appearance, Wallet and Security.
  *  Linked-wallet management is the Wallets tab next to this one. */
 export default function Settings() {
   const wallet = useWallet();
@@ -39,6 +39,15 @@ export default function Settings() {
         <Suspense fallback={null}>
           <GoogleLinkCard />
         </Suspense>
+      </SettingsSection>
+
+      <SettingsSection id="appearance" title="Appearance">
+        <Row
+          label="Theme"
+          value="Choose how PayAI looks"
+          detail="Dark is the default. Light is white with PayAI purple. System follows your device."
+          right={<ThemePicker />}
+        />
       </SettingsSection>
 
       <SettingsSection id="wallet" title="Wallet">

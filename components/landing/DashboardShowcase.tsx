@@ -82,7 +82,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
             // the overflow moves rather than resolving.
             <div
               key={k.label}
-              className={`min-w-0 rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-3 ring-1 ring-inset ring-white/[0.03] ${k.wide ? "col-span-2 sm:col-span-1" : ""}`}
+              className={`min-w-0 rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-3 ring-1 ring-inset ring-glass/[0.03] ${k.wide ? "col-span-2 sm:col-span-1" : ""}`}
             >
               {/* Label left, icon right, figure below — the same shape as the
                   real dashboard's metric cards, since this is a preview of
@@ -95,7 +95,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
             </div>
           ))}
         </div>
-        <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-3 ring-1 ring-inset ring-white/[0.03]">
+        <div className="rounded-xl border border-border bg-gradient-to-b from-primary/[0.06] to-transparent p-3 ring-1 ring-inset ring-glass/[0.03]">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Payment volume · 7d</span>
             <span className="flex items-center gap-1.5 text-[10px] text-primary-ink">

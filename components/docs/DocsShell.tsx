@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { DOCS_NAV, DOCS_UPDATED, docsNavIsActive } from "@/lib/docs/nav";
 import { publicDocsPath } from "@/lib/docs/host";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export interface DocsTocItem {
   id: string;
@@ -53,6 +54,7 @@ export function DocsShell({
             </Link>
           </div>
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <Link
               href={home}
               className="hidden rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
@@ -155,7 +157,7 @@ function DocsNav({ pathname, onDocsHost, className }: { pathname: string; onDocs
                     className={`block rounded-md px-2 py-1.5 text-[13px] transition-colors ${
                       active
                         ? "bg-primary/10 font-medium text-foreground"
-                        : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"
+                        : "text-muted-foreground hover:bg-glass/[0.03] hover:text-foreground"
                     }`}
                   >
                     {item.label}
@@ -187,7 +189,7 @@ export function DocsSection({
         {index ? <span className="font-mono text-[11px] font-medium text-primary-ink">{index}</span> : null}
         {title}
       </h2>
-      <div className="mt-3 space-y-3 text-[15px] leading-7 text-muted-foreground [&_a]:text-primary-ink [&_a]:underline-offset-2 hover:[&_a]:underline [&_code]:rounded [&_code]:bg-white/[0.04] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-foreground [&_strong]:font-medium [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-5">
+      <div className="mt-3 space-y-3 text-[15px] leading-7 text-muted-foreground [&_a]:text-primary-ink [&_a]:underline-offset-2 hover:[&_a]:underline [&_code]:rounded [&_code]:bg-glass/[0.04] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[13px] [&_code]:text-foreground [&_strong]:font-medium [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:space-y-1.5 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-5">
         {children}
       </div>
     </section>

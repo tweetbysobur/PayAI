@@ -429,7 +429,7 @@ function VolumeBand({
 
 function Cell({ label, children, loading }: { label: string; children: React.ReactNode; loading: boolean }) {
   return (
-    <div className="px-6 py-7 transition-colors duration-200 hover:bg-white/[0.015] sm:px-7">
+    <div className="px-6 py-7 transition-colors duration-200 hover:bg-glass/[0.015] sm:px-7">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <div className="mt-3 flex min-h-[2.25rem] items-end">
         {loading ? <span className="h-8 w-24 animate-pulse rounded bg-border/70" /> : children}
@@ -475,7 +475,7 @@ export function DeveloperApi() {
             </div>
             <div className="divide-y divide-border/70">
               {ENDPOINTS.map((e) => (
-                <div key={e.method + e.path} className="flex items-start gap-3 px-5 py-3.5 transition-colors duration-150 hover:bg-white/[0.02]">
+                <div key={e.method + e.path} className="flex items-start gap-3 px-5 py-3.5 transition-colors duration-150 hover:bg-glass/[0.02]">
                   <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${e.method === "POST" ? "bg-exec-scheduled/15 text-exec-scheduled" : "bg-info/15 text-info"}`}>
                     {e.method}
                   </span>

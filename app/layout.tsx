@@ -6,6 +6,7 @@ import { MotionPreference } from "@/components/MotionPreference";
 import { WalletServiceProvider } from "@/lib/wallet-service/WalletServiceContext";
 import { ToastProvider } from "@/components/Toast";
 import GoogleAnalytics from "@/components/GoogleAnalytics";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 // Premium sans — self-hosted from app/fonts, so the build never depends on
 // reaching Google Fonts. Geometric, modern, sleek; a deliberate step up from
@@ -66,7 +67,12 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${jakarta.variable} ${montserrat.variable}`}>
+    // suppressHydrationWarning: THEME_SCRIPT sets data-theme on <html> before
+    // React hydrates, which React would otherwise report as a mismatch.
+    <html lang="en" className={`${jakarta.variable} ${montserrat.variable}`} data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="antialiased">
         {/* Wraps everything: the CSS reduced-motion rule cannot reach Framer,
             which is where most of this product's movement lives. */}

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui";
 import { MonadMark } from "@/components/MonadMark";
 import { Identicon } from "@/components/Identicon";
 import { MobileNavTrigger } from "@/components/dashboard/MobileNav";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { WalletSwitcher } from "@/components/dashboard/WalletSwitcher";
 import { AddWalletModal } from "@/components/dashboard/AddWalletModal";
 import { useToast } from "@/components/Toast";
@@ -292,6 +293,8 @@ export function Topbar({ health, notifications = [], onOpenNotifications, onMenu
             <ArrowDownLeft size={16} />
           </button>
         )}
+
+        <ThemeToggle />
 
         <div className="relative">
           <button

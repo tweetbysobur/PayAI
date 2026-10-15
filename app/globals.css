@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
 /*
- * PayAI design tokens — dark-mode fintech canvas.
+ * PayAI design tokens. Dark is the default canvas; light mode (white with
+ * the PayAI purple, the look of the product films) is the same token names
+ * under :root[data-theme="light"] below. The choice is applied before first
+ * paint by lib/theme.ts.
  * Never hardcode hex/HSL in components; always style through these classes.
  */
 :root {
@@ -59,6 +62,42 @@
   --border: 240 4% 16%;            /* #27272a */
   --input: 240 4% 11%;
   --ring: 262 83% 58%;
+
+  /* Translucent overlays (hairline borders, glassy fills) — light on the
+     dark canvas, ink on the light one. Use as `border-glass/10`,
+     `bg-glass/[0.04]`, never a literal white. */
+  --glass: 0 0% 100%;
+}
+
+/* Light mode: white canvas, PayAI purple, faint lavender surfaces. Every
+   text/background pair is AA or better: foreground 19:1 on white, muted
+   6.1:1, --primary-ink 7.1:1, danger 4.8:1; white on --primary 5.67:1. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --background: 0 0% 100%;          /* #ffffff */
+  --panel: 250 50% 98%;             /* #f9f8fd — lavender-white surface */
+  --foreground: 240 15% 5%;         /* #0b0b0f */
+  --muted-foreground: 240 5% 40%;   /* #61616b */
+
+  --primary: 262 83% 58%;           /* #7c3aed — the same purple */
+  --primary-foreground: 0 0% 100%;
+  --primary-ink: 263 70% 50%;       /* #6d28d9 — purple as text on white */
+  --secondary: 258 90% 66%;
+
+  --success: 262 83% 58%;
+  --warning: 0 72% 51%;             /* #dc2626 */
+  --danger: 0 72% 51%;
+
+  --exec-success: 152 70% 32%;
+  --exec-scheduled: 240 5% 46%;
+  --exec-failed: 0 72% 51%;
+  --info: 217 85% 48%;
+
+  --border: 250 22% 90%;            /* #e3e0ee */
+  --input: 250 30% 96%;             /* #f2f1f8 */
+  --ring: 262 83% 58%;
+
+  --glass: 250 30% 20%;
 }
 
 @theme inline {
@@ -90,6 +129,7 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-glass: hsl(var(--glass));
 }
 
 body {

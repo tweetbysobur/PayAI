@@ -154,7 +154,7 @@ export function ProductOverviewSection() {
             >
               <Link
                 href={p.href}
-                className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-white/[0.02] transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-glass/[0.02] transition-all duration-200 hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
                   <p.icon size={23} />
@@ -294,7 +294,7 @@ export function HowPayAIWorksSection() {
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
-              className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-panel ring-1 ring-inset ring-white/[0.02]"
+              className="flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-panel ring-1 ring-inset ring-glass/[0.02]"
             >
               <div className="flex-1 p-6">
                 <div className="mb-4 flex items-center gap-2.5">
@@ -448,7 +448,7 @@ export function EmbeddedWalletSection() {
         <motion.div
           initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.45 }}
-          className="relative order-2 overflow-hidden rounded-[22px] border border-white/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl lg:order-1"
+          className="relative order-2 overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl lg:order-1"
         >
           <div aria-hidden className="h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
           <div className="space-y-2.5 p-6">

@@ -97,7 +97,7 @@ export function GoogleLinkCard() {
             type="button"
             onClick={() => { void unlink(); }}
             disabled={!!busy}
-            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary/40 disabled:opacity-40"
+            className="rounded-lg border border-glass/10 bg-glass/[0.04] px-3 py-2 text-xs font-medium text-foreground transition hover:border-primary/40 disabled:opacity-40"
           >
             {busy === "unlink" ? <Loader2 size={14} className="animate-spin" /> : "Unlink Google"}
           </button>
@@ -106,7 +106,7 @@ export function GoogleLinkCard() {
             type="button"
             onClick={() => { void link(); }}
             disabled={!!busy}
-            className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-medium text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] transition hover:border-primary/40 disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-lg border border-glass/10 bg-glass/[0.04] px-3 py-2 text-xs font-medium text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] transition hover:border-primary/40 disabled:opacity-40"
           >
             {busy === "link" ? <Loader2 size={14} className="animate-spin" /> : "Link Google"}
           </button>

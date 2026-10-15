@@ -244,7 +244,7 @@ function AuthFlow() {
                   ))}
                 </div>
 
-                <div className="relative overflow-hidden rounded-[22px] border border-white/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl">
+                <div className="relative overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl">
                   <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
                   <div className="p-7 sm:p-8">
                     {/* Item 1 — hero */}
@@ -327,7 +327,7 @@ function AuthFlow() {
                         )}
 
                         {emailAvailable && (
-                          <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.04] p-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] backdrop-blur-md">
+                          <div className="mt-2 rounded-xl border border-glass/10 bg-glass/[0.04] p-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] backdrop-blur-md">
                             <div className="flex items-center gap-2.5 px-1.5 py-1">
                               <SignInMark method="email" />
                               <input
@@ -338,7 +338,7 @@ function AuthFlow() {
                             </div>
                             <button
                               onClick={sendCode} disabled={!email.includes("@") || pending === "email" || !agreed}
-                              className="mt-1 flex w-full items-center justify-center gap-2 rounded-[10px] border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="mt-1 flex w-full items-center justify-center gap-2 rounded-[10px] border border-glass/10 bg-glass/[0.05] px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               {pending === "email" ? <Loader2 size={15} className="animate-spin" /> : <>Continue with Email <ArrowRight size={14} /></>}
                             </button>
@@ -431,7 +431,7 @@ function AuthFlow() {
               <motion.div
                 key="code" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 transition={{ duration: 0.25 }}
-                className="relative overflow-hidden rounded-[22px] border border-white/10 bg-panel/55 p-8 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-white/[0.06] backdrop-blur-2xl"
+                className="relative overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 p-8 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl"
               >
                 <button onClick={() => setStep("start")} className="mb-4 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
                   <ChevronLeft size={13} /> Back
@@ -443,7 +443,7 @@ function AuthFlow() {
                 <p className="mt-2 text-center text-sm text-muted-foreground">We sent a 6-digit code to {email}.</p>
                 <input
                   value={code} onChange={(e) => setCode(e.target.value)} placeholder="6-digit code" inputMode="numeric"
-                  className="mt-5 w-full rounded-xl border border-white/10 bg-white/[0.04] px-3 py-3 text-center text-lg tracking-[0.3em] text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] outline-none backdrop-blur-md placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground"
+                  className="mt-5 w-full rounded-xl border border-glass/10 bg-glass/[0.04] px-3 py-3 text-center text-lg tracking-[0.3em] text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] outline-none backdrop-blur-md placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground"
                 />
                 <button
                   onClick={verifyCode} disabled={code.length < 6 || wallet.embeddedBusy}

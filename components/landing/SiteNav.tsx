@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { APP_ORIGIN, DOCS_ORIGIN } from "@/lib/hosts";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
  * The marketing-site header, shared by /, /product, and /how-it-works.
@@ -85,7 +86,8 @@ export function SiteNav() {
         })}
       </nav>
 
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <ThemeToggle />
         <Link
           href={`${APP_ORIGIN}/auth`}
           className="inline-flex items-center rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4"
