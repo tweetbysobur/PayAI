@@ -71,6 +71,15 @@
   /* Surfaces that sit flat on the canvas in dark mode (sidebar, settings
      rows) but take the lavender card colour in light mode. */
   --tint: var(--background);
+
+  /* The hero's Execution Path drawing: the travelling light (--spark), its
+     frame/scatter/unlit stages (--frame), ruler ticks and caption (--tick)
+     and alignment guides. White on dark; purple on light, where a white
+     light would vanish into the page. */
+  --spark: 0 0% 100%;
+  --frame: var(--foreground);
+  --tick: var(--muted-foreground);
+  --guide-opacity: 0.08;
 }
 
 /* Light mode: white canvas, PayAI purple, lavender cards and hairlines (the
@@ -105,6 +114,10 @@
 
   --glass: 262 60% 35%;
   --tint: var(--panel);
+  --spark: 262 69% 33%;             /* #4c1d95 — deep violet light on the purple route */
+  --frame: var(--primary);
+  --tick: var(--primary);
+  --guide-opacity: 0.16;
 }
 
 @theme inline {
@@ -138,6 +151,9 @@
   --color-ring: hsl(var(--ring));
   --color-glass: hsl(var(--glass));
   --color-tint: hsl(var(--tint));
+  --color-spark: hsl(var(--spark));
+  --color-frame: hsl(var(--frame));
+  --color-tick: hsl(var(--tick));
 }
 
 body {

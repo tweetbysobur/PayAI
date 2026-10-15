@@ -227,7 +227,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
       aria-label="An intent becomes a plan, is reviewed, approved by your wallet, and executed onchain."
     >
       {/* Alignment guides — structure emerging around each stage as it locks. */}
-      <g stroke="currentColor" strokeWidth="1" className="text-foreground" opacity="0.08" shapeRendering="crispEdges">
+      <g stroke="currentColor" strokeWidth="1" className="text-frame" style={{ opacity: "var(--guide-opacity)" }} shapeRendering="crispEdges">
         {STAGES.map((s) => {
           const [x, y] = PTS[s.at];
           const u = easeOut(span(time, T.drawStart + (CUM[s.at] / LEN) * T.drawDur, 0.6));
@@ -243,7 +243,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
       </g>
 
       {/* Ruler ticks where the guides meet the frame. */}
-      <g stroke="currentColor" strokeWidth="1" className="text-muted-foreground" shapeRendering="crispEdges"
+      <g stroke="currentColor" strokeWidth="1" className="text-tick" shapeRendering="crispEdges"
         opacity={0.55 * easeOut(span(time, T.drawStart + 0.4, 0.6))}>
         {[...new Set(PTS.slice(0, 5).map((p) => p[0]))].map((x) => (
           <g key={`x${x}`}><line x1={x} y1={0} x2={x} y2={6} /><line x1={x} y1={H - 6} x2={x} y2={H} /></g>
@@ -255,7 +255,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
 
       {/* The frame: four sharp registration corners. They slide in at the
           start and tighten for a beat each time an action executes. */}
-      <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" strokeLinejoin="miter" className="text-foreground"
+      <g stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" strokeLinejoin="miter" className="text-frame"
         opacity={0.7 * frameIn} fill="none" shapeRendering="crispEdges">
         <path d={`M${12 - inset},${30 - inset} V${12 - inset} H${30 - inset}`} />
         <path d={`M${W - 30 + inset},${12 - inset} H${W - 12 + inset} V${30 - inset}`} />
@@ -264,7 +264,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
       </g>
 
       {/* 1–2. The scatter gathering into the route. */}
-      <g stroke="currentColor" strokeLinecap="round" className="text-foreground">
+      <g stroke="currentColor" strokeLinecap="round" className="text-frame">
         {STROKES.map((s, i) => {
           const u = easeInOut(span(time, T.gatherStart + i * T.gatherStagger, T.gatherDur));
           const drift = (1 - u) * 3;
@@ -284,7 +284,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
       </g>
 
       {/* 3. The route, drawn; then the executed part of it, solid purple. */}
-      <path d={ROUTE_D} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="miter" className="text-foreground"
+      <path d={ROUTE_D} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="miter" className="text-frame"
         opacity="0.3" {...dash(LEN, draw * LEN)} />
       {executed > 0 && (
         <path d={ROUTE_D} fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="miter" strokeLinecap="butt" className="text-primary"
@@ -293,7 +293,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
 
       {/* The light: a crisp head with a tail that bends round the corners. */}
       {light.on && (
-        <g fill="none" stroke="white" strokeLinejoin="miter" strokeLinecap="butt">
+        <g fill="none" stroke="hsl(var(--spark))" strokeLinejoin="miter" strokeLinecap="butt">
           {/* A lavender afterglow on the line the light has just charged… */}
           {tail > 1 && <path d={ROUTE_D} strokeWidth="2.5" className="text-primary-ink" stroke="currentColor" opacity="0.6" {...dash(tail * 2.4, lightD)} />}
           {/* …and the light itself, stacked thinner and brighter toward the head. */}
@@ -320,9 +320,9 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
               <circle cx={x} cy={y} r={7 + 12 * easeOut(ring)} fill="none" stroke="currentColor" className="text-primary-ink"
                 strokeWidth="1.25" opacity={0.9 * (1 - ring)} />
             )}
-            <circle cx={x} cy={y} r={3.5 + 3.5 * u} className={lit ? "text-foreground" : reached ? "text-primary" : "text-foreground"} stroke="currentColor"
+            <circle cx={x} cy={y} r={3.5 + 3.5 * u} className={lit ? "text-spark" : reached ? "text-primary" : "text-frame"} stroke="currentColor"
               strokeWidth="1.5" fill="hsl(var(--background))" />
-            {!isWallet && reached && <circle cx={x} cy={y} r={lit ? 2.6 : 1.8} fill={lit ? "white" : "currentColor"} className="text-primary" />}
+            {!isWallet && reached && <circle cx={x} cy={y} r={lit ? 2.6 : 1.8} fill={lit ? "hsl(var(--spark))" : "currentColor"} className="text-primary" />}
             {isWallet && (
               <>
                 {/* The approval beat: while the light waits here, a square
@@ -334,7 +334,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
                       strokeWidth="1.25" shapeRendering="crispEdges" opacity={Math.sin(Math.PI * light.holdU)} />
                   );
                 })()}
-                {lit && <circle cx={x} cy={y} r={10.5} fill="none" stroke="white" strokeWidth="1.5" />}
+                {lit && <circle cx={x} cy={y} r={10.5} fill="none" stroke="hsl(var(--spark))" strokeWidth="1.5" />}
                 <circle cx={x} cy={y} r={7.5 * signed} className="text-primary" fill="currentColor" />
                 <path d={`M${x - 3.2},${y + 0.2} L${x - 0.8},${y + 2.6} L${x + 3.4},${y - 2.4}`} fill="none"
                   stroke="white" strokeWidth="1.6" strokeLinecap="square" strokeLinejoin="miter"
@@ -347,7 +347,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
               className="font-mono uppercase" fontSize="10" letterSpacing="0.12em"
             >
               <tspan className="fill-primary-ink">{s.n}</tspan>
-              <tspan dx="7" className={lit ? "fill-white" : reached || done ? "fill-foreground" : "fill-muted-foreground"}>{s.label}</tspan>
+              <tspan dx="7" className={lit ? "fill-spark" : reached || done ? "fill-foreground" : "fill-muted-foreground"}>{s.label}</tspan>
             </text>
           </g>
         );
@@ -365,9 +365,9 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
               <rect x={x - o / 2} y={y - o / 2} width={o} height={o} fill="none" stroke="currentColor" className="text-primary"
                 strokeWidth="1" opacity={0.85 * (1 - arrive)} />
             )}
-            <rect x={x - s / 2} y={y - s / 2} width={s} height={s} className={arrive >= 0 && arrive < 0.25 ? "text-foreground" : "text-primary"} fill="currentColor"
+            <rect x={x - s / 2} y={y - s / 2} width={s} height={s} className={arrive >= 0 && arrive < 0.25 ? "text-spark" : "text-primary"} fill="currentColor"
               transform={`rotate(${(1 - settle) * 45} ${x} ${y})`} />
-            <g stroke="currentColor" className="text-muted-foreground" strokeWidth="1">
+            <g stroke="currentColor" className="text-tick" strokeWidth="1">
               <line x1={x - 20} y1={y} x2={x - 13} y2={y} /><line x1={x + 13} y1={y} x2={x + 20} y2={y} />
               <line x1={x} y1={y + 13} x2={x} y2={y + 20} />
             </g>
@@ -382,7 +382,7 @@ export function ExecutionPath({ reduce, className = "" }: { reduce: boolean; cla
         return (
           <g>
             <circle cx={p.x} cy={p.y} r={light.holding ? 10 : 7} fill="none" stroke="currentColor" className="text-primary-ink" strokeWidth="1" opacity={light.holding ? 0.9 : 0.6} />
-            <circle cx={p.x} cy={p.y} r={3.2} fill="white" />
+            <circle cx={p.x} cy={p.y} r={3.2} fill="hsl(var(--spark))" />
           </g>
         );
       })()}
