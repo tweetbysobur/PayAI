@@ -831,7 +831,7 @@ function AutomationDetail({ automation, onClose }: { automation: Automation | nu
   return (
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div role="dialog" aria-modal="true" aria-label={`Automation details: ${a.purpose ?? a.memo ?? "Automation"}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <motion.div role="dialog" aria-modal="true" aria-label={`Automation details: ${a.purpose ?? a.memo ?? "Automation"}`} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl surface-purple shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <div><p className="text-sm font-semibold text-foreground">{a.purpose ?? a.memo ?? "Automation"}</p><p className="text-xs text-muted-foreground">{money(a.amount, a.token)} · {cadenceLabel(a)}</p></div>
             <div className="flex items-center gap-1.5">
@@ -1070,7 +1070,7 @@ function AutomationEdit({ automation, onClose, onSaved }: { automation: Automati
   return (
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }} className="fixed inset-0 z-50 flex items-center justify-center bg-background/85 p-4 backdrop-blur-sm" onClick={onClose}>
-        <motion.div role="dialog" aria-modal="true" aria-label="Edit automation" initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="w-full max-w-md rounded-lg border border-border bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <motion.div role="dialog" aria-modal="true" aria-label="Edit automation" initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.2, ease: "easeOut" }} className="w-full max-w-md rounded-xl surface-purple shadow-2xl" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center justify-between border-b border-border px-5 py-4">
             <p className="text-sm font-semibold text-foreground">Edit automation</p>
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"><X size={16} /></button>

@@ -63,7 +63,7 @@ export function AddWalletModal({ open, onClose }: { open: boolean; onClose: () =
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="add-wallet-title">
       <div className="absolute inset-0" onClick={onClose} aria-hidden />
-      <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-xl border border-border bg-panel p-5 sm:max-w-md sm:rounded-xl">
+      <div className="relative max-h-[90dvh] w-full overflow-y-auto rounded-t-xl surface-purple p-5 sm:max-w-md sm:rounded-xl">
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <h2 id="add-wallet-title" className="text-base font-semibold text-foreground">

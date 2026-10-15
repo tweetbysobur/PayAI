@@ -450,7 +450,7 @@ export function BulkPaymentCreator({ open, seed, onClose, onCreated }: { open: b
             role="dialog" aria-modal="true" aria-label="Create bulk payment"
             initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-panel shadow-2xl"
+            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl surface-purple shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
