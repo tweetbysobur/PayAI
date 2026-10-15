@@ -1,6 +1,5 @@
 "use client";
 
-import { Fragment } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import {
@@ -34,48 +33,47 @@ const SECTION = "border-t border-border py-24 sm:py-28";
 const H2 = "text-3xl font-semibold tracking-tighter sm:text-4xl text-foreground";
 const SUB = "mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground";
 
-function Head({ eyebrow, title, body }: { eyebrow: string; title: string; body: string }) {
+function Head({ title, body }: { title: string; body: string }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
       className="mb-12 text-center"
     >
-      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">{eyebrow}</p>
       <h2 className={H2}>{title}</h2>
       <p className={SUB}>{body}</p>
     </motion.div>
   );
 }
 
-/* ── Core product — the visual centerpiece: 3 premium cards, one shared
-     intent → plan → approval → execution flow inside each ────────────────── */
+/* ── Core product: three solid purple cards, the look of the product films —
+     the request itself is the hero, with the same four steps under each ──── */
 
-const MINI_STAGES = ["Intent", "PayAI plan", "Approval", "Monad tx"];
+const STEPS = ["Intent", "Plan", "Approve", "Monad tx"];
 
-function MiniFlow() {
+/** The four steps every request goes through, as a plain track rather than
+ *  a row of pills. */
+function StepTrack() {
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-1.5">
-      {MINI_STAGES.map((s, i) => (
-        <Fragment key={s}>
-          {i > 0 && <div aria-hidden className="h-px w-3 shrink-0 bg-border" />}
-          <span className="rounded-full border border-border bg-input/50 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-            {s}
-          </span>
-        </Fragment>
+    <ol className="mt-6 grid grid-cols-4 gap-1.5" aria-label="Intent, then plan, then your approval, then a Monad transaction">
+      {STEPS.map((s) => (
+        <li key={s} className="min-w-0">
+          <span aria-hidden className="block h-1 rounded-full bg-primary-foreground/85" />
+          <span className="mt-2 block truncate text-[11px] font-medium text-primary-foreground/80">{s}</span>
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
 
 /** Every intent shown here has to be one Ask PayAI can actually carry through
- *  to a signable transaction, because the card puts "Monad tx" at the end of
- *  the flow — so they come from intentExamples.ts, where each one is checked
- *  against the real product. */
+ *  to a signable transaction, because the card ends at "Monad tx" — so they
+ *  come from intentExamples.ts, where each one is checked against the real
+ *  product. */
 const CORE_CARDS = [
-  { icon: Send, label: "PAYMENTS", intent: displayPrompt(CORE_EXAMPLES.payments.say) },
-  { icon: ArrowLeftRight, label: "TRADING", intent: displayPrompt(CORE_EXAMPLES.trading.say) },
-  { icon: Layers, label: "PLANS", intent: displayPrompt(CORE_EXAMPLES.chain.say) },
+  { icon: Send, label: "Payments", intent: displayPrompt(CORE_EXAMPLES.payments.say) },
+  { icon: ArrowLeftRight, label: "Trading", intent: displayPrompt(CORE_EXAMPLES.trading.say) },
+  { icon: Layers, label: "Plans", intent: displayPrompt(CORE_EXAMPLES.chain.say) },
 ];
 
 export function CoreProductSection() {
@@ -83,7 +81,6 @@ export function CoreProductSection() {
     <section id="core" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="The core"
           title="One intent layer. Multiple on-chain actions."
           body="Express what you want in natural language and let PayAI coordinate the underlying blockchain actions."
         />
@@ -93,16 +90,16 @@ export function CoreProductSection() {
               key={c.label}
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.08, duration: 0.4 }}
-              className="rounded-2xl border border-border bg-panel p-6 ring-1 ring-inset ring-glass/[0.02] transition-all duration-200 hover:border-primary/30"
+              className="flex flex-col rounded-2xl bg-primary p-6 text-primary-foreground"
             >
-              <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
-                <c.icon size={23} />
-              </span>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">{c.label}</p>
-              <p className="mt-3 rounded-lg border border-border bg-background/50 px-3 py-2.5 text-[13px] italic leading-snug text-foreground">
-                &ldquo;{c.intent}&rdquo;
+              <p className="flex items-center gap-2.5 text-[15px] font-semibold">
+                <c.icon size={18} aria-hidden />
+                {c.label}
               </p>
-              <MiniFlow />
+              <p className="mt-4 flex-1 rounded-xl bg-primary-foreground/[0.12] px-4 py-3.5 text-[15px] font-medium leading-snug">
+                {c.intent}
+              </p>
+              <StepTrack />
             </motion.div>
           ))}
         </div>
@@ -145,7 +142,6 @@ export function IntentToExecutionSection() {
     <section id="flow" className={`${SECTION} bg-panel/20`}>
       <div className="mx-auto max-w-4xl px-6">
         <Head
-          eyebrow="From intent to execution"
           title="One request. One execution flow."
           body="Every action PayAI takes — a payment, a trade, a protocol action — moves through the same four stages."
         />
@@ -229,7 +225,6 @@ export function CapabilitiesSection() {
     <section id="capabilities" className={SECTION}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Built around your intent"
           title="One interface for on-chain actions."
           body="Payments, trading, protocols and plans are capabilities of the same intent layer — reachable from one interface, not separate products."
         />
@@ -275,7 +270,6 @@ export function DeFiSection() {
     <section id="defi" className={SECTION}>
       <div className="mx-auto max-w-2xl px-6 text-center">
         <Head
-          eyebrow="DeFi protocols · coming soon"
           title="DeFi, by intent."
           body="PayAI is opening to DeFi protocols on Monad through partner integrations. Once a protocol is integrated, its actions become something you can ask for in a sentence — PayAI checks every transaction against what the protocol declared, and your wallet signs it. No protocol is live yet."
         />
@@ -310,7 +304,6 @@ export function VerificationSection() {
     <section id="verification" className={`${SECTION} bg-panel/20`}>
       <div className="mx-auto max-w-6xl px-6">
         <Head
-          eyebrow="Verifiable by design"
           title="Built to be checked, not just trusted."
           body="Every claim below is something you can independently verify on Monad."
         />
@@ -349,7 +342,6 @@ export function IntentExamplesSection() {
     <section id="examples" className={SECTION}>
       <div className="mx-auto max-w-4xl px-6 text-center">
         <Head
-          eyebrow="Start with an intent"
           title="Just say what you want."
           body="Real sentences PayAI understands today — the interface itself, not another template catalog."
         />
