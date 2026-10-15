@@ -34,8 +34,14 @@ describe("the landing page stays the pitch", () => {
   });
 
   it("puts the product depth on /product", () => {
-    for (const s of ["PaymentOperationsSection", "TradingSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
+    for (const s of ["TradingSection", "EmbeddedWalletSection", "AnalyticsSection"]) {
       expect(product, `/product is missing ${s}`).toContain(s);
+    }
+  });
+
+  it("does not show the payroll / treasury / subscription use-case cards — those workflows aren't available yet", () => {
+    for (const src of [page, product, howItWorks, overview]) {
+      expect(src).not.toMatch(/PaymentOperationsSection|recurring payment operations/);
     }
   });
 
@@ -49,7 +55,7 @@ describe("the landing page stays the pitch", () => {
     // Duplication is how the split rots: a section lands on both, then the
     // landing page keeps the copy and the depth page is forgotten.
     const sections = [
-      "PaymentOperationsSection", "EmbeddedWalletSection", "TradingSection",
+      "EmbeddedWalletSection", "TradingSection",
       "AnalyticsSection", "HowItWorksSteps", "HowToAskSection", "WhyMonadSection",
     ];
     for (const s of sections) {
@@ -118,13 +124,10 @@ describe("nothing offers a route that leads nowhere", () => {
     expect(page).toMatch(/See how it works/);
   });
 
-  it("points every operation card at something that exists", () => {
-    // Either a real template id, or the builder. Never a route invented to
-    // make a card feel complete.
-    const hrefs = [...overview.matchAll(/href=\{o\.template \? `([^`]+)` : "([^"]+)"\}/g)];
-    expect(hrefs.length).toBe(1);
-    expect(hrefs[0][1]).toContain("/dashboard/automations?template=");
-    expect(hrefs[0][2]).toBe("/dashboard/automations");
+  it("links to no automation template from the product overview", () => {
+    // The use-case cards that linked to templates were removed while those
+    // workflows are unfinished; nothing here may point at one.
+    expect(overview).not.toMatch(/\/dashboard\/automations\?template=/);
   });
 });
 

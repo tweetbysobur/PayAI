@@ -7,7 +7,6 @@ import {
   Sparkles, ArrowLeftRight, Wallet, BarChart3, Layers, Target, BadgeCheck,
   ArrowRight, Fingerprint, Coins, CheckCircle2, Send, ShieldCheck,
   Bell, Clock, Activity, PieChart, ListChecks,
-  Building2, Landmark, Repeat2, Store, Gift, Megaphone, Rocket, Home,
 } from "lucide-react";
 import { MonadMark } from "@/components/MonadMark";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -307,99 +306,6 @@ export function HowPayAIWorksSection() {
             </motion.div>
           ))}
         </div>
-      </div>
-    </section>
-  );
-}
-
-/* ── 3. Payment operations ──────────────────────────────────────────────── */
-
-/**
- * What people actually use PayAI for.
- *
- * This deliberately does NOT enumerate the 28 automation templates with a
- * readiness badge on each. That version was accurate and unreadable: most
- * templates are still being polished, so the section became a wall of
- * not-yet labels and argued against the product harder than any competitor
- * could. It also measured the wrong thing — a curated template is a shortcut,
- * not the capability. Every operation below can be built today from the
- * automation builder or the bulk creator, template or no template.
- *
- * Where a ready-made template does exist, the card links straight to it;
- * otherwise it opens the builder. Neither case promises anything that is not
- * there when you arrive.
- */
-/**
- * Each card states what PayAI does for that use case today, and what it
- * doesn't. Audited against the code (Oct 2026):
- *  - single-recipient automations: once/daily/weekly/monthly, funded from
- *    the wallet or from funds set aside (AutomationVault);
- *  - Bulk payment (Automations → Bulk payment): paste, CSV or manual list,
- *    any Monad token, equal/fixed/percentage/custom amounts, one setup
- *    signature, then ONE TRANSACTION PER RECIPIENT, sent in order from the
- *    user's wallet — not one batched on-chain transaction;
- *  - every Business, Bulk, Launchpad, DAO, NFT and Creator template is still
- *    unfinished (status in lib/automation/templates.ts).
- * test/use-case-claims.test.ts keeps the wording from drifting.
- */
-type Readiness = "ready" | "partial";
-const OPERATIONS: { title: string; status: Readiness; works: string; notYet?: string; icon: typeof Wallet; template?: string }[] = [
-  { title: "Payroll", status: "partial", works: "Pay one person on a fixed cycle, or a whole team with a recurring Bulk payment.", notYet: "No payroll template, approver step or payslips.", icon: Building2 },
-  { title: "Treasury", status: "partial", works: "Scheduled transfers from funds set aside, one recipient per automation.", notYet: "No multi-approver (multisig) control.", icon: Landmark },
-  { title: "Subscriptions", status: "partial", works: "Pay a subscription or membership on a recurring schedule.", notYet: "Can't bill or collect from customers. A run is skipped if funds or limits fall short.", icon: Repeat2 },
-  { title: "Vendor payments", status: "ready", works: "Pay a supplier or contractor once, or on their own recurring schedule.", icon: Store },
-  { title: "Community rewards", status: "partial", works: "A Bulk payment to a pasted or CSV list of wallets, in any Monad token, set up and signed once.", notYet: "One transaction per recipient, not one batched transaction. Runs of hundreds aren't verified yet.", icon: Gift },
-  { title: "Airdrops", status: "partial", works: "Send any Monad token to a list of addresses with a one-time Bulk payment, signed once.", notYet: "One transaction per recipient, not one batched transaction. Runs of hundreds aren't verified yet.", icon: Coins },
-  { title: "Creator payouts", status: "partial", works: "Fixed or percentage splits to collaborators, once or recurring.", notYet: "Amounts aren't tied to your revenue — you set them.", icon: Megaphone },
-  { title: "Launchpad distribution", status: "partial", works: "Send allocations to a list with a one-time Bulk payment.", notYet: "No vesting contract, token sale or refund handling.", icon: Rocket },
-  { title: "Rent and personal", status: "ready", works: "Rent, allowances and savings on a weekly or monthly schedule.", icon: Home, template: "personal-monthly-rent" },
-];
-
-export function PaymentOperationsSection() {
-  return (
-    <section id="workflows" className={SECTION}>
-      <div className="mx-auto max-w-6xl px-6">
-        <Head
-          title="From simple transfers to recurring payment operations."
-          body="One automation engine underneath, and each card says plainly what works today and what doesn't yet."
-        />
-
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {OPERATIONS.map((o, i) => (
-            <motion.div
-              key={o.title}
-              initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-50px" }}
-              transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
-            >
-              <Link
-                href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
-                className="group flex h-full flex-col rounded-xl surface-purple p-6 sm:p-7 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="mb-6 flex text-primary">
-                  <o.icon size={22} />
-                </span>
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{o.title}</h3>
-                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${o.status === "ready" ? "border-primary/40 text-primary-ink" : "border-border text-muted-foreground"}`}>
-                    {o.status === "ready" ? "Works today" : "Partly"}
-                  </span>
-                </div>
-                <p className="mt-3 text-[15px] leading-relaxed text-foreground"><strong className="font-semibold text-foreground">Works today: </strong>{o.works}</p>
-                {o.notYet && <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground"><strong className="font-semibold text-foreground/80">Not yet: </strong>{o.notYet}</p>}
-                <span className="flex-1" />
-                <span className="mt-6 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-ink">
-                  {o.template ? "Use the workflow" : "Set it up"}
-                  <ArrowRight size={11} className="transition-transform duration-200 group-hover:translate-x-0.5" />
-                </span>
-              </Link>
-            </motion.div>
-          ))}
-        </div>
-
-        <p className="mt-10 text-center text-xs text-muted-foreground">
-          A Bulk payment is one setup and one signature, then PayAI sends one transaction per recipient, in order. Ready-made templates for payroll, treasury, launchpad and creator payouts are still coming.
-        </p>
       </div>
     </section>
   );

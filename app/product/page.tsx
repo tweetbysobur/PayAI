@@ -10,7 +10,7 @@ import {
   DeFiSection, VerificationSection, IntentExamplesSection,
 } from "@/components/landing/ProductSections";
 import {
-  TradingSection, EmbeddedWalletSection, PaymentOperationsSection, AnalyticsSection,
+  TradingSection, EmbeddedWalletSection, AnalyticsSection,
 } from "@/components/landing/PlatformOverview";
 import { WhyMonadSection } from "@/components/landing/MarketingSections";
 
@@ -73,7 +73,6 @@ export default function ProductPage() {
       <IntentToExecutionSection />
       <CapabilitiesSection />
       <EmbeddedWalletSection />
-      <PaymentOperationsSection />
       <TradingSection />
       <DeFiSection />
       <VerificationSection />
