@@ -71,23 +71,19 @@
   /* Surfaces that sit flat on the canvas in dark mode (sidebar, settings
      rows) but take the lavender card colour in light mode. */
   --tint: var(--background);
-
-  /* Solid darks: scrims behind dialogs, small badges. Black here, deep
-     purple in light mode — light mode has no black anywhere. */
-  --contrast: 0 0% 0%;
 }
 
-/* Light mode: only white and PayAI purple — white canvas, lavender cards
-   and hairlines, deep-purple ink instead of black (the look of the product
-   films). Every text/background pair is AA or better: ink 15.8:1 on white
-   and 13.8:1 on the lavender card, muted 8.2:1 / 7.2:1, --primary-ink
-   7.2:1 / 6.3:1, danger 5.8:1 / 5.1:1; white on --primary 5.67:1. */
+/* Light mode: white canvas, PayAI purple, lavender cards and hairlines (the
+   look of the product films). Every text/background pair is AA or better:
+   foreground 18:1 on the lavender card, muted 5.9:1 on white and 5.6:1 on
+   the card, --primary-ink 6.6:1 on the card, danger 5.5:1; white on
+   --primary 5.67:1. */
 :root[data-theme="light"] {
   color-scheme: light;
   --background: 0 0% 100%;          /* #ffffff */
   --panel: 253 100% 96.5%;          /* #f2eeff — lavender card surface */
-  --foreground: 263 60% 20%;        /* #2b1452 — deep purple ink, never black */
-  --muted-foreground: 262 30% 38%;  /* #5b4480 — purple-grey */
+  --foreground: 240 15% 5%;         /* #0b0b0f */
+  --muted-foreground: 255 9% 39%;   /* #5e5a6d — purple-tinted grey */
 
   --primary: 262 83% 58%;           /* #7c3aed — the same purple */
   --primary-foreground: 0 0% 100%;
@@ -109,7 +105,6 @@
 
   --glass: 262 60% 35%;
   --tint: var(--panel);
-  --contrast: 263 60% 20%;
 }
 
 @theme inline {
@@ -143,7 +138,6 @@
   --color-ring: hsl(var(--ring));
   --color-glass: hsl(var(--glass));
   --color-tint: hsl(var(--tint));
-  --color-contrast: hsl(var(--contrast));
 }
 
 body {
@@ -152,16 +146,6 @@ body {
   font-family: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-}
-
-/* Light mode: a disabled purple button faded to 40% reads as a washed-out
-   smudge on white. Show it as a solid lavender button with purple text
-   instead — still clearly inactive, never unreadable. */
-:root[data-theme="light"] .bg-primary:disabled {
-  opacity: 1;
-  background-color: hsl(var(--input));
-  color: hsl(var(--primary-ink));
-  border-color: hsl(var(--border));
 }
 
 /* Headings get tighter tracking for a sharper, more premium set. */

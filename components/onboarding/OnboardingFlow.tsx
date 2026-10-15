@@ -62,7 +62,7 @@ export function OnboardingFlow() {
         <motion.div
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-contrast/80 p-2 sm:items-center sm:p-6"
+          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/80 p-2 sm:items-center sm:p-6"
         >
           <motion.div
             role="dialog" aria-modal="true" aria-labelledby="onboarding-title"
@@ -74,21 +74,21 @@ export function OnboardingFlow() {
             <aside className="flex flex-col bg-primary px-4 py-3 text-white md:p-6">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-contrast md:h-9 md:w-9"><LogoMark size={16} className="text-primary-ink" /></span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-black md:h-9 md:w-9"><LogoMark size={16} className="text-primary-ink" /></span>
                   <span className="text-sm font-semibold">PayAI</span>
                 </span>
-                <button type="button" onClick={close} className="rounded-md px-2 py-1 text-xs font-medium text-white/80 transition-colors hover:bg-contrast/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:hidden">
+                <button type="button" onClick={close} className="rounded-md px-2 py-1 text-xs font-medium text-white/80 transition-colors hover:bg-black/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white md:hidden">
                   Skip
                 </button>
               </div>
               {/* Phone: a progress bar. Desktop: the step list. */}
               <div className="mt-3 flex gap-1.5 md:hidden" aria-hidden>
-                {STEPS.map((s, i) => <span key={s} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-white" : "bg-contrast/30"}`} />)}
+                {STEPS.map((s, i) => <span key={s} className={`h-1 flex-1 rounded-full ${i <= step ? "bg-white" : "bg-black/30"}`} />)}
               </div>
               <ol className="mt-10 hidden space-y-1 md:block">
                 {STEPS.map((s, i) => (
-                  <li key={s} aria-current={i === step ? "step" : undefined} className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm ${i === step ? "bg-contrast/25 font-medium text-white" : i < step ? "text-white/80" : "text-white/55"}`}>
-                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < step ? "bg-white text-primary" : i === step ? "bg-contrast text-white" : "border border-primary-foreground/40"}`}>
+                  <li key={s} aria-current={i === step ? "step" : undefined} className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm ${i === step ? "bg-black/25 font-medium text-white" : i < step ? "text-white/80" : "text-white/55"}`}>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < step ? "bg-white text-primary" : i === step ? "bg-black text-white" : "border border-primary-foreground/40"}`}>
                       {i < step ? <Check size={12} strokeWidth={3} /> : i + 1}
                     </span>
                     {s}
