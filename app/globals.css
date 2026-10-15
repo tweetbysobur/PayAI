@@ -68,10 +68,6 @@
      `bg-glass/[0.04]`, never a literal white. */
   --glass: 0 0% 100%;
 
-  /* Surfaces that sit flat on the canvas in dark mode (sidebar, settings
-     rows) but take the lavender card colour in light mode. */
-  --tint: var(--background);
-
   /* The hero's Execution Path drawing: the travelling light (--spark), its
      frame/scatter/unlit stages (--frame), ruler ticks and caption (--tick)
      and alignment guides. White on dark; purple on light, where a white
@@ -113,7 +109,6 @@
   --ring: 262 83% 58%;
 
   --glass: 262 60% 35%;
-  --tint: var(--panel);
   --spark: 262 69% 33%;             /* #4c1d95 — deep violet light on the purple route */
   --frame: var(--primary);
   --tick: var(--primary);
@@ -150,7 +145,6 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
   --color-glass: hsl(var(--glass));
-  --color-tint: hsl(var(--tint));
   --color-spark: hsl(var(--spark));
   --color-frame: hsl(var(--frame));
   --color-tick: hsl(var(--tick));

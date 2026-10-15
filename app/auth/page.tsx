@@ -8,11 +8,9 @@ import { safeReturnPath } from "@/lib/platform/returnPath";
 import { motion, AnimatePresence } from "motion/react";
 import {
   ShieldCheck, ArrowRight, Loader2, ChevronLeft, ChevronDown,
-  Fingerprint, AlertTriangle, Check,
-  Zap, KeyRound, Puzzle, Repeat, Layers,
+  Fingerprint, AlertTriangle,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { MonadMark } from "@/components/MonadMark";
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
 import { SignInMark, glassSignInRow } from "@/components/auth/SignInMark";
 import { FirstRunSteps } from "@/components/onboarding/FirstRunSteps";
@@ -21,16 +19,6 @@ import { inAppBrowserName, prfSupport, suggestedBrowser } from "@/lib/wallet-ser
 const CONSENT_KEY = "payai_tos_accepted_v1";
 
 type Step = "start" | "email-code" | "wallet" | "choice" | "creating" | "first-run";
-
-/** Item 4 — the trust row under the auth options. Plain ticks, no colour
- *  blocks: the claims do the work, not the styling. */
-const TRUST_POINTS = [
-  { icon: Zap, label: "Wallet created in seconds" },
-  { icon: KeyRound, label: "You own your funds" },
-  { icon: Puzzle, label: "No browser extension required" },
-  { icon: Repeat, label: "Built for Monad automation" },
-  { icon: Layers, label: "Works with every PayAI feature" },
-];
 
 /** Item 5 — the collapsible "why", for people who want the detail before
  *  committing. Collapsed by default so it never slows down anyone who doesn't.
@@ -208,10 +196,6 @@ function AuthFlow() {
 
   return (
     <main className="relative flex min-h-screen flex-col overflow-clip bg-background">
-      <div aria-hidden className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[-12%] h-[460px] w-[720px] -translate-x-1/2 rounded-full bg-primary/25 blur-[130px]" />
-        <div className="absolute bottom-[-8%] right-[-6%] h-72 w-72 rounded-full bg-secondary/15 blur-[110px]" />
-      </div>
       <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5">
         <Link href={landing} className="flex items-center gap-2" aria-label="PayAI home">
           <Logo size={28} />
@@ -230,22 +214,7 @@ function AuthFlow() {
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
               >
-                {/* Item 6 — trust badges above the card. Deliberately quiet:
-                    hairline border, muted text, no coloured pills. */}
-                <div className="mb-4 flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5">
-                  {[
-                    { icon: <MonadMark size={11} />, label: "Built on Monad Mainnet" },
-                    { icon: <ShieldCheck size={11} />, label: "Embedded wallet security" },
-                    { icon: <KeyRound size={11} />, label: "Non-custodial" },
-                  ].map((b) => (
-                    <span key={b.label} className="inline-flex items-center gap-1.5 rounded-full border border-border/70 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                      {b.icon}{b.label}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="relative overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl">
-                  <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/45 to-transparent" />
+                <div className="overflow-hidden rounded-2xl border border-border bg-panel">
                   <div className="p-7 sm:p-8">
                     {/* Item 1 — hero */}
                     <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">
@@ -271,9 +240,6 @@ function AuthFlow() {
                       >
                         <Fingerprint size={18} className="shrink-0" />
                         <span className="flex-1">{returning ? "Unlock PayAI Wallet" : "Continue with PayAI Wallet"}</span>
-                        {!returning && (
-                          <span className="hidden shrink-0 rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[10px] font-medium min-[400px]:inline">Recommended</span>
-                        )}
                         <ArrowRight size={15} className="shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
                       </button>
                       {returning && (
@@ -327,7 +293,7 @@ function AuthFlow() {
                         )}
 
                         {emailAvailable && (
-                          <div className="mt-2 rounded-xl border border-glass/10 bg-glass/[0.04] p-1.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] backdrop-blur-md">
+                          <div className="mt-2 rounded-xl border border-border bg-background p-1.5">
                             <div className="flex items-center gap-2.5 px-1.5 py-1">
                               <SignInMark method="email" />
                               <input
@@ -338,7 +304,7 @@ function AuthFlow() {
                             </div>
                             <button
                               onClick={sendCode} disabled={!email.includes("@") || pending === "email" || !agreed}
-                              className="mt-1 flex w-full items-center justify-center gap-2 rounded-[10px] border border-glass/10 bg-glass/[0.05] px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-40"
+                              className="mt-1 flex w-full items-center justify-center gap-2 rounded-[10px] border border-border bg-input/40 px-4 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                               {pending === "email" ? <Loader2 size={15} className="animate-spin" /> : <>Continue with Email <ArrowRight size={14} /></>}
                             </button>
@@ -379,22 +345,13 @@ function AuthFlow() {
                     {error && <p className="mt-3 text-center text-xs text-danger">{error}</p>}
                   </div>
 
-                  {/* Item 4 — trust section */}
-                  <div className="border-t border-border bg-input/20 px-7 py-5 sm:px-8">
-                    <ul className="grid gap-2">
-                      {TRUST_POINTS.map((t) => (
-                        <li key={t.label} className="flex items-center gap-2.5 text-xs text-muted-foreground">
-                          <Check size={13} className="shrink-0 text-primary-ink" />
-                          {t.label}
-                        </li>
-                      ))}
-                    </ul>
-
+                  {/* The detail, for anyone who wants it before committing. */}
+                  <div className="border-t border-border px-7 py-4 sm:px-8">
                     {/* Item 5 — collapsible why */}
                     <button
                       onClick={() => setShowWhy((v) => !v)}
                       aria-expanded={showWhy}
-                      className="mt-4 flex w-full items-center justify-between rounded-lg text-[11px] font-medium text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex w-full items-center justify-between rounded-lg text-[11px] font-medium text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       Why use a PayAI Wallet?
                       <ChevronDown size={13} className={`transition-transform duration-200 ${showWhy ? "rotate-180" : ""}`} />
@@ -431,7 +388,7 @@ function AuthFlow() {
               <motion.div
                 key="code" initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }}
                 transition={{ duration: 0.25 }}
-                className="relative overflow-hidden rounded-[22px] border border-glass/10 bg-panel/55 p-8 shadow-[0_40px_100px_-42px_hsl(var(--primary)/0.7)] ring-1 ring-inset ring-glass/[0.06] backdrop-blur-2xl"
+                className="overflow-hidden rounded-2xl border border-border bg-panel p-8"
               >
                 <button onClick={() => setStep("start")} className="mb-4 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
                   <ChevronLeft size={13} /> Back
@@ -443,7 +400,7 @@ function AuthFlow() {
                 <p className="mt-2 text-center text-sm text-muted-foreground">We sent a 6-digit code to {email}.</p>
                 <input
                   value={code} onChange={(e) => setCode(e.target.value)} placeholder="6-digit code" inputMode="numeric"
-                  className="mt-5 w-full rounded-xl border border-glass/10 bg-glass/[0.04] px-3 py-3 text-center text-lg tracking-[0.3em] text-foreground shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)] outline-none backdrop-blur-md placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground"
+                  className="mt-5 w-full rounded-xl border border-border bg-background px-3 py-3 text-center text-lg tracking-[0.3em] text-foreground outline-none focus-visible:border-primary/60 placeholder:text-sm placeholder:tracking-normal placeholder:text-muted-foreground"
                 />
                 <button
                   onClick={verifyCode} disabled={code.length < 6 || wallet.embeddedBusy}
@@ -460,7 +417,7 @@ function AuthFlow() {
               <motion.div
                 key="wallet" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8"
+                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 sm:p-8"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Fingerprint size={20} />
@@ -496,7 +453,7 @@ function AuthFlow() {
               <motion.div
                 key="choice" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.3 }}
-                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 shadow-2xl sm:p-8"
+                className="overflow-hidden rounded-2xl border border-border bg-panel p-6 sm:p-8"
               >
                 <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Fingerprint size={20} />
@@ -549,7 +506,7 @@ function AuthFlow() {
               <motion.div
                 key="creating" initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
                 transition={{ duration: 0.25 }}
-                className="overflow-hidden rounded-2xl border border-border bg-panel px-8 py-14 text-center shadow-2xl"
+                className="overflow-hidden rounded-2xl border border-border bg-panel px-8 py-14 text-center"
               >
                 <div className="relative mx-auto mb-6 flex h-16 w-16 items-center justify-center">
                   <motion.span

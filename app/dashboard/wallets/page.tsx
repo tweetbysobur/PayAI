@@ -348,11 +348,8 @@ export default function Wallets() {
       </Card>
 
       {/* Wallet Intelligence */}
-      {!wallet.address ? (
-        <Card>
-          <p className="text-sm text-muted-foreground">Connect your wallet above to see your real balances, payment history, and on-chain activity.</p>
-        </Card>
-      ) : loading && !intel ? (
+      {/* Without a wallet the card at the top already says what to do. */}
+      {!wallet.address ? null : loading && !intel ? (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (

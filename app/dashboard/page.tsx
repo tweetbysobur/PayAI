@@ -5,7 +5,7 @@ import { fetchHistory } from "@/lib/hooks/historyFetch";
 import { fetchWalletMoves, mergeByTime } from "@/lib/hooks/walletMoves";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, AlertTriangle } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowRight, ArrowUpRight, AlertTriangle, Wallet as WalletIcon } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Skeleton, SkeletonRows } from "@/components/ui";
 import { Identicon } from "@/components/Identicon";
@@ -172,6 +172,9 @@ export default function Dashboard() {
   const portfolio = usePortfolio(wallet.readAddress, wallet.isLocked);
   const topHoldings = useMemo(() => viewHoldings(portfolio.holdings, { hideZero: true, sort: "value" }).slice(0, 5), [portfolio.holdings]);
   const unpriced = portfolio.holdings.filter((h) => (h.balance ?? 0) > 0 && h.valueUsd == null).length;
+  // No wallet at all: one clear next step, not five empty sections each
+  // saying "nothing here yet".
+  const disconnected = !wallet.readAddress && !wallet.isLocked;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -206,6 +209,18 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {disconnected ? (
+        <section aria-labelledby="connect-title" className="rounded-lg border border-border bg-panel p-6 sm:p-8">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary-ink"><WalletIcon size={18} aria-hidden /></span>
+          <h2 id="connect-title" className="mt-4 text-lg font-semibold tracking-tight text-foreground">Connect a wallet to get started</h2>
+          <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">
+            Your balance, recent activity and scheduled payments appear here once a wallet is connected. A PayAI Wallet takes a few seconds and only needs your passkey.
+          </p>
+          <Link href="/auth" className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            Connect wallet <ArrowRight size={14} aria-hidden />
+          </Link>
+        </section>
+      ) : (<>
       {/* 4: only what genuinely needs the person. */}
       <section aria-labelledby="attention-title" className="mb-8 sm:mb-10">
         <SectionHeader id="attention-title" title="Needs attention" />
@@ -235,7 +250,7 @@ export default function Dashboard() {
       <div className="mb-8 grid gap-8 sm:mb-10 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <section aria-labelledby="recent-title" className="min-w-0">
           <SectionHeader id="recent-title" title="Recent activity" href="/dashboard/transactions" />
-          <div className="rounded-lg border border-border bg-panel px-4">
+          <div className="border-y border-border">
             {!loaded ? (
               <div className="py-4"><SkeletonRows rows={4} /></div>
             ) : history.length === 0 ? (
@@ -269,7 +284,7 @@ export default function Dashboard() {
 
         <section aria-labelledby="next-title" className="min-w-0">
           <SectionHeader id="next-title" title="Coming up" href="/dashboard/automations" linkLabel="Automations" />
-          <div className="rounded-lg border border-border bg-panel px-4">
+          <div className="border-y border-border">
             {!loaded ? (
               <div className="py-4"><SkeletonRows rows={2} /></div>
             ) : upcoming.length === 0 ? (
@@ -336,6 +351,8 @@ export default function Dashboard() {
           </div>
         </div>
       </section>
+
+      </>)}
 
       <ReceiveModal open={receiveOpen} onClose={() => setReceiveOpen(false)} />
     </div>
