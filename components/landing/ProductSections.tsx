@@ -90,13 +90,13 @@ export function CoreProductSection() {
               key={c.label}
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.08, duration: 0.4 }}
-              className="flex flex-col rounded-2xl surface-purple p-6"
+              className="flex flex-col rounded-2xl surface-purple p-6 sm:p-7"
             >
-              <p className="flex items-center gap-2.5 text-[15px] font-semibold">
+              <p className="flex items-center gap-2.5 text-lg font-semibold tracking-tight">
                 <c.icon size={18} aria-hidden />
                 {c.label}
               </p>
-              <p className="mt-4 flex-1 rounded-xl bg-panel px-4 py-3.5 text-[15px] font-medium leading-snug">
+              <p className="mt-5 flex-1 rounded-xl bg-panel px-4 py-4 text-[15px] font-medium leading-snug">
                 {c.intent}
               </p>
               <StepTrack />
@@ -234,14 +234,14 @@ export function CapabilitiesSection() {
               key={c.title}
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: (i % 3) * 0.05, duration: 0.3 }}
-              className="flex items-center gap-3.5 rounded-xl surface-purple p-4"
+              className="flex items-center gap-3.5 rounded-xl surface-purple p-5"
             >
               <span className="flex h-10 w-10 shrink-0 items-center justify-center text-primary">
                 <c.icon size={21} />
               </span>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-foreground">{c.title}</p>
-                <p className="text-xs leading-relaxed text-muted-foreground">{c.body}</p>
+                <p className="text-base font-semibold text-foreground">{c.title}</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{c.body}</p>
               </div>
             </motion.div>
           ))}
@@ -313,13 +313,13 @@ export function VerificationSection() {
               key={c.title}
               initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }} transition={{ delay: i * 0.06, duration: 0.3 }}
-              className="rounded-xl surface-purple p-5"
+              className="rounded-xl surface-purple p-6 sm:p-7"
             >
-              <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+              <span className="mb-6 flex text-primary">
                 {c.brand ? <MonadMark size={22} /> : <c.icon size={22} />}
               </span>
-              <h3 className="text-sm font-semibold text-foreground">{c.title}</h3>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{c.body}</p>
+              <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{c.title}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{c.body}</p>
             </motion.div>
           ))}
         </div>

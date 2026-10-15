@@ -74,7 +74,7 @@ export function SupportedTokens() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {tokens === null
             ? Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-xl surface-purple p-4">
+                <div key={i} className="flex items-center gap-3 rounded-xl surface-purple p-5">
                   <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-border/70" />
                   <div className="min-w-0 flex-1 space-y-2">
                     <div className="h-3 w-16 animate-pulse rounded bg-border/70" />
@@ -88,7 +88,7 @@ export function SupportedTokens() {
                   initial={{ opacity: 0, y: 10 }} whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true, margin: "-40px" }}
                   transition={{ delay: Math.min(i * 0.05, 0.3), duration: 0.4, ease: "easeOut" }}
-                  className="group flex items-center gap-3 rounded-xl surface-purple p-4 transition-all duration-200"
+                  className="group flex items-center gap-3 rounded-xl surface-purple p-5 transition-all duration-200"
                 >
                   <TokenLogo token={t.symbol} logoURI={t.logoURI} size={34} />
                   <div className="min-w-0 flex-1">
@@ -508,13 +508,13 @@ export function DeveloperApi() {
 
 function DevPoint({ icon: Icon, title, body }: { icon: typeof Code2; title: string; body: string }) {
   return (
-    <div className="flex gap-3.5 rounded-xl surface-purple p-5 transition-all duration-200">
+    <div className="flex gap-3.5 rounded-xl surface-purple p-6 sm:p-7 transition-all duration-200">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-primary/15 bg-primary/10 text-primary-ink">
         <Icon size={16} />
       </span>
       <div>
-        <p className="text-sm font-semibold tracking-tight text-foreground">{title}</p>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{body}</p>
+        <p className="text-base font-semibold tracking-tight text-foreground">{title}</p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{body}</p>
       </div>
     </div>
   );
@@ -552,7 +552,7 @@ export function EcosystemIntegrations() {
               </span>
               <div className="min-w-0">
                 <p className="text-base font-semibold tracking-tight text-foreground">{it.title}</p>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{it.body}</p>
+                <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{it.body}</p>
               </div>
             </motion.div>
           ))}

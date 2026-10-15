@@ -46,10 +46,10 @@ export function HowToAskSection() {
 
         <ul className="mt-12 grid gap-4 md:grid-cols-2">
           {GUIDE.map((g) => (
-            <li key={g.title} className="flex flex-col rounded-2xl surface-purple p-5 sm:p-6">
-              <h3 className="text-base font-medium tracking-[-0.02em] text-foreground sm:text-lg">{g.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{g.body}</p>
-              <ul className="mt-4 space-y-2">
+            <li key={g.title} className="flex flex-col rounded-2xl surface-purple p-6 sm:p-7">
+              <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{g.title}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{g.body}</p>
+              <ul className="mt-5 space-y-2">
                 {g.examples.map((e) => (
                   <li key={e.say} className="break-words rounded-xl bg-panel px-4 py-3 text-[14px] font-medium leading-snug text-foreground">
                     {displayPrompt(e.say)}

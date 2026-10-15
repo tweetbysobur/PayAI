@@ -43,7 +43,6 @@ export default function ProductPage() {
 
       <section className="relative z-10 mx-auto max-w-4xl px-6 pb-4 pt-12 text-center sm:pt-16">
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, ease: "easeOut" }}>
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary-ink">Product</p>
           {/* "on-chain" is nowrap for the same reason as the landing hero: a
               hyphen is a legal break opportunity, and measured at 375px this
               headline splits to "Turn intent into on-" / "chain execution."

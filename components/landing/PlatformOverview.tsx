@@ -130,7 +130,7 @@ export function ProductOverviewSection() {
               </span>
               <div className="min-w-0">
                 <h3 className="text-lg font-semibold tracking-tight text-foreground">{ASK_PAYAI.title}</h3>
-                <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-muted-foreground">{ASK_PAYAI.body}</p>
+                <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">{ASK_PAYAI.body}</p>
               </div>
             </div>
             <span className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg bg-primary px-4 py-2.5 text-xs font-medium text-primary-foreground shadow-sm shadow-primary/25 sm:self-center">
@@ -152,12 +152,12 @@ export function ProductOverviewSection() {
                 href={p.href}
                 className="group flex h-full flex-col rounded-2xl surface-purple p-6 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="mb-4 flex h-11 w-11 items-center justify-center text-primary">
+                <span className="mb-6 flex text-primary">
                   <p.icon size={23} />
                 </span>
-                <h3 className="text-base font-semibold tracking-tight text-foreground">{p.title}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{p.body}</p>
-                <span className="mt-5 inline-flex items-center gap-1.5 text-xs font-medium text-primary-ink">
+                <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{p.title}</h3>
+                <p className="mt-2 flex-1 text-[15px] leading-relaxed text-muted-foreground">{p.body}</p>
+                <span className="mt-6 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-ink">
                   {p.action}
                   <ArrowRight size={13} className="transition-transform duration-200 group-hover:translate-x-0.5" />
                 </span>
@@ -374,21 +374,21 @@ export function PaymentOperationsSection() {
             >
               <Link
                 href={o.template ? `/dashboard/automations?template=${o.template}` : "/dashboard/automations"}
-                className="group flex h-full flex-col rounded-xl surface-purple p-5 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex h-full flex-col rounded-xl surface-purple p-6 sm:p-7 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+                <span className="mb-6 flex text-primary">
                   <o.icon size={22} />
                 </span>
                 <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-foreground">{o.title}</h3>
-                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${o.status === "ready" ? "border-primary/40 text-primary-ink" : "border-border text-muted-foreground"}`}>
+                  <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{o.title}</h3>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${o.status === "ready" ? "border-primary/40 text-primary-ink" : "border-border text-muted-foreground"}`}>
                     {o.status === "ready" ? "Works today" : "Partly"}
                   </span>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-foreground/85"><strong className="font-semibold text-foreground">Works today: </strong>{o.works}</p>
-                {o.notYet && <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground"><strong className="font-semibold text-foreground/80">Not yet: </strong>{o.notYet}</p>}
+                <p className="mt-3 text-[15px] leading-relaxed text-foreground"><strong className="font-semibold text-foreground">Works today: </strong>{o.works}</p>
+                {o.notYet && <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground"><strong className="font-semibold text-foreground/80">Not yet: </strong>{o.notYet}</p>}
                 <span className="flex-1" />
-                <span className="mt-4 inline-flex items-center gap-1 text-[11px] font-medium text-primary-ink">
+                <span className="mt-6 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary-ink">
                   {o.template ? "Use the workflow" : "Set it up"}
                   <ArrowRight size={11} className="transition-transform duration-200 group-hover:translate-x-0.5" />
                 </span>
@@ -480,7 +480,6 @@ export function EmbeddedWalletSection() {
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
           className="order-1 lg:order-2"
         >
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Embedded wallet</p>
           <h2 className={H2}>A wallet in seconds, or the one you already have.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             The PayAI wallet is created from a passkey on your own device. There is no seed phrase, because there is nothing
@@ -531,7 +530,6 @@ export function TradingSection() {
           initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.4 }}
         >
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-ink">Trading</p>
           <h2 className={H2}>Trade across supported Monad venues from one interface.</h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             Describe the trade in plain language. PayAI coordinates execution through supported Monad venues — quoting
@@ -633,13 +631,13 @@ export function AnalyticsSection() {
               initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
               transition={{ delay: (i % 3) * 0.05, duration: 0.35 }}
-              className="h-full rounded-xl surface-purple p-5 transition-colors"
+              className="h-full rounded-xl surface-purple p-6 sm:p-7 transition-colors"
             >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center text-primary">
+              <div className="mb-6 flex text-primary">
                 <a.icon size={22} />
               </div>
-              <h3 className="text-sm font-semibold text-foreground">{a.title}</h3>
-              <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{a.body}</p>
+              <h3 className="text-lg font-semibold leading-snug tracking-tight text-foreground">{a.title}</h3>
+              <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">{a.body}</p>
             </motion.div>
           ))}
         </div>

@@ -85,7 +85,7 @@ export default function HowItWorksPage() {
                 transition={{ delay: i * 0.08, duration: 0.45, ease: "easeOut" }}
                 className="flex flex-col rounded-2xl surface-purple p-6 transition-all duration-200 sm:p-7"
               >
-                <span className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/15 bg-primary/10 text-primary-ink">
+                <span className="mb-6 flex text-primary-ink">
                   <m.icon size={18} />
                 </span>
                 <h3 className="text-lg font-semibold tracking-tight text-foreground">{m.name}</h3>
