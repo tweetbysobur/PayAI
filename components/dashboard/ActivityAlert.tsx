@@ -124,7 +124,7 @@ function DepositCard({ shown, onOpen, onClose }: { shown: Shown; onOpen: (href: 
     // Confetti sits outside the clipped card so it can burst over its edges.
     <div className="relative">
       <Confetti />
-      <div className="overflow-hidden rounded-2xl surface-purple shadow-2xl">
+      <div className="overflow-hidden rounded-2xl border border-success/30 bg-panel shadow-2xl ring-1 ring-success/15">
       <div className="relative flex items-start gap-3 p-4">
         <motion.span
           initial={{ scale: 0.4, rotate: -20, opacity: 0 }}
@@ -161,7 +161,7 @@ function ActivityCard({ shown, onOpen, onClose }: { shown: Shown; onOpen: (href:
   const { item, kind, more } = shown;
   const failed = kind === "failure";
   return (
-    <div className="overflow-hidden rounded-2xl surface-purple shadow-2xl">
+    <div className={`overflow-hidden rounded-2xl border bg-panel shadow-2xl ${failed ? "border-danger/30" : "border-border"}`}>
       <div className="flex items-start gap-3 p-4">
         <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${failed ? "bg-danger/10 text-danger" : "bg-primary/10 text-primary-ink"}`}>
           {failed ? <AlertTriangle size={17} aria-hidden /> : <ArrowUpRight size={17} aria-hidden />}

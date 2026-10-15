@@ -68,10 +68,10 @@ export function OnboardingFlow() {
             role="dialog" aria-modal="true" aria-labelledby="onboarding-title"
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="grid max-h-[94dvh] w-full max-w-3xl overflow-hidden rounded-xl surface-purple md:grid-cols-[15rem_minmax(0,1fr)]"
+            className="grid max-h-[94dvh] w-full max-w-3xl overflow-hidden rounded-xl border border-primary/40 bg-background md:grid-cols-[15rem_minmax(0,1fr)]"
           >
             {/* Brand rail — purple. */}
-            <aside className="flex flex-col bg-panel px-4 py-3 text-white md:p-6">
+            <aside className="flex flex-col bg-primary px-4 py-3 text-white md:p-6">
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2.5">
                   <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-black md:h-9 md:w-9"><LogoMark size={16} className="text-primary-ink" /></span>
@@ -88,7 +88,7 @@ export function OnboardingFlow() {
               <ol className="mt-10 hidden space-y-1 md:block">
                 {STEPS.map((s, i) => (
                   <li key={s} aria-current={i === step ? "step" : undefined} className={`flex items-center gap-3 rounded-md px-2 py-2 text-sm ${i === step ? "bg-black/25 font-medium text-white" : i < step ? "text-white/80" : "text-white/55"}`}>
-                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < step ? "bg-white text-[hsl(var(--brand))]" : i === step ? "bg-black text-white" : "border border-primary-foreground/40"}`}>
+                    <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${i < step ? "bg-white text-primary" : i === step ? "bg-black text-white" : "border border-primary-foreground/40"}`}>
                       {i < step ? <Check size={12} strokeWidth={3} /> : i + 1}
                     </span>
                     {s}

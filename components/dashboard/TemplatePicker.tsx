@@ -78,7 +78,7 @@ export function TemplatePicker({ open, onClose, onSelect, onSelectBulk }: {
             role="dialog" aria-modal="true" aria-label="Choose an automation template"
             initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl surface-purple shadow-2xl"
+            className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-6 py-4">

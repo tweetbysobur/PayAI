@@ -126,7 +126,7 @@ export function TopUpModal({ open, onClose }: { open: boolean; onClose: () => vo
         initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-sm overflow-hidden rounded-2xl surface-purple shadow-2xl"
+        className="w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-panel shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
           <p className="text-sm font-semibold text-foreground">Add funds</p>
