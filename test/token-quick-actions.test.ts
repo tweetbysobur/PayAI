@@ -28,14 +28,22 @@ describe("the token card's Buy / Sell controls only ever send a chat message", (
 
   it("touches no signing, execution or wallet API — onQuickAction is the only thing it calls", () => {
     expect(panelSrc).not.toMatch(/sendTransaction|signTransaction|writeContract|execute\w*\(|fetch\(/);
-    expect(panelSrc).toMatch(/onClick=\{\(\) => message && onQuickAction\(message\)\}/);
+    // The review button's submit() is the one place it calls onQuickAction,
+    // once, guarded against a second tap.
+    expect(panelSrc).toMatch(/onClick=\{submit\}/);
+    expect(panelSrc).toMatch(/function submit\(\) \{\s*if \(!message \|\| sentAt\) return;\s*setSentAt\(Date\.now\(\)\);\s*onQuickAction\(message\);/);
+    expect((panelSrc.match(/onQuickAction\(/g) ?? []).length).toBe(1);
     // Every other click only changes the panel's own local state.
     const onClicks = [...panelSrc.matchAll(/onClick=\{([^}]*\}?)\}/g)].map((m) => m[1]);
-    for (const oc of onClicks) expect(oc).toMatch(/onQuickAction\(message\)|set(Side|Pay|Amount|Percent)\(|^onClick$/);
+    for (const oc of onClicks) expect(oc).toMatch(/^submit$|set(Side|Pay|Amount|Percent)\(|^onPick$/);
   });
 
-  it("the review button is disabled until the request is complete", () => {
-    expect(panelSrc).toMatch(/disabled=\{!message\}/);
+  it("the review button is disabled until the request is complete, and briefly after a tap", () => {
+    expect(panelSrc).toMatch(/disabled=\{!message \|\| !!sentAt\}/);
+  });
+
+  it("a sell is only blocked when the balance is read as zero — an unread balance is left to the quote", () => {
+    expect(panelSrc).toMatch(/const holdsNone = side === "sell" && held === 0;/);
   });
 
   it("Refresh re-sends the token's own address, not a hardcoded string", () => {
@@ -53,6 +61,12 @@ describe("tokenTradeMessage writes requests the trading rules read exactly", () 
     expect(tokenTradeMessage("sell", TOKEN, { percent: 100 })).toBe(`Sell all of ${TOKEN}`);
     expect(tokenTradeMessage("sell", TOKEN, { amount: "1200" })).toBe(`Sell 1200 of ${TOKEN}`);
   });
+  it("normalizes how the amount is written, never its value", () => {
+    expect(tokenTradeMessage("buy", TOKEN, { amount: "007", pay: "MON" })).toBe(`Buy ${TOKEN} with 7 MON`);
+    expect(tokenTradeMessage("buy", TOKEN, { amount: ".5", pay: "USDC" })).toBe(`Buy ${TOKEN} with 0.5 USDC`);
+    expect(tokenTradeMessage("sell", TOKEN, { amount: "12." })).toBe(`Sell 12 of ${TOKEN}`);
+  });
+
   it("nothing for an empty, zero or malformed amount", () => {
     for (const amount of ["", "0", "0.0", ".", "1.2.3", "abc"]) {
       expect(tokenTradeMessage("buy", TOKEN, { amount, pay: "MON" }), amount).toBeNull();

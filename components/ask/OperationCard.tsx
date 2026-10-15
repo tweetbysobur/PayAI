@@ -73,12 +73,6 @@ const NADFUN_STATUS_LABEL: Record<string, string> = {
   locked: "Locked",
   unsupported: "No active route",
 };
-const NADFUN_STATUS_TONE: Record<string, string> = {
-  bonding_curve: "border-primary/30 bg-primary/10 text-primary-ink",
-  graduated: "border-success/30 bg-success/10 text-success",
-  locked: "border-warning/30 bg-warning/10 text-warning",
-  unsupported: "border-border bg-input text-muted-foreground",
-};
 
 const KIND_META: Record<Operation["intent"]["kind"], { icon: typeof Send; title: string }> = {
   payment: { icon: Send, title: "Payment" },
@@ -241,17 +235,20 @@ export function OperationCard({
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }}
       transition={{ duration: 0.15 }}
-      className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-panel"
+      className={`w-full overflow-hidden rounded-xl border border-border bg-panel ${intent.kind === "token_intelligence" ? "max-w-sm" : "max-w-md"}`}
     >
-      <div className="flex items-center gap-2.5 border-b border-border/70 px-4 py-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center text-primary">
-          <Icon size={18} />
-        </span>
-        <p className="flex-1 text-sm font-semibold text-foreground">{title}</p>
-        <StatusText tone={chip.tone}>{chip.label}</StatusText>
-      </div>
+      {/* A token card is headed by the token itself — no generic title row. */}
+      {intent.kind !== "token_intelligence" && (
+        <div className="flex items-center gap-2.5 border-b border-border/70 px-4 py-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center text-primary">
+            <Icon size={18} />
+          </span>
+          <p className="flex-1 text-sm font-semibold text-foreground">{title}</p>
+          <StatusText tone={chip.tone}>{chip.label}</StatusText>
+        </div>
+      )}
 
-      <div className="px-4 py-3">
+      <div className={intent.kind === "token_intelligence" ? "px-3.5 py-3" : "px-4 py-3"}>
         {status === "error" && operation.error ? (
           <ErrorBody error={operation.error} intent={intent} />
         ) : status === "submitted" && operation.submitted ? (
@@ -565,54 +562,42 @@ function TokenIntelligenceBody({
   if (!d) return <p className="text-sm text-muted-foreground">No token data available.</p>;
 
   const change = d.market.priceChange24h;
-  const changeTone = change == null ? "" : change.startsWith("-") ? "text-danger" : "text-success";
   const providers = Array.from(new Set(d.market.routes.map((r) => r.provider)));
+  const liquidity = d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : "—";
 
   return (
-    <div>
-      {/* Identity and price */}
-      <div className="flex items-start gap-3">
-        <TokenLogo token={d.symbol} size={40} />
+    <div className="text-[13px]">
+      <div className="flex items-center gap-2.5">
+        <TokenLogo token={d.symbol} size={28} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-[15px] font-semibold text-foreground">{d.name}</p>
-            {d.verified && <ShieldCheck size={14} className="shrink-0 text-primary-ink" aria-label="Verified" />}
-          </div>
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/80">{d.symbol}</span>
-            <span className="mx-1">·</span>
-            <span className="font-mono">{short(intent.address)}</span>
+          <p className="flex items-center gap-1 truncate font-medium text-foreground">
+            <span className="truncate">{d.name}</span>
+            <span className="shrink-0 font-normal text-muted-foreground">{d.symbol}</span>
+            {d.verified && <ShieldCheck size={12} className="shrink-0 text-primary-ink" aria-label="Verified" />}
           </p>
+          <p className="truncate font-mono text-[11px] text-muted-foreground">{short(intent.address)}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[15px] font-semibold tabular-nums text-foreground">{d.market.price ? `$${d.market.price}` : "—"}</p>
+          <p className="font-medium tabular-nums text-foreground">{d.market.price ? `$${d.market.price}` : "—"}</p>
           {change ? (
-            <p className={`text-xs font-medium tabular-nums ${changeTone}`}>{change} <span className="font-normal text-muted-foreground">24h</span></p>
+            <p className={`text-[11px] tabular-nums ${change.startsWith("-") ? "text-danger" : "text-success"}`}>{change}</p>
           ) : d.market.priceMon ? (
-            <p className="text-xs tabular-nums text-muted-foreground">≈ {d.market.priceMon} MON</p>
+            <p className="text-[11px] tabular-nums text-muted-foreground">{d.market.priceMon} MON</p>
           ) : null}
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${d.isTradable ? "border-success/30 bg-success/10 text-success" : "border-border bg-input text-muted-foreground"}`}>
-          {d.isTradable ? "Tradable" : "No route found"}
-        </span>
-        {providers.map((p) => (
-          <span key={p} className="rounded-full border border-border bg-input/40 px-2 py-0.5 text-[11px] text-muted-foreground">{p}</span>
-        ))}
-        {d.nadFun && (
-          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${NADFUN_STATUS_TONE[d.nadFun.status]}`}>
-            Nad.Fun · {NADFUN_STATUS_LABEL[d.nadFun.status]}
-          </span>
-        )}
-        <span className="ml-auto text-[10px] text-muted-foreground">Updated {agoLabel(d.market.lastUpdated)}</span>
-      </div>
+      <p className="mt-1.5 text-[11px] text-muted-foreground">
+        {d.isTradable ? `Trades on ${providers.join(", ")}` : "No trading route found"}
+        {/* The bonding curve has its own bar below; only a finished or locked curve is worth a word here. */}
+        {d.nadFun && (d.nadFun.status === "graduated" || d.nadFun.status === "locked") ? ` · Nad.Fun ${NADFUN_STATUS_LABEL[d.nadFun.status].toLowerCase()}` : ""}
+        {` · ${agoLabel(d.market.lastUpdated)}`}
+      </p>
       {!d.market.price && d.isTradable && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">Price unavailable — the pool is too thin to price honestly, but a trading route was found.</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Price unavailable — the pool is too thin to price, but a route exists.</p>
       )}
       {d.market.price && !d.isTradable && d.nadFun && (
-        <p className="mt-1.5 text-[11px] text-muted-foreground">Price estimated from the Nad.Fun pool&apos;s reserves — no executable trade route was found yet.</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">Price estimated from the Nad.Fun pool; no executable route yet.</p>
       )}
 
       {/* Buy / Sell — only for a token with a real route, and only ever by
@@ -624,81 +609,66 @@ function TokenIntelligenceBody({
       )}
 
       {d.quote?.route && (
-        <div className="mt-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
-          <p className="mb-0.5 text-xs text-muted-foreground">{d.quote.amount} {d.symbol} ≈</p>
-          <p className="text-base font-semibold tabular-nums text-foreground">
-            {d.quote.route.estimatedOutput} {d.quote.route.outputToken}
-            <span className="ml-1.5 text-xs font-normal text-muted-foreground">via {d.quote.route.provider}</span>
-          </p>
-        </div>
+        <p className="mt-3 text-muted-foreground">
+          {d.quote.amount} {d.symbol} ≈ <span className="font-medium tabular-nums text-foreground">{d.quote.route.estimatedOutput} {d.quote.route.outputToken}</span> via {d.quote.route.provider}
+        </p>
       )}
       {d.quote && !d.quote.route && (
-        <p className="mt-3 rounded-xl border border-border bg-input/30 px-3 py-2.5 text-xs text-muted-foreground">No usable route to quote {d.quote.amount} {d.symbol} in {d.quote.quoteAsset}.</p>
+        <p className="mt-3 text-muted-foreground">No usable route to quote {d.quote.amount} {d.symbol} in {d.quote.quoteAsset}.</p>
       )}
 
       {d.nadFun?.progressPct != null && (
         <div className="mt-3">
-          <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Bonding curve{d.nadFun.availableToBuy ? ` · ${d.nadFun.availableToBuy} ${d.symbol} left` : ""}</span>
-            <span className="tabular-nums text-foreground">{d.nadFun.progressPct.toFixed(2)}%</span>
+          <div className="flex justify-between text-[11px] text-muted-foreground">
+            <span>Bonding curve</span>
+            <span className="tabular-nums">{d.nadFun.progressPct.toFixed(1)}%</span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-input">
+          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-input">
             <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, d.nadFun.progressPct))}%` }} />
           </div>
         </div>
       )}
 
-      {/* Market */}
-      <dl className="mt-3 grid grid-cols-3 overflow-hidden rounded-xl border border-border">
-        <TokenStat label="Market cap" value={d.market.marketCapUsd ? `$${d.market.marketCapUsd}` : "—"} />
-        <TokenStat label={d.market.liquidity?.label === "Bonding Curve Liquidity" ? "Curve liquidity" : "Liquidity"} value={d.market.liquidity ? (d.market.liquidity.usd ? `$${d.market.liquidity.usd}` : `${d.market.liquidity.mon} MON`) : "—"} />
-        <TokenStat label="24h volume" value={d.market.volume24h ? `$${d.market.volume24h}` : "—"} />
-        <TokenStat label="FDV" value={d.market.fdvUsd ? `$${d.market.fdvUsd}` : "—"} border />
-        <TokenStat label="Supply" value={d.totalSupply ? compactNumber(d.totalSupply) : "—"} border />
-        <TokenStat label="24h trades" value={d.market.transactions24h != null ? `${d.market.buys24h ?? "—"} / ${d.market.sells24h ?? "—"}` : "—"} hint={d.market.transactions24h != null ? "buys / sells" : undefined} border />
+      <dl className="mt-3 grid grid-cols-2 gap-x-5 gap-y-1 border-t border-border/70 pt-2.5 text-[12px]">
+        <Stat label="Market cap" value={d.market.marketCapUsd ? `$${d.market.marketCapUsd}` : "—"} />
+        <Stat label="Liquidity" value={liquidity} />
+        <Stat label="24h volume" value={d.market.volume24h ? `$${d.market.volume24h}` : "—"} />
+        <Stat label="Supply" value={d.totalSupply ? compactNumber(d.totalSupply) : "—"} />
       </dl>
 
       {d.market.signals.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {d.market.signals.map((s) => (
-            <span key={s} className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
-              {SIGNAL_LABEL[s] ?? s.replace(/_/g, " ")}
-            </span>
-          ))}
-        </div>
+        <p className="mt-2 text-[11px] text-warning">{d.market.signals.map((s) => SIGNAL_LABEL[s] ?? s.replace(/_/g, " ")).join(" · ")}</p>
       )}
 
-      <details className="group mt-3 rounded-xl border border-border">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-          Token details
-          <span className="transition group-open:rotate-180">▾</span>
+      <details className="group mt-2">
+        <summary className="cursor-pointer list-none text-[11px] text-muted-foreground hover:text-foreground">
+          <span className="group-open:hidden">More details</span><span className="hidden group-open:inline">Fewer details</span>
         </summary>
-        <div className="divide-y divide-border/60 border-t border-border/70 px-3">
+        <dl className="mt-1.5 grid grid-cols-1 gap-y-1 text-[12px]">
+          {d.market.fdvUsd && <Stat label="FDV" value={`$${d.market.fdvUsd}`} />}
+          {d.market.transactions24h != null && <Stat label="24h buys / sells" value={`${d.market.buys24h ?? "—"} / ${d.market.sells24h ?? "—"}`} />}
           {d.market.routes.map((r, i) => (
-            <Row key={i} label={`${r.inputToken}/${r.outputToken} · ${r.provider}`}>{`≈ ${r.estimatedOutput} ${r.outputToken}${r.priceImpact ? ` · ${r.priceImpact} impact` : ""}`}</Row>
+            <Stat key={i} label={`${r.outputToken} via ${r.provider}`} value={`≈ ${r.estimatedOutput}${r.priceImpact ? ` · ${r.priceImpact}` : ""}`} />
           ))}
-          <Row label="Decimals">{String(d.decimals)}</Row>
-          <Row label="Network">Monad</Row>
-          <Row label="Markets checked">{d.market.quoteAssetsChecked.join(", ") || "None"}</Row>
-          {d.createdAt != null && <Row label="Created">{new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</Row>}
-          {d.creator && <Row label="Creator">{short(d.creator)}</Row>}
-          {d.pool && <Row label="Pool">{short(d.pool)}</Row>}
-          <Row label="Contract">{short(intent.address)}</Row>
-        </div>
+          <Stat label="Decimals" value={String(d.decimals)} />
+          {d.createdAt != null && <Stat label="Created" value={new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })} />}
+          {d.creator && <Stat label="Creator" value={short(d.creator)} />}
+          {d.pool && <Stat label="Pool" value={short(d.pool)} />}
+        </dl>
       </details>
 
-      <div className="mt-3 flex items-center justify-between">
-        <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary-ink hover:underline">
-          View on explorer <ExternalLink size={11} />
+      <div className="mt-2.5 flex items-center justify-between text-[11px]">
+        <a href={d.explorerUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary-ink hover:underline">
+          Explorer <ExternalLink size={10} />
         </a>
         {onQuickAction && (
           <button
             type="button"
             onClick={() => onQuickAction(intent.address)}
             aria-label="Refresh token info"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition hover:text-foreground"
+            className="inline-flex items-center gap-1 text-muted-foreground transition hover:text-foreground"
           >
-            <RefreshCw size={12} /> Refresh
+            <RefreshCw size={10} /> Refresh
           </button>
         )}
       </div>
@@ -706,12 +676,11 @@ function TokenIntelligenceBody({
   );
 }
 
-function TokenStat({ label, value, hint, border }: { label: string; value: string; hint?: string; border?: boolean }) {
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`min-w-0 px-3 py-2 [&:not(:nth-child(3n+1))]:border-l [&:not(:nth-child(3n+1))]:border-border ${border ? "border-t border-border" : ""}`}>
-      <dt className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 truncate text-[13px] font-medium tabular-nums text-foreground">{value}</dd>
-      {hint && <dd className="truncate text-[10px] text-muted-foreground">{hint}</dd>}
+    <div className="flex min-w-0 items-baseline justify-between gap-2">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="truncate text-right tabular-nums text-foreground">{value}</dd>
     </div>
   );
 }
@@ -737,11 +706,15 @@ export function tokenTradeMessage(
   side: "buy" | "sell", address: string,
   opts: { amount?: string; pay?: "MON" | "USDC"; percent?: number | null },
 ): string | null {
-  const amt = (opts.amount ?? "").trim();
-  const validAmt = /^(?:\d+\.?\d*|\.\d+)$/.test(amt) && Number(amt) > 0;
-  if (side === "buy") return validAmt && opts.pay ? `Buy ${address} with ${amt} ${opts.pay}` : null;
-  if (opts.percent != null) return opts.percent >= 100 ? `Sell all of ${address}` : `Sell ${opts.percent}% of ${address}`;
-  return validAmt ? `Sell ${amt} of ${address}` : null;
+  const raw = (opts.amount ?? "").trim();
+  if (!/^(?:\d+\.?\d*|\.\d+)$/.test(raw) || !(Number(raw) > 0)) {
+    if (side === "sell" && opts.percent != null) return opts.percent >= 100 ? `Sell all of ${address}` : `Sell ${opts.percent}% of ${address}`;
+    return null;
+  }
+  // "007" -> "7", ".5" -> "0.5": the amount the user sees is the amount sent.
+  const amt = raw.replace(/^0+(?=\d)/, "").replace(/^\./, "0.").replace(/\.$/, "");
+  if (side === "buy") return opts.pay ? `Buy ${address} with ${amt} ${opts.pay}` : null;
+  return `Sell ${amt} of ${address}`;
 }
 
 function TokenTradePanel({ address, symbol, balance, onQuickAction }: {
@@ -751,105 +724,100 @@ function TokenTradePanel({ address, symbol, balance, onQuickAction }: {
   const [pay, setPay] = useState<"MON" | "USDC">("MON");
   const [amount, setAmount] = useState("");
   const [percent, setPercent] = useState<number | null>(null);
-  const held = balance != null ? Number(balance) : null;
-  const heldLabel = held != null && Number.isFinite(held) ? held.toLocaleString("en-US", { maximumFractionDigits: held < 1 ? 6 : 4 }) : null;
-  const cannotSell = side === "sell" && (held == null || !(held > 0));
-  const message = cannotSell ? null : tokenTradeMessage(side, address, { amount, pay, percent: side === "sell" ? percent : null });
+  // A quick second tap must not send the request twice: the chat's own
+  // "busy" flag is only set once the first request is under way.
+  const [sentAt, setSentAt] = useState(0);
+  useEffect(() => {
+    if (!sentAt) return;
+    const t = setTimeout(() => setSentAt(0), 2000);
+    return () => clearTimeout(t);
+  }, [sentAt]);
 
-  const tab = (s: "buy" | "sell", label: string) => (
-    <button
-      type="button"
-      onClick={() => { setSide(s); setAmount(""); setPercent(null); }}
-      className={`flex-1 rounded-md py-1.5 text-xs font-semibold transition ${side === s ? (s === "buy" ? "bg-success text-white shadow-sm" : "bg-danger text-white shadow-sm") : "text-muted-foreground hover:text-foreground"}`}
-    >
-      {label}
-    </button>
-  );
-  const chip = (label: string, active: boolean, onClick: () => void) => (
+  const held = balance != null && balance !== "" ? Number(balance) : null;
+  const heldLabel = held != null && Number.isFinite(held) ? held.toLocaleString("en-US", { maximumFractionDigits: held < 1 ? 6 : 2 }) : null;
+  // Only a balance read as exactly zero blocks a sell; an unread one is left
+  // to the quote, which checks the real balance and says why if it can't.
+  const holdsNone = side === "sell" && held === 0;
+  const message = holdsNone ? null : tokenTradeMessage(side, address, { amount, pay, percent: side === "sell" ? percent : null });
+
+  function submit() {
+    if (!message || sentAt) return;
+    setSentAt(Date.now());
+    onQuickAction(message);
+  }
+  const preset = (label: string, active: boolean, onPick: () => void) => (
     <button
       key={label}
       type="button"
-      onClick={onClick}
-      className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-medium tabular-nums transition ${active ? "border-primary bg-primary/10 text-primary-ink" : "border-border bg-input/30 text-foreground hover:border-primary/40"}`}
+      onClick={onPick}
+      className={`rounded-md px-2 py-0.5 text-[11px] tabular-nums transition ${active ? "bg-primary/15 font-medium text-primary-ink" : "text-muted-foreground hover:text-foreground"}`}
     >
       {label}
     </button>
   );
 
   return (
-    <div className="mt-3 rounded-xl border border-border bg-input/20 p-3">
-      <div className="flex gap-1 rounded-lg bg-input/60 p-0.5">
-        {tab("buy", "Buy")}
-        {tab("sell", "Sell")}
+    <div className="mt-3 border-t border-border/70 pt-2.5">
+      <div className="flex items-center gap-4">
+        {(["buy", "sell"] as const).map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => { setSide(s); setAmount(""); setPercent(null); }}
+            className={`-mb-px border-b-2 pb-1 text-[13px] font-medium transition ${side === s ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {s === "buy" ? "Buy" : "Sell"}
+          </button>
+        ))}
+        <span className="ml-auto truncate text-[11px] text-muted-foreground">
+          {side === "buy" ? "Pay with MON or USDC" : heldLabel != null ? `Balance ${heldLabel}` : `Sold into MON`}
+        </span>
       </div>
 
-      {side === "buy" ? (
-        <>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Pay with</span>
-            <div className="flex gap-1">
-              {(["MON", "USDC"] as const).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => { setPay(p); setAmount(""); }}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${pay === p ? "border-primary bg-primary/10 text-primary-ink" : "border-border text-muted-foreground hover:text-foreground"}`}
-                >
-                  <TokenLogo token={p} size={14} /> {p}
-                </button>
-              ))}
-            </div>
+      <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-border bg-input/30 px-2.5 focus-within:border-primary/60">
+        <input
+          value={amount}
+          onChange={(e) => { setAmount(e.target.value.replace(/[^\d.]/g, "").slice(0, 24)); setPercent(null); }}
+          inputMode="decimal"
+          placeholder={side === "buy" ? "Amount" : `Amount of ${symbol}`}
+          aria-label={side === "buy" ? `Amount of ${pay} to spend` : `Amount of ${symbol} to sell`}
+          className="h-full min-w-0 flex-1 bg-transparent text-[13px] tabular-nums text-foreground outline-none placeholder:text-muted-foreground/60"
+        />
+        {side === "buy" ? (
+          <div className="flex shrink-0 items-center rounded-md bg-input/60 p-0.5" role="group" aria-label="Pay with">
+            {(["MON", "USDC"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => { setPay(p); setAmount(""); }}
+                aria-pressed={pay === p}
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium transition ${pay === p ? "bg-panel text-foreground shadow-sm" : "text-muted-foreground"}`}
+              >
+                {p}
+              </button>
+            ))}
           </div>
-          <label className="mt-2.5 flex items-center rounded-lg border border-border bg-panel px-3 focus-within:border-primary">
-            <input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
-              inputMode="decimal"
-              placeholder="0.00"
-              aria-label={`Amount of ${pay} to spend`}
-              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-medium tabular-nums text-foreground outline-none placeholder:text-muted-foreground/60"
-            />
-            <span className="text-xs font-medium text-muted-foreground">{pay}</span>
-          </label>
-          <div className="mt-2 flex gap-1.5">
-            {BUY_PRESETS[pay].map((v) => chip(`${v} ${pay}`, amount === v, () => setAmount(v)))}
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="mt-3 flex items-center justify-between text-[11px]">
-            <span className="font-medium uppercase tracking-wide text-muted-foreground">Sell into MON</span>
-            <span className="tabular-nums text-muted-foreground">{heldLabel != null ? `Balance ${heldLabel} ${symbol}` : "Balance —"}</span>
-          </div>
-          <div className="mt-2.5 flex gap-1.5">
-            {SELL_PRESETS.map((p) => chip(p === 100 ? "Max" : `${p}%`, percent === p, () => { setPercent(p); setAmount(""); }))}
-          </div>
-          <label className="mt-2 flex items-center rounded-lg border border-border bg-panel px-3 focus-within:border-primary">
-            <input
-              value={amount}
-              onChange={(e) => { setAmount(e.target.value.replace(/[^\d.]/g, "")); setPercent(null); }}
-              inputMode="decimal"
-              placeholder="Or an exact amount"
-              aria-label={`Amount of ${symbol} to sell`}
-              className="h-10 min-w-0 flex-1 bg-transparent text-sm font-medium tabular-nums text-foreground outline-none placeholder:text-muted-foreground/60"
-            />
-            <span className="text-xs font-medium text-muted-foreground">{symbol}</span>
-          </label>
-          {cannotSell && (
-            <p className="mt-2 text-[11px] text-muted-foreground">{held == null ? "Connect your wallet to sell this token." : `You don't hold any ${symbol} yet.`}</p>
-          )}
-        </>
-      )}
+        ) : (
+          <span className="max-w-[35%] shrink-0 truncate text-[11px] text-muted-foreground">{symbol}</span>
+        )}
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-0.5">
+        {side === "buy"
+          ? BUY_PRESETS[pay].map((v) => preset(`${v} ${pay}`, amount === v, () => setAmount(v)))
+          : SELL_PRESETS.map((p) => preset(p === 100 ? "Max" : `${p}%`, percent === p, () => { setPercent(p); setAmount(""); }))}
+      </div>
+
+      {holdsNone && <p className="mt-1.5 text-[11px] text-muted-foreground">You don&apos;t hold any {symbol}.</p>}
 
       <button
         type="button"
-        disabled={!message}
-        onClick={() => message && onQuickAction(message)}
-        className={`mt-3 w-full rounded-lg py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40 ${side === "buy" ? "bg-success hover:opacity-90" : "bg-danger hover:opacity-90"}`}
+        disabled={!message || !!sentAt}
+        onClick={submit}
+        className="mt-2 h-9 w-full rounded-lg bg-primary text-[13px] font-medium text-primary-foreground transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        {side === "buy" ? `Review buy${message ? ` · ${amount} ${pay}` : ""}` : `Review sell${message ? (percent != null ? ` · ${percent === 100 ? "all" : `${percent}%`}` : ` · ${amount} ${symbol}`) : ""}`}
+        {side === "buy" ? "Review buy" : "Review sell"}
       </button>
-      <p className="mt-2 text-center text-[10px] text-muted-foreground">You&apos;ll see the live quote and confirm with your wallet before anything is signed.</p>
     </div>
   );
 }
