@@ -43,7 +43,7 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
           <motion.aside
             role="dialog" aria-modal="true" aria-label="Navigation menu"
             initial={{ x: -24, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ duration: 0.18, ease: "easeOut" }}
-            className="flex h-full w-[min(18rem,85vw)] flex-col border-r border-border bg-background"
+            className="flex h-full w-[min(18rem,85vw)] flex-col border-r border-border bg-tint"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex h-[61px] items-center justify-between border-b border-border px-5">

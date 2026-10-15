@@ -67,17 +67,23 @@
      dark canvas, ink on the light one. Use as `border-glass/10`,
      `bg-glass/[0.04]`, never a literal white. */
   --glass: 0 0% 100%;
+
+  /* Surfaces that sit flat on the canvas in dark mode (sidebar, settings
+     rows) but take the lavender card colour in light mode. */
+  --tint: var(--background);
 }
 
-/* Light mode: white canvas, PayAI purple, faint lavender surfaces. Every
-   text/background pair is AA or better: foreground 19:1 on white, muted
-   6.1:1, --primary-ink 7.1:1, danger 4.8:1; white on --primary 5.67:1. */
+/* Light mode: white canvas, PayAI purple, lavender cards and hairlines (the
+   look of the product films). Every text/background pair is AA or better:
+   foreground 18:1 on the lavender card, muted 5.9:1 on white and 5.6:1 on
+   the card, --primary-ink 6.6:1 on the card, danger 5.5:1; white on
+   --primary 5.67:1. */
 :root[data-theme="light"] {
   color-scheme: light;
   --background: 0 0% 100%;          /* #ffffff */
-  --panel: 250 50% 98%;             /* #f9f8fd — lavender-white surface */
+  --panel: 253 100% 96.5%;          /* #f2eeff — lavender card surface */
   --foreground: 240 15% 5%;         /* #0b0b0f */
-  --muted-foreground: 240 5% 40%;   /* #61616b */
+  --muted-foreground: 255 9% 39%;   /* #5e5a6d — purple-tinted grey */
 
   --primary: 262 83% 58%;           /* #7c3aed — the same purple */
   --primary-foreground: 0 0% 100%;
@@ -85,19 +91,20 @@
   --secondary: 258 90% 66%;
 
   --success: 262 83% 58%;
-  --warning: 0 72% 51%;             /* #dc2626 */
-  --danger: 0 72% 51%;
+  --warning: 0 72% 45%;             /* #c62020 */
+  --danger: 0 72% 45%;
 
   --exec-success: 152 70% 32%;
   --exec-scheduled: 240 5% 46%;
-  --exec-failed: 0 72% 51%;
+  --exec-failed: 0 72% 45%;
   --info: 217 85% 48%;
 
-  --border: 250 22% 90%;            /* #e3e0ee */
-  --input: 250 30% 96%;             /* #f2f1f8 */
+  --border: 252 80% 90%;            /* #dcd3fb — lavender hairline */
+  --input: 252 90% 94.5%;           /* #ebe4fe — lavender field */
   --ring: 262 83% 58%;
 
-  --glass: 250 30% 20%;
+  --glass: 262 60% 35%;
+  --tint: var(--panel);
 }
 
 @theme inline {
@@ -130,6 +137,7 @@
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
   --color-glass: hsl(var(--glass));
+  --color-tint: hsl(var(--tint));
 }
 
 body {

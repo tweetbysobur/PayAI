@@ -56,7 +56,7 @@ export default function Settings() {
           value={<span className="flex items-center gap-2"><MonadMark size={14} /> Monad Mainnet</span>}
           detail="All payments and automations settle here."
         />
-        <Link href="/dashboard/wallets" className="group flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/dashboard/wallets" className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-tint px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span>
             <span className="block text-foreground">Linked wallets</span>
             <span className="mt-0.5 block text-xs text-muted-foreground">Add, switch and recover the wallets on your account.</span>
@@ -74,7 +74,7 @@ export default function Settings() {
       </SettingsSection>
 
       <SettingsSection id="support" title="Support">
-        <Link href="/dashboard/help?tab=support" className="group flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link href="/dashboard/help?tab=support" className="group flex items-center justify-between gap-3 rounded-lg border border-border bg-tint px-4 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <span>
             <span className="block text-foreground">Report a problem or ask a question</span>
             <span className="mt-0.5 block text-xs text-muted-foreground">Failed automations, missing refunds, payments, or your wallet.</span>
@@ -100,7 +100,7 @@ function SettingsSection({ id, title, children }: { id: string; title: string; c
 
 function Row({ label, value, detail, right }: { label: string; value: React.ReactNode; detail?: string; right?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border px-4 py-3.5">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-tint px-4 py-3.5">
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         <div className="mt-0.5 text-sm text-foreground">{value}</div>
