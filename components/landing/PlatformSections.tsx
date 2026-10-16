@@ -162,11 +162,13 @@ const FEATURE_LABEL: Record<RevenueFeature, string> = {
   automation: "Automations",
   bulk: "Bulk distributions",
 };
+// Drawn on the purple panel, so light tints: each is 4.2:1 or better
+// against it, and they stay apart by hue.
 const FEATURE_COLOR: Record<RevenueFeature, string> = {
-  payment: "#3987e5",
-  swap: "#d95926",
-  automation: "#199e70",
-  bulk: "#c98500",
+  payment: "#ffffff",
+  swap: "#fde68a",
+  automation: "#a7f3d0",
+  bulk: "#bae6fd",
 };
 
 function monthLabel(ym: string): string {

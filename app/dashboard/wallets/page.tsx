@@ -3,7 +3,7 @@
 import { FundingSourcePicker } from "@/components/dashboard/FundingSourcePicker";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Wallet as WalletIcon, ArrowUpRight, ArrowDownLeft, Repeat, Activity, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint, Copy, Check, ExternalLink, LogOut } from "lucide-react";
+import { Wallet as WalletIcon, ArrowUpRight, ArrowDownLeft, ArrowLeftRight, Repeat, Activity, TrendingUp, RefreshCw, ShieldCheck, Radio, FileCheck2, KeyRound, Fingerprint, Copy, Check, ExternalLink, LogOut } from "lucide-react";
 import Link from "next/link";
 import { Badge, Button, Card, Skeleton } from "@/components/ui";
 import { useWalletService as useWallet } from "@/lib/wallet-service/WalletServiceContext";
@@ -48,7 +48,7 @@ interface WalletIntel {
 /** One row of this wallet's own PayAI history (POST /api/agent show_history). */
 interface ActivityRow {
   at: number; decision: string; summary: string; amount: number | null; token: string;
-  feature?: string; action?: string; txHash?: string; explorerUrl?: string;
+  feature?: string; action?: string; txHash?: string; explorerUrl?: string; direction?: "in" | "out";
 }
 
 const short = (s?: string | null) => (s ? `${s.slice(0, 8)}…${s.slice(-6)}` : "—");
@@ -442,13 +442,13 @@ export default function Wallets() {
               {allocation ? (
                 <div className="flex items-center gap-6">
                   <svg width="112" height="112" viewBox="0 0 112 112" className="shrink-0 -rotate-90" aria-hidden>
-                    <circle cx="56" cy="56" r="44" fill="none" stroke="var(--color-muted-foreground)" strokeOpacity="0.15" strokeWidth="14" />
+                    <circle cx="56" cy="56" r="44" fill="none" stroke="hsl(var(--muted-foreground))" strokeOpacity="0.2" strokeWidth="14" />
                     {allocation.parts.reduce<{ offset: number; els: React.ReactNode[] }>((acc, p, i) => {
                       const c = 2 * Math.PI * 44;
                       acc.els.push(
                         <circle
                           key={p.key} cx="56" cy="56" r="44" fill="none" strokeWidth="14"
-                          stroke="var(--color-primary)" strokeOpacity={ALLOCATION_OPACITY[i] ?? 0.2}
+                          stroke="hsl(var(--primary))" strokeOpacity={ALLOCATION_OPACITY[i] ?? 0.2}
                           strokeDasharray={`${c * p.share} ${c}`} strokeDashoffset={-c * acc.offset}
                         />,
                       );
@@ -481,9 +481,16 @@ export default function Wallets() {
               <p className="text-sm text-muted-foreground">No PayAI transactions yet for this wallet.</p>
             ) : (
               <ul className="divide-y divide-border">
-                {activity.rows.map((r, i) => (
-                  <li key={`${r.txHash ?? r.at}-${i}`} className="flex items-center justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
+                {activity.rows.map((r, i) => {
+                  // Same icons as the full history: in, swap, or out.
+                  const swap = r.feature === "swap" || r.feature === "trade" || r.feature === "protocol" || r.action === "swap";
+                  const RowIcon = r.direction === "in" ? ArrowDownLeft : swap ? ArrowLeftRight : ArrowUpRight;
+                  return (
+                  <li key={`${r.txHash ?? r.at}-${i}`} className="flex items-center gap-3 py-2.5">
+                    <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground">
+                      <RowIcon size={15} />
+                    </span>
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm text-foreground">{r.summary}</p>
                       <p className="text-[11px] text-muted-foreground">{new Date(r.at).toLocaleString()}</p>
                     </div>
@@ -496,7 +503,8 @@ export default function Wallets() {
                       </Link>
                     ) : null}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
             {activity && activity.rows.length > 0 && (

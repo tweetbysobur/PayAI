@@ -63,9 +63,9 @@ export function ComplianceTabContent() {
             <div className="flex flex-col items-center">
               <div className="relative h-32 w-32" title={`${Math.round(a.compliance.approvalRate * 100)}% approval rate`}>
                 <svg width="128" height="128" viewBox="0 0 128 128" className="-rotate-90">
-                  <circle cx="64" cy="64" r="54" fill="none" stroke="var(--color-border)" strokeWidth="10" />
+                  <circle cx="64" cy="64" r="54" fill="none" stroke="hsl(var(--border))" strokeWidth="10" />
                   <motion.circle
-                    cx="64" cy="64" r="54" fill="none" stroke="var(--color-success)" strokeWidth="10" strokeLinecap="round"
+                    cx="64" cy="64" r="54" fill="none" stroke="hsl(var(--success))" strokeWidth="10" strokeLinecap="round"
                     strokeDasharray={2 * Math.PI * 54}
                     initial={{ strokeDashoffset: 2 * Math.PI * 54 }}
                     animate={{ strokeDashoffset: 2 * Math.PI * 54 * (1 - a.compliance.approvalRate) }}
