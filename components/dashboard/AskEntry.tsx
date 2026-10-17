@@ -75,7 +75,7 @@ export function AskEntry({ label, placeholder = "What do you want to do?", sugge
           placeholder={placeholder}
           autoComplete="off"
           maxLength={HANDOFF_MAX_CHARS}
-          className="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2.5 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
+          className="max-h-[200px] min-h-11 min-w-0 flex-1 resize-none [field-sizing:content] bg-transparent px-2.5 py-2.5 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/70"
         />
         <button
           type="submit"

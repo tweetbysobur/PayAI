@@ -167,7 +167,7 @@ function Hero() {
 
         <motion.figure {...appear(0.2)} className="relative mx-auto w-full max-w-[30rem] lg:max-w-[34rem]">
           <ExecutionPath reduce={reduce} className="h-auto w-full" />
-          <figcaption className="mt-2 flex items-center justify-end font-mono text-[10px] uppercase tracking-[0.18em] text-tick/80">
+          <figcaption className="mt-2 flex items-center justify-end font-mono text-[10px] uppercase tracking-[0.18em] text-tick">
             <span>Intent → Execution</span>
           </figcaption>
         </motion.figure>

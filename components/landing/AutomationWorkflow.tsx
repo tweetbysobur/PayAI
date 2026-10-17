@@ -56,7 +56,7 @@ export function AutomationWorkflow({ active = true }: { active?: boolean }) {
                   <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors duration-300 ${now ? "bg-primary text-primary-foreground" : done ? "bg-primary/20 text-primary-ink" : "bg-input text-muted-foreground/50"}`}>
                     <Icon size={11} />
                   </span>
-                  <span className={`text-[10px] leading-tight transition-colors duration-300 ${now ? "font-medium text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground/50"}`}>{s.label}</span>
+                  <span className={`text-[10px] leading-tight transition-colors duration-300 ${now ? "font-medium text-foreground" : done ? "text-muted-foreground" : "text-muted-foreground"}`}>{s.label}</span>
                 </div>
               );
             })}

@@ -80,7 +80,7 @@ function ConversationRow({
     >
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs font-medium">{conversation.title}</p>
-        <p className="truncate text-[10px] text-muted-foreground/70">{timeAgo(conversation.updatedAt)}</p>
+        <p className="truncate text-[10px] text-muted-foreground">{timeAgo(conversation.updatedAt)}</p>
       </div>
       <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
         <button
@@ -177,7 +177,7 @@ export function ConversationList({
           <div className="space-y-3">
             {recent.length > 0 && (
               <div>
-                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Recent</p>
+                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Recent</p>
                 <div className="space-y-0.5">
                   {recent.map((c) => (
                     <ConversationRow
@@ -192,7 +192,7 @@ export function ConversationList({
             )}
             {older.length > 0 && (
               <div>
-                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">Older</p>
+                <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Older</p>
                 <div className="space-y-0.5">
                   {older.map((c) => (
                     <ConversationRow

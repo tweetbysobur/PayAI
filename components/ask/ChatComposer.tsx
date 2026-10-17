@@ -153,7 +153,7 @@ export function ChatComposer({
           {busy ? <Loader2 size={15} className="animate-spin" /> : <ArrowUp size={15} />}
         </button>
       </div>
-      <p className="mx-auto mt-1.5 max-w-3xl text-center text-[11px] text-muted-foreground/70">
+      <p className="mx-auto mt-1.5 max-w-3xl text-center text-[11px] text-muted-foreground">
         Ask PayAI prepares payments for your review — nothing moves until you confirm and sign.
       </p>
     </div>

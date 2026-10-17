@@ -46,8 +46,16 @@ export function resolveTheme(choice: ThemeChoice): ResolvedTheme {
 
 function paint(resolved: ResolvedTheme) {
   const root = document.documentElement;
+  if (root.dataset.theme === resolved) return;
+  // Switch in one frame. Every control with transition-colors would otherwise
+  // fade on its own clock and the page smears through half-dark states.
+  const freeze = document.createElement("style");
+  freeze.textContent = "*,*::before,*::after{transition:none!important}";
+  document.head.appendChild(freeze);
   root.dataset.theme = resolved;
   root.style.colorScheme = resolved;
+  void window.getComputedStyle(document.body).color; // flush before restoring
+  requestAnimationFrame(() => requestAnimationFrame(() => freeze.remove()));
 }
 
 export function setThemeChoice(choice: ThemeChoice) {

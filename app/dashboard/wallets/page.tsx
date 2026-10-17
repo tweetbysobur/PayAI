@@ -430,7 +430,7 @@ export default function Wallets() {
                           {d.count} transaction{d.count === 1 ? "" : "s"}
                         </div>
                         <motion.div className="w-full max-w-8 rounded-t bg-primary/70 transition-colors group-hover:bg-primary" initial={{ height: 0 }} animate={{ height: `${Math.max(4, (d.count / max) * 100)}px` }} transition={{ delay: i * 0.04, duration: 0.4 }} />
-                        <span className="text-[10px] text-muted-foreground/70">{d.date.slice(5)}</span>
+                        <span className="text-[10px] text-muted-foreground">{d.date.slice(5)}</span>
                       </div>
                     );
                   })}
