@@ -28,9 +28,10 @@ export function HowItWorksSteps() {
   return (
     <section id="steps" aria-labelledby="steps-title" className="scroll-mt-6">
       <div className="mx-auto max-w-7xl px-5 py-16 sm:px-6 sm:py-24">
-        <h2 id="steps-title" className="max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
+        {/* The page's opening section, so its heading is the page's h1. */}
+        <h1 id="steps-title" className="max-w-2xl text-balance text-2xl font-medium tracking-[-0.03em] text-foreground sm:text-4xl">
           You say what you want. You approve what runs.
-        </h2>
+        </h1>
         <ol className="mt-12 border-b border-border">
           {HOW_STEPS.map((s) => (
             <li

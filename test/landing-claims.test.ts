@@ -51,6 +51,12 @@ describe("the landing page stays the pitch", () => {
     }
   });
 
+  it("/how-it-works has one main heading, in its opening steps section", () => {
+    // The page had no h1 at all; the steps section opens the page.
+    expect(steps).toMatch(/<h1 id="steps-title"/);
+    expect((howItWorks.match(/<h1\b/g) ?? []).length).toBe(0);
+  });
+
   it("does not render the same section on two pages", () => {
     // Duplication is how the split rots: a section lands on both, then the
     // landing page keeps the copy and the depth page is forgotten.
