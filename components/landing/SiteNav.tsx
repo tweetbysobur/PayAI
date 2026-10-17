@@ -33,14 +33,15 @@ import { ThemeToggle } from "@/components/ThemeToggle";
  * Security and Docs are the links that do not fit on a phone beside the
  * "Launch PayAI" button. So they are `phoneHidden`: shown from `sm` up, and
  * reachable on a phone from the footer. The theme toggle added another 36px,
- * so below 360px "How it works" steps aside too (it is in the hero and the
- * footer); without that the CTA was clipped again at 320px. "How to ask" is a section of
+ * which clipped the CTA again at 320px, so below 380px the CTA reads "Launch"
+ * (the logo beside it says PayAI) and the links keep their place. "PayAI"
+ * stays in the accessible name through an sr-only span. "How to ask" is a section of
  * /how-it-works, not a page of its own, so it has no link here. Nothing else here is hidden, and no link is
  * hidden at a width where it would fit.
  */
 const LINKS = [
   { href: "/product", label: "Product", phoneHidden: false },
-  { href: "/how-it-works", label: "How it works", phoneHidden: false, narrowHidden: true },
+  { href: "/how-it-works", label: "How it works", phoneHidden: false },
   // Five links plus the CTA overrun the header at sm (640px, measured: the
   // CTA was pushed off-screen), so this one joins from md up.
   { href: DOCS_ORIGIN, label: "Docs", phoneHidden: true },
@@ -51,7 +52,7 @@ export function SiteNav() {
   const pathname = usePathname();
 
   return (
-    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-5 sm:gap-4 sm:px-6">
+    <header className="relative z-20 mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-5 max-[379px]:gap-1 sm:gap-4 sm:px-6">
       <Link href="/" aria-label="PayAI home" className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Logo size={32} />
         {/* Wordmark is decorative next to the mark; hidden below sm purely to
@@ -78,7 +79,7 @@ export function SiteNav() {
               // breakpoint on purpose: a `sm:py-*` override loses to source
               // order in Tailwind (media queries add no specificity), and 44px
               // is a perfectly good nav height on desktop too.
-              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "narrowHidden" in l && l.narrowHidden ? "hidden min-[360px]:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -94,7 +95,7 @@ export function SiteNav() {
           href={`${APP_ORIGIN}/auth`}
           className="inline-flex items-center rounded-md bg-primary px-3 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-4"
         >
-          Launch PayAI
+          Launch<span className="max-[379px]:sr-only">&nbsp;PayAI</span>
         </Link>
       </div>
     </header>
