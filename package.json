@@ -23,6 +23,8 @@
     "@nadnameservice/nns-viem-sdk": "^2.0.0",
     "@upstash/redis": "^1.38.0",
     "@walletconnect/ethereum-provider": "^2.23.10",
+    "@x402/core": "^2.28.0",
+    "@x402/evm": "^2.28.0",
     "jsqr": "^1.4.0",
     "lucide-react": "^1.21.0",
     "motion": "^12.40.0",
