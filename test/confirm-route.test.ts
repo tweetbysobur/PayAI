@@ -35,7 +35,9 @@ const GROSS = 1_002_506n; // 1 USDC + 0.25% of the gross, floored
 const FEE = 2_506n;
 
 const TRANSFER_ABI = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
-const NOW_S = 1_800_000_000n;
+// Mined an hour after the run starts, so it is always after the approval the
+// test creates. A fixed date here made the suite fail once the real clock passed it.
+const NOW_S = BigInt(Math.floor(Date.now() / 1000) + 3_600);
 
 // The mocked chain: what the route's public client returns.
 const chain = {

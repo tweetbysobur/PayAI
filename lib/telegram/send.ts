@@ -20,6 +20,7 @@ export async function sendTelegramMessage(chatId: number | string, text: string)
 
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: { "content-type": "application/json" },
     // disable_web_page_preview: a /price or /buy reply often contains a
     // 0x address or explorer URL — Telegram would otherwise try to expand

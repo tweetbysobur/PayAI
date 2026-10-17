@@ -110,6 +110,7 @@ export async function exchangeCodeForUser(
 
   const tokenRes = await fetch(cfg.tokenUrl, {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: clientId,
@@ -124,6 +125,7 @@ export async function exchangeCodeForUser(
 
   if (!cfg.userInfoUrl) throw new Error(`${provider} has no userinfo endpoint configured.`);
   const infoRes = await fetch(cfg.userInfoUrl, {
+    signal: AbortSignal.timeout(10_000),
     headers: { authorization: `Bearer ${tokenJson.access_token}` },
   });
   if (!infoRes.ok) throw new Error(`${provider} userinfo request failed (${infoRes.status}).`);

@@ -35,6 +35,15 @@ export interface RedisLike {
   zrem(key: string, member: string): Promise<unknown>;
 }
 
+/** Longest a single KV command may take, retries included. Upstash has no
+ *  limit of its own, so a stalled connection used to hold a request until the
+ *  platform killed it at 300s. */
+export const KV_TIMEOUT_MS = 10_000;
+/** A fresh deadline per command. It must be a function: with a function the
+ *  client throws when the deadline passes, while a plain AbortSignal makes it
+ *  return the string "Aborted" as if it were the stored value. */
+export const kvSignal = () => AbortSignal.timeout(KV_TIMEOUT_MS);
+
 let _redis: RedisLike | null | undefined;
 /** Set when KV IS configured but its client could not be created. getRedis()
  *  still returns null then (callers that tolerate memory keep their old
@@ -48,7 +57,7 @@ export async function getRedis(): Promise<RedisLike | null> {
   if (!url || !token) return (_redis = null);
   try {
     const { Redis } = await import("@upstash/redis");
-    _redis = new Redis({ url, token }) as unknown as RedisLike;
+    _redis = new Redis({ url, token, signal: kvSignal }) as unknown as RedisLike;
   } catch {
     _redisInitFailed = true;
     _redis = null;

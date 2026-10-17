@@ -92,3 +92,14 @@ describe("wallet intelligence", () => {
     expect(intel).toMatch(/return await withTimeout\(\(async \(\) => \{\s*const latest = await pub\.getBlockNumber\(\);/);
   });
 });
+
+describe("the root-layout error page recovers from a stale deploy too", () => {
+  it("reloads once on a chunk-load error, like app/error.tsx", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("app/global-error.tsx", "utf8");
+    expect(src).toMatch(/isChunkLoadError\(error\)/);
+    expect(src).toMatch(/mayAutoReload\(/);
+    expect(src).toMatch(/CHUNK_RELOAD_KEY/);
+    expect(src).toMatch(/location\.reload\(\)/);
+  });
+});

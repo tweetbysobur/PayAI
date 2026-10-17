@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { CHUNK_RELOAD_KEY, isChunkLoadError, mayAutoReload } from "@/lib/platform/chunkReload";
 
 /**
  * Last-resort boundary: catches errors thrown in the root layout itself (which
@@ -10,6 +11,21 @@ import { useEffect } from "react";
  */
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
+    // A deploy landed while this tab was open: only a full reload fetches the
+    // new code, so do that once (same rule as app/error.tsx) instead of
+    // showing an error the "Try again" button can't fix.
+    if (isChunkLoadError(error)) {
+      try {
+        const last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY));
+        if (mayAutoReload(last || null, Date.now())) {
+          sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+          location.reload();
+          return;
+        }
+      } catch {
+        /* storage blocked: fall through to the screen */
+      }
+    }
     fetch("/api/log", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -26,7 +42,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             PayAI hit an unexpected error. Your wallet and funds are safe.
           </p>
           <button
-            onClick={reset}
+            onClick={isChunkLoadError(error) ? () => location.reload() : reset}
             style={{ marginTop: "24px", background: "#7c3aed", color: "#fff", border: 0, borderRadius: "8px", padding: "10px 16px", fontSize: "14px", fontWeight: 500, cursor: "pointer" }}
           >
             Try again

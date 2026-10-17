@@ -72,6 +72,11 @@ vi.mock("@/lib/monad/forwarder", () => ({
 const ENV = ["MONAD_NETWORK", "MONAD_MAINNET_USDC", "PAYAI_MODE", "MONAD_MAINNET_PAYAI_FORWARDER", "PAYAI_FORWARDER_ENABLED"] as const;
 let saved: Record<string, string | undefined>;
 beforeEach(async () => {
+  // Pin the clock to the fixture's day. Calls that don't pass a time use
+  // Date.now(), and a room created at T0 expires a week later, so without
+  // this the suite started failing on its own once the real date passed it.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(T0 + 60_000);
   saved = Object.fromEntries(ENV.map((k) => [k, process.env[k]]));
   process.env.MONAD_NETWORK = "mainnet";
   process.env.MONAD_MAINNET_USDC = USDC;
@@ -82,7 +87,7 @@ beforeEach(async () => {
   ctl.plans.clear(); ctl.owners.clear(); ctl.intakeTexts.length = 0; ctl.intakeRefusal = null; ctl.seq = 0;
   ctl.receipt = null; ctl.forwarded = null; ctl.fee = 0n;
 });
-afterEach(() => { for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
+afterEach(() => { vi.useRealTimers(); for (const k of ENV) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; } });
 
 const svc = () => import("@/lib/rooms/service");
 

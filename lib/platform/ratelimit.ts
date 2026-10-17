@@ -28,7 +28,8 @@ async function redis(): Promise<RedisLike | null> {
   if (!url || !token) return (_redis = null);
   try {
     const { Redis } = await import("@upstash/redis");
-    _redis = new Redis({ url, token }) as unknown as RedisLike;
+    const { kvSignal } = await import("@/lib/platform/kv");
+    _redis = new Redis({ url, token, signal: kvSignal }) as unknown as RedisLike;
   } catch {
     _redis = null;
   }
