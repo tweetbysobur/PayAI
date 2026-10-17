@@ -140,7 +140,7 @@ export function DashboardShowcase({ active = true }: { active?: boolean }) {
               {trend.map((t, i) => (
                 <span
                   key={t.date}
-                  className={`flex-1 text-center text-[9px] tabular-nums ${i === trend.length - 1 ? "font-medium text-muted-foreground" : "text-muted-foreground/60"}`}
+                  className={`flex-1 text-center text-[9px] tabular-nums ${i === trend.length - 1 ? "font-medium text-muted-foreground" : "text-muted-foreground"}`}
                 >
                   {t.date.slice(5)}
                 </span>

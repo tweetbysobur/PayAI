@@ -87,7 +87,7 @@ export function AnalyticsTabContent() {
                     {t.revenue.toFixed(2)} ({t.count} tx)
                   </div>
                   <motion.div className="w-full max-w-10 rounded-t bg-primary/70 transition-colors group-hover:bg-primary" initial={{ height: 0 }} animate={{ height: `${Math.max(2, (t.revenue / max) * 130)}px` }} transition={{ delay: i * 0.05, duration: 0.4 }} />
-                  <span className="text-[10px] text-muted-foreground/70">{t.date.slice(5)}</span>
+                  <span className="text-[10px] text-muted-foreground">{t.date.slice(5)}</span>
                 </div>
               );
             })}

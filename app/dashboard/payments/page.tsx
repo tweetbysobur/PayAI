@@ -185,19 +185,22 @@ export default function Payments() {
 
             {/* Payment composer */}
             <Card className="p-6">
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</label>
+              <label htmlFor="send-amount" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</label>
               <div className="mb-5 flex items-end gap-3 border-b border-border pb-4">
                 <input
+                  id="send-amount"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                   placeholder="0.00"
                   inputMode="decimal"
                   className="w-full bg-transparent text-4xl font-semibold tracking-tight text-foreground outline-none placeholder:text-muted-foreground/40"
                 />
-                <div className="flex shrink-0 gap-1 rounded-full border border-border bg-input p-1">
+                <div role="group" aria-label="Token" className="flex shrink-0 gap-1 rounded-full border border-border bg-input p-1">
                   {(["MON", "USDC"] as const).map((t) => (
                     <button
                       key={t}
+                      type="button"
+                      aria-pressed={token === t}
                       onClick={() => setToken(t)}
                       className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
                         token === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
@@ -227,8 +230,9 @@ export default function Payments() {
                 </div>
               )}
 
-              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>
+              <label htmlFor="send-recipient" className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">To</label>
               <Input
+                id="send-recipient"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
                 placeholder=".nad domain or 0x address"
@@ -237,7 +241,7 @@ export default function Payments() {
               {recipientErr && <p className="mt-1.5 text-xs text-danger">{recipientErr}</p>}
 
               <Button onClick={submit} disabled={!canSubmit} className="mt-5 flex w-full items-center justify-center gap-2 py-3 text-sm">
-                Send Payment <ArrowRight size={15} />
+                Send payment <ArrowRight size={15} />
               </Button>
               {!wallet.address && <p className="mt-2 text-center text-xs text-warning">Connect your wallet from the top bar to sign on-chain payments.</p>}
             </Card>

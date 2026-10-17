@@ -32,13 +32,15 @@ import { ThemeToggle } from "@/components/ThemeToggle";
  *
  * Security and Docs are the links that do not fit on a phone beside the
  * "Launch PayAI" button. So they are `phoneHidden`: shown from `sm` up, and
- * reachable on a phone from the footer. "How to ask" is a section of
+ * reachable on a phone from the footer. The theme toggle added another 36px,
+ * so below 360px "How it works" steps aside too (it is in the hero and the
+ * footer); without that the CTA was clipped again at 320px. "How to ask" is a section of
  * /how-it-works, not a page of its own, so it has no link here. Nothing else here is hidden, and no link is
  * hidden at a width where it would fit.
  */
 const LINKS = [
   { href: "/product", label: "Product", phoneHidden: false },
-  { href: "/how-it-works", label: "How it works", phoneHidden: false },
+  { href: "/how-it-works", label: "How it works", phoneHidden: false, narrowHidden: true },
   // Five links plus the CTA overrun the header at sm (640px, measured: the
   // CTA was pushed off-screen), so this one joins from md up.
   { href: DOCS_ORIGIN, label: "Docs", phoneHidden: true },
@@ -76,7 +78,7 @@ export function SiteNav() {
               // breakpoint on purpose: a `sm:py-*` override loses to source
               // order in Tailwind (media queries add no specificity), and 44px
               // is a perfectly good nav height on desktop too.
-              className={`${"fromMd" in l && l.fromMd ? "hidden md:inline-flex" : l.phoneHidden ? "hidden sm:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
+              className={`${l.phoneHidden ? "hidden sm:inline-flex" : "narrowHidden" in l && l.narrowHidden ? "hidden min-[360px]:inline-flex" : "inline-flex"} items-center whitespace-nowrap rounded-lg px-1.5 py-3.5 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-3 sm:text-sm ${
                 active ? "text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >

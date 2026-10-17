@@ -152,7 +152,7 @@ function ExecutionSteps({ phase }: { phase: number }) {
               ) : (
                 <span className="h-[7px] w-[7px] shrink-0 rounded-full border border-border" />
               )}
-              <span className={`text-[10px] font-medium ${done || active ? "text-foreground" : "text-muted-foreground/60"}`}>{s.label}</span>
+              <span className={`text-[10px] font-medium ${done || active ? "text-foreground" : "text-muted-foreground"}`}>{s.label}</span>
             </span>
             {i < EXEC_STEPS.length - 1 && <span className={`h-px w-3 ${done ? "bg-primary/40" : "bg-border"}`} />}
           </div>

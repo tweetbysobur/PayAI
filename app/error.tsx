@@ -63,7 +63,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
           <Home size={15} /> Dashboard
         </Link>
       </div>
-      {error.digest && <p className="mt-6 font-mono text-[11px] text-muted-foreground/60">Reference: {error.digest}</p>}
+      {error.digest && <p className="mt-6 font-mono text-[11px] text-muted-foreground">Reference: {error.digest}</p>}
     </div>
   );
 }

@@ -126,7 +126,7 @@ export function SiteFooter() {
           </a>
         </div>
 
-        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground/80 sm:flex-row">
+        <div className="mt-8 flex flex-col items-center justify-between gap-4 border-t border-border pt-6 text-xs text-muted-foreground sm:flex-row">
           <p>© {new Date().getFullYear()} UsePayAI. All rights reserved.</p>
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
             <span className="flex items-center gap-1.5"><MonadMark size={11} /> Powered by Monad Mainnet</span>
@@ -161,7 +161,7 @@ export function SiteFooter() {
             ) : null}
           </div>
         </div>
-        <p className="mt-4 max-w-2xl text-[11px] leading-relaxed text-muted-foreground/70">
+        <p className="mt-4 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
           UsePayAI (usepayai.xyz, @usepayAI) is not affiliated with PayAI Network, payai.network, or the $PAYAI token.
         </p>
       </div>

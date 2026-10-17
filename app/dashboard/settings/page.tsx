@@ -93,7 +93,7 @@ function SettingsSection({ id, title, children }: { id: string; title: string; c
       {/* The existing cards carry their own bottom margin; the last one's is
           absorbed here. A section whose only card renders nothing for this
           wallet (Google sign-in, for an external wallet) hides itself. */}
-      <div className="space-y-4 [&>*:last-child]:mb-0">{children}</div>
+      <div className="space-y-4 [&>*:last-child]:mb-0 [&>*:last-child]:border-b-0 [&>*:last-child]:pb-0">{children}</div>
     </section>
   );
 }
