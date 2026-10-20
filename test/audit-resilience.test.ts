@@ -84,12 +84,18 @@ describe("GET /api/onchain", () => {
 });
 
 describe("wallet intelligence", () => {
-  it("the route has an overall budget and the fallback log scan is bounded", () => {
+  it("the route has an overall budget", () => {
     const route = readFileSync("app/api/wallet-intelligence/route.ts", "utf8");
     expect(route).toMatch(/withTimeout\(getWalletIntelligence\(address as `0x\$\{string\}`\), 25_000, null\)/);
     expect(route).toMatch(/status: 504/);
+  });
+
+  it("does not scan payment logs: Monad's RPC caps getLogs at 100 blocks", () => {
+    // The full-history and 50k-block scans were always refused, cost ~10s per
+    // request and reported zero payments for every wallet. Keep them out.
     const intel = readFileSync("lib/monad/wallet-intel.ts", "utf8");
-    expect(intel).toMatch(/return await withTimeout\(\(async \(\) => \{\s*const latest = await pub\.getBlockNumber\(\);/);
+    expect(intel).not.toMatch(/getLogs\(/);
+    expect(intel).not.toMatch(/paymentsSent|lifetimeVolume|insights/);
   });
 });
 

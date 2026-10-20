@@ -30,19 +30,11 @@ interface OnchainContracts {
   contracts?: OnchainContractFields;
 }
 
-interface WalletEvent {
-  paymentId: number; direction: "sent" | "received"; counterparty: string;
-  amount: number; token: string; riskScore: number; txHash: string; blockNumber: number; timestamp: number | null; explorerUrl: string;
-}
-
 interface WalletIntel {
   ok: boolean; configured: boolean; error?: string;
   address?: string; network?: string; chainId?: number; explorerAddressUrl?: string;
   nativeBalance?: string; usdcBalance?: string; monPriceUsd?: number | null; totalValueUsd?: number | null;
-  txCountSent?: number; paymentsSent?: number; paymentsReceived?: number;
-  volumeSent?: number; volumeReceived?: number; lifetimeVolume?: number; monthlyVolume?: number;
-  largestTx?: number; averageTx?: number; gasSpentMon?: number | null;
-  events?: WalletEvent[]; domain?: string | null; insights?: string;
+  txCountSent?: number;
 }
 
 /** One row of this wallet's own PayAI history (POST /api/agent show_history). */

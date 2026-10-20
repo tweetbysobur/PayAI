@@ -840,8 +840,8 @@ async function dispatchWalletBalance(walletAddress: string | null): Promise<AskM
  *  unconfigured, no price, or a network hiccup all just mean no total line —
  *  enforced with a hard timeout, since dispatchWalletBalance() awaits this
  *  AFTER the real mon/usdc numbers already came back; without a bound here,
- *  a slow /api/wallet-intelligence (it walks tx history via getLogs/getBlock)
- *  would hang the whole "show my balance" reply, not just the total line. */
+ *  a slow /api/wallet-intelligence would hang the whole "show my balance"
+ *  reply, not just the total line. */
 async function fetchTotalValueUsd(walletAddress: string): Promise<string | null> {
   try {
     const r = await fetch(`/api/wallet-intelligence?address=${encodeURIComponent(walletAddress)}`, {
