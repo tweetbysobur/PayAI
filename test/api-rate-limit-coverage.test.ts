@@ -26,9 +26,6 @@ const API_DIR = join(__dirname, "..", "app", "api");
 /** Route path -> why it is safe to serve unlimited. Keep the reason specific
  *  enough that a future reader can tell whether it still holds. */
 const EXEMPT: Record<string, string> = {
-  "rooms/route.ts": "Rooms were removed: answers a constant 410 with no I/O.",
-  "rooms/[id]/route.ts": "Rooms were removed: answers a constant 410 with no I/O.",
-  "rooms/live/route.ts": "Rooms were removed: answers a constant 410 with no I/O.",
   "auth/callback/[provider]/route.ts":
     "OAuth redirect target. The provider — not the user — controls the request rate, and a 429 here strands someone mid-sign-in with no way to retry. The code it carries is single-use and verified server-side.",
   "auth/session/route.ts":

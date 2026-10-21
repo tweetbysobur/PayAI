@@ -36,6 +36,11 @@ export default function SecurityPage() {
           (MetaMask and the rest) signs the same way it always has.
         </p>
         <p>
+          <strong>Rooms</strong> are shared costs split into equal shares. Each share is a direct
+          transfer from the person paying to the room&apos;s recipient — PayAI never holds the
+          money, and there is no escrow.
+        </p>
+        <p>
           Every settled payment has a transaction hash. There is no simulated “success” on mainnet.
           If it did not land on Monad, it did not happen.
         </p>

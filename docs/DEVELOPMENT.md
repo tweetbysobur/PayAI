@@ -55,12 +55,6 @@ funds move — safe for local dev) or `monad` (real on-chain). Production runs
 > `GET /api/automation-config` on the running app (or have someone who can
 > reach it paste back the JSON) — see `contracts/LIVE_CONTRACTS.md`.
 
-> **Rooms were removed from the product (Oct 2026).** No nav entry, no pages
-> (`/dashboard/rooms`, `/rooms`, `/r/*` redirect), Ask PayAI declines room
-> requests (`ROOMS_REMOVED_REPLY`), and `/api/rooms/**` answers 410
-> (`lib/rooms/removed.ts`). The backend (`lib/rooms`, the escrow contract and
-> SDK actions) is kept dormant so it could be restored deliberately.
->
 > **Escrow Rooms are built but OFF.** `PayAIRoomEscrow.sol` is written and
 > Hardhat-tested but **not deployed or audited**; the app enables escrow Rooms
 > only when `MONAD_MAINNET_ROOM_ESCROW` + `PAYAI_ROOM_ESCROW_ENABLED=true` are

@@ -4,7 +4,7 @@ import { useLandingHref } from "@/lib/hooks/useLandingHref";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, ArrowLeftRight, Settings,
+  LayoutDashboard, ArrowLeftRight, UsersRound, Settings,
   Rocket, BookOpen, Lock, HelpCircle, Compass,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
@@ -19,6 +19,7 @@ import { NavigationItem, isNavActive, type NavigationEntry } from "@/components/
  *
  *   Dashboard                what's happening, what's next, what needs you
  *   Ask PayAI                describe it; PayAI plans it; your wallet signs
+ *   Rooms                    shared payment rooms (open rooms; verified rooms still blocked)
  *   Payments & Automations   send, automate, history, recipients
  *   Settings                 account, wallets, security
  *
@@ -50,6 +51,7 @@ export const SETTINGS_AREA: { href: string; label: string; soon?: boolean; match
 export const NAV: NavigationEntry[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/ask", label: "Ask PayAI", icon: AskMark },
+  { href: "/dashboard/rooms", label: "Rooms", icon: UsersRound },
   { href: "/dashboard/payments", label: "Payments & Automations", icon: ArrowLeftRight, match: PAYMENTS_AREA.map((t) => t.href) },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, match: SETTINGS_AREA.map((t) => t.href) },
 ];
@@ -69,6 +71,7 @@ export const LEARN_LINKS: { label: string; icon: typeof LayoutDashboard; href?: 
  *  components/onboarding/TourOverlay.tsx). */
 export const TOUR_TARGETS: Record<string, string> = {
   "/dashboard/ask": "ask",
+  "/dashboard/rooms": "rooms",
   "/dashboard/payments": "payments",
   "/dashboard/settings": "settings",
   "/dashboard/help": "help",

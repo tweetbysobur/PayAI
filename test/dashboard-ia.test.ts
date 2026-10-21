@@ -13,8 +13,8 @@ const read = (p: string) => readFileSync(join(root, p), "utf8").replace(/\/\*[\s
 const pageFor = (href: string) => join(root, "app", ...href.replace(/^\//, "").split("/"), "page.tsx");
 
 describe("primary navigation", () => {
-  it("is exactly Dashboard, Ask PayAI, Payments & Automations, Settings (Rooms were removed)", () => {
-    expect(NAV.map((n) => n.label)).toEqual(["Dashboard", "Ask PayAI", "Payments & Automations", "Settings"]);
+  it("is exactly Dashboard, Ask PayAI, Rooms, Payments & Automations, Settings", () => {
+    expect(NAV.map((n) => n.label)).toEqual(["Dashboard", "Ask PayAI", "Rooms", "Payments & Automations", "Settings"]);
   });
 
   it("has no Plans entry anywhere in the navigation", () => {
@@ -57,9 +57,28 @@ describe("primary navigation", () => {
   });
 });
 
+describe("Rooms is honest about what it is (built: docs/hackathon/payai-rooms-cleanverse.md §16)", () => {
+  const list = read("app/dashboard/rooms/page.tsx");
+  const room = read("app/dashboard/rooms/[id]/page.tsx");
+  it("says rooms are open (unverified), have no escrow and refund nothing — before creating and on every room", () => {
+    for (const src of [list, room]) {
+      expect(src).toMatch(/identity-verified/);
+      expect(src).toMatch(/no escrow/);
+      expect(src).toMatch(/never holds/);
+    }
+  });
+  it("shows no sample rooms, participants or balances", () => {
+    for (const src of [list, room]) expect(src).not.toMatch(/sample|mock|demo|placeholder data/i);
+  });
+  it("pays a share only through the existing plan card — the pages themselves never sign", () => {
+    expect(room).toMatch(/<PlanCard /);
+    for (const src of [list, room]) expect(src).not.toMatch(/sendTransaction|waitForReceipt|createPlanRunner/);
+  });
+});
+
 describe("dashboard surfaces add no execution path", () => {
   it("the dashboard pages added or redesigned here call no signing or broadcast API", () => {
-    for (const f of ["app/dashboard/page.tsx", "app/dashboard/swap/page.tsx", "app/dashboard/settings/page.tsx",
+    for (const f of ["app/dashboard/page.tsx", "app/dashboard/swap/page.tsx", "app/dashboard/rooms/page.tsx", "app/dashboard/rooms/[id]/page.tsx", "app/dashboard/settings/page.tsx",
       "components/dashboard/primitives.tsx", "components/dashboard/Sidebar.tsx", "components/dashboard/MobileNav.tsx", "components/dashboard/AskEntry.tsx",
       "components/onboarding/OnboardingFlow.tsx", "lib/ask/handoff.ts", "lib/ask/AskPageChatContext.tsx"]) {
       expect(read(f), f).not.toMatch(/sendTransaction|waitForReceipt|eth_sendTransaction|personal_sign|signTypedData/);

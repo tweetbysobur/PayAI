@@ -17,5 +17,6 @@ describe("logo → landing page", () => {
       expect(src, f).toMatch(/const landing = useLandingHref\(\);/);
       expect(src, f).toMatch(/<Link href=\{landing\}[^>]*>\s*<Logo /);
     }
+    expect(readFileSync("components/rooms/PublicShell.tsx", "utf8")).toMatch(/<LandingLink[^>]*>\s*<Logo /);
   });
 });
