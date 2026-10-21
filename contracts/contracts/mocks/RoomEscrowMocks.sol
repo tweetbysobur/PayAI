@@ -94,7 +94,7 @@ contract ReentrantHookERC20 {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     IRoomEscrowForMocks public escrow;
-    uint8 public mode; // 0 none, 1 contribute, 2 refund, 3 claim, 4 createRoom, 5 claimTo, 6 refundTo, 7 withdrawFees, 8 cancel
+    uint8 public mode; // 0 none, 1 contribute, 2 refund, 3 claim, 4 createRoom, 5 claimTo, 6 refundTo, 7 withdrawFees, 8 cancel, 9 valid createRoom
     uint256 public roomId;
     bool public reentryBlocked;
     bool public reentrySucceeded;
@@ -115,6 +115,8 @@ contract ReentrantHookERC20 {
         else if (m == 6) { try escrow.refundTo(roomId, address(this)) { reentrySucceeded = true; } catch { reentryBlocked = true; } }
         else if (m == 7) { try escrow.withdrawFees(address(this), address(this)) { reentrySucceeded = true; } catch { reentryBlocked = true; } }
         else if (m == 8) { try escrow.cancel(roomId) { reentrySucceeded = true; } catch { reentryBlocked = true; } }
+        // 9: a fully valid createRoom (target and minimum both 1), so only the reentrancy lock can stop it.
+        else if (m == 9) { try escrow.createRoom(1, address(0), address(this), 0, 0, 1, 1, uint64(block.timestamp + 2 hours), bytes32(0)) { reentrySucceeded = true; } catch { reentryBlocked = true; } }
     }
     function transfer(address to, uint256 amount) external returns (bool) {
         require(balanceOf[msg.sender] >= amount, "balance");

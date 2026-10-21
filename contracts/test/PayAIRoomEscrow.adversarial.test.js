@@ -190,6 +190,32 @@ describe("PayAIRoomEscrow — adversarial (pre-audit)", function () {
   });
 
   /* ── Fee withdrawal ──────────────────────────────────────────────────── */
+  it("the reentrancy lock itself stops a re-entry that every other rule would allow", async () => {
+    // Found by mutation testing: with the lock removed, all the other re-entry
+    // tests still passed, because each attempt also broke some other rule.
+    const t = await (await hre.ethers.getContractFactory("ReentrantHookERC20")).deploy();
+    await t.mint(a.address, 1_000_000n);
+    await escrow.connect(owner).setTokenSupported(await t.getAddress(), true);
+    await escrow.connect(owner).setMinContributionFloor(await t.getAddress(), 1n);
+    const id = await room(TARGET, await t.getAddress(), { target: 10_000n, min: 1n });
+    const before = await escrow.roomCount();
+    await t.configure(await E(), 9, id);
+    await t.connect(a).approve(await E(), 10n);
+    await escrow.connect(a).contribute(id, 10n);
+    expect(await t.reentryBlocked()).to.equal(true);
+    expect(await t.reentrySucceeded()).to.equal(false);
+    expect(await escrow.roomCount()).to.equal(before);
+  });
+
+  it("no refund from a room that is still open (not cancelled, deadline not reached)", async () => {
+    // Found by mutation testing: dropping the refundable check broke no test.
+    const id = await room(TARGET, Z, { target: ONE * 10n, min: ONE });
+    await escrow.connect(a).contribute(id, ONE, { value: ONE });
+    await expect(escrow.connect(a).refund(id)).to.be.revertedWith("not refundable");
+    await expect(escrow.connect(a).refundTo(id, b.address)).to.be.revertedWith("not refundable");
+    expect(await escrow.contributionOf(id, a.address)).to.equal(ONE);
+  });
+
   describe("fee withdrawal", () => {
     it("aggregates per treasury and token; withdraws exactly once; never touches room funds", async () => {
       const t = await blocklistToken(a, b);
