@@ -4,6 +4,9 @@ All notable changes to PayAI are documented here.
 
 ## [Unreleased]
 
+- **Partner swap API.** Partner apps can quote and build MON swaps into their
+  own listed tokens from their servers, with a hashed API key, per-partner
+  limits, and the user as the only recipient. Dubu is the first partner.
 - **Public repository.** MIT `LICENSE`, a rewritten README, contributor and
   security guides, issue and pull-request templates, read-only CI permissions,
   and index pages for `docs/` and `contracts/`. Every branch's full history was
