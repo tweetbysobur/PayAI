@@ -31,7 +31,10 @@ export default function LiveRoomsPage() {
   return (
     <div>
       <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">Live Rooms</h1>
-      <p className="mt-1.5 text-pretty text-sm text-muted-foreground">Public fundraisers and group payments. Every contribution is held by the Room escrow contract until the room completes — or refunded if it doesn&apos;t.</p>
+      <p className="mt-1.5 text-pretty text-sm text-muted-foreground">
+        Public fundraisers and group payments, listed by the people who started them.
+        {!state.loading && state.available && !state.error && " Every contribution is held by the Room escrow contract until the room completes, or refunded if it doesn't."}
+      </p>
 
       <div className="mt-6">
         {state.loading ? (
