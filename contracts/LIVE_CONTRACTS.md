@@ -405,3 +405,20 @@ signing keys" and were deliberately kept off the app-layer-only PR).
   `deployedAt` timestamp) isn't independently confirmed, and inventing
   them to match the existing schema would be exactly the kind of
   unverified-value mistake this file just corrected.
+
+## PayAIRoomEscrow — deployed + verified on mainnet, 2026-10-21 (NOT switched on in the app)
+
+Covered by PayAI's internal review only (`docs/rooms/ESCROW_REVIEW_2026-10-21.md`), not an independent audit.
+
+| Field | Value |
+|---|---|
+| Address | `0xe9C8adEf0458eC535E8dEc97be7C5b8B7274A81c` |
+| Chain | Monad mainnet (143) |
+| Deployer | `0x25b84164461FE6EA4dAB470460D0c4eb7c7Fdc3a`, signed in the wallet through the one-time deploy page (`contracts/scripts/build-escrow-deploy-page.js`) |
+| Deploy tx | `0x2f56cc66e93e295a5696df2a328e139a054ff65a97a9fc61cc580c778c95a444` (block 115,340,442) |
+| Owner and treasury | `0xA282833B52b1B66D58bD2007081dCC037798C0b0` (PayAI Safe), read back on-chain |
+| Fee | 50 bps; MON minimum 1 MON |
+| Source | sha256 `e86fb5d6…5f7ec` (M-1 fix included); on-chain runtime bytecode equals the local build |
+| Source verification | Sourcify full match: `https://monadexplorer.com/contracts/full_match/143/0xe9C8adEf0458eC535E8dEc97be7C5b8B7274A81c/` |
+| USDC | Not yet allowlisted. Pending Safe calls: `setTokenSupported(USDC, true)`, `setMinContributionFloor(USDC, 500000)` |
+| App | Off until `MONAD_MAINNET_ROOM_ESCROW` and `PAYAI_ROOM_ESCROW_ENABLED=true` are set after a small live test |
