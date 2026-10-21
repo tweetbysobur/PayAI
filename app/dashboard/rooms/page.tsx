@@ -1,5 +1,6 @@
 "use client";
 
+import { RoomsGate } from "@/components/rooms/RoomsGate";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -24,6 +25,10 @@ import { EscrowCreateForm } from "@/components/rooms/escrow/EscrowCreateForm";
  * server (lib/rooms/terms.ts), previewed, and stored only when confirmed.
  */
 export default function RoomsPage() {
+  return <RoomsGate><RoomsPageInner /></RoomsGate>;
+}
+
+function RoomsPageInner() {
   const wallet = useWalletService();
   const router = useRouter();
   const [amount, setAmount] = useState("");

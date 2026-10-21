@@ -23,6 +23,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { formatUnits, getAddress, parseUnits, type Address } from "viem";
 import { RoomError, withParticipantLock } from "./store";
+import { roomsAllowed } from "./access";
 import { trim, type RoomAsset } from "./terms";
 import {
   CHAIN_ROOM_ID_RE, ESCROW_KIND, ESCROW_LIMITS, NATIVE, contributionProblem, decodeCancelled, decodeClaimed, decodeContributed,
@@ -59,8 +60,7 @@ export async function escrowAvailability(): Promise<EscrowAvailability> {
  * and refunding are never restricted, so nobody's money can get stuck.
  */
 export function escrowCreatorAllowed(wallet: string): boolean {
-  const list = (process.env.PAYAI_ROOM_ESCROW_CREATORS ?? "").split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
-  return list.length === 0 || list.includes(wallet.toLowerCase());
+  return roomsAllowed(wallet);
 }
 
 export const ESCROW_CREATORS_REASON = "Escrow rooms are in a private test. You can still join escrow rooms and start a direct split.";

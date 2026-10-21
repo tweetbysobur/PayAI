@@ -2,6 +2,7 @@
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { RoomsGate } from "@/components/rooms/RoomsGate";
 import { ArrowLeft, Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { EmptyState, StatusIndicator } from "@/components/dashboard/primitives";
 import { PlanCard } from "@/components/ask/PlanCard";
@@ -24,6 +25,10 @@ import { EscrowRoom } from "@/components/rooms/escrow/EscrowRoom";
  * from the plan's verified on-chain result.
  */
 export default function RoomPage({ params }: { params: Promise<{ id: string }> }) {
+  return <RoomsGate><RoomPageInner params={params} /></RoomsGate>;
+}
+
+function RoomPageInner({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   if (/^er_[0-9a-f]{24}$/.test(id)) {
     return (

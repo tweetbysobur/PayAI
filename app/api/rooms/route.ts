@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { rateLimited } from "@/lib/platform/ratelimit";
+import { roomsAllowed, ROOMS_HIDDEN } from "@/lib/rooms/access";
 import { planAuthFrom } from "@/lib/plan/http";
 import { readJson, roomErrorResponse, roomJson, ROOM_IP_LIMIT, ROOM_RATE_LIMITS, SIGN_IN } from "@/lib/rooms/http";
 
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
   if (ip) return ip;
   const auth = planAuthFrom(req);
   if (!auth) return roomJson(SIGN_IN, 401);
+  if (!roomsAllowed(auth.wallet)) return roomJson(ROOMS_HIDDEN, 404);
   const limited = await rateLimited(req, "rooms-read", { ...ROOM_RATE_LIMITS.read, subject: auth.wallet });
   if (limited) return limited;
   try {
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
   if (ip) return ip;
   const auth = planAuthFrom(req);
   if (!auth) return roomJson(SIGN_IN, 401);
+  if (!roomsAllowed(auth.wallet)) return roomJson(ROOMS_HIDDEN, 404);
   const body = await readJson(req);
   const op = body?.op;
   if (op === "escrow-preview" || op === "escrow-create") {

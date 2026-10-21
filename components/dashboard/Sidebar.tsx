@@ -11,6 +11,8 @@ import { Logo } from "@/components/Logo";
 import { AskMark } from "@/components/AskMark";
 import { reopenOnboarding } from "@/lib/hooks/useOnboarding";
 import { startGuidedTour } from "@/components/onboarding/TourOverlay";
+import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
+import { useRoomsAccess } from "@/lib/rooms/client";
 import { NavigationItem, isNavActive, type NavigationEntry } from "@/components/dashboard/primitives";
 
 /* ── Information architecture ─────────────────────────────────────────────
@@ -115,9 +117,10 @@ export function NavFooter({ onNavigate, withTour = true }: { onNavigate?: () => 
 /** The primary list, shared by the sidebar and mobile drawer. */
 export function NavList({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const roomsOk = useRoomsAccess(useWalletService().address);
   return (
     <ul className="space-y-0.5">
-      {NAV.map((entry) => (
+      {NAV.filter((e) => e.href !== "/dashboard/rooms" || roomsOk === true).map((entry) => (
         <li key={entry.href}>
           <NavigationItem entry={entry} active={isNavActive(pathname, entry)} onNavigate={onNavigate} tour={TOUR_TARGETS[entry.href]} />
         </li>

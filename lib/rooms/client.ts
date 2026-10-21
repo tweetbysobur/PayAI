@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 /**
  * Browser client for the Rooms API (app/api/rooms/**). Same-origin, no-store,
  * and it never sends a wallet, amount, hash or plan id — the server takes
@@ -66,3 +67,17 @@ export const confirmEscrowAction = (id: string, action: EscrowActionKind) =>
   call(`/api/rooms/${encodeURIComponent(id)}`, post({ op: "confirm", action }), (b) => b.room as EscrowRoomView);
 export const listLiveRooms = () =>
   call("/api/rooms/live", undefined, (b) => ({ available: b.available === true, reason: (b.reason ?? null) as string | null, rooms: (b.rooms ?? []) as PublicRoomCard[] }));
+
+export const roomsAccess = () => call("/api/rooms/access", undefined, (b) => b.allowed === true);
+
+/** Whether this viewer can use Rooms (null while checking). Rechecks when the
+ *  wallet changes. See lib/rooms/access.ts. */
+export function useRoomsAccess(wallet: string | null | undefined): boolean | null {
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void roomsAccess().then((r) => { if (live) setAllowed(r.ok ? r.data : false); });
+    return () => { live = false; };
+  }, [wallet]);
+  return allowed;
+}

@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { rateLimited } from "@/lib/platform/ratelimit";
+import { roomsOpenToAll } from "@/lib/rooms/access";
 import { roomErrorResponse, roomJson, ROOM_IP_LIMIT } from "@/lib/rooms/http";
 
 /**
@@ -14,6 +15,7 @@ export async function GET(req: NextRequest) {
   const ip = await rateLimited(req, "rooms-ip", ROOM_IP_LIMIT);
   if (ip) return ip;
   try {
+    if (!roomsOpenToAll()) return roomJson({ ok: true, available: false, reason: "Rooms aren't available yet.", rooms: [] });
     const svc = await import("@/lib/rooms/escrowService");
     const availability = await svc.escrowAvailability();
     if (!availability.available) return roomJson({ ok: true, available: false, reason: availability.reason, rooms: [] });
