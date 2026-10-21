@@ -71,7 +71,10 @@ issuer lifts the block. New invariant INVARIANT-RE-11.
 Re-verified after the fix: 94 contract tests pass (3 new M-1 tests); on the
 mainnet fork with real USDC, both bypasses are refused (A3, B3), the funds are
 released once unblocked (A5, B4), and `refundTo` still works for an owner who
-is not blocklisted (B5); all 41 fork checks pass. The app only calls `claim`
+is not blocklisted (B5); all 41 fork checks pass. Mutation testing with two extra
+mutants (the new check removed from `claimTo`, then from `refundTo`): 22 of
+22 caught. Stateful random testing on the fixed contract: 20 more seeds x
+1,000 operations, all invariants hold. The app only calls `claim`
 and `refund`, so no app change is needed.
 
 ### I-1 (Informational): `TreasurySet(address)` is not indexed
