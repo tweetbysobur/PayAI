@@ -69,6 +69,8 @@ contract PausableBlocklistERC20 {
     function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
     function setPaused(bool p) external { paused = p; }
     function setBlocked(address a, bool b) external { blocked[a] = b; }
+    /// Circle FiatToken's view, so the escrow can refuse blocklisted owners (M-1).
+    function isBlacklisted(address a) external view returns (bool) { return blocked[a]; }
     function approve(address spender, uint256 amount) external returns (bool) { allowance[msg.sender][spender] = amount; return true; }
 
     function _move(address from, address to, uint256 amount) private {

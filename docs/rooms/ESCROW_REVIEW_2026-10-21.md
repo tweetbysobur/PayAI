@@ -45,7 +45,7 @@ USDC on Monad is Circle's FiatToken (blacklister `0x1786…d6cd`, pauser
 
 ## Findings
 
-### M-1 (Medium, compliance): `claimTo` / `refundTo` route around a USDC blocklist
+### M-1 (Medium, compliance): `claimTo` / `refundTo` route around a USDC blocklist. FIXED
 
 A blocklisted beneficiary can call `claimTo(roomId, freshAddress)` and a
 blocklisted contributor can call `refundTo(roomId, freshAddress)`. The funds
@@ -61,7 +61,18 @@ Options, for the auditor and PayAI to decide:
    blocklisted owner then stay in escrow until the issuer lifts the block.
 2. Accept the behaviour and state it in the terms.
 
-Not changed in this review: it is a contract change and needs a decision.
+**Fixed (option 1).** `claimTo` and `refundTo` now call
+`_requireNotBlocklisted(token, msg.sender)`, which asks the token's
+`isBlacklisted(address)` and reverts with `owner blocklisted` when it returns
+true. Native MON and tokens without that function are unaffected. Funds of a
+blocklisted owner stay in escrow and are released by `claim`/`refund` once the
+issuer lifts the block. New invariant INVARIANT-RE-11.
+
+Re-verified after the fix: 94 contract tests pass (3 new M-1 tests); on the
+mainnet fork with real USDC, both bypasses are refused (A3, B3), the funds are
+released once unblocked (A5, B4), and `refundTo` still works for an owner who
+is not blocklisted (B5); all 41 fork checks pass. The app only calls `claim`
+and `refund`, so no app change is needed.
 
 ### I-1 (Informational): `TreasurySet(address)` is not indexed
 
@@ -96,7 +107,7 @@ Both in `test/PayAIRoomEscrow.adversarial.test.js` and
 
 ## What remains before a mainnet deploy
 
-1. An independent audit of this exact commit, with M-1 decided.
+1. An independent audit of this exact commit (M-1 is fixed in it).
 2. Deploy from the deployer wallet with the Safe as owner and treasury, verify
    the source, have the Safe allowlist USDC and set its floor.
 3. Tiny mainnet smoke test signed by the owner's wallet (`ESCROW_ROOMS.md`).

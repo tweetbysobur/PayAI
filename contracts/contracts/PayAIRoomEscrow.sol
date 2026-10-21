@@ -82,6 +82,11 @@ interface IERC20RoomEscrow {
  *   Target: minContribution), both >= the token's floor at creation — except
  *   the exact remainder, which is always accepted, so any positive remaining
  *   amount can be paid and a room can always complete before its deadline.
+ * @custom:security-property INVARIANT-RE-11: No Blocklist Bypass
+ *   claimTo/refundTo refuse a caller the token reports as blocklisted
+ *   (isBlacklisted), so funds frozen by the issuer stay in escrow until the
+ *   issuer lifts the block. claim/refund to the owner's own address are
+ *   unchanged (the token itself refuses a blocklisted recipient).
  * @custom:security-property INVARIANT-RE-7: Solvency
  *   For every token: balance >= sum over unclaimed rooms of (raised -
  *   refunded) + sum of feesOwed. Equality holds unless someone force-sends
@@ -411,6 +416,7 @@ contract PayAIRoomEscrow {
         require(r.creator != address(0), "no room");
         require(msg.sender == r.beneficiary, "not beneficiary");
         require(to != address(0) && to != address(this), "bad recipient");
+        _requireNotBlocklisted(r.token, msg.sender);
         _claim(roomId, r, to);
     }
 
@@ -437,6 +443,7 @@ contract PayAIRoomEscrow {
     ///         contributor that can't receive at its own address).
     function refundTo(uint256 roomId, address to) external nonReentrant {
         require(to != address(0) && to != address(this), "bad recipient");
+        _requireNotBlocklisted(_rooms[roomId].token, msg.sender);
         _refund(roomId, to);
     }
 
@@ -530,6 +537,18 @@ contract PayAIRoomEscrow {
     }
 
     /* ── Internal ───────────────────────────────────────────────────────── */
+
+    /// @dev M-1 (review 2026-10-21): claimTo/refundTo must not let an owner the
+    ///      token issuer has blocklisted move frozen funds to a fresh address.
+    ///      Asks the token's isBlacklisted(address) (Circle FiatToken, i.e.
+    ///      USDC). A token without that function (or native MON) is treated as
+    ///      having no blocklist, so the redirect keeps working for its real
+    ///      purpose: a beneficiary or contributor that simply can't receive.
+    function _requireNotBlocklisted(address token, address who) private view {
+        if (token == address(0)) return;
+        (bool ok, bytes memory ret) = token.staticcall(abi.encodeWithSelector(0xfe575a87, who)); // isBlacklisted(address)
+        if (ok && ret.length >= 32) require(abi.decode(ret, (uint256)) == 0, "owner blocklisted");
+    }
 
     function _send(address token, address to, uint256 amount) private {
         if (token == address(0)) {

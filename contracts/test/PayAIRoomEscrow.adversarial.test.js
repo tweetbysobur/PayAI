@@ -43,24 +43,43 @@ describe("PayAIRoomEscrow — adversarial (pre-audit)", function () {
 
   /* ── Token issuer controls (USDC-like pause / blocklist) ─────────────── */
   describe("issuer pause and blocklist (USDC-like token)", () => {
-    it("PA-03: a blocklisted beneficiary can't receive via claim(); claimTo() recovers the payout", async () => {
+    it("M-1: a blocklisted beneficiary can't move the payout with claimTo(); it stays in escrow until the issuer lifts the block", async () => {
       const t = await blocklistToken(a, b);
       const id = await room(FIXED, await t.getAddress(), { share: 100_000_000n, slots: 2 });
       await pay(t, a, id, 100_000_000n); await pay(t, b, id, 100_000_000n);
       await t.setBlocked(beneficiary.address, true);
       await expect(escrow.connect(creator).claim(id)).to.be.revertedWith("blocklisted");
-      await escrow.connect(beneficiary).claimTo(id, outsider.address);
-      expect(await t.balanceOf(outsider.address)).to.equal(199_000_000n); // 200 - 0.5%
+      await expect(escrow.connect(beneficiary).claimTo(id, outsider.address)).to.be.revertedWith("owner blocklisted");
+      expect(await t.balanceOf(outsider.address)).to.equal(0n);
+      expect((await escrow.getRoom(id)).claimed).to.equal(false);
+      await t.setBlocked(beneficiary.address, false);
+      await escrow.connect(creator).claim(id);
+      expect(await t.balanceOf(beneficiary.address)).to.equal(199_000_000n); // 200 - 0.5%
     });
-    it("PA-03: a blocklisted contributor recovers via refundTo()", async () => {
+    it("M-1: a blocklisted contributor can't move the refund with refundTo(); it stays theirs until lifted", async () => {
       const t = await blocklistToken(a);
       const id = await room(TARGET, await t.getAddress(), { target: 1_000_000_000n, days: 1 });
       await pay(t, a, id, 5_000_000n);
       await time.increase(2 * DAY);
       await t.setBlocked(a.address, true);
       await expect(escrow.connect(a).refund(id)).to.be.revertedWith("blocklisted");
-      await escrow.connect(a).refundTo(id, outsider.address);
-      expect(await t.balanceOf(outsider.address)).to.equal(5_000_000n);
+      await expect(escrow.connect(a).refundTo(id, outsider.address)).to.be.revertedWith("owner blocklisted");
+      expect(await escrow.contributionOf(id, a.address)).to.equal(5_000_000n);
+      await t.setBlocked(a.address, false);
+      await escrow.connect(a).refund(id);
+      expect(await t.balanceOf(a.address)).to.equal(1_000_000_000n);
+    });
+    it("M-1: claimTo()/refundTo() still work for an owner who isn't blocklisted (e.g. their own address can't receive)", async () => {
+      const t = await blocklistToken(a, b);
+      const id = await room(FIXED, await t.getAddress(), { share: 100_000_000n, slots: 2 });
+      await pay(t, a, id, 100_000_000n); await pay(t, b, id, 100_000_000n);
+      await escrow.connect(beneficiary).claimTo(id, outsider.address);
+      expect(await t.balanceOf(outsider.address)).to.equal(199_000_000n);
+      const r = await room(TARGET, await t.getAddress(), { target: 1_000_000_000n, days: 1 });
+      await pay(t, a, r, 5_000_000n);
+      await time.increase(2 * DAY);
+      await escrow.connect(a).refundTo(r, c.address);
+      expect(await t.balanceOf(c.address)).to.equal(5_000_000n);
     });
     it("PA-01: a blocklisted TREASURY never blocks payouts, but its accrued fees can't be withdrawn while blocked (no redirect exists)", async () => {
       const t = await blocklistToken(a, b);
