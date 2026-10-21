@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Deploy Room escrow</title>
+<style>
+  :root { --bg:#fafafa; --fg:#18181b; --muted:#71717a; --line:#e4e4e7; --panel:#fff; --primary:#7c3aed; --ok:#15803d; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0b0b0f; --fg:#f4f4f5; --muted:#a1a1aa; --line:#27272a; --panel:#131318; --primary:#a78bfa; --ok:#4ade80; --bad:#f87171; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 system-ui,-apple-system,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:32px 16px 64px; }
+  h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em; }
+  p { margin:0 0 12px; color:var(--muted); }
+  dl { margin:20px 0; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+  dl div { display:flex; justify-content:space-between; gap:16px; padding:11px 14px; border-top:1px solid var(--line); }
+  dl div:first-child { border-top:0; }
+  dt { color:var(--muted); } dd { margin:0; text-align:right; word-break:break-all; font-variant-numeric:tabular-nums; }
+  code { font:13px ui-monospace,monospace; word-break:break-all; }
+  pre { white-space:pre-wrap; word-break:break-all; overflow-x:auto; }
+  button { height:44px; padding:0 20px; border:0; border-radius:10px; background:var(--primary); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.45; cursor:default; }
+  #log { margin-top:20px; white-space:pre-wrap; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  ol { padding-left:20px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Deploy the Room escrow contract</h1>
+  <p>Your wallet signs one transaction that creates the contract. Your key never leaves the wallet. This page only works from the deployer wallet on Monad mainnet.</p>
+  <dl id="terms"></dl>
+  <button id="go">Connect wallet</button>
+  <div id="log"></div>
+</main>
+<script>
+const C = /*__CONFIG__*/null;
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls) => { const p = document.createElement("p"); p.textContent = msg; if (cls) p.className = cls; $("log").appendChild(p); return p; };
+const short = (a) => a.slice(0, 6) + "…" + a.slice(-4);
+const rows = [
+  ["Network", "Monad mainnet (143)"],
+  ["Deploy from", C.deployer],
+  ["Owner", C.safe + " (PayAI Safe)"],
+  ["Fee treasury", C.safe + " (PayAI Safe)"],
+  ["Fee", "0.5% (50 bps, the contract's maximum)"],
+  ["MON minimum", "1 MON"],
+  ["Source sha256", C.sourceSha256],
+  ["Bytecode sha256", C.bytecodeSha256],
+];
+for (const [k, v] of rows) { const d = document.createElement("div"); const t = document.createElement("dt"); t.textContent = k; const dd = document.createElement("dd"); dd.textContent = v; d.append(t, dd); $("terms").appendChild(d); }
+
+let eth, account;
+const rpc = (method, params = []) => eth.request({ method, params });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function connect() {
+  eth = window.ethereum;
+  if (!eth) { log("No wallet found. Open this page in your wallet's browser or a browser with your wallet extension.", "bad"); return; }
+  [account] = await rpc("eth_requestAccounts");
+  if (account.toLowerCase() !== C.deployer.toLowerCase()) { log(`Connected ${short(account)}. Switch your wallet to the deployer ${short(C.deployer)} and press again.`, "bad"); return; }
+  if (parseInt(await rpc("eth_chainId"), 16) !== C.chainId) {
+    try { await rpc("wallet_switchEthereumChain", [{ chainId: "0x" + C.chainId.toString(16) }]); }
+    catch { log("Switch your wallet to Monad mainnet (chain 143) and press again.", "bad"); return; }
+  }
+  if ((await rpc("eth_getCode", [C.safe, "latest"])) === "0x") { log("The PayAI Safe has no code on this network. Refusing.", "bad"); return; }
+  const bal = BigInt(await rpc("eth_getBalance", [account, "latest"]));
+  log(`Connected ${short(account)} on Monad mainnet · ${(Number(bal) / 1e18).toFixed(4)} MON for gas.`, "ok");
+  $("go").textContent = "Deploy contract";
+  $("go").onclick = deploy;
+}
+
+async function deploy() {
+  $("go").disabled = true;
+  try {
+    const hash = await rpc("eth_sendTransaction", [{ from: account, data: C.createData }]);
+    log("Sent. Transaction " + hash);
+    let receipt = null;
+    for (let i = 0; i < 120 && !receipt; i++) { await sleep(2000); receipt = await rpc("eth_getTransactionReceipt", [hash]); }
+    if (!receipt) { log("Still waiting. Check the transaction in an explorer before trying again.", "bad"); return; }
+    if (receipt.status !== "0x1") { log("The deploy transaction failed. Nothing was created.", "bad"); return; }
+    const addr = receipt.contractAddress;
+    log("Contract created at " + addr, "ok");
+    await check(addr, hash, receipt);
+  } catch (e) {
+    log(e && e.message ? e.message : String(e), "bad");
+    $("go").disabled = false;
+  }
+}
+
+async function check(addr, hash, receipt) {
+  const call = async (data) => rpc("eth_call", [{ to: addr, data }, "latest"]);
+  const word = async (data) => BigInt(await call(C.reads[data]));
+  const asAddr = async (k) => "0x" + (await call(C.reads[k])).slice(-40);
+  const got = {
+    owner: (await asAddr("owner")) === C.expect.owner,
+    treasury: (await asAddr("treasury")) === C.expect.treasury,
+    feeBps: Number(await word("feeBps")) === C.expect.feeBps,
+    maxFeeBps: Number(await word("maxFeeBps")) === C.expect.maxFeeBps,
+    notPaused: (await word("paused")) === 0n,
+    noRooms: (await word("roomCount")) === 0n,
+    monMinimum: (await word("monMinimum")).toString() === C.expect.monMinimum,
+  };
+  const allOk = Object.values(got).every(Boolean);
+  for (const [k, v] of Object.entries(got)) log(`${v ? "✓" : "✗"} ${k}`, v ? "ok" : "bad");
+  if (!allOk) { log("A check failed. Do not configure the app with this address.", "bad"); return; }
+  log("All checks pass. Send this to PayAI so the address can be recorded:", "ok");
+  const rec = { contract: "PayAIRoomEscrow", address: addr, chainId: C.chainId, deployTx: hash, block: parseInt(receipt.blockNumber, 16), deployer: account, owner: C.safe, treasury: C.safe, feeBps: 50, sourceSha256: C.sourceSha256, constructorArgs: C.constructorArgs };
+  const pre = document.createElement("pre"); pre.innerHTML = ""; const code = document.createElement("code"); code.textContent = JSON.stringify(rec, null, 2); pre.appendChild(code); $("log").appendChild(pre);
+  log("Next, from the PayAI Safe, two transactions to " + addr + " with 0 value:");
+  for (const s of C.safeCalls) { const p = log(s.label + ": "); const c = document.createElement("code"); c.textContent = s.data; p.appendChild(c); }
+}
+
+$("go").onclick = connect;
+</script>
+</body>
+</html>
