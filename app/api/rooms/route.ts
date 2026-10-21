@@ -24,9 +24,9 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
   try {
     const { listMyRooms } = await import("@/lib/rooms/service");
-    const { listMyEscrowRooms } = await import("@/lib/rooms/escrowService");
-    const [rooms, escrowRooms] = await Promise.all([listMyRooms(auth.wallet), listMyEscrowRooms(auth.wallet)]);
-    return roomJson({ ok: true, rooms, escrowRooms });
+    const { listMyEscrowRooms, escrowCreateAvailability } = await import("@/lib/rooms/escrowService");
+    const [rooms, escrowRooms, escrowCreate] = await Promise.all([listMyRooms(auth.wallet), listMyEscrowRooms(auth.wallet), escrowCreateAvailability(auth.wallet)]);
+    return roomJson({ ok: true, rooms, escrowRooms, escrowCreate });
   } catch (e) {
     return roomErrorResponse(e);
   }

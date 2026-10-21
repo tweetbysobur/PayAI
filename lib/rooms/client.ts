@@ -55,7 +55,7 @@ export type { EscrowRoomForm, EscrowRoomPreview, EscrowRoomView, EscrowSummary, 
 export type EscrowActionKind = "create" | "contribute" | "claim" | "refund" | "cancel";
 export interface PlanStart { planId: string; plan: unknown; review: unknown; funds?: FundsCheck | null }
 
-export const listAllRooms = () => call("/api/rooms", undefined, (b) => ({ rooms: (b.rooms ?? []) as RoomSummary[], escrowRooms: (b.escrowRooms ?? []) as EscrowSummary[] }));
+export const listAllRooms = () => call("/api/rooms", undefined, (b) => ({ rooms: (b.rooms ?? []) as RoomSummary[], escrowRooms: (b.escrowRooms ?? []) as EscrowSummary[], escrowCreate: (b.escrowCreate ?? { available: false, reason: null }) as { available: boolean; reason: string | null } }));
 export const previewEscrowRoom = (form: EscrowRoomForm) => call("/api/rooms", post({ op: "escrow-preview", form }), (b) => b.preview as EscrowRoomPreview);
 export const createEscrowRoom = (form: EscrowRoomForm) =>
   call("/api/rooms", post({ op: "escrow-create", form }), (b) => ({ id: b.id as string, planId: b.planId as string, plan: b.plan, review: b.review }));

@@ -10,12 +10,13 @@ import { createRoom, listAllRooms, previewRoom, type EscrowSummary, type RoomPre
 import { ROOM_STATUS, shortAddr } from "@/components/rooms/format";
 import { ESCROW_STATUS } from "@/components/rooms/escrow/format";
 import { Segments } from "@/components/rooms/Segments";
+import { EscrowCreateForm } from "@/components/rooms/escrow/EscrowCreateForm";
 
 /**
  * Rooms: split a cost with a link. Each share is paid straight from the person
  * paying to the recipient through the ordinary plan flow; PayAI never holds
- * the money. (Escrow rooms exist in the backend but stay off until a reviewed
- * escrow contract is deployed, so this page doesn't offer them.)
+ * the money. Escrow rooms (funds held by the PayAIRoomEscrow contract) are
+ * offered only when the server says this wallet may create one.
  *
  * Creating a room is not a transaction: the sentence is read by the server
  * (lib/rooms/terms.ts), previewed, and stored only when the creator confirms.
@@ -31,13 +32,14 @@ export default function RoomsPage() {
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
   const [escrowRooms, setEscrowRooms] = useState<EscrowSummary[]>([]);
   const [roomsError, setRoomsError] = useState<string | null>(null);
+  const [escrowCreate, setEscrowCreate] = useState(false);
 
   useEffect(() => {
     if (!wallet.address) return;
     let live = true;
     void listAllRooms().then((r) => {
       if (!live) return;
-      if (r.ok) { setRooms(r.data.rooms); setEscrowRooms(r.data.escrowRooms); setRoomsError(null); } else { setRooms(null); setRoomsError(r.status === 401 ? "Unlock your wallet to see your rooms." : r.message); }
+      if (r.ok) { setRooms(r.data.rooms); setEscrowRooms(r.data.escrowRooms); setEscrowCreate(r.data.escrowCreate.available); setRoomsError(null); } else { setRooms(null); setRoomsError(r.status === 401 ? "Unlock your wallet to see your rooms." : r.message); }
     });
     return () => { live = false; };
   }, [wallet.address]);
@@ -127,6 +129,12 @@ export default function RoomsPage() {
         )}
         {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
       </section>
+
+      {escrowCreate && (
+        <div className="mt-6">
+          <EscrowCreateForm symbols={["USDC", "MON"]} disabledReason={null} />
+        </div>
+      )}
 
       <section aria-labelledby="rooms-mine" className="mt-10">
         <h2 id="rooms-mine" className="mb-3 text-base font-semibold tracking-tight text-foreground">Your rooms</h2>

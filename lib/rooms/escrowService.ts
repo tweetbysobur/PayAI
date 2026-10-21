@@ -53,6 +53,30 @@ export async function escrowAvailability(): Promise<EscrowAvailability> {
   return { available: true, reason: null, escrow: escrow.toLowerCase() };
 }
 
+/**
+ * Optional private test: PAYAI_ROOM_ESCROW_CREATORS is a comma list of wallets
+ * allowed to CREATE escrow rooms. Unset means everyone. Contributing, claiming
+ * and refunding are never restricted, so nobody's money can get stuck.
+ */
+export function escrowCreatorAllowed(wallet: string): boolean {
+  const list = (process.env.PAYAI_ROOM_ESCROW_CREATORS ?? "").split(",").map((a) => a.trim().toLowerCase()).filter(Boolean);
+  return list.length === 0 || list.includes(wallet.toLowerCase());
+}
+
+export const ESCROW_CREATORS_REASON = "Escrow rooms are in a private test. You can still join escrow rooms and start a direct split.";
+
+/** Whether this wallet can start an escrow room right now. */
+export async function escrowCreateAvailability(wallet: string): Promise<{ available: boolean; reason: string | null }> {
+  const a = await escrowAvailability();
+  if (!a.available) return { available: false, reason: a.reason };
+  if (!escrowCreatorAllowed(wallet)) return { available: false, reason: ESCROW_CREATORS_REASON };
+  return { available: true, reason: null };
+}
+
+function requireCreatorAllowed(wallet: string): void {
+  if (!escrowCreatorAllowed(wallet)) throw new RoomError("ESCROW_UNAVAILABLE", ESCROW_CREATORS_REASON);
+}
+
 async function requireAvailable(): Promise<string> {
   const a = await escrowAvailability();
   if (!a.available || !a.escrow) throw new RoomError("ESCROW_UNAVAILABLE", a.reason ?? "Escrow Rooms are unavailable.");
@@ -209,6 +233,7 @@ export function conditionsText(kind: EscrowKind, a: { target: string; share: str
 }
 
 export async function previewEscrowRoom(wallet: string, form: unknown): Promise<EscrowRoomPreview> {
+  requireCreatorAllowed(wallet);
   const p = await price(wallet, form);
   const { fee, net } = escrowClaimFee(p.targetUnits, p.feeBps);
   const percent = feePercent(p.feeBps);
@@ -254,6 +279,7 @@ async function planFor(wallet: string, kind: EscrowActionKind, inputs: Record<st
 const lit = (value: string) => ({ kind: "literal", value });
 
 export async function createEscrowRoom(wallet: string, form: unknown, now = Date.now()): Promise<{ id: string; planId: string; plan: unknown; review: unknown }> {
+  requireCreatorAllowed(wallet);
   const p = await price(wallet, form);
   const nowSec = await chain((r) => r.chainNowSec());
   const deadline = Number(nowSec) + p.form.durationDays * 86400;
