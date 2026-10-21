@@ -157,3 +157,17 @@ export function cleanMemo(memo: unknown): string | null {
   const m = memo.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim();
   return m ? m.slice(0, MAX_MEMO) : null;
 }
+
+/** The room form's fields, written as the one sentence parseRoomRequest reads,
+ *  so a room made from the form and one asked for in words pass the same
+ *  checks on the server. */
+export function composeRoomRequest(f: { amount: string; symbol: string; per: "total" | "each"; participants: number; recipient?: string; expiryDays: number }): string {
+  const recipient = (f.recipient ?? "").trim().replace(/\s+/g, "");
+  return [
+    `${f.amount.trim()} ${f.symbol}`,
+    f.per === "each" ? "each" : "",
+    `for ${f.participants} people`,
+    recipient ? `to ${recipient}` : "",
+    `in ${f.expiryDays} days`,
+  ].filter(Boolean).join(" ");
+}

@@ -8,6 +8,7 @@ import { EmptyState, PageHeader, StatusIndicator } from "@/components/dashboard/
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
 import { createRoom, listAllRooms, previewRoom, type EscrowSummary, type RoomPreviewDTO, type RoomSummary } from "@/lib/rooms/client";
 import { ROOM_STATUS, shortAddr } from "@/components/rooms/format";
+import { composeRoomRequest, MAX_EXPIRY_DAYS, MAX_PARTICIPANTS, MIN_PARTICIPANTS } from "@/lib/rooms/terms";
 import { ESCROW_STATUS } from "@/components/rooms/escrow/format";
 import { Segments } from "@/components/rooms/Segments";
 import { EscrowCreateForm } from "@/components/rooms/escrow/EscrowCreateForm";
@@ -18,13 +19,22 @@ import { EscrowCreateForm } from "@/components/rooms/escrow/EscrowCreateForm";
  * the money. Escrow rooms (funds held by the PayAIRoomEscrow contract) are
  * offered only when the server says this wallet may create one.
  *
- * Creating a room is not a transaction: the sentence is read by the server
- * (lib/rooms/terms.ts), previewed, and stored only when the creator confirms.
+ * Creating a room is not a transaction: the form's fields are written as the
+ * same sentence Ask PayAI accepts (composeRoomRequest), read and checked by the
+ * server (lib/rooms/terms.ts), previewed, and stored only when confirmed.
  */
 export default function RoomsPage() {
   const wallet = useWalletService();
   const router = useRouter();
-  const [text, setText] = useState("");
+  const [amount, setAmount] = useState("");
+  const [symbol, setSymbol] = useState("USDC");
+  const [per, setPer] = useState<"total" | "each">("total");
+  const [people, setPeople] = useState("2");
+  const [recipient, setRecipient] = useState("");
+  const [days, setDays] = useState("7");
+  const ready = /^\d+(\.\d+)?$/.test(amount.trim()) && Number(amount) > 0 && /^\d+$/.test(people) && /^\d+$/.test(days);
+  const text = ready ? composeRoomRequest({ amount, symbol, per, participants: Number(people), recipient, expiryDays: Number(days) }) : "";
+  const edit = <T,>(set: (v: T) => void) => (v: T) => { set(v); setPreview(null); };
   const [memo, setMemo] = useState("");
   const [preview, setPreview] = useState<RoomPreviewDTO | null>(null);
   const [busy, setBusy] = useState<"preview" | "create" | null>(null);
@@ -69,21 +79,42 @@ export default function RoomsPage() {
       <section aria-labelledby="room-new" className="rounded-xl surface-purple p-5 sm:p-7">
         <h2 id="room-new" className="text-lg font-semibold leading-snug tracking-tight text-foreground">Start a room</h2>
         <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">
-          Say the total or each share, how many people pay, and who receives it. It goes to you unless you name someone.
+          Set the amount, how many people pay, and who receives it.
         </p>
 
         {!preview ? (
           <form onSubmit={onPreview} className="mt-5 space-y-3">
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-foreground">The room</span>
-              <input
-                value={text}
-                onChange={(e) => { setText(e.target.value); setPreview(null); }}
-                placeholder="100 USDC for 5 people to bob.nad"
-                maxLength={300}
-                className="h-12 w-full rounded-lg border border-border bg-panel px-3.5 text-[15px] text-foreground placeholder:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
+            <div className="grid grid-cols-[1fr_auto] gap-3">
+              <Field label="Amount">
+                <input inputMode="decimal" value={amount} onChange={(e) => edit(setAmount)(e.target.value)} placeholder="100" className={INPUT} />
+              </Field>
+              <Field label="Token">
+                <select value={symbol} onChange={(e) => edit(setSymbol)(e.target.value)} className={`${INPUT} pr-9`}>
+                  <option value="USDC">USDC</option>
+                  <option value="MON">MON</option>
+                </select>
+              </Field>
+            </div>
+            <div role="radiogroup" aria-label="The amount is" className="grid grid-cols-2 gap-2">
+              {([["total", "The total", "Split equally"], ["each", "Each share", "Every person pays this"]] as const).map(([k, t, d]) => (
+                <button key={k} type="button" role="radio" aria-checked={per === k} onClick={() => edit(setPer)(k)}
+                  className={`rounded-lg border px-3.5 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${per === k ? "border-foreground bg-panel" : "border-border hover:bg-panel/60"}`}>
+                  <span className="block text-sm font-medium text-foreground">{t}</span>
+                  <span className="block text-sm text-muted-foreground">{d}</span>
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="People paying">
+                <input type="number" inputMode="numeric" min={MIN_PARTICIPANTS} max={MAX_PARTICIPANTS} value={people} onChange={(e) => edit(setPeople)(e.target.value)} className={INPUT} />
+              </Field>
+              <Field label="Open for (days)">
+                <input type="number" inputMode="numeric" min={1} max={MAX_EXPIRY_DAYS} value={days} onChange={(e) => edit(setDays)(e.target.value)} className={INPUT} />
+              </Field>
+            </div>
+            <Field label="Goes to" hint="(optional, you if empty)">
+              <input value={recipient} onChange={(e) => edit(setRecipient)(e.target.value)} placeholder="bob.nad or 0x…" maxLength={64} autoComplete="off" spellCheck={false} className={INPUT} />
+            </Field>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-foreground">What it&apos;s for <span className="font-normal text-muted-foreground">(optional)</span></span>
               <input
@@ -95,10 +126,11 @@ export default function RoomsPage() {
               />
             </label>
             <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button type="submit" disabled={!text.trim() || busy != null || !wallet.address} className={PRIMARY}>
+              <button type="submit" disabled={!ready || busy != null || !wallet.address} className={PRIMARY}>
                 {busy === "preview" && <Loader2 size={14} className="animate-spin" aria-hidden />} Preview
               </button>
-              {!wallet.address && <span className="text-sm text-muted-foreground">Connect or unlock your wallet to create a room.</span>}
+              {!wallet.address ? <span className="text-sm text-muted-foreground">Connect or unlock your wallet to create a room.</span>
+                : <Link href="/dashboard/ask" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">Or describe it in Ask PayAI</Link>}
             </div>
           </form>
         ) : (
@@ -189,6 +221,15 @@ export default function RoomsPage() {
   );
 }
 
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-foreground">{label}{hint && <span className="font-normal text-muted-foreground"> {hint}</span>}</span>
+      {children}
+    </label>
+  );
+}
+
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 px-4 py-3">
@@ -198,6 +239,7 @@ function Row({ k, v }: { k: string; v: React.ReactNode }) {
   );
 }
 
+const INPUT = "h-12 w-full rounded-lg border border-border bg-panel px-3.5 text-[15px] text-foreground placeholder:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const PRIMARY = "inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 const SECONDARY = "inline-flex h-11 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 const ROW_LINK = "flex items-center gap-4 py-4 transition-colors hover:bg-input/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-2";
