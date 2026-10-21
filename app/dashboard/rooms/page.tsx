@@ -6,24 +6,19 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { EmptyState, PageHeader, StatusIndicator } from "@/components/dashboard/primitives";
 import { useWalletService } from "@/lib/wallet-service/WalletServiceContext";
-import { createRoom, listAllRooms, listLiveRooms, previewRoom, type EscrowSummary, type RoomPreviewDTO, type RoomSummary } from "@/lib/rooms/client";
+import { createRoom, listAllRooms, previewRoom, type EscrowSummary, type RoomPreviewDTO, type RoomSummary } from "@/lib/rooms/client";
 import { ROOM_STATUS, shortAddr } from "@/components/rooms/format";
-import { EscrowCreateForm } from "@/components/rooms/escrow/EscrowCreateForm";
 import { ESCROW_STATUS } from "@/components/rooms/escrow/format";
+import { Segments } from "@/components/rooms/Segments";
 
 /**
- * Rooms. Two kinds:
- *   - escrow rooms (fixed shares or a fundraising target) — funds held by the
- *     PayAIRoomEscrow contract until the room completes, refundable if it
- *     doesn't. Available only once a reviewed escrow is configured; until then
- *     the form says so and is disabled (docs/rooms/ESCROW_AUDIT.md).
- *   - direct splits (the original model) — each share paid straight to the
- *     recipient, no escrow, no refunds. Spec: docs/hackathon/payai-rooms-cleanverse.md §16.
+ * Rooms: split a cost with a link. Each share is paid straight from the person
+ * paying to the recipient through the ordinary plan flow; PayAI never holds
+ * the money. (Escrow rooms exist in the backend but stay off until a reviewed
+ * escrow contract is deployed, so this page doesn't offer them.)
  *
- * Creating a room is not a transaction: the request is read deterministically
- * by the server (lib/rooms/terms.ts), previewed, and only stored when the
- * creator confirms. Nothing here signs or sends anything; paying a share
- * happens on the room's own page, through the existing plan card.
+ * Creating a room is not a transaction: the sentence is read by the server
+ * (lib/rooms/terms.ts), previewed, and stored only when the creator confirms.
  */
 export default function RoomsPage() {
   const wallet = useWalletService();
@@ -36,11 +31,6 @@ export default function RoomsPage() {
   const [rooms, setRooms] = useState<RoomSummary[] | null>(null);
   const [escrowRooms, setEscrowRooms] = useState<EscrowSummary[]>([]);
   const [roomsError, setRoomsError] = useState<string | null>(null);
-  const [escrow, setEscrow] = useState<{ available: boolean; reason: string | null } | null>(null);
-
-  useEffect(() => {
-    void listLiveRooms().then((r) => setEscrow(r.ok ? { available: r.data.available, reason: r.data.reason } : { available: false, reason: r.message }));
-  }, []);
 
   useEffect(() => {
     if (!wallet.address) return;
@@ -72,90 +62,74 @@ export default function RoomsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title="Rooms"
-        description="Raise money or split a cost with a link anyone can pay."
-        actions={<Link href="/rooms" className="text-sm font-medium text-primary-ink hover:underline">Live Rooms</Link>}
-      />
+      <PageHeader title="Rooms" description="Split a cost with a link. Each person pays their share straight to the recipient." />
 
-      <EscrowCreateForm
-        symbols={["USDC", "MON"]}
-        disabledReason={escrow === null ? "Checking whether escrow Rooms are available…" : !escrow.available ? escrow.reason : !wallet.address ? "Connect or unlock your wallet to create a room." : null}
-      />
+      <section aria-labelledby="room-new" className="rounded-xl surface-purple p-5 sm:p-7">
+        <h2 id="room-new" className="text-lg font-semibold leading-snug tracking-tight text-foreground">Start a room</h2>
+        <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">
+          Say the total or each share, how many people pay, and who receives it. It goes to you unless you name someone.
+        </p>
 
-      <details className="group mt-6 rounded-lg border border-border bg-panel">
-        <summary className="cursor-pointer list-none px-5 py-3.5 text-sm font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-          Direct split <span className="font-normal text-muted-foreground">— no escrow, paid straight to the recipient</span>
-        </summary>
-      <section aria-labelledby="room-new" className="border-t border-border">
-        <h2 id="room-new" className="sr-only">New direct split</h2>
-        <form onSubmit={onPreview} className="space-y-3 px-5 py-4">
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-muted-foreground">Describe the room</span>
-            <input
-              value={text}
-              onChange={(e) => { setText(e.target.value); setPreview(null); }}
-              placeholder="A room for 100 USDC for 5 people"
-              maxLength={300}
-              className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium text-muted-foreground">What it&apos;s for <span className="font-normal">(optional)</span></span>
-            <input
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              placeholder="Team dinner"
-              maxLength={80}
-              className="h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Say the total or each share (&ldquo;20 USDC each&rdquo;), how many people pay, and optionally who receives it
-            (&ldquo;to bob.nad&rdquo;) and how long it stays open (&ldquo;in 3 days&rdquo;). It goes to you unless you name someone.
-          </p>
-          {!preview && (
-            <button type="submit" disabled={!text.trim() || busy != null || !wallet.address}
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
-              {busy === "preview" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null} Preview
-            </button>
-          )}
-          {!wallet.address && <p className="text-sm text-muted-foreground">Connect or unlock your wallet to create a room.</p>}
-          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-        </form>
-
-        {preview && (
-          <div className="border-t border-border px-5 py-4">
-            <dl className="grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Total</dt><dd className="tabular-nums text-foreground">{preview.total} {preview.symbol}</dd>
-              <dt className="text-muted-foreground">Each person pays</dt><dd className="tabular-nums text-foreground">{preview.share} {preview.symbol}</dd>
-              <dt className="text-muted-foreground">People paying</dt><dd className="text-foreground">{preview.participants}</dd>
-              <dt className="text-muted-foreground">Goes to</dt>
-              <dd className="break-all text-foreground">{preview.recipient.isCreator ? "You" : preview.recipient.label ?? shortAddr(preview.recipient.address)}{!preview.recipient.isCreator && preview.recipient.label && <span className="ml-1 font-mono text-xs text-muted-foreground">{shortAddr(preview.recipient.address)}</span>}</dd>
-              <dt className="text-muted-foreground">Open for</dt><dd className="text-foreground">{preview.expiresInDays} day{preview.expiresInDays === 1 ? "" : "s"}</dd>
+        {!preview ? (
+          <form onSubmit={onPreview} className="mt-5 space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-foreground">The room</span>
+              <input
+                value={text}
+                onChange={(e) => { setText(e.target.value); setPreview(null); }}
+                placeholder="100 USDC for 5 people to bob.nad"
+                maxLength={300}
+                className="h-12 w-full rounded-lg border border-border bg-panel px-3.5 text-[15px] text-foreground placeholder:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-foreground">What it&apos;s for <span className="font-normal text-muted-foreground">(optional)</span></span>
+              <input
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="Team dinner"
+                maxLength={80}
+                className="h-12 w-full rounded-lg border border-border bg-panel px-3.5 text-[15px] text-foreground placeholder:text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button type="submit" disabled={!text.trim() || busy != null || !wallet.address} className={PRIMARY}>
+                {busy === "preview" && <Loader2 size={14} className="animate-spin" aria-hidden />} Preview
+              </button>
+              {!wallet.address && <span className="text-sm text-muted-foreground">Connect or unlock your wallet to create a room.</span>}
+            </div>
+          </form>
+        ) : (
+          <div className="mt-5">
+            <dl className="divide-y divide-border rounded-lg bg-panel text-[15px]">
+              <Row k="Total" v={<span className="tabular-nums">{preview.total} {preview.symbol}</span>} />
+              <Row k="Each person pays" v={<span className="tabular-nums">{preview.share} {preview.symbol}</span>} />
+              <Row k="People paying" v={preview.participants} />
+              <Row k="Goes to" v={
+                preview.recipient.isCreator ? "You" : (
+                  <span className="break-all">{preview.recipient.label ?? shortAddr(preview.recipient.address)}{preview.recipient.label && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{shortAddr(preview.recipient.address)}</span>}</span>
+                )
+              } />
+              <Row k="Open for" v={`${preview.expiresInDays} day${preview.expiresInDays === 1 ? "" : "s"}`} />
             </dl>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              An open room: participants aren&apos;t identity-verified. Each share goes straight from the person paying to
-              the recipient when they pay, with PayAI&apos;s fee added on top for the person paying — PayAI never holds the money, so there&apos;s no escrow and nothing is refunded
-              if the room closes early. Creating the room moves no funds.
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              Anyone with the link can join; people aren&apos;t identity-verified. Each share goes straight to the recipient,
+              with PayAI&apos;s fee added on top for the person paying. PayAI never holds the money, so there&apos;s no escrow and nothing is
+              refunded if the room closes early. Creating the room moves no funds.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" onClick={onCreate} disabled={busy != null}
-                className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40">
-                {busy === "create" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : null} Create room
+              <button type="button" onClick={onCreate} disabled={busy != null} className={PRIMARY}>
+                {busy === "create" && <Loader2 size={14} className="animate-spin" aria-hidden />} Create room
               </button>
-              <button type="button" onClick={() => setPreview(null)} disabled={busy != null}
-                className="inline-flex h-10 items-center rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                Edit
-              </button>
+              <button type="button" onClick={() => setPreview(null)} disabled={busy != null} className={SECONDARY}>Edit</button>
             </div>
           </div>
         )}
+        {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
       </section>
-      </details>
 
-      <section aria-labelledby="rooms-mine" className="mt-8">
-        <h2 id="rooms-mine" className="mb-3 text-sm font-semibold text-foreground">Your rooms</h2>
+      <section aria-labelledby="rooms-mine" className="mt-10">
+        <h2 id="rooms-mine" className="mb-3 text-base font-semibold tracking-tight text-foreground">Your rooms</h2>
         {roomsError ? (
           <p className="text-sm text-muted-foreground">{roomsError}</p>
         ) : !wallet.address ? (
@@ -163,38 +137,40 @@ export default function RoomsPage() {
         ) : rooms == null ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : rooms.length === 0 && escrowRooms.length === 0 ? (
-          <EmptyState compact title="No rooms yet." hint="Rooms you create or contribute to appear here." />
+          <EmptyState compact title="No rooms yet" hint="Rooms you start or join appear here." />
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-border border-y border-border">
             {escrowRooms.map((r) => (
               <li key={r.id}>
-                <Link href={`/dashboard/rooms/${r.id}`} className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                  <span className="min-w-0">
-                    <span className="block truncate text-foreground">{r.title}</span>
-                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                <Link href={`/dashboard/rooms/${r.id}`} className={ROW_LINK}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-foreground">{r.title}</span>
+                    <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                       <StatusIndicator tone={ESCROW_STATUS[r.status].tone} label={ESCROW_STATUS[r.status].label} />
                       <span className="tabular-nums">{r.raised ?? "—"} of {r.target} {r.symbol}</span>
-                      <span>· Escrow</span>
-                      <span>· {r.role === "creator" ? "You created it" : "You contributed"}</span>
+                      <span>{r.role === "creator" ? "You started it" : "You contributed"}</span>
                     </span>
                   </span>
-                  <ArrowRight size={14} aria-hidden className="shrink-0 text-muted-foreground" />
+                  <ArrowRight size={16} aria-hidden className="shrink-0 text-muted-foreground" />
                 </Link>
               </li>
             ))}
             {rooms.map((r) => (
               <li key={r.id}>
-                <Link href={`/dashboard/rooms/${r.id}`} className="flex items-center justify-between gap-4 px-5 py-3.5 text-sm transition-colors hover:bg-input/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-                  <span className="min-w-0">
-                    <span className="block truncate text-foreground">{r.memo ?? `Room for ${r.total} ${r.symbol}`}</span>
-                    <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                <Link href={`/dashboard/rooms/${r.id}`} className={ROW_LINK}>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline justify-between gap-3">
+                      <span className="truncate font-medium text-foreground">{r.memo ?? `Room for ${r.total} ${r.symbol}`}</span>
+                      <span className="shrink-0 text-sm tabular-nums text-foreground">{r.paid} of {r.target} paid</span>
+                    </span>
+                    <Segments paid={r.paid} target={r.target} className="mt-2.5" />
+                    <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                       <StatusIndicator tone={ROOM_STATUS[r.status].tone} label={ROOM_STATUS[r.status].label} />
-                      <span className="tabular-nums">{r.paid} of {r.target} paid</span>
-                      <span>· {r.share} {r.symbol} each</span>
-                      <span>· {r.role === "creator" ? "You created it" : "You joined"}</span>
+                      <span className="tabular-nums">{r.share} {r.symbol} each</span>
+                      <span>{r.role === "creator" ? "You started it" : "You joined"}</span>
                     </span>
                   </span>
-                  <ArrowRight size={14} aria-hidden className="shrink-0 text-muted-foreground" />
+                  <ArrowRight size={16} aria-hidden className="shrink-0 text-muted-foreground" />
                 </Link>
               </li>
             ))}
@@ -204,3 +180,16 @@ export default function RoomsPage() {
     </div>
   );
 }
+
+function Row({ k, v }: { k: string; v: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 px-4 py-3">
+      <dt className="text-muted-foreground">{k}</dt>
+      <dd className="min-w-0 text-right text-foreground">{v}</dd>
+    </div>
+  );
+}
+
+const PRIMARY = "inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+const SECONDARY = "inline-flex h-11 items-center gap-2 rounded-lg border border-border px-5 text-sm font-medium text-foreground transition-colors hover:bg-input focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
+const ROW_LINK = "flex items-center gap-4 py-4 transition-colors hover:bg-input/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-2";
