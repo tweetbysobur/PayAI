@@ -266,6 +266,15 @@ describe("LLM recipient provenance — Ask classifier (classify.ts)", () => {
     }
   });
 
+  it("5a. a well-formed address the user typed is kept when the model drops it (miscounted characters)", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue(tool({ kind: "send_payment", outcome: "incomplete", slots: { amount: "20", asset: "USDC", recipient: null }, question: "That address looks off, it has too many characters." }));
+    const { understand } = await import("@/lib/ask/intent/classify");
+    const u = await understand(`please send 20 USDC to ${USER_ADDR}`, [], null);
+    expect(u.outcome).toBe("complete");
+    if (u.outcome === "complete") expect(u.slots.recipient?.toLowerCase()).toBe(USER_ADDR.toLowerCase());
+  });
+
   it("5b. an LLM-invented name is dropped too", async () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
     mockCreate.mockResolvedValue(tool({ kind: "send_payment", outcome: "complete", slots: { amount: "20", asset: "USDC", recipient: "Alice" } }));

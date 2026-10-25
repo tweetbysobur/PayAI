@@ -60,16 +60,22 @@ const APPROVAL_SKEW_MS = 120_000;
  * holding it dies — an exception the handler can't catch, a platform timeout
  * — the claim lapses after this, instead of blocking every retry for 24h.
  *
- * It must outlive the longest the request itself can run: Vercel stops a
- * function after its maxDuration, at most 800s on any plan. With a 900s
- * lease, the request that holds the claim has always finished (or been
- * stopped) before the lease can lapse, so no other request can hold the key
+ * It must outlive the longest the request itself can run: this route's
+ * maxDuration (below) stops it after 90s. With a 150s lease, the request that
+ * holds the claim has always finished (or been stopped) before the lease can
+ * lapse, so no other request can hold the key
  * while this one still runs — which is what makes this route's unconditional
  * release safe. The storage adapter (lib/platform/kv.ts RedisLike) has no
  * compare-and-delete / EVAL, so an ownership-token check could only be a
  * racy read-then-delete; the time bound is the guarantee instead.
  */
-const CONFIRM_LEASE_SECONDS = 900;
+const CONFIRM_LEASE_SECONDS = 150;
+
+/** A confirmation is a handful of reads; one that hasn't finished in 90s is
+ *  stuck on a slow RPC. Stopping it there (instead of the platform's 300s)
+ *  lets the person's retry go through within a few minutes. Must stay below
+ *  CONFIRM_LEASE_SECONDS. */
+export const maxDuration = 90;
 
 /** Approvals, confirmation claims/results and the payment's log row must be
  *  in SHARED storage: in production a missing or broken KV fails closed

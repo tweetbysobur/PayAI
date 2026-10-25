@@ -421,3 +421,13 @@ describe("every non-confirmed state keeps the user from paying again", () => {
     expect(src).not.toMatch(/could not be found\|not found/); // the old substring classifier is gone
   });
 });
+
+describe("confirm route time bound", () => {
+  it("the claim lease outlives the route's maxDuration", async () => {
+    const src = (await import("node:fs")).readFileSync("app/api/agent/confirm/route.ts", "utf8");
+    const lease = Number(src.match(/CONFIRM_LEASE_SECONDS = (\d+)/)![1]);
+    const max = Number(src.match(/export const maxDuration = (\d+)/)![1]);
+    expect(max).toBeLessThan(300);
+    expect(lease).toBeGreaterThan(max);
+  });
+});

@@ -180,7 +180,7 @@ describe("record lifetime (5C-2e): 24h by default; an explicit ttlSeconds only w
     // /api/agent/confirm: only its in-progress CLAIM is a short lease; the
     // finished confirmation keeps the default 24h.
     const confirm = readFileSync(join(root, "app/api/agent/confirm/route.ts"), "utf8");
-    expect(confirm).toMatch(/const CONFIRM_LEASE_SECONDS = 900;/);
+    expect(confirm).toMatch(/const CONFIRM_LEASE_SECONDS = 150;/);
     const confirmCalls = [...confirm.matchAll(/(claimRequest|completeRequest)(<[^>]*>)?\(([^;]*?)\);/g)].map((m) => [m[1], m[3]]);
     expect(confirmCalls).toEqual([
       // ...DURABLE: shared storage only, fail-closed in production (R4).

@@ -367,6 +367,7 @@ async function understandWithLLM(
   text: string,
   history: ConversationTurn[],
   pending: Understanding | null,
+  deterministic?: Understanding,
 ): Promise<Understanding> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   // Sonnet, not Opus: this is a narrow, tool-schema-constrained extraction
@@ -403,7 +404,11 @@ async function understandWithLLM(
 
   const tool = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!tool) return { kind: "unclear", outcome: "unclear", reply: "I'm not quite sure what you'd like to do — could you say a bit more?" };
-  return enforceRecipientProvenance(coerce(tool.input as Record<string, unknown>, contextTokenFrom(pending)), text, history, pending);
+  // Recipient fill-in runs BEFORE provenance and only when the model named no
+  // recipient at all: if the model named a different one, provenance drops it
+  // and the user is asked, rather than PayAI picking between the two.
+  const read = coerce(tool.input as Record<string, unknown>, contextTokenFrom(pending));
+  return enforceRecipientProvenance(deterministic ? reconcileRecipient(read, deterministic, text) : read, text, history, pending);
 }
 
 /**
@@ -1354,13 +1359,37 @@ export async function understand(
 
   if (!process.env.ANTHROPIC_API_KEY) return routed.fallback;
   try {
-    return reconcileSchedule(await understandWithLLM(text, history, pending), routed.fallback);
+    return reconcileSchedule(await understandWithLLM(text, history, pending, routed.fallback), routed.fallback);
   } catch {
     return routed.fallback;
   }
 }
 
 const SCHEDULE_KINDS = new Set<AskIntentKind>(["schedule_payment", "recurring_payment"]);
+
+const EXACT_RECIPIENT_RE = /^(0x[0-9a-fA-F]{40}|[a-z0-9-]+\.nad)$/i;
+
+/**
+ * The model can misread a well-formed address (miscounting its characters)
+ * and ask the user to resend it. When the deterministic parse of the SAME
+ * message found a well-formed 0x address or .nad name that the user actually
+ * typed, and the model returned the same kind of request without a
+ * recipient, the parsed recipient is kept. It never adds a recipient the
+ * user didn't write. Exported for tests.
+ */
+export function reconcileRecipient(model: Understanding, deterministic: Understanding, text: string): Understanding {
+  if (model.outcome !== "complete" && model.outcome !== "incomplete") return model;
+  if (deterministic.outcome !== "complete" && deterministic.outcome !== "incomplete") return model;
+  if (model.kind !== deterministic.kind || model.slots.recipient) return model;
+  const r = deterministic.slots.recipient;
+  if (!r || !EXACT_RECIPIENT_RE.test(r) || !text.toLowerCase().includes(r.toLowerCase())) return model;
+  const kind = model.kind as AskIntentKind;
+  const slots: AskSlots = { ...model.slots, recipient: r };
+  const missing = missingSlots(kind, slots);
+  return missing.length === 0
+    ? { kind, outcome: "complete", slots }
+    : { kind, outcome: "incomplete", slots, question: naturalMissingSlotQuestion(kind, missing[0]) };
+}
 
 /**
  * The model reads the request; it does not get to silently discard a
