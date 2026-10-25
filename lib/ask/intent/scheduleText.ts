@@ -4,7 +4,7 @@
  * scheduled or recurring payment it has understood.
  *
  * It must carry the schedule the person actually gave. It used to be built as
- * "Schedule 1 USDC to bob.nad every weekly" — which dropped the day ("every
+ * "Schedule 1 USDC to name.nad every weekly" — which dropped the day ("every
  * Friday") and which the engine can't read at all ("every weekly" is not a
  * phrase it knows), so a fully specified request came back as "When should
  * it run?". This writes only phrases the engine's own grammar understands,

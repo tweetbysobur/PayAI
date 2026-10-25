@@ -38,15 +38,15 @@ export const GUIDE: GuideGroup[] = [
     body: "Name the amount, the token and who it's for. Plain wording is fine — so is a question.",
     examples: [
       { say: "Send 50 USDC to alice.nad", check: { kind: "plan", actions: 1 } },
-      { say: "Can you send 0.5 MON to bob.nad?", check: { kind: "plan", actions: 1 } },
+      { say: "Can you send 0.5 MON to name.nad?", check: { kind: "plan", actions: 1 } },
     ],
   },
   {
     title: "Pay several people",
     body: "Say \"each\" when everyone gets the same amount, or write each transfer out.",
     examples: [
-      { say: "Send 5 USDC each to alice.nad and bob.nad", check: { kind: "plan", actions: 2 } },
-      { say: "Send 1 MON to alice.nad and 2 MON to bob.nad", check: { kind: "plan", actions: 2 } },
+      { say: "Send 5 USDC each to alice.nad and name.nad", check: { kind: "plan", actions: 2 } },
+      { say: "Send 1 MON to alice.nad and 2 MON to name.nad", check: { kind: "plan", actions: 2 } },
     ],
   },
   {
@@ -71,7 +71,7 @@ export const GUIDE: GuideGroup[] = [
     body: "Add when it should happen: a day, a date, or how often.",
     examples: [
       { say: "Send 200 USDC to john.nad tomorrow", check: { kind: "schedule", cadence: "once" } },
-      { say: "Send 20 USDC to bob.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
+      { say: "Send 20 USDC to name.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
     ],
   },
   {
@@ -93,7 +93,7 @@ export const GUIDE: GuideGroup[] = [
 export const PRODUCT_EXAMPLES: IntentExample[] = [
   { say: "Send 100 USDC to alice.nad every Friday", check: { kind: "schedule", cadence: "weekly" } },
   { say: "Swap 0.1 MON to USDC", check: { kind: "plan", actions: 1 } },
-  { say: "Send 5 USDC each to alice.nad and bob.nad", check: { kind: "plan", actions: 2 } },
+  { say: "Send 5 USDC each to alice.nad and name.nad", check: { kind: "plan", actions: 2 } },
   { say: "What's my USDC balance?", check: { kind: "route", intent: "token_balance" } },
 ];
 
@@ -104,7 +104,7 @@ export const CORE_EXAMPLES: Record<"payments" | "trading" | "chain", IntentExamp
 };
 
 
-/** How a prompt is DISPLAYED: the example names (alice.nad, bob.nad…) become a
+/** How a prompt is DISPLAYED: the example names (alice.nad, name.nad…) become a
  *  placeholder, so nobody reads a stranger's name as the thing to type. The
  *  real sentence (`say`) is what the tests run through the product. */
 export function displayPrompt(say: string): string {

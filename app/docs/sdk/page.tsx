@@ -91,11 +91,11 @@ export default function SdkPage() {
             receives the few extra units, so the amounts add up to exactly the total.
           </li>
           <li>
-            <strong>Your own amounts:</strong> <code>split 100 USDC: 60 to 0x… and 40 to bob.nad</code>.
+            <strong>Your own amounts:</strong> <code>split 100 USDC: 60 to 0x… and 40 to name.nad</code>.
             If you state a total, the amounts must add up to it.
           </li>
           <li>
-            <strong>The rest:</strong> <code>split 100 USDC: 20 to 0x… and the rest to bob.nad</code>.
+            <strong>The rest:</strong> <code>split 100 USDC: 20 to 0x… and the rest to name.nad</code>.
             The total has to be in the same message.
           </li>
         </ul>
@@ -114,14 +114,14 @@ export default function SdkPage() {
         <DocsTable
           headers={["Action", "In a multi-action plan?", "Example"]}
           rows={[
-            ["Swap", "Yes — a step whose output the next payment can use", <code key="p1">swap 10 MON to USDC and send it to bob.nad</code>],
+            ["Swap", "Yes — a step whose output the next payment can use", <code key="p1">swap 10 MON to USDC and send it to name.nad</code>],
             ["Wrap / unwrap", "No — its own message", <code key="p2">wrap 1 MON</code>],
-            ["Split payment", "No — its own message, but it already pays 2–9 people in one transaction", <code key="p3">split 30 USDC between alice.nad, bob.nad and carol.nad</code>],
+            ["Split payment", "No — its own message, but it already pays 2–9 people in one transaction", <code key="p3">split 30 USDC between alice.nad, name.nad and carol.nad</code>],
           ]}
         />
         <p>
           To pay several people as separate steps of a plan instead of one split transaction,
-          write them out — <code>send 10 USDC each to alice.nad, bob.nad and carol.nad</code>.
+          write them out — <code>send 10 USDC each to alice.nad, name.nad and carol.nad</code>.
           A split is one transaction with one fee leg; a plan is one transaction per payment.
         </p>
       </DocsSection>

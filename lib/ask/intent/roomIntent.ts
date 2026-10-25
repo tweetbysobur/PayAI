@@ -5,7 +5,7 @@
  * (lib/rooms/service.ts), each behind an explicit button on the room card in
  * the chat (components/ask/RoomAskCard.tsx):
  *
- *   create      "create a room for 100 USDC for 5 people (to bob.nad)"
+ *   create      "create a room for 100 USDC for 5 people (to name.nad)"
  *               → the server's own preview, then "Create room" (no funds move)
  *   list        "show my rooms"
  *   status      "how is my room doing?" / "status of room_…"

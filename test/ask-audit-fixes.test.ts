@@ -80,7 +80,7 @@ describe("plan refusals say what to write instead", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.code).toBe("NATIVE_OUTPUT_NOT_BINDABLE");
-    expect(r.message).toMatch(/send 1 MON to bob\.nad/);
+    expect(r.message).toMatch(/send 1 MON to (bob|name)\.nad/);
   });
   it("an unsupported token names MON and USDC, not internal wording", () => {
     const r = parseIntent("send 1 USDT to bob.nad", tokens);

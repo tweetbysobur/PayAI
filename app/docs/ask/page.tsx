@@ -44,8 +44,8 @@ export default function AskPage() {
             [<code key="a">send 10 USDC to alice.nad</code>, "A payment in MON or USDC to a 0x address, a .nad name or a saved payee."],
             [<code key="b">swap 50 MON to USDC</code>, "A swap between MON and USDC, quoted live."],
             [<code key="c">buy $20 of 0x… with USDC</code>, <>A trade in any Monad token by symbol or contract address — see <Link href="/docs/trading">Trading</Link>.</>],
-            [<code key="d">send 5 USDC each to alice.nad and bob.nad</code>, "Several payments as one plan."],
-            [<code key="e">swap 10 MON to USDC and send it to bob.nad</code>, "Chained actions: the second uses exactly what the first produced."],
+            [<code key="d">send 5 USDC each to alice.nad and name.nad</code>, "Several payments as one plan."],
+            [<code key="e">swap 10 MON to USDC and send it to name.nad</code>, "Chained actions: the second uses exactly what the first produced."],
             [<code key="f">pay alice.nad 50 USDC every Friday</code>, <>A scheduled or recurring payment — see <Link href="/docs/automations">Automations</Link>.</>],
             [<code key="g">wrap 1 MON</code>, <>A protocol action — see <a href="#sdk">Protocol actions</a>.</>],
             ["An image or QR code", <>A payment read from a picture — see <a href="#images">Images and QR codes</a>.</>],
@@ -68,11 +68,11 @@ export default function AskPage() {
           headers={["Pattern", "Example"]}
           rows={[
             ["Join actions with and, then or commas", <code key="j">send 1 MON to alice.nad, then swap 5 USDC to MON</code>],
-            ["Several payments, one verb", <code key="k">send 1 MON to alice.nad, 2 MON to bob.nad and 3 MON to carol.nad</code>],
-            ["The same amount to everyone", <code key="l">send 20 USDC each to alice.nad, bob.nad and carol.nad</code>],
-            ["Recipient first", <code key="m">pay alice.nad 1 MON and bob.nad 2 MON</code>],
-            ["Use a swap's output", <code key="n">swap 10 MON to USDC and send it to bob.nad</code>],
-            ["Mix them", <code key="o">send 5 USDC to alice.nad, swap 2 MON to USDC and send it to bob.nad</code>],
+            ["Several payments, one verb", <code key="k">send 1 MON to alice.nad, 2 MON to name.nad and 3 MON to carol.nad</code>],
+            ["The same amount to everyone", <code key="l">send 20 USDC each to alice.nad, name.nad and carol.nad</code>],
+            ["Recipient first", <code key="m">pay alice.nad 1 MON and name.nad 2 MON</code>],
+            ["Use a swap's output", <code key="n">swap 10 MON to USDC and send it to name.nad</code>],
+            ["Mix them", <code key="o">send 5 USDC to alice.nad, swap 2 MON to USDC and send it to name.nad</code>],
           ]}
         />
         <p>
@@ -154,8 +154,8 @@ export default function AskPage() {
           rows={[
             ["Wrap MON into WMON (1:1)", <code key="w">wrap 1 MON</code>],
             ["Unwrap WMON into MON (1:1)", <code key="u">unwrap 1 WMON</code>],
-            ["Split one payment between 2–9 people in one transaction", <code key="s">split 30 USDC between alice.nad, bob.nad and carol.nad</code>],
-            ["Swap as a step of a plan", <code key="sw">swap 10 MON to USDC and send it to bob.nad</code>],
+            ["Split one payment between 2–9 people in one transaction", <code key="s">split 30 USDC between alice.nad, name.nad and carol.nad</code>],
+            ["Swap as a step of a plan", <code key="sw">swap 10 MON to USDC and send it to name.nad</code>],
           ]}
         />
         <p>

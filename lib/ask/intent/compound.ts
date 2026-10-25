@@ -11,7 +11,7 @@
  * That single-intent path must never stand in for a compound request: it
  * would keep one action and silently drop the rest ("send 10 USDC to Alice,
  * then send 20 USDC to Bob" became a send to Alice only; "send 10 USDC to
- * alice.nad and schedule 5 USDC to bob.nad every Friday" became ONE weekly
+ * alice.nad and schedule 5 USDC to name.nad every Friday" became ONE weekly
  * payment of 10 USDC to alice.nad). So before it reads a message, this guard
  * looks for more than one action — or more than one recipient for one
  * action — and when it finds them, it says plainly what PayAI can and can't
@@ -68,7 +68,7 @@ export function analyzeCompound(text: string): CompoundShape | null {
   const parts = t.split(CONNECTOR_RE).map((p) => p.trim()).filter(Boolean);
   if (parts.length < 2) {
     // No connector at all, but a send naming two addresses/.nad names back to
-    // back ("send 5 USDC to alice.nad bob.nad") still names two recipients.
+    // back ("send 5 USDC to alice.nad name.nad") still names two recipients.
     if (!ACTION_VERB_RE.test(t)) return null;
     const strong = [...new Set(t.split(" ").map((w) => w.replace(/[,;]$/, "")).filter((w) => STRONG_RECIPIENT_RE.test(w)).map((w) => w.toLowerCase()))];
     return strong.length > 1 ? { actions: [t], extraRecipients: strong.slice(1), scheduled: SCHEDULE_RE.test(t) } : null;
@@ -81,11 +81,11 @@ export function analyzeCompound(text: string): CompoundShape | null {
     if (ACTION_VERB_RE.test(p) || (actions.length > 0 && CARRIED_TRANSFER_RE.test(p))) {
       actions.push(p);
       // "pay alice" / "send 10 USDC to alice" — a clause that ENDS in its
-      // recipient, so a bare name after it is a second one. ("…to bob.nad for
+      // recipient, so a bare name after it is a second one. ("…to name.nad for
       // coffee and snacks" ends in its memo; "snacks" is not a recipient.)
       lastWasRecipientAction = (/^(?:please\s+|also\s+)?(send|pay|transfer)\b/i.test(p) || CARRIED_TRANSFER_RE.test(p))
         && /(?:\bto|^(?:please\s+|also\s+)?pay|^(?:please\s+|also\s+)?(?:send|transfer)(?=\s+[^\d\s]))\s+\S+$/i.test(p);
-      // "send 5 USDC to alice.nad bob.nad" — two recipients, no connector.
+      // "send 5 USDC to alice.nad name.nad" — two recipients, no connector.
       const strong = p.split(" ").map((w) => w.replace(/[,;]$/, "")).filter((w) => STRONG_RECIPIENT_RE.test(w));
       for (const w of new Set(strong.map((x) => x.toLowerCase())).values()) {
         if (w !== strong[0].toLowerCase()) extraRecipients.push(w);
@@ -93,7 +93,7 @@ export function analyzeCompound(text: string): CompoundShape | null {
       continue;
     }
     const word = p.replace(/^(?:to\s+)/i, "");
-    // "pay alice.nad and bob.nad 5 USDC each" — the second recipient is
+    // "pay alice.nad and name.nad 5 USDC each" — the second recipient is
     // followed by the amount, so the clause is more than one word.
     if (lastWasRecipientAction) {
       const [first, ...rest] = word.split(" ");
@@ -161,7 +161,7 @@ export function detectCompoundRequest(text: string): Understanding | null {
       .filter(Boolean);
     return {
       kind: "unsupported", outcome: "unsupported", capability: "multiple_recipients",
-      reply: `That names more than one recipient (${names.join(", ")}). Tell me exactly what each one should get — for example "send 10 USDC to alice.nad and 10 USDC to bob.nad" — or use "split 20 USDC between alice.nad and bob.nad" to divide one amount. Nothing was prepared.`,
+      reply: `That names more than one recipient (${names.join(", ")}). Tell me exactly what each one should get — for example "send 10 USDC to alice.nad and 10 USDC to name.nad" — or use "split 20 USDC between alice.nad and name.nad" to divide one amount. Nothing was prepared.`,
     };
   }
 
@@ -177,6 +177,6 @@ export function detectCompoundRequest(text: string): Understanding | null {
 
   return {
     kind: "unsupported", outcome: "unsupported", capability: "compound_request",
-    reply: `That's ${shape.actions.length} actions in one request, but I couldn't read every one of them exactly. Write each action in full — an amount, a token (MON or USDC) and who it goes to — on its own line or separated by commas, for example "swap 1 USDC to MON, send 1 MON to bob.nad". Recipients can be 0x addresses, .nad names or saved payees. Nothing was prepared.`,
+    reply: `That's ${shape.actions.length} actions in one request, but I couldn't read every one of them exactly. Write each action in full — an amount, a token (MON or USDC) and who it goes to — on its own line or separated by commas, for example "swap 1 USDC to MON, send 1 MON to name.nad". Recipients can be 0x addresses, .nad names or saved payees. Nothing was prepared.`,
   };
 }

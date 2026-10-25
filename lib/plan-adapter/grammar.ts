@@ -114,7 +114,7 @@ const MESSAGES: Record<AdapterErrorCode, string> = {
   INVALID_AMOUNT: "Give a plain positive amount, like 10 or 2.5.",
   TOO_PRECISE: "That amount has more decimal places than the token supports.",
   INVALID_RECIPIENT: "Give the recipient as a 0x address, a .nad name, or a saved payee name.",
-  NATIVE_OUTPUT_NOT_BINDABLE: "MON received from a swap can't be passed on as \"it\" — write the amount to send instead, like \"swap 1 USDC to MON, then send 1 MON to bob.nad\".",
+  NATIVE_OUTPUT_NOT_BINDABLE: "MON received from a swap can't be passed on as \"it\" — write the amount to send instead, like \"swap 1 USDC to MON, then send 1 MON to name.nad\".",
   ACTION_UNAVAILABLE: "That action isn't available right now.",
   TOO_MANY_ACTIONS: `A plan can have up to ${MAX_ACTIONS} actions. Split the request in two.`,
   TOO_LONG: `Keep the request under ${MAX_REQUEST_LENGTH} characters.`,

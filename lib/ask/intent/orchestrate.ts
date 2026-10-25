@@ -951,7 +951,7 @@ function dispatchDistribution(slots: { amount?: string | null; asset?: string | 
   // phrase a split the deterministic path can resolve.
   const desc = `${slots.amount ?? "an amount"}${slots.asset ? ` ${slots.asset}` : ""} to ${slots.recipientCount ?? "several"} recipients`;
   return assistantText(
-    `I understand — ${desc}. I can do that as one split payment if you list who gets what, for example "split 100 USDC between 0x… and bob.nad" or "split 100 USDC: 60 to 0x… and 40 to bob.nad". Recipients can be 0x addresses, .nad names or configured payees.`,
+    `I understand — ${desc}. I can do that as one split payment if you list who gets what, for example "split 100 USDC between 0x… and name.nad" or "split 100 USDC: 60 to 0x… and 40 to name.nad". Recipients can be 0x addresses, .nad names or configured payees.`,
   );
 }
 

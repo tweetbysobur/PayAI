@@ -118,7 +118,7 @@ function RoomsPageInner() {
               </Field>
             </div>
             <Field label="Goes to" hint="(optional, you if empty)">
-              <input value={recipient} onChange={(e) => edit(setRecipient)(e.target.value)} placeholder="bob.nad or 0x…" maxLength={64} autoComplete="off" spellCheck={false} className={INPUT} />
+              <input value={recipient} onChange={(e) => edit(setRecipient)(e.target.value)} placeholder="name.nad or 0x…" maxLength={64} autoComplete="off" spellCheck={false} className={INPUT} />
             </Field>
             <label className="block">
               <span className="mb-1.5 block text-sm font-medium text-foreground">What it&apos;s for <span className="font-normal text-muted-foreground">(optional)</span></span>

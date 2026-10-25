@@ -55,7 +55,7 @@ const UNSUPPORTED: [RegExp, string][] = [
     "A room described here is a direct room — no escrow: each share goes straight to the recipient and nothing is refunded. To hold funds in escrow with refunds if the goal isn't met, create an escrow room on the Rooms page."],
 ];
 
-/** A deterministic read of "create a room for 100 USDC for 5 people (to bob.nad, in 3 days)". */
+/** A deterministic read of "create a room for 100 USDC for 5 people (to name.nad, in 3 days)". */
 export function parseRoomRequest(text: string): ParseRoomResult {
   if (typeof text !== "string" || !text.trim()) return { ok: false, message: "Describe the room — for example \"a room for 100 USDC for 5 people\"." };
   const t = text.trim().replace(/\s+/g, " ");

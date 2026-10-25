@@ -78,7 +78,7 @@ describe("/docs/sdk examples route to the documented actions", () => {
   it("the page shows exactly these phrases", async () => {
     const { readFileSync } = await import("node:fs");
     const src = readFileSync(new URL("../app/docs/sdk/page.tsx", import.meta.url), "utf8");
-    for (const phrase of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON between 0x… and 0x…", "split 100 USDC: 60 to 0x… and 40 to bob.nad", "split 100 USDC: 20 to 0x… and the rest to bob.nad"]) {
+    for (const phrase of ["wrap 1 MON", "unwrap 1 WMON", "split 3 MON between 0x… and 0x…", "split 100 USDC: 60 to 0x… and 40 to name.nad", "split 100 USDC: 20 to 0x… and the rest to name.nad"]) {
       expect(src, phrase).toContain(phrase);
     }
   });

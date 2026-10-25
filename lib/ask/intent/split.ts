@@ -61,7 +61,7 @@ const UNIT_RE = /\b(mon|usdc)\b/gi;
 const LIST_PREP_RE = /\b(?:between|among|amongst|across|to)\s+([\s\S]+)$/i;
 const SCHEDULE_RE = /\b(?:every|daily|weekly|monthly|yearly|tomorrow|next\s+(?:week|month)|recurring|schedule|automate|each\s+(?:day|week|month))\b/i;
 
-export const SPLIT_FORMAT_HINT = 'For example: "split 100 USDC between 0x… and bob.nad", or "split 100 USDC: 60 to 0x… and 40 to bob.nad".';
+export const SPLIT_FORMAT_HINT = 'For example: "split 100 USDC between 0x… and name.nad", or "split 100 USDC: 60 to 0x… and 40 to name.nad".';
 
 export interface ParsedSplitEntry {
   /** Exactly as written: a 0x address, a .nad name, or a payee name. */
@@ -246,7 +246,7 @@ export async function normalizeSplit(parsed: Extract<ParsedSplit, { ok: true }>)
     const restIndex = fixed.indexOf(null);
     if (restIndex >= 0) {
       if (total == null) {
-        return unclear(`"The rest" of what? Tell me the total in the same message, e.g. "split 100 ${symbol}: 20 to 0x… and the rest to bob.nad".`);
+        return unclear(`"The rest" of what? Tell me the total in the same message, e.g. "split 100 ${symbol}: 20 to 0x… and the rest to name.nad".`);
       }
       const rest = total - stated;
       if (rest <= 0n) {

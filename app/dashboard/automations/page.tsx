@@ -466,7 +466,7 @@ export default function AutomationsPage() {
         {/* Intent first: describe it, Ask PayAI plans it and opens the same
             automation creator this page uses — no second automation system. */}
         <div className="max-w-3xl">
-          <AskEntry id="automate-intent" label="Automate with intent" placeholder="Describe an automation, e.g. send 20 USDC to bob.nad every Friday" />
+          <AskEntry id="automate-intent" label="Automate with intent" placeholder="Describe an automation, e.g. send 20 USDC to name.nad every Friday" />
         </div>
       </div>
 

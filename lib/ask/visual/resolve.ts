@@ -362,7 +362,7 @@ function finish(actions: ExtractedAction[], found: string[]): VisualResolution {
     const recipient = normRecipient(a.recipient);
     if (recipient === "invalid") return { kind: "blocked", found, reply: `The recipient${n} (${a.recipient}) isn't a valid 0x address or .nad name, so it can't be paid. Nothing was prepared.` };
     if (!recipient) return { kind: "clarify", found, reply: missingReply(found, [`who should receive the payment${n}`], "Send 10 USDC to alice.nad") };
-    // "…and send the USDC to bob.nad": a send straight after a swap that names
+    // "…and send the USDC to name.nad": a send straight after a swap that names
     // no amount, in the token the swap bought (or none), is that swap's output
     // even when the reader didn't flag it — the words leave no other reading.
     const prevSwap = i > 0 && ready[i - 1]?.type === "swap" ? ready[i - 1] : null;

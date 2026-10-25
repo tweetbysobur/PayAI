@@ -63,7 +63,7 @@ export default function VisualIntentPage() {
             ["A wallet QR code", "The address or .nad name. You add what to send — “Send 5 USDC to this address”."],
             ["A payment request QR", "Recipient, and for MON the amount, from the standard EIP-681 format. See QR codes below."],
             ["An invoice", "Who it's from, the invoice number, the total, the token and the address to pay. It is paid only when your caption asks — “Pay this invoice”."],
-            ["Written payment instructions", "Up to 5 sends and swaps, such as a screenshot of “swap 10 MON to USDC and send it to bob.nad”."],
+            ["Written payment instructions", "Up to 5 sends and swaps, such as a screenshot of “swap 10 MON to USDC and send it to name.nad”."],
             ["A printed address", "A 0x address or .nad name shown in the image, used as the recipient."],
           ]}
         />

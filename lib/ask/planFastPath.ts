@@ -52,7 +52,7 @@ const POLITE_LEAD_RE = /^(?:(?:hey|hi|hello|ok|okay|so)[,!]?\s+)?(?:(?:can|could
 const POLITE_TAIL_RE = /[,]?\s*(?:please|pls|thanks|thank you)\s*$/i;
 
 /** The request with its polite framing removed: "Can you swap 5 MON to USDC
- *  and send it to bob.nad?" → "swap 5 MON to USDC and send it to bob.nad".
+ *  and send it to name.nad?" → "swap 5 MON to USDC and send it to name.nad".
  *  Only framing words and trailing "?"s are dropped — never an amount, token
  *  or recipient — and the server's grammar still decides whether what is left
  *  is a plan. Whitespace runs collapse. */
@@ -123,7 +123,7 @@ export function canonicalizeActions(text: string): string {
   }
   s = words.join(" ");
 
-  // "…and send that / them / the proceeds to bob.nad" after a swap = "send it".
+  // "…and send that / them / the proceeds to name.nad" after a swap = "send it".
   s = s.replace(/\b(send|pay|transfer)\s+(?:that|them|those|the (?:output|proceeds|result))(?=\s+to\s)/gi, "$1 it");
   s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:transfer|tip)\b/gi, "$1send");
   s = s.replace(/(^|,\s*|\b(?:and|then)\s+)(?:convert|exchange)\b/gi, "$1swap");
@@ -190,7 +190,7 @@ export function planFoundText(kind: PlanRequestKind, actions: number): string {
   return kind === "multi" ? `Here are your ${actions} actions, in order.` : PLAN_FOUND_TEXT[kind];
 }
 
-/* ── "…5 USDC each to alice.nad and bob.nad" ─────────────────────────────── */
+/* ── "…5 USDC each to alice.nad and name.nad" ─────────────────────────────── */
 
 const LIST = String.raw`(.+?)`;
 const EACH_RES = [
@@ -206,8 +206,8 @@ const FULL_RECIPIENT = new RegExp(`^${RECIPIENT}$`, "i");
 const NOT_RECIPIENTS = new Set(["it", "me", "myself", "all", "the", "each", "everyone", "them", "us", "rest"]);
 
 /**
- * "send 5 USDC each to alice.nad and bob.nad" → the written-out form the Plan
- * API's grammar accepts: "send 5 USDC to alice.nad, 5 USDC to bob.nad".
+ * "send 5 USDC each to alice.nad and name.nad" → the written-out form the Plan
+ * API's grammar accepts: "send 5 USDC to alice.nad, 5 USDC to name.nad".
  *
  * Only when the request says "each" (so the amount is plainly per recipient —
  * without it the amount could be a total or a share, and nothing is guessed),
@@ -239,7 +239,36 @@ export function expandEachRequest(text: string): string | null {
  *  or recipient. */
 export function toPlanText(text: string): string {
   const stripped = stripPoliteFraming(text);
-  return expandEachRequest(stripped) ?? reorderRecipientFirst(stripped) ?? stripped;
+  return expandEachRequest(stripped) ?? reorderRecipientFirst(stripped) ?? normalizeClauses(stripped);
+}
+
+const CLAUSE_RECIPIENT_FIRST = new RegExp(String.raw`^(?:send|pay) (0x[0-9a-f]{40}|[a-z0-9][a-z0-9-]*\.nads?) (${AMOUNT}) (${SYMBOL})$`, "i");
+const CLAUSE_BUY_WITH = new RegExp(String.raw`^buy (${SYMBOL}) (?:with|using) (${AMOUNT}) (${SYMBOL})$`, "i");
+const CLAUSE_SELL_FOR = new RegExp(String.raw`^sell (${AMOUNT}) (${SYMBOL}) (?:for|to|into) (${SYMBOL})$`, "i");
+
+/**
+ * Each action of a request rewritten, on its own, into the order the plan
+ * grammar reads, so one action phrased differently doesn't sink the rest:
+ *   "pay 0x… 2 USDC"        → "send 2 USDC to 0x…"   (recipient first; 0x or .nad only)
+ *   "buy USDC with 5 MON"   → "swap 5 MON to USDC"
+ *   "sell 5 MON for USDC"   → "swap 5 MON to USDC"
+ * The connecting words are kept as typed. Never changes an amount, token or
+ * recipient; a clause that matches none of these is left exactly as it was.
+ */
+export function normalizeClauses(text: string): string {
+  if (typeof text !== "string") return text;
+  const pieces = text.split(new RegExp(`(${CONNECTOR.source})`, "i"));
+  return pieces.map((p, i) => {
+    if (i % 2 === 1) return p;
+    const c = p.trim();
+    let m = CLAUSE_RECIPIENT_FIRST.exec(c);
+    if (m) return `send ${m[2]} ${m[3]} to ${m[1]}`;
+    m = CLAUSE_BUY_WITH.exec(c);
+    if (m) return `swap ${m[2]} ${m[3]} to ${m[1]}`;
+    m = CLAUSE_SELL_FOR.exec(c);
+    if (m) return `swap ${m[1]} ${m[2]} to ${m[3]}`;
+    return p;
+  }).join("");
 }
 
 /** A recipient that is unmistakably one: a 0x address or a .nad name. */
@@ -248,8 +277,8 @@ const RECIPIENT_FIRST_LEAD = new RegExp(String.raw`^(?:send|pay) (${STRICT_RECIP
 const RECIPIENT_FIRST_NEXT = new RegExp(String.raw`^(?:(?:send|pay) )?(${STRICT_RECIPIENT}) (${AMOUNT}) (${SYMBOL})$`, "i");
 
 /**
- * "pay alice.nad 1 MON and bob.nad 2 MON" → "send 1 MON to alice.nad, 2 MON
- * to bob.nad" — the same transfers with the recipient moved after the amount,
+ * "pay alice.nad 1 MON and name.nad 2 MON" → "send 1 MON to alice.nad, 2 MON
+ * to name.nad" — the same transfers with the recipient moved after the amount,
  * which is the order the Plan API's grammar reads. Only when there are at
  * least two transfers, every one names a 0x address or a .nad name (never a
  * bare word) followed by an amount and a token, and nothing is left over.

@@ -502,7 +502,7 @@ const TRADE_SIGNAL_RE = /\b(buy|purchase|sell)\b|\bswap\b[^.!?]*\b(this|it|that)
 const NEGATIVE_AMOUNT_RE = /(?:^|[\s(:,])[-−–]\s?\$?\d/;
 const MONEY_VERB_RE = /\b(send|pay|transfer|tip|swap|convert|exchange|buy|sell|trade)\b/i;
 
-/** A send/pay verb with a recipient named — "send $10 to bob.nad". */
+/** A send/pay verb with a recipient named — "send $10 to name.nad". */
 function looksLikeSendTo(t: string): boolean {
   return /\b(send|pay|transfer|tip)\b/i.test(t) && /\b0x[0-9a-f]{40}\b|\b[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.nads?\b/i.test(t);
 }
@@ -744,7 +744,7 @@ function detectTradeFresh(text: string, contextTokenAddress: string | null): Und
   // address is a trade of THAT token even without any other trade wording.
   if (!TRADE_SIGNAL_RE.test(text) && !(tokenInText && /\b(buy|purchase|sell)\b/i.test(t))) return null;
 
-  // "send $10 to bob.nad", "pay all my MON to 0x…": a payment to a named
+  // "send $10 to name.nad", "pay all my MON to 0x…": a payment to a named
   // recipient, not a trade — "$10" and "all my" are trade signals only when
   // nothing is being sent to anyone. Left to the send path, which asks for
   // what's missing instead of quoting a trade that drops the recipient.
@@ -1226,7 +1226,7 @@ export async function routeRequest(text: string, pending: Understanding | null, 
   // amount (the number parsers below match the digits alone). Answered here,
   // before any model, and nothing is prepared.
   if (NEGATIVE_AMOUNT_RE.test(text) && MONEY_VERB_RE.test(text)) {
-    const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "negative_amount", reply: "Amounts have to be positive — a payment can't be negative. Write the amount you want to send, like “send 1 MON to bob.nad”. Nothing was prepared." };
+    const u: Understanding = { kind: "unsupported", outcome: "unsupported", capability: "negative_amount", reply: "Amounts have to be positive — a payment can't be negative. Write the amount you want to send, like “send 1 MON to name.nad”. Nothing was prepared." };
     return { route: "actionable_operation", anthropic: false, understanding: u, fallback: u };
   }
 
@@ -1399,7 +1399,7 @@ export function reconcileRecipient(model: Understanding, deterministic: Understa
  * cadence), that timing is authoritative: the model's reading is kept for
  * amount, token and recipient, but its kind and timing can't drop or replace
  * the parsed schedule — including the dangerous case of reading "send 1 USDC
- * to bob.nad every Friday" as an immediate send. Anything the model resolved
+ * to name.nad every Friday" as an immediate send. Anything the model resolved
  * that the parser didn't still fills the gaps, and what is still missing is
  * asked for, one slot at a time. Exported for tests.
  */
