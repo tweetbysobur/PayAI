@@ -17,7 +17,7 @@
 ---
 
 PayAI lets you describe what you want done on Monad in plain English — *"send 10 USDC
-to alice.nad"*, *"swap 10 MON to USDC and send it to bob.nad"*, *"pay the team every
+to name.nad"*, *"swap 10 MON to USDC and send it to 0x…"*, *"pay the team every
 Friday"* — and turns it into a plan you can review, approve and sign with your own wallet.
 Nothing moves until you approve it, and every settled action ends with a real transaction
 hash on Monad Mainnet.
@@ -40,12 +40,12 @@ hash on Monad Mainnet.
 **Ask PayAI** — one chat box for everything:
 
 - **Payments** — send MON or USDC to a `0x` address, a `.nad` name or a saved payee; pay
-  several people at once (*"send 5 USDC each to alice.nad and bob.nad"*).
+  several people at once (*"send 5 USDC each to name.nad and 0x…"*).
 - **Trading** — swap, buy or sell any Monad token by symbol or contract address, routed
   through Uniswap v3, Kuru or Nad.Fun with a live quote, slippage protection and an
   on-chain minimum received.
 - **Plans** — several actions in one request (*"swap 10 MON to USDC and send it to
-  bob.nad"*), reviewed together and run in order on **one approval**.
+  name.nad"*), reviewed together and run in order on **one approval**.
 - **Schedules** — future-dated and recurring payments become Payment Automations.
 - **Visual intent** — attach a payment QR code (or, with an LLM key configured, an invoice
   screenshot); PayAI reads it into a request you still review and approve.
@@ -62,7 +62,7 @@ wallet over EIP-6963 / EIP-1193. Optional Google, X and email sign-in.
 ## How it works
 
 ```
-"swap 10 MON to USDC and send it to bob.nad"
+"swap 10 MON to USDC and send it to name.nad"
         │
         ▼
   Understanding     intent → structured plan (deterministic grammar first; an

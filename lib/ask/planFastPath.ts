@@ -243,17 +243,13 @@ export function toPlanText(text: string): string {
 }
 
 const CLAUSE_RECIPIENT_FIRST = new RegExp(String.raw`^(?:send|pay) (0x[0-9a-f]{40}|[a-z0-9][a-z0-9-]*\.nads?) (${AMOUNT}) (${SYMBOL})$`, "i");
-const CLAUSE_BUY_WITH = new RegExp(String.raw`^buy (${SYMBOL}) (?:with|using) (${AMOUNT}) (${SYMBOL})$`, "i");
-const CLAUSE_SELL_FOR = new RegExp(String.raw`^sell (${AMOUNT}) (${SYMBOL}) (?:for|to|into) (${SYMBOL})$`, "i");
 
 /**
- * Each action of a request rewritten, on its own, into the order the plan
- * grammar reads, so one action phrased differently doesn't sink the rest:
+ * A send written recipient-first, rewritten on its own into the order the plan
+ * grammar reads, so it doesn't sink the other actions in the same request:
  *   "pay 0x… 2 USDC"        → "send 2 USDC to 0x…"   (recipient first; 0x or .nad only)
- *   "buy USDC with 5 MON"   → "swap 5 MON to USDC"
- *   "sell 5 MON for USDC"   → "swap 5 MON to USDC"
  * The connecting words are kept as typed. Never changes an amount, token or
- * recipient; a clause that matches none of these is left exactly as it was.
+ * recipient; any other clause is left exactly as it was.
  */
 export function normalizeClauses(text: string): string {
   if (typeof text !== "string") return text;
@@ -261,12 +257,8 @@ export function normalizeClauses(text: string): string {
   return pieces.map((p, i) => {
     if (i % 2 === 1) return p;
     const c = p.trim();
-    let m = CLAUSE_RECIPIENT_FIRST.exec(c);
+    const m = CLAUSE_RECIPIENT_FIRST.exec(c);
     if (m) return `send ${m[2]} ${m[3]} to ${m[1]}`;
-    m = CLAUSE_BUY_WITH.exec(c);
-    if (m) return `swap ${m[2]} ${m[3]} to ${m[1]}`;
-    m = CLAUSE_SELL_FOR.exec(c);
-    if (m) return `swap ${m[1]} ${m[2]} to ${m[3]}`;
     return p;
   }).join("");
 }
