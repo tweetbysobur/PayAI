@@ -570,6 +570,17 @@ describe("previewTrade — validation failures never produce a fake preview", ()
     expect(r.priceImpact).toBe("25.00%");
   });
 
+  it("price impact above 5% but under the 15% limit is flagged, since that trade can still run", async () => {
+    resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
+    for (const [impact, high] of [["12.83%", true], ["5.01%", true], ["5.00%", false], ["0.30%", false]] as const) {
+      quoteUniswapDirectImpl = async () => ({ amountOut: "100", priceImpact: impact });
+      const { previewTrade } = await import("@/lib/monad/tradeQuote");
+      const r = await previewTrade({ action: "buy", inputToken: "USDC", outputToken: TOKEN, amount: "50", amountType: "exact_input" });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.highPriceImpact, impact).toBe(high);
+    }
+  });
+
   it("the same asset on both sides is rejected outright", async () => {
     resolveTokenImpl = async () => ({ address: TOKEN, symbol: "RANDO", name: "Random Token", decimals: 18, verified: false });
     const { previewTrade } = await import("@/lib/monad/tradeQuote");

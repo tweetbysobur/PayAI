@@ -317,9 +317,9 @@ export interface TradePreviewData {
   rate: string;
   minimumReceived: string;
   priceImpact: string | null;
-  /** True when priceImpact exceeds swap.ts's existing MAX_PRICE_IMPACT —
-   *  still shown (this step never blocks on it, only the real execution
-   *  path in Step 4 will), just flagged clearly rather than buried. */
+  /** True when priceImpact exceeds tradeQuote.ts's PRICE_IMPACT_WARN (5%) —
+   *  still shown (this step never blocks on it; execution refuses above
+   *  swap.ts's MAX_PRICE_IMPACT), just flagged clearly rather than buried. */
   highPriceImpact: boolean;
   route: TradeRoute;
   slippage: string;

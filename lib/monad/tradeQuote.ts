@@ -43,7 +43,7 @@ import type { Address } from "viem";
 import { getNetwork } from "./config";
 import { resolveToken } from "./tokenRegistry";
 import {
-  bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_PRICE_IMPACT, MAX_SLIPPAGE,
+  bestQuote, buildUniswapPlanDirect, DEFAULT_SLIPPAGE, getSwapProvider, MAX_SLIPPAGE,
   quoteUniswapDirect, resolveSwapSide, type UnsignedStep,
 } from "./swap";
 import { buildNadFunBuyPlan, buildNadFunSellPlan, getNadFunStatus, nadFunQuote } from "./nadfun";
@@ -54,6 +54,13 @@ import { GAS_RESERVE_MON, getTokenBalance } from "./balance";
 import { getUsdPrice } from "./prices";
 import { toParseableAmount } from "./verify";
 import { bpsPercent, feeOnTop, fromUnits, maxNetFor, toUnits } from "@/lib/payment/feeOnTop";
+
+/** Above this, a quote is flagged as high price impact so the person sees it
+ *  before signing. Execution still refuses anything above swap.ts's
+ *  MAX_PRICE_IMPACT (15%); between the two the trade can run, so it must be
+ *  flagged. (Flagging only above 15% meant the warning could never show on a
+ *  trade that was allowed to run.) */
+export const PRICE_IMPACT_WARN = 0.05;
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -536,7 +543,7 @@ export async function previewTrade(req: TradePreviewRequest): Promise<TradePrevi
     rate: `1 ${inputSide.symbol} ≈ ${fmt(rate)} ${outputSide.symbol}`,
     minimumReceived: `${fmt(minReceived)} ${outputSide.symbol}`,
     priceImpact: route.priceImpact,
-    highPriceImpact: impactFraction != null && impactFraction > MAX_PRICE_IMPACT,
+    highPriceImpact: impactFraction != null && impactFraction > PRICE_IMPACT_WARN,
     route: { provider: route.provider, path: multiHop ? [inputSide.symbol, "MON", outputSide.symbol] : [inputSide.symbol, outputSide.symbol] },
     slippage: `${(slippageResult.slippage * 100).toFixed(2)}%`,
     network: "Monad",
